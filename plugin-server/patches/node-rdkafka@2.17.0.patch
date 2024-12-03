@@ -16,7 +16,7 @@ index 0000000000000000000000000000000000000000..328fc546fcb400745783b3562f1cb1cb
 +-
 +-jobs:
 +-  publish-npm:
-+-    runs-on: ubuntu-24.04
++-    runs-on: ubuntu-latest
 +-    steps:
 +-      - uses: actions/checkout@v3
 +-        with:
@@ -113,10 +113,10 @@ index a8289ec319239fb05b1f321bff78a7c9e267f1cf..85ca5ef64264a903a30d5d4bac31f6b1
 --- a/e2e/both.spec.js
 +++ b/e2e/both.spec.js
 @@ -163,7 +163,7 @@ describe('Consumer/Producer', function() {
-
+ 
      });
    });
--
+-  
 +
    it('should return ready messages on partition EOF', function(done) {
      crypto.randomBytes(4096, function(ex, buffer) {
@@ -126,22 +126,22 @@ index a167483f1e0ea15c4edcb368e36640b4349574e8..38fcfd7464afb7df682b7b5f1fdb228b
 --- a/e2e/consumer.spec.js
 +++ b/e2e/consumer.spec.js
 @@ -11,10 +11,12 @@ var crypto = require('crypto');
-
+ 
  var eventListener = require('./listener');
-
+ 
 +var cooperativeRebalanceCallback = require('../lib/kafka-consumer').cooperativeRebalanceCallback;
  var KafkaConsumer = require('../').KafkaConsumer;
 +var AdminClient = require('../').AdminClient;
 +var LibrdKafkaError = require('../lib/error');
-
+ 
  var kafkaBrokerList = process.env.KAFKA_HOST || 'localhost:9092';
 -var topic = 'test';
-
+ 
  describe('Consumer', function() {
    var gcfg;
 @@ -31,6 +33,7 @@ describe('Consumer', function() {
    });
-
+ 
    describe('commit', function() {
 +    var topic = 'test';
      var consumer;
@@ -149,7 +149,7 @@ index a167483f1e0ea15c4edcb368e36640b4349574e8..38fcfd7464afb7df682b7b5f1fdb228b
        consumer = new KafkaConsumer(gcfg, {});
 @@ -61,6 +64,7 @@ describe('Consumer', function() {
    });
-
+ 
    describe('committed and position', function() {
 +    var topic = 'test';
      var consumer;
@@ -157,7 +157,7 @@ index a167483f1e0ea15c4edcb368e36640b4349574e8..38fcfd7464afb7df682b7b5f1fdb228b
        consumer = new KafkaConsumer(gcfg, {});
 @@ -95,6 +99,7 @@ describe('Consumer', function() {
      });
-
+ 
      it('after assign, should get committed array without offsets ', function(done) {
 +      var topic = 'test';
        consumer.assign([{topic:topic, partition:0}]);
@@ -165,7 +165,7 @@ index a167483f1e0ea15c4edcb368e36640b4349574e8..38fcfd7464afb7df682b7b5f1fdb228b
        setTimeout(function() {
 @@ -110,6 +115,7 @@ describe('Consumer', function() {
      });
-
+ 
      it('after assign and commit, should get committed offsets', function(done) {
 +      var topic = 'test';
        consumer.assign([{topic:topic, partition:0}]);
@@ -173,7 +173,7 @@ index a167483f1e0ea15c4edcb368e36640b4349574e8..38fcfd7464afb7df682b7b5f1fdb228b
        consumer.committed(null, 1000, function(err, committed) {
 @@ -123,6 +129,7 @@ describe('Consumer', function() {
      });
-
+ 
      it('after assign, before consume, position should return an array without offsets', function(done) {
 +      var topic = 'test';
        consumer.assign([{topic:topic, partition:0}]);
@@ -181,24 +181,24 @@ index a167483f1e0ea15c4edcb368e36640b4349574e8..38fcfd7464afb7df682b7b5f1fdb228b
        t.equal(Array.isArray(position), true, 'Position should be an array');
 @@ -147,6 +154,7 @@ describe('Consumer', function() {
    });
-
+ 
    describe('seek and positioning', function() {
 +    var topic = 'test';
      var consumer;
      beforeEach(function(done) {
        consumer = new KafkaConsumer(gcfg, {});
 @@ -195,6 +203,7 @@ describe('Consumer', function() {
-
+ 
    describe('subscribe', function() {
-
+ 
 +    var topic = 'test';
      var consumer;
      beforeEach(function(done) {
        consumer = new KafkaConsumer(gcfg, {});
 @@ -232,6 +241,7 @@ describe('Consumer', function() {
-
+ 
    describe('assign', function() {
-
+ 
 +    var topic = 'test';
      var consumer;
      beforeEach(function(done) {
@@ -206,7 +206,7 @@ index a167483f1e0ea15c4edcb368e36640b4349574e8..38fcfd7464afb7df682b7b5f1fdb228b
 @@ -266,7 +276,346 @@ describe('Consumer', function() {
      });
    });
-
+ 
 +  describe('assignmentLost', function() {
 +    function pollForTopic(client, topicName, maxTries, tryDelay, cb, customCondition) {
 +      var tries = 0;
@@ -548,7 +548,7 @@ index a167483f1e0ea15c4edcb368e36640b4349574e8..38fcfd7464afb7df682b7b5f1fdb228b
 +
 +    var topic = 'test';
      var tcfg = { 'auto.offset.reset': 'earliest' };
-
+ 
      it('should happen gracefully', function(cb) {
 diff --git a/index.d.ts b/index.d.ts
 index d7ce7e61e985ce46ceae2c10329d6448cc487dca..2c7b9a3d40b0547209c2cffe1f4e62d9573ab617 100644
@@ -557,7 +557,7 @@ index d7ce7e61e985ce46ceae2c10329d6448cc487dca..2c7b9a3d40b0547209c2cffe1f4e62d9
 @@ -223,6 +223,12 @@ export class KafkaConsumer extends Client<KafkaConsumerEvents> {
      consume(cb: (err: LibrdKafkaError, messages: Message[]) => void): void;
      consume(): void;
-
+ 
 +    incrementalAssign(assigments: Assignment[]): this;
 +
 +    incrementalUnassign(assignments: Assignment[]): this;
@@ -565,7 +565,7 @@ index d7ce7e61e985ce46ceae2c10329d6448cc487dca..2c7b9a3d40b0547209c2cffe1f4e62d9
 +    assignmentLost(): boolean;
 +
      getWatermarkOffsets(topic: string, partition: number): WatermarkOffsets;
-
+ 
      offsetsStore(topicPartitions: TopicPartitionOffset[]): any;
 diff --git a/lib/index.js b/lib/index.js
 index e2e8a9c899700e56b3ddeff84e67ad97206ccabf..ba6d678275101170aedc694fedc489f479b5d05e 100644
@@ -574,7 +574,7 @@ index e2e8a9c899700e56b3ddeff84e67ad97206ccabf..ba6d678275101170aedc694fedc489f4
 @@ -7,7 +7,7 @@
   * of the MIT license.  See the LICENSE.txt file for details.
   */
-
+ 
 -var KafkaConsumer = require('./kafka-consumer');
 +var KafkaConsumer = require('./kafka-consumer').KafkaConsumer;
  var Producer = require('./producer');
@@ -587,7 +587,7 @@ index c479240f3bab17c68e38623b89ef67546ba59122..97e8458ab28757d013172de31e238ee2
 @@ -8,8 +8,6 @@
   */
  'use strict';
-
+ 
 -module.exports = KafkaConsumer;
 -
  var Client = require('./client');
@@ -596,7 +596,7 @@ index c479240f3bab17c68e38623b89ef67546ba59122..97e8458ab28757d013172de31e238ee2
 @@ -21,6 +19,48 @@ var DEFAULT_CONSUME_LOOP_TIMEOUT_DELAY = 500;
  var DEFAULT_CONSUME_TIME_OUT = 1000;
  util.inherits(KafkaConsumer, Client);
-
+ 
 +var eagerRebalanceCallback = function(err, assignment) {
 +  // Create the librdkafka error
 +  err = LibrdKafkaError.create(err);
@@ -643,7 +643,7 @@ index c479240f3bab17c68e38623b89ef67546ba59122..97e8458ab28757d013172de31e238ee2
   * KafkaConsumer class for reading messages from Kafka
   *
 @@ -52,26 +92,10 @@ function KafkaConsumer(conf, topicConf) {
-
+ 
    // If rebalance is undefined we don't want any part of this
    if (onRebalance && typeof onRebalance === 'boolean') {
 -    conf.rebalance_cb = function(err, assignment) {
@@ -676,14 +676,14 @@ index c479240f3bab17c68e38623b89ef67546ba59122..97e8458ab28757d013172de31e238ee2
 @@ -79,13 +103,13 @@ function KafkaConsumer(conf, topicConf) {
       * a way to override them.
       */
-
+ 
 -     conf.rebalance_cb = function(err, assignment) {
 -       // Create the librdkafka error
 -       err = err ? LibrdKafkaError.create(err) : undefined;
 +    conf.rebalance_cb = function(err, assignment) {
 +      // Create the librdkafka error
 +      err = err ? LibrdKafkaError.create(err) : undefined;
-
+ 
 -       self.emit('rebalance', err, assignment);
 -       onRebalance.call(self, err, assignment);
 -     };
@@ -691,12 +691,12 @@ index c479240f3bab17c68e38623b89ef67546ba59122..97e8458ab28757d013172de31e238ee2
 +      onRebalance.call(self, err, assignment);
 +    };
    }
-
+ 
    // Same treatment for offset_commit_cb
 @@ -264,6 +288,19 @@ KafkaConsumer.prototype.assign = function(assignments) {
    return this;
  };
-
+ 
 +/**
 + * Incremental assign the consumer specific partitions and topics
 + *
@@ -716,7 +716,7 @@ index c479240f3bab17c68e38623b89ef67546ba59122..97e8458ab28757d013172de31e238ee2
 @@ -275,6 +312,34 @@ KafkaConsumer.prototype.unassign = function() {
    return this;
  };
-
+ 
 +/**
 + * Incremental unassign the consumer from specific partitions and topics
 + *
@@ -745,11 +745,11 @@ index c479240f3bab17c68e38623b89ef67546ba59122..97e8458ab28757d013172de31e238ee2
 +KafkaConsumer.prototype.assignmentLost = function() {
 +  return this._client.assignmentLost();
 +};
-
+ 
  /**
   * Get the assignments for the consumer
 @@ -654,3 +719,9 @@ KafkaConsumer.prototype.pause = function(topicPartitions) {
-
+ 
    return this._errorWrap(this._client.pause(topicPartitions), true);
  };
 +
@@ -768,7 +768,7 @@ index a6aadbd64609e5d5ae1a80205aac7ce3a49d9345..f817aa976c83b74670c7464099679eb3
    "test6"
 +  "test7"
  )
-
+ 
  # Run docker-compose exec to make them
  for topic in "${topics[@]}"
  do
@@ -787,7 +787,7 @@ index 019b0cb6478756120efe9a5f6f1bb4182b4af4ea..3895407788ae31ae38d7707eb63528eb
 @@ -179,6 +179,32 @@ Baton KafkaConsumer::Assign(std::vector<RdKafka::TopicPartition*> partitions) {
    return Baton(errcode);
  }
-
+ 
 +Baton KafkaConsumer::IncrementalAssign(
 +  std::vector<RdKafka::TopicPartition *> partitions) {
 +  if (!IsConnected()) {
@@ -818,16 +818,16 @@ index 019b0cb6478756120efe9a5f6f1bb4182b4af4ea..3895407788ae31ae38d7707eb63528eb
    if (!IsClosing() && !IsConnected()) {
      return Baton(RdKafka::ERR__STATE);
 @@ -195,12 +221,46 @@ Baton KafkaConsumer::Unassign() {
-
+ 
    // Destroy the old list of partitions since we are no longer using it
    RdKafka::TopicPartition::destroy(m_partitions);
 +  m_partitions.clear();
-
+ 
    m_partition_cnt = 0;
-
+ 
    return Baton(RdKafka::ERR_NO_ERROR);
  }
-
+ 
 +Baton KafkaConsumer::IncrementalUnassign(
 +  std::vector<RdKafka::TopicPartition*> partitions) {
 +  if (!IsClosing() && !IsConnected()) {
@@ -867,7 +867,7 @@ index 019b0cb6478756120efe9a5f6f1bb4182b4af4ea..3895407788ae31ae38d7707eb63528eb
 @@ -469,6 +529,12 @@ Baton KafkaConsumer::RefreshAssignments() {
    }
  }
-
+ 
 +bool KafkaConsumer::AssignmentLost() {
 +  RdKafka::KafkaConsumer* consumer =
 +    dynamic_cast<RdKafka::KafkaConsumer*>(m_client);
@@ -886,13 +886,13 @@ index 019b0cb6478756120efe9a5f6f1bb4182b4af4ea..3895407788ae31ae38d7707eb63528eb
 +  Nan::SetPrototypeMethod(tpl, "incrementalUnassign", NodeIncrementalUnassign);
    Nan::SetPrototypeMethod(tpl, "assignments", NodeAssignments);
 +  Nan::SetPrototypeMethod(tpl, "assignmentLost", NodeAssignmentLost);
-
+ 
    Nan::SetPrototypeMethod(tpl, "commit", NodeCommit);
    Nan::SetPrototypeMethod(tpl, "commitSync", NodeCommitSync);
 @@ -759,6 +828,64 @@ NAN_METHOD(KafkaConsumer::NodeAssign) {
    info.GetReturnValue().Set(Nan::True());
  }
-
+ 
 +NAN_METHOD(KafkaConsumer::NodeIncrementalAssign) {
 +  Nan::HandleScope scope;
 +
@@ -953,11 +953,11 @@ index 019b0cb6478756120efe9a5f6f1bb4182b4af4ea..3895407788ae31ae38d7707eb63528eb
 +
  NAN_METHOD(KafkaConsumer::NodeUnassign) {
    Nan::HandleScope scope;
-
+ 
 @@ -779,6 +906,71 @@ NAN_METHOD(KafkaConsumer::NodeUnassign) {
    info.GetReturnValue().Set(Nan::True());
  }
-
+ 
 +NAN_METHOD(KafkaConsumer::NodeIncrementalUnassign) {
 +  Nan::HandleScope scope;
 +
@@ -1025,22 +1025,22 @@ index 019b0cb6478756120efe9a5f6f1bb4182b4af4ea..3895407788ae31ae38d7707eb63528eb
 +
  NAN_METHOD(KafkaConsumer::NodeUnsubscribe) {
    Nan::HandleScope scope;
-
+ 
 diff --git a/src/kafka-consumer.h b/src/kafka-consumer.h
 index c91590ecc5d47c1d7a2a93c3e46b4b4657525df0..43e016db4ec47121051cb282f718a2b3156aacd4 100644
 --- a/src/kafka-consumer.h
 +++ b/src/kafka-consumer.h
 @@ -72,7 +72,10 @@ class KafkaConsumer : public Connection {
    int AssignedPartitionCount();
-
+ 
    Baton Assign(std::vector<RdKafka::TopicPartition*>);
 +  Baton IncrementalAssign(std::vector<RdKafka::TopicPartition*>);
    Baton Unassign();
 +  Baton IncrementalUnassign(std::vector<RdKafka::TopicPartition*>);
 +  bool AssignmentLost();
-
+ 
    Baton Seek(const RdKafka::TopicPartition &partition, int timeout_ms);
-
+ 
 @@ -105,7 +108,10 @@ class KafkaConsumer : public Connection {
    static NAN_METHOD(NodeSubscribe);
    static NAN_METHOD(NodeDisconnect);
@@ -1072,12 +1072,12 @@ index 0f4de520ed6b8a06dfe355e0bb9091273def98a5..ada72a7e621ea5433f194ab3d22eef32
 @@ -7,7 +7,8 @@
   * of the MIT license.  See the LICENSE.txt file for details.
   */
-
+ 
 -var KafkaConsumer = require('../lib/kafka-consumer');
 +var KafkaConsumer = require('../lib/kafka-consumer').KafkaConsumer;
 +
  var t = require('assert');
-
+ 
  var client;
 diff --git a/deps/librdkafka/src/rdkafka_partition.h b/deps/librdkafka/src/rdkafka_partition.h
 index f9dd686423..aef704b95f 100644
@@ -1086,7 +1086,7 @@ index f9dd686423..aef704b95f 100644
 @@ -68,24 +68,35 @@ struct rd_kafka_toppar_err {
                                    *   last msg sequence */
  };
-
+ 
 -
 +/**
 + * @brief Fetchpos comparator, only offset is compared.
@@ -1101,7 +1101,7 @@ index f9dd686423..aef704b95f 100644
 +        else
 +                return 0;
 +}
-
+ 
  /**
   * @brief Fetchpos comparator, leader epoch has precedence.
 + *        iff both values are not null.
@@ -1123,3 +1123,5 @@ index f9dd686423..aef704b95f 100644
 -                return 0;
 +                return rd_kafka_fetch_pos_cmp_offset(a, b);
  }
+ 
+ 
