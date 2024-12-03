@@ -934,6 +934,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'What the call to feature flag responded with.',
             examples: ['true', 'false'],
         },
+        $feature_flag_payload: {
+            label: 'Feature Flag Response Payload',
+            description: 'The JSON payload that the call to feature flag responded with (if any)',
+            examples: ['{"variant": "test"}'],
+        },
         $feature_flag: {
             label: 'Feature Flag',
             description: (
