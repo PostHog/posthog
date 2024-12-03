@@ -11485,7 +11485,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/AnyFilterLike"
                     },
                     "type": "array"
                 },
