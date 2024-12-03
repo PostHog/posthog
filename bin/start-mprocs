@@ -1,0 +1,8 @@
+#!/bin/bash
+
+export DEBUG=${DEBUG:-1}
+export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
+export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
+export HOG_HOOK_URL=${HOG_HOOK_URL:-http://localhost:3300/hoghook}
+
+exec mprocs --config bin/mprocs.yaml

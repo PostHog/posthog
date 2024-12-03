@@ -1,0 +1,18 @@
+procs:
+    celery-worker:
+        shell: 'source ./bin/celery-queues.env && python manage.py run_autoreload_celery --type=worker'
+
+    celery-beat:
+        shell: 'source ./bin/celery-queues.env && python manage.py run_autoreload_celery --type=beat'
+
+    plugin-server:
+        shell: './bin/plugin-server'
+
+    backend:
+        shell: 'python3 manage.py runserver'
+
+    frontend:
+        shell: 'export DEBUG=0 && pnpm install && pnpm start'
+
+    temporal-worker:
+        shell: 'python3 manage.py start_temporal_worker'
