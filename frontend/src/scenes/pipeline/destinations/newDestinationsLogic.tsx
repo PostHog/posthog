@@ -20,6 +20,7 @@ import { humanizeBatchExportName } from '../batch-exports/utils'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { PipelineBackend } from '../types'
 import { RenderBatchExportIcon } from '../utils'
+import { getDestinationTypes } from './constants'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import type { newDestinationsLogicType } from './newDestinationsLogicType'
 
@@ -43,12 +44,13 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
     actions({
         openFeedbackDialog: true,
     }),
-    loaders({
+    loaders(({ values }) => ({
         hogFunctionTemplates: [
             {} as Record<string, HogFunctionTemplateType>,
             {
                 loadHogFunctionTemplates: async () => {
-                    const templates = await api.hogFunctions.listTemplates()
+                    const destinationTypes = getDestinationTypes(!!values.featureFlags[FEATURE_FLAGS.SITE_DESTINATIONS])
+                    const templates = await api.hogFunctions.listTemplates(destinationTypes)
                     return templates.results.reduce((acc, template) => {
                         acc[template.id] = template
                         return acc
@@ -56,7 +58,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                 },
             },
         ],
-    }),
+    })),
 
     selectors(() => ({
         loading: [(s) => [s.hogFunctionTemplatesLoading], (hogFunctionTemplatesLoading) => hogFunctionTemplatesLoading],

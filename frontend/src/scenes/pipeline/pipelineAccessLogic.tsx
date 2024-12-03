@@ -29,7 +29,8 @@ export const pipelineAccessLogic = kea<pipelineAccessLogicType>([
                 return (destination: Destination | NewDestinationItemType) => {
                     return destination.backend === PipelineBackend.HogFunction
                         ? ('hog_function' in destination
-                              ? destination.hog_function.template?.status === 'free'
+                              ? destination.hog_function.type === 'site_destination' ||
+                                destination.hog_function.template?.status === 'free'
                               : destination.status === 'free') || canEnableNewDestinations
                         : canEnableNewDestinations
                 }

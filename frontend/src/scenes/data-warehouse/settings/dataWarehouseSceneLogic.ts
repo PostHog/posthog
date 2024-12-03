@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import {
     DatabaseSchemaMaterializedViewTable,
     DatabaseSchemaTable,
+    DatabaseSchemaViewTable,
     DatabaseSerializedFieldType,
     HogQLQuery,
     NodeKind,
@@ -55,7 +56,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         deleteDataWarehouseTable: (tableId: string) => ({ tableId }),
         toggleSchemaModal: true,
         setEditingView: (id: string | null) => ({ id }),
-        updateView: (query: string) => ({ query }),
+        updateView: (query: string, types: string[][]) => ({ query, types }),
     })),
     reducers({
         selectedRow: [
@@ -278,16 +279,17 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 })
             }
         },
-        updateView: ({ query }) => {
+        updateView: ({ query, types }) => {
             if (values.editingView) {
                 const newViewQuery: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: query,
                 }
                 const oldView = values.viewsMapById[values.editingView]
-                const newView = {
+                const newView: DatabaseSchemaViewTable & { types: string[][] } = {
                     ...oldView,
                     query: newViewQuery,
+                    types,
                 }
                 actions.updateDataWarehouseSavedQuery(newView)
             }

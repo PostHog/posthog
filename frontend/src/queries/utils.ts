@@ -40,7 +40,6 @@ import {
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTopClicksQuery,
 } from '~/queries/schema'
 import { ChartDisplayType, IntervalType } from '~/types'
 
@@ -131,10 +130,6 @@ export function isWebStatsTableQuery(node?: Record<string, any> | null): node is
 
 export function isWebExternalClicksQuery(node?: Record<string, any> | null): boolean {
     return node?.kind === NodeKind.WebExternalClicksTableQuery
-}
-
-export function isWebTopClicksQuery(node?: Record<string, any> | null): node is WebTopClicksQuery {
-    return node?.kind === NodeKind.WebTopClicksQuery
 }
 
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
