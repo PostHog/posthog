@@ -2,6 +2,7 @@ import time
 from typing import Any, Optional
 
 from django.conf import settings
+from posthog.models.team.team import Team
 import structlog
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
@@ -117,8 +118,10 @@ def calculate_cohort_from_list(cohort_id: int, items: list[str], team_id: Option
     """
     start_time = time.time()
     cohort = Cohort.objects.get(pk=cohort_id)
+    if team_id is None:
+        team_id = cohort.team_id
 
-    cohort.insert_users_by_list(items, team_id=team_id or cohort.team_id)
+    cohort.insert_users_by_list(items, team_id=team_id)
     logger.warn("Calculating cohort {} from CSV took {:.2f} seconds".format(cohort.pk, (time.time() - start_time)))
 
 
@@ -133,9 +136,11 @@ def insert_cohort_from_insight_filter(
     from posthog.api.cohort import insert_cohort_actors_into_ch, insert_cohort_people_into_pg
 
     cohort = Cohort.objects.get(pk=cohort_id)
+    if team_id is None:
+        team_id = cohort.team_id
 
-    insert_cohort_actors_into_ch(cohort, filter_data, team_id=team_id or cohort.team_id)
-    insert_cohort_people_into_pg(cohort, team_id=team_id or cohort.team_id)
+    insert_cohort_actors_into_ch(cohort, filter_data, team_id=team_id)
+    insert_cohort_people_into_pg(cohort, team_id=team_id)
 
 
 @shared_task(ignore_result=True, max_retries=1)
@@ -147,9 +152,12 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
     from posthog.api.cohort import insert_cohort_people_into_pg, insert_cohort_query_actors_into_ch
 
     cohort = Cohort.objects.get(pk=cohort_id)
+    if team_id is None:
+        team_id = cohort.team_id
+    team = Team.objects.get(pk=team_id)
     try:
-        insert_cohort_query_actors_into_ch(cohort, team_id=team_id or cohort.team_id)
-        insert_cohort_people_into_pg(cohort, team_id=team_id or cohort.team_id)
+        insert_cohort_query_actors_into_ch(cohort, team=team)
+        insert_cohort_people_into_pg(cohort, team_id=team_id)
         cohort.count = get_static_cohort_size(cohort, team_id=team_id)
         cohort.errors_calculating = 0
         cohort.last_calculation = timezone.now()

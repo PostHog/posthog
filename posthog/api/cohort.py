@@ -526,13 +526,13 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
         f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} where team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
         {"cohort_id": cohort.pk, "team_id": team_id},
     )
-    cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids])
+    cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids], team_id=team_id)
 
 
-def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team_id: int):
-    context = HogQLContext(enable_select_queries=True, team_id=team_id)
-    query = print_cohort_hogql_query(cohort, context)
-    insert_actors_into_cohort_by_query(cohort, query, {}, context)
+def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
+    context = HogQLContext(enable_select_queries=True, team=team)
+    query = print_cohort_hogql_query(cohort, context, team=team)
+    insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
 
 
 def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict, *, team_id: int):
@@ -595,7 +595,7 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict, *, team_id: 
         else:
             query, params = query_builder.actor_query(limit_actors=False)
 
-    insert_actors_into_cohort_by_query(cohort, query, params, context)
+    insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team_id)
 
 
 def insert_actors_into_cohort_by_query(
@@ -722,7 +722,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
 
                     if len(uuids_to_add_to_cohort) >= batchsize:
                         cohort.insert_users_list_by_uuid(
-                            uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize
+                            uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize, team_id=team_id
                         )
                         uuids_to_add_to_cohort = []
 
@@ -730,7 +730,9 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
             batch_of_persons = queryset[start : start + batchsize]
 
         if len(uuids_to_add_to_cohort) > 0:
-            cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize)
+            cohort.insert_users_list_by_uuid(
+                uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize, team_id=team_id
+            )
 
     except Exception as err:
         if settings.DEBUG or settings.TEST:

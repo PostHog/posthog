@@ -247,17 +247,13 @@ def format_filter_query(
     hogql_context: HogQLContext,
     id_column: str = "distinct_id",
     custom_match_field="person_id",
-    *,
-    team: Team,
 ) -> tuple[str, dict[str, Any]]:
-    person_query, params = format_cohort_subquery(
-        cohort, index, hogql_context, custom_match_field=custom_match_field, team=team
-    )
+    person_query, params = format_cohort_subquery(cohort, index, hogql_context, custom_match_field=custom_match_field)
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query,
         id_column=id_column,
-        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.id),
+        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
     )
     return person_id_query, params
 
@@ -314,7 +310,7 @@ def recalculate_cohortpeople(
         count_for_team = _recalculate_cohortpeople_for_team(
             cohort, pending_version, team, initiating_user_id=initiating_user_id
         )
-        counts.append(count_for_team)
+        counts.append(cast(int, count_for_team))
     return counts[0]
 
 
@@ -322,7 +318,7 @@ def _recalculate_cohortpeople_for_team(
     cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
 ) -> Optional[int]:
     hogql_context = HogQLContext(within_non_hogql_query=True, team=team)
-    cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context, team=team)
+    cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context)
 
     before_count = get_cohort_size(cohort, team_id=team.id)
 

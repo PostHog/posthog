@@ -289,7 +289,7 @@ class Cohort(models.Model):
                 insert_static_cohort(
                     list(persons_query.values_list("uuid", flat=True)),
                     self.pk,
-                    team_id,
+                    team_id=team_id,
                 )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
@@ -343,7 +343,7 @@ class Cohort(models.Model):
                     insert_static_cohort(
                         list(persons_query.values_list("uuid", flat=True)),
                         self.pk,
-                        team_id,
+                        team_id=team_id,
                     )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
