@@ -335,7 +335,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     date_to?: string | null
     events?: FilterType['events']
     actions?: FilterType['actions']
-    properties?: AnyFilterLike[]
+    properties?: AnyPropertyFilter[]
     console_log_filters?: LogEntryPropertyFilter[]
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
     filter_test_accounts?: boolean

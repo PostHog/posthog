@@ -14,7 +14,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Team, Property, Entity, Action
+from posthog.models import Team, Entity, Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     QueryTiming,
@@ -29,6 +29,10 @@ from posthog.schema import (
     FilterLogicalOperator,
     RecordingOrder,
     PropertyGroupFilter,
+    PersonPropertyFilter,
+    EventPropertyFilter,
+    GroupPropertyFilter,
+    HogQLPropertyFilter,
 )
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 
@@ -39,24 +43,24 @@ from posthog.types import AnyPropertyFilter
 logger = structlog.get_logger(__name__)
 
 
-def is_event_property(p: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter) -> bool:
+def is_event_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
     return p_type == "event" or (p_type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p_key)))
 
 
-def is_person_property(p: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter) -> bool:
+def is_person_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
     return p_type == "person" or (p_type == "hogql" and "person.properties" in p_key)
 
 
-def is_group_property(p: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter) -> bool:
+def is_group_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     return p_type == "group"
 
 
-def is_cohort_property(p: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter) -> bool:
+def is_cohort_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     return bool(p_type and "cohort" in p_type)
 
@@ -76,8 +80,8 @@ class UnexpectedQueryProperties(Exception):
 
 
 def _strip_person_and_event_and_cohort_properties(
-    properties: list[AnyPropertyFilter | PropertyGroupFilterValue | PropertyGroupFilter] | None,
-) -> list[AnyPropertyFilter | PropertyGroupFilterValue | PropertyGroupFilter] | None:
+    properties: list[AnyPropertyFilter] | None,
+) -> list[AnyPropertyFilter] | None:
     if not properties:
         return None
 
@@ -170,7 +174,7 @@ class SessionRecordingListFromQuery:
         self._query = query
         if self._query.filter_test_accounts:
             self._query.properties = self._query.properties or []
-            self._query.properties.append(self._test_account_filters)
+            self._query.properties += self._test_account_filters
 
         self._paginator = HogQLHasMorePaginator(
             limit=query.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=query.offset or 0
@@ -178,10 +182,20 @@ class SessionRecordingListFromQuery:
         self._hogql_query_modifiers = hogql_query_modifiers
 
     @cached_property
-    def _test_account_filters(self) -> PropertyGroupFilterValue:
-        return PropertyGroupFilterValue(
-            type=FilterLogicalOperator.AND_, values=[Property(**p) for p in self._team.test_account_filters]
-        )
+    def _test_account_filters(self) -> list[AnyPropertyFilter]:
+        prop_filters: list[AnyPropertyFilter] = []
+        for prop in self._team.test_account_filters:
+            match prop["type"]:
+                case "person":
+                    prop_filters.append(PersonPropertyFilter(**prop))
+                case "event":
+                    prop_filters.append(EventPropertyFilter(**prop))
+                case "group":
+                    prop_filters.append(GroupPropertyFilter(**prop))
+                case "hogql":
+                    prop_filters.append(HogQLPropertyFilter(**prop))
+
+        return prop_filters
 
     @property
     def ttl_days(self):
