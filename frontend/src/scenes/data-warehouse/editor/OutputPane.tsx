@@ -8,24 +8,20 @@ import { router } from 'kea-router'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 import DataGrid from 'react-data-grid'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
-import { urls } from 'scenes/urls'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DateRange } from '~/queries/nodes/DataNode/DateRange'
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
-import { AddVariableButton } from '~/queries/nodes/DataVisualization/Components/Variables/AddVariableButton'
 import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
 import { VariablesForInsight } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
@@ -35,7 +31,7 @@ import {
     DataVisualizationLogicProps,
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
-import { DataVisualizationNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema'
+import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema'
 import { ChartDisplayType, ExporterFormat, ItemMode } from '~/types'
 
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../external/dataWarehouseExternalSceneLogic'
@@ -279,7 +275,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         visualizationType,
         showEditingUI,
         showResultControls,
-        sourceFeatures,
         response,
         responseLoading,
         responseError,
@@ -288,11 +283,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     } = useValues(dataVisualizationLogic)
 
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
-
-    const setQuerySource = useCallback(
-        (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
-        [props.setQuery]
-    )
 
     let component: JSX.Element | null = null
 
@@ -362,21 +352,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             <div className="flex gap-4 items-center" />
                             <div className="flex gap-4 items-center">
                                 <div className="flex gap-4 items-center flex-wrap">
-                                    <AddVariableButton />
-
-                                    {sourceFeatures.has(QueryFeature.dateRangePicker) &&
-                                        !router.values.location.pathname.includes(urls.dataWarehouse()) && ( // decouple this component from insights tab and datawarehouse scene
-                                            <DateRange
-                                                key="date-range"
-                                                query={query.source}
-                                                setQuery={(query) => {
-                                                    if (query.kind === NodeKind.HogQLQuery) {
-                                                        setQuerySource(query)
-                                                    }
-                                                }}
-                                            />
-                                        )}
-
                                     <TableDisplay />
 
                                     <LemonButton
