@@ -216,7 +216,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.FeatureManagement]: {
         projectBased: true,
-        name: 'Feature management',
+        name: 'Features',
         defaultDocsPath: '/docs/feature-flags',
     },
     [Scene.Surveys]: {
@@ -576,6 +576,7 @@ export const routes: Record<string, Scene> = {
     [urls.sqlEditor()]: Scene.SQLEditor,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
+    [urls.featureManagement()]: Scene.FeatureManagement,
     [urls.featureManagement(':id')]: Scene.FeatureManagement,
     [urls.annotations()]: Scene.DataManagement,
     [urls.annotation(':id')]: Scene.DataManagement,

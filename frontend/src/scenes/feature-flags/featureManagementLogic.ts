@@ -1,67 +1,119 @@
-import { actions, kea, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, urlToAction } from 'kea-router'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, Feature } from '~/types'
 
 import type { featureManagementLogicType } from './featureManagementLogicType'
-import {
-    FEATURE_MANAGEMENT_SCENE_IDS,
-    FEATURE_MANAGEMENT_SCENES,
-    FEATURE_MANAGEMENT_SCENES_MAP,
-    FeatureManagementScene,
-    FeatureManagementSceneId,
-} from './FeatureManagementScenes'
+
+export interface FeatureManagementLogicProps {
+    id?: Feature['id']
+}
+export interface FeaturesResult {
+    results: Feature[]
+    count: number
+    next?: string | null
+    previous?: string | null
+}
 
 export const featureManagementLogic = kea<featureManagementLogicType>([
-    props({}),
-    path(['scenes', 'feature-management', 'featureManagementLogic']),
+    props({} as FeatureManagementLogicProps),
+    path(['scenes', 'features', 'featureManagementLogic']),
+    connect({
+        values: [teamLogic, ['currentTeamId']],
+    }),
     actions({
-        setActiveScene: (activeScene: FeatureManagementScene) => ({ activeScene }),
+        setActiveFeatureId: (activeFeatureId: Feature['id']) => ({ activeFeatureId }),
     }),
     reducers({
-        activeScene: [
-            FEATURE_MANAGEMENT_SCENES[0],
+        activeFeatureId: [
+            null as Feature['id'] | null,
             {
-                setActiveScene: (_, { activeScene }) => activeScene,
+                setActiveFeatureId: (_, { activeFeatureId }) => activeFeatureId,
             },
         ],
     }),
+    loaders(() => ({
+        features: [
+            { results: [], count: 0, offset: 0 } as FeaturesResult,
+            {
+                loadFeatures: async () => {
+                    const mockResponse = {
+                        results: [
+                            {
+                                id: 1,
+                                name: 'SSO Login',
+                            },
+                            {
+                                id: 2,
+                                name: 'QR Code Scanner',
+                            },
+                            {
+                                id: 3,
+                                name: 'AR Experience',
+                            },
+                        ],
+                        count: 3,
+                        offset: 0,
+                    }
+
+                    // const response = await api.get(`api/projects/${values.currentTeamId}/features`)
+                    return mockResponse as FeaturesResult
+                },
+            },
+        ],
+    })),
     selectors({
-        scenes: [() => [], () => FEATURE_MANAGEMENT_SCENES],
+        activeFeature: [
+            (s) => [s.activeFeatureId, s.features],
+            (activeFeatureId, features) => features.results.find((feature) => feature.id === activeFeatureId) || null,
+        ],
         breadcrumbs: [
-            (s) => [s.activeScene, s.scenes],
-            (activeScene, scenes): Breadcrumb[] => [
-                {
-                    key: Scene.FeatureManagement,
-                    name: 'Features',
-                    path: urls.features(),
-                },
-                {
-                    key: [Scene.FeatureManagement, activeScene.id],
-                    name: scenes.find((scene) => scene.id === activeScene.id)?.title,
-                },
-            ],
+            (s) => [s.activeFeatureId, s.activeFeature],
+            (activeFeatureId, activeFeature): Breadcrumb[] => {
+                const breadcrumbs: Breadcrumb[] = [
+                    {
+                        key: Scene.FeatureManagement,
+                        name: 'Features',
+                        path: urls.featureManagement(),
+                    },
+                ]
+
+                if (activeFeatureId) {
+                    breadcrumbs.push({
+                        key: [Scene.FeatureManagement, activeFeatureId],
+                        name: activeFeature?.name ?? 'Feature',
+                        path: urls.featureManagement(String(activeFeatureId)),
+                    })
+                }
+
+                return breadcrumbs
+            },
         ],
     }),
-    actionToUrl({
-        setActiveScene: ({ activeScene }) => {
-            return urls.featureManagement(activeScene.id)
-        },
-    }),
-    urlToAction(({ actions, values }) => ({
-        '/feature-management': () => {
-            router.actions.push('/feature-management/features')
-        },
-        '/feature-management/:sceneId': ({ sceneId }) => {
-            if (sceneId && values.activeScene.id !== sceneId) {
-                if (sceneId in FEATURE_MANAGEMENT_SCENE_IDS) {
-                    actions.setActiveScene(FEATURE_MANAGEMENT_SCENES_MAP[sceneId as FeatureManagementSceneId])
-                } else {
-                    actions.setActiveScene(FEATURE_MANAGEMENT_SCENES_MAP['features'])
-                }
+    listeners(({ actions, values }) => ({
+        loadFeaturesSuccess: ({ features }) => {
+            if (values.activeFeatureId === null && features.results.length > 0) {
+                actions.setActiveFeatureId(features.results[0].id)
             }
         },
     })),
+    actionToUrl({
+        setActiveFeatureId: ({ activeFeatureId }) => {
+            return urls.featureManagement(activeFeatureId)
+        },
+    }),
+    urlToAction(({ actions, values }) => ({
+        '/features/:id': ({ id }) => {
+            if (id && String(values.activeFeatureId) !== id) {
+                actions.setActiveFeatureId(Number(id))
+            }
+        },
+    })),
+    afterMount(({ actions }) => {
+        actions.loadFeatures()
+    }),
 ])

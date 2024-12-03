@@ -391,7 +391,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                     label: 'Features',
                                     icon: <IconFeatures />,
                                     logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
-                                    to: isUsingSidebar ? undefined : urls.featureManagement('features'),
+                                    to: isUsingSidebar ? undefined : urls.featureManagement(),
                                 }
                               : null,
                           {
@@ -420,7 +420,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               icon: <IconLive />,
                               to: urls.activity(),
                           },
-                      ]
+                      ].filter(isNotNil)
                     : [
                           {
                               identifier: Scene.Products,

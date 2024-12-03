@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { FeatureManagementDetail } from './FeatureManagementDetail'
 import { featureManagementLogic } from './featureManagementLogic'
 
 export const scene: SceneExport = {
@@ -10,26 +11,28 @@ export const scene: SceneExport = {
 }
 
 export function FeatureManagement(): JSX.Element {
-    const { activeScene, scenes } = useValues(featureManagementLogic)
-    const { setActiveScene } = useActions(featureManagementLogic)
+    const { activeFeatureId, features } = useValues(featureManagementLogic)
+    const { setActiveFeatureId } = useActions(featureManagementLogic)
 
     return (
         <div className="flex gap-4">
             <ul className="w-1/6 space-y-px">
-                {scenes.map((scene) => (
-                    <li key={scene.id}>
+                {features.results.map((feature) => (
+                    <li key={feature.id}>
                         <LemonButton
-                            onClick={() => setActiveScene(scene)}
+                            onClick={() => setActiveFeatureId(feature.id)}
                             size="small"
                             fullWidth
-                            active={activeScene.id === scene.id}
+                            active={activeFeatureId === feature.id}
                         >
-                            {scene.title}
+                            {feature.name}
                         </LemonButton>
                     </li>
                 ))}
             </ul>
-            <div className="w-5/6">{activeScene.component}</div>
+            <div className="w-5/6">
+                <FeatureManagementDetail />
+            </div>
         </div>
     )
 }
