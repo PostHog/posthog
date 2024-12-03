@@ -163,6 +163,10 @@ googleapis-common-protos==1.60.0
     # via
     #   -c requirements.txt
     #   opentelemetry-exporter-otlp-proto-grpc
+greenlet==3.1.1
+    # via
+    #   -c requirements.txt
+    #   sqlalchemy
 grpcio==1.63.2
     # via
     #   -c requirements.txt
@@ -275,9 +279,10 @@ marshmallow==3.23.1
     # via dataclasses-json
 mdurl==0.1.2
     # via markdown-it-py
-multidict==6.0.2
+multidict==6.0.5
     # via
     #   -c requirements.txt
+    #   -r requirements-dev.in
     #   aiohttp
     #   yarl
 multiprocess==0.70.16

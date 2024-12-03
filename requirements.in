@@ -51,6 +51,7 @@ langfuse==2.52.1
 langgraph==0.2.34
 langsmith==0.1.132
 lzstring==1.0.4
+multidict==6.0.5
 natsort==8.4.0
 nanoid==2.0.0
 numpy==1.23.3
