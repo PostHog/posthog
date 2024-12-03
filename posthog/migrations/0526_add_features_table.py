@@ -14,9 +14,27 @@ class Migration(migrations.Migration):
             name="Feature",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("team", models.ForeignKey(on_delete=models.deletion.CASCADE, to="posthog.team")),
                 ("name", models.CharField(blank=True, max_length=400)),
+                ("description", models.TextField(blank=True)),
+                ("issue_url", models.URLField(blank=True)),
                 ("created_at", models.DateTimeField(default=timezone.now)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
             ],
+        ),
+        migrations.AddField(
+            model_name="featureflag",
+            name="feature",
+            field=models.ForeignKey(to="posthog.feature"),
+        ),
+        migrations.AddField(
+            model_name="featureflag",
+            name="feature",
+            field=models.ForeignKey(to="posthog.feature"),
+        ),
+        migrations.AddField(
+            model_name="experiment",
+            name="feature",
+            field=models.ForeignKey(to="posthog.feature"),
         ),
     ]
