@@ -35,7 +35,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     }
                     return savedQueries.results
                 },
-                createDataWarehouseSavedQuery: async (view: Partial<DatabaseSchemaViewTable>) => {
+                createDataWarehouseSavedQuery: async (
+                    view: Partial<DatabaseSchemaViewTable> & { types: string[][] }
+                ) => {
                     const newView = await api.dataWarehouseSavedQueries.create(view)
 
                     lemonToast.success(`${newView.name ?? 'View'} successfully created`)
@@ -46,7 +48,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     await api.dataWarehouseSavedQueries.delete(viewId)
                     return values.dataWarehouseSavedQueries.filter((view) => view.id !== viewId)
                 },
-                updateDataWarehouseSavedQuery: async (view: Partial<DatabaseSchemaViewTable> & { id: string }) => {
+                updateDataWarehouseSavedQuery: async (
+                    view: Partial<DatabaseSchemaViewTable> & { id: string; types: string[][] }
+                ) => {
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
                     return values.dataWarehouseSavedQueries.map((savedQuery) => {
                         if (savedQuery.id === view.id) {

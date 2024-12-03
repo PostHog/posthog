@@ -5,6 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getVariablesFromQuery, haveVariablesOrFiltersChanged } from 'scenes/insights/utils/queryUtils'
 
 import { DataVisualizationNode, HogQLVariable } from '~/queries/schema'
+import { DashboardType } from '~/types'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { Variable, VariableType } from '../../types'
@@ -15,6 +16,8 @@ export interface VariablesLogicProps {
     key: string
     /** Disable any changes to the query */
     readOnly: boolean
+    /** Dashboard ID for the current dashboard if we're viewing one */
+    dashboardId?: DashboardType['id']
 }
 
 const convertValueToCorrectType = (value: string, type: VariableType): number | string | boolean => {
@@ -37,7 +40,7 @@ export const variablesLogic = kea<variablesLogicType>([
         actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['getVariables']],
         values: [
             dataVisualizationLogic,
-            ['query', 'dashboardId'],
+            ['query'],
             variableDataLogic,
             ['variables', 'variablesLoading'],
             featureFlagLogic,
@@ -124,7 +127,7 @@ export const variablesLogic = kea<variablesLogicType>([
             },
         ],
         showVariablesBar: [
-            (state) => [state.dashboardId],
+            () => [(_, props) => props.dashboardId],
             (dashboardId) => {
                 return !dashboardId
             },

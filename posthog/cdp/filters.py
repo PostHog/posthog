@@ -40,7 +40,10 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
         # Actions
         if filter.get("type") == "actions":
             try:
-                action = actions[int(filter["id"])]
+                action_id = int(filter["id"])
+                action = actions.get(action_id, None)
+                if not action:
+                    action = Action.objects.get(id=action_id, team=team)
                 exprs.append(action_to_expr(action))
             except KeyError:
                 # If an action doesn't exist, we want to return no events

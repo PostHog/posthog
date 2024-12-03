@@ -59,7 +59,7 @@ export function Navbar(): JSX.Element {
                                                     ? () => {
                                                           if (
                                                               activeNavbarItemId === item.identifier &&
-                                                              isSidebarShown
+                                                              !isSidebarShown
                                                           ) {
                                                               hideSidebar()
                                                           } else {
