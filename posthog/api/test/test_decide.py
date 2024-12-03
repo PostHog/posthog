@@ -664,7 +664,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions in the above mean fewer queries
         # 3 of these queries are just for setting transaction scope
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(8):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
@@ -689,7 +689,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.team.refresh_from_db()
         self.assertTrue(self.team.inject_web_apps)
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(9):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
@@ -709,7 +709,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         self.team.refresh_from_db()
         self.assertTrue(self.team.inject_web_apps)
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(9):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]

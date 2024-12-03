@@ -1,6 +1,6 @@
 from django.test import TestCase
 from posthog.cdp.site_functions import get_transpiled_function
-from posthog.models.action.action import Action, ActionStepJSON
+from posthog.models.action.action import Action
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.plugin import TranspilerError
@@ -221,7 +221,7 @@ class TestSiteFunctions(TestCase):
 
     def test_get_transpiled_function_with_complex_filters(self):
         action = Action.objects.create(team=self.team, name="Test Action")
-        action.steps = [ActionStepJSON(event="$pageview", url="https://example.com")]
+        action.steps = [{"event": "$pageview", "url": "https://example.com"}]  # type: ignore
         action.save()
         id = "123"
         source = "export function onEvent(event) { console.log(event.event); }"
