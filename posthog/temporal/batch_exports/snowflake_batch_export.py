@@ -12,7 +12,7 @@ import pyarrow as pa
 import snowflake.connector
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
-from snowflake.connector.errors import OperationalError, InterfaceError
+from snowflake.connector.errors import InterfaceError, OperationalError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -34,6 +34,12 @@ from posthog.temporal.batch_exports.batch_exports import (
     iter_model_records,
     start_batch_export_run,
 )
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
+    HeartbeatParseError,
+    should_resume_from_activity_heartbeat,
+)
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
@@ -51,12 +57,6 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-from posthog.temporal.batch_exports.heartbeat import (
-    BatchExportRangeHeartbeatDetails,
-    DateRange,
-    HeartbeatParseError,
-    should_resume_from_activity_heartbeat,
-)
 
 
 class SnowflakeFileNotUploadedError(Exception):
@@ -716,7 +716,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
                         await writer.write_record_batch(record_batch)
 
-                details.complete_done_ranges(inputs.data_interval_end)
+                details.complete_done_ranges(inputs.data_interval_start, inputs.data_interval_end)
                 heartbeater.set_from_heartbeat_details(details)
 
                 await snow_client.copy_loaded_files_to_snowflake_table(

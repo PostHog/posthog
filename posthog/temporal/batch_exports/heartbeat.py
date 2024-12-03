@@ -1,14 +1,14 @@
-import typing
-import datetime as dt
 import collections.abc
 import dataclasses
+import datetime as dt
+import typing
 
 import structlog
 
 from posthog.temporal.common.heartbeat import (
+    EmptyHeartbeatError,
     HeartbeatDetails,
     HeartbeatParseError,
-    EmptyHeartbeatError,
     NotEnoughHeartbeatValuesError,
 )
 
@@ -146,7 +146,9 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
         for index in marked_for_deletion:
             self.done_ranges.pop(index)
 
-    def complete_done_ranges(self, data_interval_end_input: str | dt.datetime):
+    def complete_done_ranges(
+        self, data_interval_start_input: str | dt.datetime | None, data_interval_end_input: str | dt.datetime
+    ):
         """Complete the entire range covered by the batch export.
 
         This is meant to be called at the end of a batch export to ensure
@@ -157,12 +159,22 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
         covering everything, so it is very important to only call this once
         everything is done.
         """
+        if self.empty is True:
+            if data_interval_start_input is None:
+                data_interval_start = dt.datetime.fromtimestamp(0, tz=dt.UTC)
+            elif isinstance(data_interval_start_input, str):
+                data_interval_start = dt.datetime.fromisoformat(data_interval_start_input)
+            else:
+                data_interval_start = data_interval_start_input
+        else:
+            data_interval_start = self.done_ranges[0][0]
+
         if isinstance(data_interval_end_input, str):
             data_interval_end = dt.datetime.fromisoformat(data_interval_end_input)
         else:
             data_interval_end = data_interval_end_input
 
-        self.done_ranges = [(self.done_ranges[0][0], data_interval_end)]
+        self.done_ranges = [(data_interval_start, data_interval_end)]
 
 
 HeartbeatType = typing.TypeVar("HeartbeatType", bound=HeartbeatDetails)
