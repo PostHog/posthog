@@ -120,6 +120,18 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             record.status = ProxyRecord.Status.DELETING
             record.save()
 
+        organization = Organization.objects.get(id=record.organization_id)
+        posthoganalytics.capture(
+            request.user.distinct_id,
+            "managed reverse proxy deleted",
+            properties={
+                "proxy_record_id": record.id,
+                "domain": record.domain,
+                "target_cname": record.target_cname,
+            },
+            groups=groups(organization),
+        )
+
         return Response(
             {"success": True},
             status=status.HTTP_200_OK,
