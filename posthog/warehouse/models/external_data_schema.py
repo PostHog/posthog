@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from django.db import models
 from django_deprecate_fields import deprecate_field
+import numpy
 import snowflake.connector
 from django.conf import settings
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
@@ -73,13 +74,15 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     def update_incremental_field_last_value(self, last_value: Any) -> None:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
 
+        last_value_py = last_value.item() if isinstance(last_value, numpy.generic) else last_value
+
         if (
             incremental_field_type == IncrementalFieldType.Integer
             or incremental_field_type == IncrementalFieldType.Numeric
         ):
-            last_value_json = last_value
+            last_value_json = last_value_py
         else:
-            last_value_json = str(last_value)
+            last_value_json = str(last_value_py)
 
         if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
             key = "incremental_field_last_value_v2"

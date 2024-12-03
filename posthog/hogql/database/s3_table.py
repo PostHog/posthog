@@ -45,9 +45,15 @@ def build_function_call(
         query_folder = "__query_v2" if pipeline_version == ExternalDataJob.PipelineVersion.V2 else "__query"
 
         if url.endswith("/"):
-            escaped_url = add_param(f"{url[:len(url) - 1]}{query_folder}/*.parquet")
+            if pipeline_version == ExternalDataJob.PipelineVersion.V2:
+                escaped_url = add_param(f"{url[:-5]}{query_folder}/*.parquet")
+            else:
+                escaped_url = add_param(f"{url[:-1]}{query_folder}/*.parquet")
         else:
-            escaped_url = add_param(f"{url}{query_folder}/*.parquet")
+            if pipeline_version == ExternalDataJob.PipelineVersion.V2:
+                escaped_url = add_param(f"{url[:-4]}{query_folder}/*.parquet")
+            else:
+                escaped_url = add_param(f"{url}{query_folder}/*.parquet")
 
         if structure:
             escaped_structure = add_param(structure, False)

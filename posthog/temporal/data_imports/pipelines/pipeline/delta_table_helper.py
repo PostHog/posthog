@@ -25,6 +25,7 @@ class DeltaTableHelper:
                 "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
                 "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
                 "region_name": settings.AIRBYTE_BUCKET_REGION,
+                "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
                 "AWS_ALLOW_HTTP": "true",
                 "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
             }
@@ -95,7 +96,10 @@ class DeltaTableHelper:
                 schema_mode = "overwrite"
 
             if delta_table is None:
-                delta_table = deltalake.DeltaTable.create(table_uri=self._get_delta_table_uri(), schema=data.schema)
+                storage_options = self._get_credentials()
+                delta_table = deltalake.DeltaTable.create(
+                    table_uri=self._get_delta_table_uri(), schema=data.schema, storage_options=storage_options
+                )
 
             deltalake.write_deltalake(
                 table_or_uri=delta_table,

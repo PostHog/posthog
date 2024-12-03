@@ -460,6 +460,11 @@ def validate_schema_and_update_table_sync(
     using_v2_pipeline = job.pipeline_version == ExternalDataJob.PipelineVersion.V2
     pipeline_version = ExternalDataJob.PipelineVersion(job.pipeline_version)
 
+    # Temp so we dont create a bunch of orphaned Table objects
+    if using_v2_pipeline:
+        logger.debug("Using V2 pipeline - dont create table object or get columns")
+        return
+
     credential = get_or_create_datawarehouse_credential(
         team_id=team_id,
         access_key=settings.AIRBYTE_BUCKET_KEY,
