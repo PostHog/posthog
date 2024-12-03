@@ -54,9 +54,13 @@ export function countryCodeToFlag(countryCode: string): string {
  * This isn't needed often because the locales usually come in the nl-NL format (for dutch, for example)
  * but there are cases where we only see the first part in case the language isn't shared by more than
  * one country - such as the Netherlands.
+ *
+ * For most cases we can simply uppercase the language and that's the country code,
+ * but there are some exceptions listed inside `languageCodeToCountryCode`
  */
 export function languageCodeToFlag(languageCode: string): string {
-    return countryCodeToFlag(languageCodeToCountryCode[languageCode])
+    const countryCode = languageCodeToCountryCode[languageCode] ?? languageCode.toLocaleUpperCase()
+    return countryCodeToFlag(countryCode)
 }
 
 export const countryCodeToName: Record<string, string> = {
@@ -499,6 +503,9 @@ export const languageCodeToName: Record<string, string> = {
     za: 'Zhuang',
     zu: 'Zulu',
 
+    // Some browsers might use `zz` to imply an unknown locale
+    zz: 'Unknown',
+
     // Some browsers use one-long or three-long codes so we're adding here as fallback
     h: 'Croatian',
     chr: 'Cherokee',
@@ -510,7 +517,13 @@ export const languageCodeToName: Record<string, string> = {
 
 // This is only used as a fallback for some languages that don't usually
 // come in the locale-country format (such as nl-NL usually being presented simply as nl)
-// We'll fill this as we see fit based on the values seen in the wild
+// but that can't simply be translated to a country by capitalizing the locale
 const languageCodeToCountryCode: Record<string, string> = {
-    nl: 'NL',
+    ar: 'SA', // Arabic -> Saudi Arabia, tricky, there's no good representation for the "default Arab country"
+    af: 'ZA', // Afrikaans -> South Africa
+    ta: 'IN', // Tamil -> India
+    eu: 'ES', // Basque -> Spain, tricky, but there's no better flag than the Spanish one, we could move to custom SVGs if we wanted to solve this
+    cy: 'GB', // Welsh -> UK
+    ne: 'NP', // Nepali -> Nepal
+    zz: '', // Unknown Language -> No Emoji
 }
