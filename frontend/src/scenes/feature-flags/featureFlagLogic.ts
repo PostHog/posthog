@@ -584,13 +584,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 try {
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
-                        savedFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, preparedFlag)
+                        savedFlag = await api.create(
+                            `api/projects/${values.currentProjectId}/feature_flags`,
+                            preparedFlag
+                        )
                         if (values.roleBasedAccessEnabled && savedFlag.id) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
                         }
                     } else {
                         savedFlag = await api.update(
-                            `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
+                            `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
                             preparedFlag
                         )
                     }

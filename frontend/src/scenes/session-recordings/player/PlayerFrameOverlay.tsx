@@ -3,7 +3,6 @@ import './PlayerFrameOverlay.scss'
 import { IconPlay } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconErrorOutline, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
@@ -13,7 +12,6 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { SessionPlayerState } from '~/types'
 
 import { PlayerUpNext } from './PlayerUpNext'
-import { SimilarRecordings } from './SimilarRecordings'
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const { currentPlayerState, endReached } = useValues(sessionRecordingPlayerLogic)
@@ -84,7 +82,6 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
 export function PlayerFrameOverlay(): JSX.Element {
     const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
-    const hasSimilarRecordings = useFeatureFlag('REPLAY_SIMILAR_RECORDINGS')
 
     const [interrupted, setInterrupted] = useState(false)
 
@@ -96,7 +93,6 @@ export function PlayerFrameOverlay(): JSX.Element {
             onMouseOut={() => setInterrupted(false)}
         >
             <PlayerFrameOverlayContent />
-            {hasSimilarRecordings && <SimilarRecordings />}
             {playlistLogic ? (
                 <PlayerUpNext
                     playlistLogic={playlistLogic}
