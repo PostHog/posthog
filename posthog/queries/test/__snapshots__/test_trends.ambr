@@ -25,7 +25,7 @@
   SELECT team_id,
          count() AS stale_people_count
   FROM cohortpeople
-  WHERE team_id IN [392]
+  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
     AND cohort_id = 99999
     AND version < 2
   GROUP BY team_id
@@ -116,7 +116,7 @@
   SELECT team_id,
          count() AS stale_people_count
   FROM cohortpeople
-  WHERE team_id IN [393]
+  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
     AND cohort_id = 99999
     AND version < 2
   GROUP BY team_id
