@@ -313,7 +313,7 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const { showSource, configuration } = useValues(hogFunctionConfigurationLogic)
     const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
-    const [editing, setEditing] = useState(showSource)
+    const [editing, setEditing] = useState(false)
 
     const value = configuration.inputs?.[schema.key]
 

@@ -1,5 +1,8 @@
 import { LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { NewButton } from 'scenes/pipeline/NewButton'
+
+import { PipelineStage } from '~/types'
 
 import { PipelineBackend } from '../types'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
@@ -8,12 +11,16 @@ export type DestinationsFiltersProps = {
     hideSearch?: boolean
     hideShowPaused?: boolean
     hideKind?: boolean
+    hideFeedback?: boolean
+    hideAddDestinationButton?: boolean
 }
 
 export function DestinationsFilters({
     hideSearch,
     hideShowPaused,
     hideKind,
+    hideFeedback,
+    hideAddDestinationButton = true,
 }: DestinationsFiltersProps): JSX.Element | null {
     const { filters } = useValues(destinationsFiltersLogic)
     const { setFilters, openFeedbackDialog } = useActions(destinationsFiltersLogic)
@@ -29,9 +36,11 @@ export function DestinationsFilters({
                         onChange={(e) => setFilters({ search: e })}
                     />
                 )}
-                <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog()}>
-                    Can't find what you're looking for?
-                </Link>
+                {!hideFeedback ? (
+                    <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog()}>
+                        Can't find what you're looking for?
+                    </Link>
+                ) : null}
                 <div className="flex-1" />
                 {typeof hideShowPaused !== 'boolean' && (
                     <LemonCheckbox
@@ -57,6 +66,7 @@ export function DestinationsFilters({
                         onChange={(e) => setFilters({ kind: e ?? null })}
                     />
                 )}
+                {hideAddDestinationButton ? null : <NewButton stage={PipelineStage.Destination} size="small" />}
             </div>
         </div>
     )

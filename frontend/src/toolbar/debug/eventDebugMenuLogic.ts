@@ -1,4 +1,5 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
@@ -14,45 +15,56 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
     })),
     actions({
         addEvent: (event: EventType) => ({ event }),
-        markExpanded: (id: string | null) => ({ id }),
-        setShowRecordingSnapshots: (show: boolean) => ({ show }),
+        markExpanded: (id: string | null | undefined) => ({ id }),
         setSearchText: (searchText: string) => ({ searchText }),
-        setSearchType: (searchType: 'events' | 'properties') => ({ searchType }),
+        setSearchVisible: (visible: boolean) => ({ visible }),
+        setSelectedEventType: (eventType: 'posthog' | 'custom' | 'snapshot', enabled: boolean) => ({
+            eventType,
+            enabled,
+        }),
     }),
     reducers({
-        searchType: [
-            'events' as 'events' | 'properties',
+        searchVisible: [
+            false,
             {
-                setSearchType: (_, { searchType }) => searchType,
+                setSearchVisible: (_, { visible }) => visible,
             },
         ],
         searchText: [
             '',
             {
                 setSearchText: (_, { searchText }) => searchText,
+                // reset search on toggle
+                setSearchVisible: () => '',
             },
         ],
+        selectedEventTypes: [
+            ['posthog', 'custom'] as ('posthog' | 'custom' | 'snapshot')[],
+            {
+                setSelectedEventType: (state, { eventType, enabled }) => {
+                    const newTypes = [...state]
+                    if (enabled) {
+                        newTypes.push(eventType)
+                    } else {
+                        newTypes.splice(newTypes.indexOf(eventType), 1)
+                    }
+                    return newTypes
+                },
+            },
+        ],
+
         events: [
             [] as EventType[],
             {
                 addEvent: (state, { event }) => {
-                    if (!event.uuid) {
-                        event.uuid = uuid()
-                    }
-                    return [event, ...state]
+                    return [{ ...event, uuid: event.uuid || uuid() }, ...state]
                 },
             },
         ],
         expandedEvent: [
-            null as string | null,
+            null as string | null | undefined,
             {
                 markExpanded: (_, { id }) => id,
-            },
-        ],
-        showRecordingSnapshots: [
-            false,
-            {
-                setShowRecordingSnapshots: (_, { show }) => show,
             },
         ],
     }),
@@ -60,45 +72,55 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
         isCollapsedEventRow: [
             (s) => [s.expandedEvent],
             (expandedEvent) => {
-                return (eventId: string | null): boolean => {
+                return (eventId: string | null | undefined): boolean => {
                     return eventId !== expandedEvent
                 }
             },
         ],
-        snapshotCount: [(s) => [s.events], (events) => events.filter((e) => e.event === '$snapshot').length],
-        eventCount: [(s) => [s.events], (events) => events.filter((e) => e.event !== '$snapshot').length],
-        filteredEvents: [
-            (s) => [s.showRecordingSnapshots, s.events, s.searchText, s.searchType],
-            (showRecordingSnapshots, events, searchText, searchType) => {
-                return events
-                    .filter((e) => {
-                        if (showRecordingSnapshots) {
-                            return true
-                        }
-                        return e.event !== '$snapshot'
-                    })
-                    .filter((e) => {
-                        if (searchType === 'events') {
-                            return e.event.includes(searchText)
-                        }
-                        return true
-                    })
+        searchFilteredEvents: [
+            (s) => [s.events, s.searchText],
+            (events, searchText) => {
+                return events.filter((e) => e.event.includes(searchText))
             },
         ],
-        filteredProperties: [
-            (s) => [s.searchText, s.searchType],
-            (searchText, searchType) => {
-                return (p: Record<string, any>): Record<string, any> => {
-                    // return a new object with only the properties where key or value match the search text
-                    if (searchType === 'properties') {
-                        return Object.fromEntries(
-                            Object.entries(p).filter(([key, value]) => {
-                                return key.includes(searchText) || (value && value.toString().includes(searchText))
-                            })
-                        )
+        searchFilteredEventsCount: [
+            (s) => [s.searchFilteredEvents],
+            (searchFilteredEvents): { posthog: number; custom: number; snapshot: number } => {
+                const counts = { posthog: 0, custom: 0, snapshot: 0 }
+
+                searchFilteredEvents.forEach((e) => {
+                    if (e.event === '$snapshot') {
+                        counts.snapshot += 1
+                    } else if (
+                        e.event.startsWith('$') ||
+                        Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.events).includes(e.event)
+                    ) {
+                        counts.posthog += 1
+                    } else {
+                        counts.custom += 1
                     }
-                    return p
-                }
+                })
+
+                return counts
+            },
+        ],
+
+        activeFilteredEvents: [
+            (s) => [s.selectedEventTypes, s.searchFilteredEvents, s.searchText, s.isCollapsedEventRow],
+            (selectedEventTypes, searchFilteredEvents) => {
+                return searchFilteredEvents.filter((e) => {
+                    if (e.event === '$snapshot') {
+                        return selectedEventTypes.includes('snapshot')
+                    }
+                    if (
+                        e.event.startsWith('$') ||
+                        Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.events).includes(e.event)
+                    ) {
+                        return selectedEventTypes.includes('posthog')
+                    }
+
+                    return !!selectedEventTypes.includes('custom')
+                })
             },
         ],
     }),

@@ -104,6 +104,7 @@ export function ResultPane({
                                             kind: NodeKind.HogQLQuery,
                                             query: queryInput,
                                         },
+                                        types: response?.types ?? [],
                                     })
                                 }
                             >

@@ -210,6 +210,7 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
+    path("site_function/<str:id>/<str:hash>/", site_app.get_site_function),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py

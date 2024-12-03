@@ -76,7 +76,7 @@ export type NewDestinationItemType = {
     name: string
     description: string
     backend: PipelineBackend
-    status?: 'stable' | 'beta' | 'alpha' | 'free' | 'deprecated'
+    status?: 'stable' | 'beta' | 'alpha' | 'free' | 'deprecated' | 'client-side'
 }
 
 export type NewDestinationFilters = {
@@ -131,7 +131,10 @@ export function convertToPipelineNode<S extends PipelineStage>(
             stage: stage as PipelineStage.Destination,
             backend: PipelineBackend.HogFunction,
             interval: 'realtime',
-            id: candidate.type === 'destination' ? `hog-${candidate.id}` : candidate.id,
+            id:
+                candidate.type === 'destination' || candidate.type === 'site_destination'
+                    ? `hog-${candidate.id}`
+                    : candidate.id,
             name: candidate.name,
             description: candidate.description,
             enabled: candidate.enabled,
