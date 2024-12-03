@@ -7,7 +7,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssue } from '~/queries/schema'
-import { Breadcrumb, EventType } from '~/types'
+import { Breadcrumb } from '~/types'
 
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
@@ -16,7 +16,7 @@ import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './querie
 export interface ErrorTrackingEvent {
     uuid: string
     timestamp: Dayjs
-    properties: EventType['properties']
+    properties: Record<string, any>
     person: {
         distinct_id: string
         uuid?: string
