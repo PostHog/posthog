@@ -232,7 +232,7 @@ export const experimentLogic = kea<experimentLogicType>([
             funnelWindowIntervalUnit,
             aggregation_group_type_index,
             funnelAggregateByHogQL,
-            isSecondary = false,
+            isSecondary,
         }: {
             metricIdx: number
             name?: string
@@ -563,6 +563,9 @@ export const experimentLogic = kea<experimentLogicType>([
 
             if (experiment?.start_date) {
                 actions.loadExperimentResults()
+                if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS]) {
+                    actions.loadMetricResults()
+                }
                 actions.loadSecondaryMetricResults()
             }
         },
@@ -850,6 +853,34 @@ export const experimentLogic = kea<experimentLogicType>([
                         }
                         return null
                     }
+                },
+            },
+        ],
+        metricResults: [
+            null as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[] | null,
+            {
+                loadMetricResults: async (
+                    refresh?: boolean
+                ): Promise<(CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[] | null> => {
+                    return (await Promise.all(
+                        values.experiment?.metrics.map(async (metric) => {
+                            try {
+                                // Queries are shareable, so we need to set the experiment_id for the backend to correctly associate the query with the experiment
+                                const queryWithExperimentId = {
+                                    ...metric,
+                                    experiment_id: values.experimentId,
+                                }
+                                const response = await performQuery(queryWithExperimentId, undefined, refresh)
+
+                                return {
+                                    ...response,
+                                    fakeInsightId: Math.random().toString(36).substring(2, 15),
+                                }
+                            } catch (error) {
+                                return {}
+                            }
+                        })
+                    )) as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
                 },
             },
         ],
