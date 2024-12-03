@@ -46,6 +46,20 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     serializer_class = ProxyRecordSerializer
     permission_classes = [OrganizationAdminWritePermissions]
 
+    def _capture_proxy_event(self, event_name: str, record: ProxyRecord, request) -> None:
+        """Helper method to capture proxy-related analytics events"""
+        organization = Organization.objects.get(id=record.organization_id)
+        posthoganalytics.capture(
+            request.user.distinct_id,
+            f"managed reverse proxy {event_name}",
+            properties={
+                "proxy_record_id": record.id,
+                "domain": record.domain,
+                "target_cname": record.target_cname,
+            },
+            groups=groups(organization),
+        )
+
     def list(self, request, *args, **kwargs):
         queryset = self.organization.proxy_records.order_by("-created_at")
         serializer = self.get_serializer(queryset, many=True)
@@ -79,17 +93,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         )
 
         serializer = self.get_serializer(record)
-        organization = Organization.objects.get(id=record.organization_id)
-        posthoganalytics.capture(
-            request.user.distinct_id,
-            "managed reverse proxy created",
-            properties={
-                "proxy_record_id": record.id,
-                "domain": record.domain,
-                "target_cname": record.target_cname,
-            },
-            groups=groups(organization),
-        )
+        self._capture_proxy_event("created", record, request)
         return Response(serializer.data)
 
     def destroy(self, request, *args, pk=None, **kwargs):
@@ -120,18 +124,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             record.status = ProxyRecord.Status.DELETING
             record.save()
 
-        organization = Organization.objects.get(id=record.organization_id)
-        posthoganalytics.capture(
-            request.user.distinct_id,
-            "managed reverse proxy deleted",
-            properties={
-                "proxy_record_id": record.id,
-                "domain": record.domain,
-                "target_cname": record.target_cname,
-            },
-            groups=groups(organization),
-        )
-
+        self._capture_proxy_event("deleted", record, request)
         return Response(
             {"success": True},
             status=status.HTTP_200_OK,
