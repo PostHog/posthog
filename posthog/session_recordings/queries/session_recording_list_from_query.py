@@ -28,7 +28,6 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     FilterLogicalOperator,
     RecordingOrder,
-    PropertyGroupFilter,
     PersonPropertyFilter,
     EventPropertyFilter,
     GroupPropertyFilter,
@@ -72,9 +71,7 @@ class SessionRecordingQueryResult(NamedTuple):
 
 
 class UnexpectedQueryProperties(Exception):
-    def __init__(
-        self, remaining_properties: list[AnyPropertyFilter | PropertyGroupFilterValue | PropertyGroupFilter] | None
-    ):
+    def __init__(self, remaining_properties: list[AnyPropertyFilter] | None):
         self.remaining_properties = remaining_properties
         super().__init__(f"Unexpected properties in query: {remaining_properties}")
 
