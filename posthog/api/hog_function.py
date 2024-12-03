@@ -135,7 +135,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     {"template_id": "The Data Pipelines addon is required to create custom functions."}
                 )
 
-            if template.status != "free" and self.context.get("view") and self.context["view"].action == "create":
+            if template.status != "free" and not instance:
                 raise serializers.ValidationError(
                     {"template_id": "The Data Pipelines addon is required for this template."}
                 )
