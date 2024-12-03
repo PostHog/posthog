@@ -12,6 +12,7 @@ import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
+import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
 import { userLogic } from 'scenes/userLogic'
 
 import type { globalModalsLogicType } from './GlobalModalsType'
@@ -70,6 +71,7 @@ export function GlobalModals(): JSX.Element {
             <ConfirmUpgradeModal />
             <TimeSensitiveAuthenticationModal />
             <SessionPlayerModal />
+            <PreviewingCustomCssModal />
             {user && user.organization?.enforce_2fa && !user.is_2fa_enabled && (
                 <LemonModal title="Set up 2FA" closable={false}>
                     <p>

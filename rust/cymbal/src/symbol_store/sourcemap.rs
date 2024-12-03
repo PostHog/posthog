@@ -8,6 +8,7 @@ use tracing::{info, warn};
 use crate::{
     config::Config,
     error::{Error, JsResolveErr},
+    hack::js_data::JsData,
     metric_consts::{
         SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND,
         SOURCEMAP_NOT_FOUND, SOURCEMAP_PARSE,
@@ -29,16 +30,20 @@ pub struct OwnedSourceMapCache {
 }
 
 impl OwnedSourceMapCache {
-    pub fn new(data: Vec<u8>, r: impl ToString) -> Result<Self, JsResolveErr> {
+    pub fn new(data: Vec<u8>) -> Result<Self, symbolic::sourcemapcache::Error> {
         // Pass-through parse once to assert we're given valid data, so the unwrap below
         // is safe.
-        SourceMapCache::parse(&data).map_err(|e| {
-            JsResolveErr::InvalidSourceMapCache(format!(
-                "Got error {} for url {}",
-                e,
-                r.to_string()
-            ))
-        })?;
+        SourceMapCache::parse(&data)?;
+        Ok(Self { data })
+    }
+
+    pub fn from_source_and_map(
+        source: &str,
+        sourcemap: &str,
+    ) -> Result<Self, symbolic::sourcemapcache::SourceMapCacheWriterError> {
+        let mut data = Vec::with_capacity(source.len() + sourcemap.len() + 128);
+        let smcw = SourceMapCacheWriter::new(source, sourcemap)?;
+        smcw.serialize(&mut data).unwrap();
         Ok(Self { data })
     }
 
@@ -77,22 +82,11 @@ impl Fetcher for SourcemapProvider {
 
         let sourcemap = fetch_source_map(&self.client, sourcemap_url.clone()).await?;
 
-        // TOTAL GUESS at a reasonable capacity here, btw
-        let mut cache_bytes = Vec::with_capacity(minified_source.len() + sourcemap.len());
-
-        let writer = SourceMapCacheWriter::new(&minified_source, &sourcemap).map_err(|e| {
-            JsResolveErr::InvalidSourceMapCache(format!(
-                "Failed to construct sourcemap cache: {}, for sourcemap url {}",
-                e, sourcemap_url
-            ))
-        })?;
-
-        // UNWRAP: writing into a vector always succeeds
-        writer.serialize(&mut cache_bytes).unwrap();
+        let data = JsData::from_source_and_map(minified_source, sourcemap);
 
         start.label("found_data", "true").fin();
 
-        Ok(cache_bytes)
+        Ok(data.to_bytes())
     }
 }
 
@@ -102,18 +96,24 @@ impl Parser for SourcemapProvider {
     type Set = OwnedSourceMapCache;
     async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Error> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
-        let sm = OwnedSourceMapCache::new(data, "parse")?;
+        let smc = JsData::from_bytes(data)
+            .and_then(JsData::to_smc)
+            .map_err(JsResolveErr::from)?;
         start.label("success", "true").fin();
-        Ok(sm)
+        Ok(smc)
     }
 }
 
 async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<(Url, String), Error> {
-    info!("Fetching sourcemap from {}", start);
+    info!("Fetching script source from {}", start);
 
-    // If this request fails, we cannot resolve the frame, and do not hand this error to the frames
-    // failure-case handling - it just didn't work. We should tell the user about it, somehow, though.
-    let res = client.get(start).send().await.map_err(JsResolveErr::from)?;
+    // If this request fails, we cannot resolve the frame, and hand this error to the frames
+    // failure-case handling.
+    let res = client
+        .get(start.clone())
+        .send()
+        .await
+        .map_err(JsResolveErr::from)?;
 
     res.error_for_status_ref().map_err(JsResolveErr::from)?;
 
@@ -173,9 +173,20 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<(Url
     }
 
     metrics::counter!(SOURCEMAP_NOT_FOUND).increment(1);
-    // We looked in the headers and the body, and couldn't find a source map. This /might/ indicate the frame
-    // is not minified, or it might just indicate someone misconfigured their sourcemaps - we'll hand this error
-    // back to the frame itself to figure out.
+
+    // We looked in the headers and the body, and couldn't find a source map. We lastly just see if there's some data at
+    // the start URL, with `.map` appended. We don't actually fetch the body here, just see if the URL resolves to a 200
+    let mut test_url = start; // Move the `start` into `test_url`, since we don't need it anymore, making it mutable
+    test_url.set_path(&(test_url.path().to_owned() + ".map"));
+    if let Ok(res) = client.head(test_url.clone()).send().await {
+        if res.status().is_success() {
+            return Ok((res.url().clone(), body));
+        }
+    }
+
+    // We failed entirely to find a sourcemap. This /might/ indicate the frame is not minified, or it might
+    // just indicate someone misconfigured their sourcemaps - we'll hand this error back to the frame itself
+    // to figure out.
     Err(JsResolveErr::NoSourcemap(final_url.to_string()).into())
 }
 
@@ -193,6 +204,8 @@ mod test {
 
     const MINIFIED: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js");
     const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
+    const MINIFIED_WITH_NO_MAP_REF: &[u8] =
+        include_bytes!("../../tests/static/chunk-PGUQKT6S-no-map.js");
 
     use super::*;
 
@@ -239,6 +252,41 @@ mod test {
         store.fetch(1, start_url).await.unwrap();
 
         first_mock.assert_hits(1);
+        second_mock.assert_hits(1);
+    }
+
+    #[tokio::test]
+    async fn checks_dot_map_urls_test() {
+        let server = MockServer::start();
+
+        let first_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk-PGUQKT6S.js");
+            then.status(200).body(MINIFIED_WITH_NO_MAP_REF);
+        });
+
+        // We expect cymbal to then make a HEAD request to see if the map might exist
+        let head_mock = server.mock(|when, then| {
+            when.method("HEAD").path("/static/chunk-PGUQKT6S.js.map");
+            then.status(200);
+        });
+
+        // And then fetch it
+        let second_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk-PGUQKT6S.js.map");
+            then.status(200).body(MAP);
+        });
+
+        let mut config = Config::init_with_defaults().unwrap();
+        // Needed because we're using mockserver, so hitting localhost
+        config.allow_internal_ips = true;
+        let store = SourcemapProvider::new(&config);
+
+        let start_url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
+
+        store.fetch(1, start_url).await.unwrap();
+
+        first_mock.assert_hits(1);
+        head_mock.assert_hits(1);
         second_mock.assert_hits(1);
     }
 

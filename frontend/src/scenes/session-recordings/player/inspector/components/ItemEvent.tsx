@@ -1,13 +1,18 @@
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import './ImagePreview.scss'
+
+import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
+import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { POSTHOG_EVENT_PROMOTED_PROPERTIES } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from 'lib/taxonomy'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
+import { AutocaptureImageTab, AutocapturePreviewImage, autocaptureToImage } from 'lib/utils/event-property-utls'
+import { useState } from 'react'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
 
@@ -58,7 +63,9 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
             item.data.properties.$screen_name
         ) : item.data.event === '$web_vitals' ? (
             <SummarizeWebVitals properties={item.data.properties} />
-        ) : undefined
+        ) : item.data.elements.length ? (
+            <AutocapturePreviewImage elements={item.data.elements} />
+        ) : null
 
     return (
         <div data-attr="item-event" className="font-light w-full">
@@ -66,7 +73,8 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
                 <div className="truncate">
                     <PropertyKeyInfo
                         className="font-medium"
-                        disablePopover
+                        disablePopover={true}
+                        disableIcon={true}
                         ellipsis={true}
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
                         type={TaxonomicFilterGroupType.Events}
@@ -84,10 +92,25 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
 }
 
 export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
+    const [activeTab, setActiveTab] = useState<'properties' | 'flags' | 'image' | 'elements' | 'raw'>('properties')
+
     const insightUrl = insightUrlForEvent(item.data)
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
 
     const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[item.data.event]
+
+    const properties = {}
+    const featureFlagProperties = {}
+
+    for (const key of Object.keys(item.data.properties)) {
+        if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
+            if (key.startsWith('$feature') || key === '$active_feature_flags') {
+                featureFlagProperties[key] = item.data.properties[key]
+            } else {
+                properties[key] = item.data.properties[key]
+            }
+        }
+    }
 
     return (
         <div data-attr="item-event" className="font-light w-full">
@@ -114,7 +137,59 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                     item.data.event === '$exception' ? (
                         <ErrorDisplay eventProperties={item.data.properties} />
                     ) : (
-                        <SimpleKeyValueList item={filterProperties(item.data.properties)} promotedKeys={promotedKeys} />
+                        <LemonTabs
+                            size="small"
+                            activeKey={activeTab}
+                            onChange={(newKey) => setActiveTab(newKey)}
+                            tabs={[
+                                {
+                                    key: 'properties',
+                                    label: 'Properties',
+                                    content: (
+                                        <SimpleKeyValueList
+                                            item={filterProperties(properties)}
+                                            promotedKeys={promotedKeys}
+                                        />
+                                    ),
+                                },
+                                {
+                                    key: 'flags',
+                                    label: 'Flags',
+                                    content: (
+                                        <SimpleKeyValueList item={featureFlagProperties} promotedKeys={promotedKeys} />
+                                    ),
+                                },
+                                item.data.elements && item.data.elements.length > 0
+                                    ? {
+                                          key: 'elements',
+                                          label: 'Elements',
+                                          content: (
+                                              <HTMLElementsDisplay
+                                                  size="xsmall"
+                                                  elements={item.data.elements}
+                                                  selectedText={item.data.properties['$selected_content']}
+                                              />
+                                          ),
+                                      }
+                                    : null,
+                                autocaptureToImage(item.data.elements)
+                                    ? {
+                                          key: 'image',
+                                          label: 'Image',
+                                          content: <AutocaptureImageTab elements={item.data.elements} />,
+                                      }
+                                    : null,
+                                {
+                                    key: 'raw',
+                                    label: 'Raw',
+                                    content: (
+                                        <pre className="text-xs text-muted-alt whitespace-pre-wrap">
+                                            {JSON.stringify(item.data.properties, null, 2)}
+                                        </pre>
+                                    ),
+                                },
+                            ]}
+                        />
                     )
                 ) : (
                     <div className="text-muted-alt flex gap-1 items-center">

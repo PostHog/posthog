@@ -76,14 +76,18 @@ export function LemonCollapse<K extends React.Key>({
         }
     }
 
+    const displayPanels = panels.filter(Boolean) as LemonCollapsePanel<K>[]
+    const hasExpandablePanels = displayPanels.some((p) => !!p.content)
+
     return (
         <div className={clsx('LemonCollapse', embedded && 'LemonCollapse--embedded', className)}>
-            {(panels.filter(Boolean) as LemonCollapsePanel<K>[]).map(({ key, ...panel }) => (
+            {displayPanels.map(({ key, ...panel }) => (
                 <LemonCollapsePanel
                     key={key}
                     {...panel}
                     size={size}
                     isExpanded={isPanelExpanded(key)}
+                    indexUnexpanableHeader={hasExpandablePanels}
                     onChange={(isExanded) => onPanelChange(key, isExanded)}
                 />
             ))}
@@ -95,6 +99,7 @@ interface LemonCollapsePanelProps {
     header: ReactNode
     content: ReactNode
     isExpanded: boolean
+    indexUnexpanableHeader: boolean
     size: LemonButtonProps['size']
     onChange: (isExpanded: boolean) => void
     className?: string
@@ -109,6 +114,7 @@ function LemonCollapsePanel({
     size,
     className,
     dataAttr,
+    indexUnexpanableHeader,
     onChange,
     onHeaderClick,
 }: LemonCollapsePanelProps): JSX.Element {
@@ -134,6 +140,7 @@ function LemonCollapsePanel({
                     className="LemonCollapsePanel__header LemonCollapsePanel__header--disabled"
                     {...(dataAttr ? { 'data-attr': dataAttr } : {})}
                     size={size}
+                    icon={indexUnexpanableHeader ? <div className="w-[1em] h-[1em]" /> : null}
                 >
                     {header}
                 </LemonButton>

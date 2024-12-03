@@ -212,7 +212,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                         <div className="flex flex-col flex-1 w-full">
                                             {playbackMode === PlaybackMode.Recording ? (
                                                 <>
-                                                    {!noMeta || isFullScreen ? <PlayerMeta /> : null}
+                                                    {!noMeta || isFullScreen ? (
+                                                        <PlayerMeta iconsOnly={playerMainSize === 'small'} />
+                                                    ) : null}
 
                                                     <div
                                                         className="SessionRecordingPlayer__body"
@@ -222,7 +224,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                                         <PlayerFrame />
                                                         <PlayerFrameOverlay />
                                                     </div>
-                                                    <PlayerController iconsOnly={playerMainSize === 'small'} />
+                                                    <PlayerController />
                                                 </>
                                             ) : (
                                                 <NetworkView sessionRecordingId={sessionRecordingId} />

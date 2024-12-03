@@ -114,12 +114,28 @@ class TestPrinter(BaseTest):
             repsponse, f"SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
+    def test_union_distinct(self):
+        expr = parse_select("""select 1 as id union distinct select 2 as id""")
+        response = to_printed_hogql(expr, self.team)
+        self.assertEqual(
+            response,
+            f"SELECT\n    1 AS id\nLIMIT 50000\nUNION DISTINCT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     def test_intersect(self):
         expr = parse_select("""select 1 as id intersect select 2 as id""")
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
             f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_intersect_distinct(self):
+        expr = parse_select("""select 1 as id intersect distinct select 2 as id""")
+        response = to_printed_hogql(expr, self.team)
+        self.assertEqual(
+            response,
+            f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT DISTINCT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_except(self):

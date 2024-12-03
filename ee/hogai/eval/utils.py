@@ -1,7 +1,7 @@
-import datetime as dt
 import os
 
 import pytest
+from django.test import override_settings
 from flaky import flaky
 
 from posthog.demo.matrix.manager import MatrixManager
@@ -17,12 +17,14 @@ class EvalBaseTest(BaseTest):
         super().setUpTestData()
         matrix = HedgeboxMatrix(
             seed="b1ef3c66-5f43-488a-98be-6b46d92fbcef",  # this seed generates all events
-            now=dt.datetime.now(dt.UTC) - dt.timedelta(days=25),
-            days_past=60,
+            days_past=120,
             days_future=30,
-            n_clusters=60,
+            n_clusters=500,
             group_type_index_offset=0,
         )
         matrix_manager = MatrixManager(matrix, print_steps=True)
         existing_user = cls.team.organization.members.first()
-        matrix_manager.run_on_team(cls.team, existing_user)
+        with override_settings(TEST=False):
+            # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
+            # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
+            matrix_manager.run_on_team(cls.team, existing_user)

@@ -5,7 +5,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha512};
 
 use crate::{
-    error::UnhandledError, langs::js::RawJSFrame, metric_consts::PER_FRAME_TIME,
+    error::UnhandledError,
+    langs::{js::RawJSFrame, python::RawPythonFrame},
+    metric_consts::PER_FRAME_TIME,
     symbol_store::Catalog,
 };
 
@@ -15,17 +17,27 @@ pub mod resolver;
 // We consume a huge variety of differently shaped stack frames, which we have special-case
 // transformation for, to produce a single, unified representation of a frame.
 #[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(untagged)]
+#[serde(tag = "platform")]
 pub enum RawFrame {
+    #[serde(rename = "python")]
+    Python(RawPythonFrame),
+    #[serde(rename = "web:javascript")]
     JavaScript(RawJSFrame),
+    // TODO - remove once we're happy no clients are using this anymore
+    #[serde(rename = "javascript")]
+    LegacyJS(RawJSFrame),
 }
 
 impl RawFrame {
     pub async fn resolve(&self, team_id: i32, catalog: &Catalog) -> Result<Frame, UnhandledError> {
-        let RawFrame::JavaScript(raw) = self;
-
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
-        let res = raw.resolve(team_id, catalog).await;
+        let (res, lang_tag) = match self {
+            RawFrame::JavaScript(frame) | RawFrame::LegacyJS(frame) => {
+                (frame.resolve(team_id, catalog).await, "javascript")
+            }
+
+            RawFrame::Python(frame) => (Ok(frame.into()), "python"),
+        };
 
         // The raw id of the frame is set after it's resolved
         let res = res.map(|mut f| {
@@ -38,19 +50,26 @@ impl RawFrame {
         } else {
             frame_resolve_time.label("outcome", "success")
         }
+        .label("lang", lang_tag)
         .fin();
 
         res
     }
 
     pub fn symbol_set_ref(&self) -> Option<String> {
-        let RawFrame::JavaScript(raw) = self;
-        raw.source_url().map(String::from).ok()
+        match self {
+            RawFrame::JavaScript(frame) | RawFrame::LegacyJS(frame) => {
+                frame.source_url().map(String::from).ok()
+            }
+            RawFrame::Python(_) => None, // Python frames don't have symbol sets
+        }
     }
 
     pub fn frame_id(&self) -> String {
-        let RawFrame::JavaScript(raw) = self;
-        raw.frame_id()
+        match self {
+            RawFrame::JavaScript(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
+            RawFrame::Python(raw) => raw.frame_id(),
+        }
     }
 }
 
@@ -136,9 +155,16 @@ impl Frame {
 
 impl ContextLine {
     pub fn new(number: u32, line: impl ToString) -> Self {
+        let line = line.to_string();
+        // We limit context line length to 300 chars
+        let mut constrained: String = line.to_string().chars().take(300).collect();
+        if line.len() > constrained.len() {
+            constrained.push_str("...✂️");
+        }
+
         Self {
             number,
-            line: line.to_string(),
+            line: constrained,
         }
     }
 }

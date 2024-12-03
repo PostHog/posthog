@@ -989,23 +989,25 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </div>
                         )}
                     </div>
-                    <div>
-                        <h3 className="l3">Recordings</h3>
-                        <p>Watch recordings of people who have been exposed to the feature flag.</p>
-                        <div className="inline-block">
-                            <LemonButton
-                                onClick={() => {
-                                    reportViewRecordingsClicked()
-                                    router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
-                                }}
-                                icon={<IconRewindPlay />}
-                                type="secondary"
-                                size="small"
-                            >
-                                View recordings
-                            </LemonButton>
+                    {readOnly && (
+                        <div>
+                            <h3 className="l3">Recordings</h3>
+                            <p>Watch recordings of people who have been exposed to the feature flag.</p>
+                            <div className="inline-block">
+                                <LemonButton
+                                    onClick={() => {
+                                        reportViewRecordingsClicked()
+                                        router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
+                                    }}
+                                    icon={<IconRewindPlay />}
+                                    type="secondary"
+                                    size="small"
+                                >
+                                    View recordings
+                                </LemonButton>
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             )}
             {!readOnly && multivariateEnabled && (
