@@ -309,7 +309,7 @@ class FuzzyInt(int):
         return self.lowest <= other <= self.highest
 
     def __repr__(self):
-        return "[%d..%d]" % (self.lowest, self.highest)
+        return f"[{self.lowest:d}..{self.highest:d}]"
 
 
 class ErrorResponsesMixin:

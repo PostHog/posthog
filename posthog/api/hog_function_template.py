@@ -33,8 +33,12 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
     serializer_class = HogFunctionTemplateSerializer
 
     def list(self, request: Request, *args, **kwargs):
-        type = self.request.GET.get("type", "destination")
-        templates = [item for item in HOG_FUNCTION_TEMPLATES if item.type == type]
+        types = ["destination"]
+        if "type" in request.GET:
+            types = [self.request.GET.get("type", "destination")]
+        elif "types" in request.GET:
+            types = self.request.GET.get("types", "destination").split(",")
+        templates = [item for item in HOG_FUNCTION_TEMPLATES if item.type in types]
         page = self.paginate_queryset(templates)
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)
