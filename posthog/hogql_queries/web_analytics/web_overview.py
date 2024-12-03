@@ -236,66 +236,16 @@ HAVING and(
         end = self.query_date_range.date_to_as_hogql()
 
         def current_period_aggregate(function_name, column_name, alias, params=None):
-            if self.query.compare:
-                return ast.Alias(
-                    alias=alias,
-                    expr=ast.Call(
-                        name=function_name + "If",
-                        params=params,
-                        args=[
-                            ast.Field(chain=[column_name]),
-                            ast.Call(
-                                name="and",
-                                args=[
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.GtEq,
-                                        left=ast.Field(chain=["start_timestamp"]),
-                                        right=mid,
-                                    ),
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Lt,
-                                        left=ast.Field(chain=["start_timestamp"]),
-                                        right=end,
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                )
-            else:
-                return ast.Alias(
-                    alias=alias, expr=ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
-                )
+            if not self.query.compare:
+                return ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
+
+            return self.period_aggregate(function_name, column_name, mid, end, alias=alias, params=params)
 
         def previous_period_aggregate(function_name, column_name, alias, params=None):
-            if self.query.compare:
-                return ast.Alias(
-                    alias=alias,
-                    expr=ast.Call(
-                        name=function_name + "If",
-                        params=params,
-                        args=[
-                            ast.Field(chain=[column_name]),
-                            ast.Call(
-                                name="and",
-                                args=[
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.GtEq,
-                                        left=ast.Field(chain=["start_timestamp"]),
-                                        right=start,
-                                    ),
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Lt,
-                                        left=ast.Field(chain=["start_timestamp"]),
-                                        right=mid,
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                )
-            else:
+            if not self.query.compare:
                 return ast.Alias(alias=alias, expr=ast.Constant(value=None))
+
+            return self.period_aggregate(function_name, column_name, start, mid, alias=alias, params=params)
 
         if self.query.conversionGoal:
             select = [

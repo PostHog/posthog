@@ -295,6 +295,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         kind: NodeKind.HogQLQuery,
                         query: queryOverride || values.queryInput,
                     },
+                    alwaysRefresh: true,
                 }).actions.loadData(true)
             }
             actions.setActiveQuery(queryOverride || values.queryInput)
