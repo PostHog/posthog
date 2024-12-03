@@ -93,7 +93,7 @@ if (res.status >= 400) {
             "type": "string",
             "label": "Conversion Date Time",
             "description": 'The date time at which the conversion occurred. Must be after the click time. The timezone must be specified. The format is "yyyy-mm-dd hh:mm:ss+|-hh:mm", e.g. "2019-01-01 12:32:45-08:00".',
-            "default": "{replaceAll(replaceAll(event.timestamp, 'T', ' '), 'Z', ' ')}+00:00",
+            "default": "{replaceAll(replaceAll(event.timestamp, 'T', ' '), 'Z', '')}+00:00",
             "secret": False,
             "required": True,
         },
