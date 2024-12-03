@@ -1,5 +1,4 @@
 from django.test import override_settings
-from posthog.hogql.errors import QueryError
 from posthog.hogql_queries.experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
 from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -34,6 +33,7 @@ import json
 from boto3 import resource
 from botocore.config import Config
 from posthog.warehouse.models.credential import DataWarehouseCredential
+from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.warehouse.models.table import DataWarehouseTable
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery" + XDIST_SUFFIX
@@ -137,7 +137,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         distinct_id = pa.array(["user_control_0", "user_test_1", "user_test_2", "user_test_3", "user_extra"])
         amount = pa.array([100, 50, 75, 80, 90])
-        names = ["id", "timestamp", "distinct_id", "amount"]
+        names = ["id", "dw_timestamp", "dw_distinct_id", "amount"]
 
         pq.write_to_dataset(
             pa.Table.from_arrays([id, timestamp, distinct_id, amount], names=names),
@@ -163,11 +163,21 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             columns={
                 "id": "String",
-                "timestamp": "DateTime64(3, 'UTC')",
-                "distinct_id": "String",
+                "dw_timestamp": "DateTime64(3, 'UTC')",
+                "dw_distinct_id": "String",
                 "amount": "Int64",
             },
             credential=credential,
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=table_name,
+            source_table_key="dw_distinct_id",
+            joining_table_name="events",
+            joining_table_key="distinct_id",
+            field_name="events",
+            configuration={"experiments_optimized": True, "experiments_timestamp_key": "dw_timestamp"},
         )
         return table_name
 
@@ -494,10 +504,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[
                 DataWarehouseNode(
                     id=table_name,
-                    distinct_id_field="distinct_id",
-                    id_field="distinct_id",
+                    distinct_id_field="dw_distinct_id",
+                    id_field="id",
                     table_name=table_name,
-                    timestamp_field="timestamp",
+                    timestamp_field="dw_timestamp",
                 )
             ]
         )
@@ -587,10 +597,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[
                 DataWarehouseNode(
                     id=table_name,
-                    distinct_id_field="distinct_id",
-                    id_field="distinct_id",
+                    distinct_id_field="dw_distinct_id",
+                    id_field="id",
                     table_name=table_name,
-                    timestamp_field="timestamp",
+                    timestamp_field="dw_timestamp",
                 )
             ]
         )
@@ -610,10 +620,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
         with freeze_time("2023-01-07"):
-            with self.assertRaises(QueryError) as context:
+            with self.assertRaises(KeyError) as context:
                 query_runner.calculate()
 
-        self.assertEqual(str(context.exception), 'Unknown table "invalid_table_name".')
+        self.assertEqual(str(context.exception), "'invalid_table_name'")
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_avg_math(self):

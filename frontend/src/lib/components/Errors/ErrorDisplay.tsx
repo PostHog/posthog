@@ -28,12 +28,7 @@ function StackTrace({
     showAllFrames: boolean
 }): JSX.Element | null {
     const { stackFrameRecords } = useValues(stackFrameLogic)
-    const { loadFromRawIds } = useActions(stackFrameLogic)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
-
-    useEffect(() => {
-        loadFromRawIds(frames.map(({ raw_id }) => raw_id))
-    }, [frames, loadFromRawIds])
 
     const panels = displayFrames.map(
         ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure }, index) => {
@@ -121,19 +116,34 @@ function FrameContextLine({
     )
 }
 function ChainedStackTraces({ exceptionList }: { exceptionList: ErrorTrackingException[] }): JSX.Element {
-    const [showAllFrames, setShowAllFrames] = useState(false)
+    const hasAnyInApp = exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
+    const [showAllFrames, setShowAllFrames] = useState(!hasAnyInApp)
+    const { loadFromRawIds } = useActions(stackFrameLogic)
+
+    useEffect(() => {
+        const frames: ErrorTrackingStackFrame[] = exceptionList.flatMap((e) => {
+            const trace = e.stacktrace
+            if (trace?.type === 'resolved') {
+                return trace.frames
+            }
+            return []
+        })
+        loadFromRawIds(frames.map(({ raw_id }) => raw_id))
+    }, [exceptionList, loadFromRawIds])
 
     return (
         <>
             <div className="flex gap-1 mt-6 justify-between items-center">
                 <h3 className="mb-0">Stack Trace</h3>
-                <LemonSwitch
-                    checked={showAllFrames}
-                    label="Show entire stack trace"
-                    onChange={() => {
-                        setShowAllFrames(!showAllFrames)
-                    }}
-                />
+                {hasAnyInApp ? (
+                    <LemonSwitch
+                        checked={showAllFrames}
+                        label="Show entire stack trace"
+                        onChange={() => {
+                            setShowAllFrames(!showAllFrames)
+                        }}
+                    />
+                ) : null}
             </div>
             {exceptionList.map(({ stacktrace, value }, index) => {
                 if (stacktrace && stacktrace.type === 'resolved') {

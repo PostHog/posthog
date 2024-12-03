@@ -31,6 +31,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
+from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
+from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
@@ -486,6 +488,61 @@ class UserViewSet(
             instance.hedgehog_config = request.data
             instance.save()
             return Response(instance.hedgehog_config)
+
+    @action(methods=["GET"], detail=True)
+    def two_factor_status(self, request, **kwargs):
+        """Get current 2FA status including backup codes if enabled"""
+        user = self.get_object()
+        totp_device = TOTPDevice.objects.filter(user=user).first()
+        static_device = StaticDevice.objects.filter(user=user).first()
+
+        backup_codes = []
+        if static_device:
+            backup_codes = [token.token for token in static_device.token_set.all()]
+
+        return Response(
+            {
+                "is_enabled": default_device(user) is not None,
+                "backup_codes": backup_codes if totp_device else [],
+                "method": "TOTP" if totp_device else None,
+            }
+        )
+
+    @action(methods=["POST"], detail=True)
+    def two_factor_backup_codes(self, request, **kwargs):
+        """Generate new backup codes, invalidating any existing ones"""
+        user = self.get_object()
+
+        # Ensure user has 2FA enabled
+        if not default_device(user):
+            raise serializers.ValidationError("2FA must be enabled first", code="2fa_not_enabled")
+
+        # Remove existing backup codes
+        static_device = StaticDevice.objects.filter(user=user).first()
+        if static_device:
+            static_device.token_set.all().delete()
+        else:
+            static_device = StaticDevice.objects.create(user=user, name="Backup Codes")
+
+        # Generate new backup codes
+        backup_codes = []
+        for _ in range(10):  # Generate 10 backup codes
+            token = StaticToken.random_token()
+            static_device.token_set.create(token=token)
+            backup_codes.append(token)
+
+        return Response({"backup_codes": backup_codes})
+
+    @action(methods=["POST"], detail=True)
+    def two_factor_disable(self, request, **kwargs):
+        """Disable 2FA and remove all related devices"""
+        user = self.get_object()
+
+        # Remove all 2FA devices
+        TOTPDevice.objects.filter(user=user).delete()
+        StaticDevice.objects.filter(user=user).delete()
+
+        return Response({"success": True})
 
 
 @authenticate_secondarily

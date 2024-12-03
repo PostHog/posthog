@@ -17,7 +17,6 @@ from posthog.caching.insights_api import (
 from posthog.clickhouse import query_tagging
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -292,7 +291,7 @@ class TrendsQueryRunner(QueryRunner):
             compare=res_compare,
         )
 
-    def calculate(self, context: Optional[HogQLContext] = None):
+    def calculate(self):
         queries = self.to_queries()
 
         if len(queries) == 0:
@@ -304,8 +303,7 @@ class TrendsQueryRunner(QueryRunner):
                 response_hogql_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
             with self.timings.measure("printing_hogql_for_response"):
-                database = context.database if context else None
-                response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers, database)
+                response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers)
 
         res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
         timings_matrix: list[list[QueryTiming] | None] = [None] * (2 + len(queries))
@@ -332,7 +330,6 @@ class TrendsQueryRunner(QueryRunner):
                     timings=timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
-                    context=context,
                 )
 
                 timings_matrix[index + 1] = response.timings
