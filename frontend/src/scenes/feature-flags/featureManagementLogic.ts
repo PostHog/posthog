@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
+import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -36,32 +37,13 @@ export const featureManagementLogic = kea<featureManagementLogicType>([
             },
         ],
     }),
-    loaders(() => ({
+    loaders(({ values }) => ({
         features: [
             { results: [], count: 0, offset: 0 } as FeaturesResult,
             {
                 loadFeatures: async () => {
-                    const mockResponse = {
-                        results: [
-                            {
-                                id: 1,
-                                name: 'SSO Login',
-                            },
-                            {
-                                id: 2,
-                                name: 'QR Code Scanner',
-                            },
-                            {
-                                id: 3,
-                                name: 'AR Experience',
-                            },
-                        ],
-                        count: 3,
-                        offset: 0,
-                    }
-
-                    // const response = await api.get(`api/projects/${values.currentTeamId}/features`)
-                    return mockResponse as FeaturesResult
+                    const response = await api.get(`api/projects/${values.currentTeamId}/features`)
+                    return response.data as FeaturesResult
                 },
             },
         ],

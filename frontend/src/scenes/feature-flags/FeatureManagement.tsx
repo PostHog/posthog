@@ -25,7 +25,7 @@ export function FeatureManagement(): JSX.Element {
                             fullWidth
                             active={activeFeatureId === feature.id}
                         >
-                            {feature.name}
+                            <span className="truncate">{feature.name}</span>
                         </LemonButton>
                     </li>
                 ))}
