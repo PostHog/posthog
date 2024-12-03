@@ -526,6 +526,23 @@ GROUP BY session_id, breakdown_value
                 else response.columns
             )
 
+        # Add last conversion rate column
+        if self.query.conversionGoal is not None:
+            for result in results_mapped:
+                unique_visitors = result[1]
+                unique_conversions = result[-1]
+
+                # Keep them in the same tuple format we already have
+                result.append(
+                    (
+                        unique_conversions[0] / unique_visitors[0] if unique_visitors[0] != 0 else None,
+                        unique_conversions[1] / unique_visitors[1] if unique_visitors[1] != 0 else None,
+                    )
+                )
+
+            # Guarantee new column exists
+            columns.append("context.columns.conversion_rate")
+
         return WebStatsTableQueryResponse(
             columns=columns,
             results=results_mapped,
