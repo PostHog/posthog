@@ -1187,62 +1187,64 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               ],
                           }
                         : null,
-                    {
-                        kind: 'query',
-                        tileId: TileId.RETENTION,
-                        title: 'Retention',
-                        layout: {
-                            colSpanClassName: 'md:col-span-2',
-                        },
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            source: {
-                                kind: NodeKind.RetentionQuery,
-                                properties: webAnalyticsFilters,
-                                dateRange,
-                                filterTestAccounts,
-                                retentionFilter: {
-                                    retentionType: RETENTION_FIRST_TIME,
-                                    retentionReference: 'total',
-                                    totalIntervals: isGreaterThanMd ? 8 : 5,
-                                    period: RetentionPeriod.Week,
-                                },
-                            },
-                            vizSpecificOptions: {
-                                [InsightType.RETENTION]: {
-                                    hideLineGraph: true,
-                                    hideSizeColumn: !isGreaterThanMd,
-                                    useSmallLayout: !isGreaterThanMd,
-                                },
-                            },
-                            embedded: true,
-                        },
-                        insightProps: createInsightProps(TileId.RETENTION),
-                        canOpenInsight: false,
-                        canOpenModal: true,
-                        docs: {
-                            url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
-                            title: 'Retention',
-                            description: (
-                                <>
-                                    <div>
-                                        <p>
-                                            Retention creates a cohort of unique users who performed any event for the
-                                            first time in the last week. It then tracks the percentage of users who
-                                            return to perform any event in the following weeks.
-                                        </p>
-                                        <p>
-                                            You want the numbers numbers to be the highest possible, suggesting that
-                                            people that come to your page continue coming to your page - and performing
-                                            an actions. Also, the further down the table the higher the numbers should
-                                            be (or at least as high), which would indicate that you're either increasing
-                                            or keeping your retention at the same level.
-                                        </p>
-                                    </div>
-                                </>
-                            ),
-                        },
-                    },
+                    !conversionGoal
+                        ? {
+                              kind: 'query',
+                              tileId: TileId.RETENTION,
+                              title: 'Retention',
+                              layout: {
+                                  colSpanClassName: 'md:col-span-2',
+                              },
+                              query: {
+                                  kind: NodeKind.InsightVizNode,
+                                  source: {
+                                      kind: NodeKind.RetentionQuery,
+                                      properties: webAnalyticsFilters,
+                                      dateRange,
+                                      filterTestAccounts,
+                                      retentionFilter: {
+                                          retentionType: RETENTION_FIRST_TIME,
+                                          retentionReference: 'total',
+                                          totalIntervals: isGreaterThanMd ? 8 : 5,
+                                          period: RetentionPeriod.Week,
+                                      },
+                                  },
+                                  vizSpecificOptions: {
+                                      [InsightType.RETENTION]: {
+                                          hideLineGraph: true,
+                                          hideSizeColumn: !isGreaterThanMd,
+                                          useSmallLayout: !isGreaterThanMd,
+                                      },
+                                  },
+                                  embedded: true,
+                              },
+                              insightProps: createInsightProps(TileId.RETENTION),
+                              canOpenInsight: false,
+                              canOpenModal: true,
+                              docs: {
+                                  url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
+                                  title: 'Retention',
+                                  description: (
+                                      <>
+                                          <div>
+                                              <p>
+                                                  Retention creates a cohort of unique users who performed any event for
+                                                  the first time in the last week. It then tracks the percentage of
+                                                  users who return to perform any event in the following weeks.
+                                              </p>
+                                              <p>
+                                                  You want the numbers numbers to be the highest possible, suggesting
+                                                  that people that come to your page continue coming to your page - and
+                                                  performing an actions. Also, the further down the table the higher the
+                                                  numbers should be (or at least as high), which would indicate that
+                                                  you're either increasing or keeping your retention at the same level.
+                                              </p>
+                                          </div>
+                                      </>
+                                  ),
+                              },
+                          }
+                        : null,
                     // Hiding if conversionGoal is set already because values aren't representative
                     !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS]
                         ? {
@@ -1290,7 +1292,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REPLAY]
+                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REPLAY]
                         ? {
                               kind: 'replay',
                               tileId: TileId.REPLAY,
@@ -1305,8 +1307,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    // TODO: What to do with this one if conversion goal is set? Hide it? Disable it?
-                    featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
+                    !conversionGoal && featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
                         ? {
                               kind: 'error_tracking',
                               tileId: TileId.ERROR_TRACKING,
