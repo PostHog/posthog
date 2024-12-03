@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,6 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 import {
     BatchExportConfiguration,
     HogFunctionType,
+    HogFunctionTypeType,
     PipelineStage,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
@@ -36,9 +37,15 @@ import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<Destination> {}
 
+export interface PipelineDestinationsLogicProps {
+    types: HogFunctionTypeType[]
+}
+
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
-    connect({
+    props({} as PipelineDestinationsLogicProps),
+    key((props: PipelineDestinationsLogicProps) => props.types.join(',')),
+    connect((props: PipelineDestinationsLogicProps) => ({
         values: [
             projectLogic,
             ['currentProjectId'],
@@ -48,10 +55,10 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             ['canEnableDestination'],
             featureFlagLogic,
             ['featureFlags'],
-            destinationsFiltersLogic,
+            destinationsFiltersLogic(props),
             ['filters'],
         ],
-    }),
+    })),
     actions({
         toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
         toggleNodeHogFunction: (destination: FunctionDestination, enabled: boolean) => ({ destination, enabled }),
@@ -63,7 +70,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
@@ -167,7 +174,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             [] as HogFunctionType[],
             {
                 loadHogFunctions: async () => {
-                    const destinationTypes = getDestinationTypes(!!values.featureFlags[FEATURE_FLAGS.SITE_DESTINATIONS])
+                    const siteDesinationsEnabled = !!values.featureFlags[FEATURE_FLAGS.SITE_DESTINATIONS]
+                    // TODO: fix ths
+                    const destinationTypes = props.types ?? getDestinationTypes(!!siteDesinationsEnabled)
                     return (await api.hogFunctions.list(undefined, destinationTypes)).results
                 },
 
@@ -243,7 +252,10 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                         )
                         .concat(rawBatchExports)
                 const convertedDestinations = rawDestinations.map((d) =>
-                    convertToPipelineNode(d, PipelineStage.Destination)
+                    convertToPipelineNode(
+                        d,
+                        'type' in d && d.type === 'site_app' ? PipelineStage.SiteApp : PipelineStage.Destination
+                    )
                 )
                 const enabledFirst = convertedDestinations.sort((a, b) => Number(b.enabled) - Number(a.enabled))
                 return enabledFirst

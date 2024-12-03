@@ -1,5 +1,5 @@
 import { LemonDialog, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { PipelineBackend } from '../types'
 import type { destinationsFiltersLogicType } from './destinationsFiltersLogicType'
+import { PipelineDestinationsLogicProps } from './destinationsLogic'
 
 export type DestinationsFilters = {
     search?: string
@@ -19,6 +20,8 @@ export type DestinationsFilters = {
 
 export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
     path(() => ['scenes', 'pipeline', 'destinations', 'destinationsFiltersLogic']),
+    props({} as PipelineDestinationsLogicProps),
+    key((props) => props.types.join(',') ?? ''),
     connect({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
     }),

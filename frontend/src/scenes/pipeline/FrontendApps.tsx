@@ -13,7 +13,11 @@ import { NewButton } from './NewButton'
 import { SiteApp } from './types'
 import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
-export function FrontendApps(): JSX.Element {
+export interface FrontendAppsProps {
+    noHeader?: boolean
+}
+
+export function FrontendApps({ noHeader }: FrontendAppsProps): JSX.Element {
     const { loading, frontendApps } = useValues(frontendAppsLogic)
     const { toggleEnabled, loadPluginConfigs } = useActions(frontendAppsLogic)
 
@@ -21,19 +25,23 @@ export function FrontendApps(): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                caption="Extend your web app with custom functionality."
-                buttons={<NewButton stage={PipelineStage.SiteApp} />}
-            />
-            <ProductIntroduction
-                productName="Site apps"
-                thingName="site app"
-                productKey={ProductKey.SITE_APPS}
-                description="Site apps allow you to add custom functionality to your website using PostHog."
-                docsURL="https://posthog.com/docs/apps/pineapple-mode"
-                actionElementOverride={<NewButton stage={PipelineStage.SiteApp} />}
-                isEmpty={shouldShowEmptyState}
-            />
+            {!noHeader && (
+                <PageHeader
+                    caption="Extend your web app with custom functionality."
+                    buttons={<NewButton stage={PipelineStage.SiteApp} />}
+                />
+            )}
+            {!noHeader && (
+                <ProductIntroduction
+                    productName="Site apps"
+                    thingName="site app"
+                    productKey={ProductKey.SITE_APPS}
+                    description="Site apps allow you to add custom functionality to your website using PostHog."
+                    docsURL="https://posthog.com/docs/apps/pineapple-mode"
+                    actionElementOverride={<NewButton stage={PipelineStage.SiteApp} />}
+                    isEmpty={shouldShowEmptyState}
+                />
+            )}
             {!shouldShowEmptyState && (
                 <>
                     <LemonTable

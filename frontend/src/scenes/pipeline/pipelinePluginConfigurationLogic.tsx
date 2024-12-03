@@ -16,8 +16,8 @@ import {
     determineRequiredFields,
     getPluginConfigFormData,
 } from './configUtils'
+import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
 import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
-import { frontendAppsLogic } from './frontendAppsLogic'
 import { importAppsLogic } from './importAppsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
@@ -169,9 +169,15 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             if (props.stage === PipelineStage.Transformation) {
                 pipelineTransformationsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.Destination) {
-                pipelineDestinationsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
+                pipelineDestinationsLogic
+                    .findMounted({ types: DESTINATION_TYPES })
+                    ?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.SiteApp) {
-                frontendAppsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
+                // TODO: if flag
+                pipelineDestinationsLogic
+                    .findMounted({ types: SITE_APP_TYPES })
+                    ?.actions.updatePluginConfig(pluginConfig)
+                // frontendAppsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.ImportApp) {
                 importAppsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
             }

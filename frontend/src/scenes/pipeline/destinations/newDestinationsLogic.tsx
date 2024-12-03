@@ -18,10 +18,11 @@ import {
 
 import { humanizeBatchExportName } from '../batch-exports/utils'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
+import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { PipelineBackend } from '../types'
 import { RenderBatchExportIcon } from '../utils'
-import { getDestinationTypes } from './constants'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
+import { PipelineDestinationsLogicProps } from './destinationsLogic'
 import type { newDestinationsLogicType } from './newDestinationsLogicType'
 
 export type NewDestinationItemType = {
@@ -38,19 +39,26 @@ export interface Fuse extends FuseClass<NewDestinationItemType> {}
 
 export const newDestinationsLogic = kea<newDestinationsLogicType>([
     path(() => ['scenes', 'pipeline', 'destinations', 'newDestinationsLogic']),
-    connect({
-        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags'], destinationsFiltersLogic, ['filters']],
-    }),
+    connect(({ types }: PipelineDestinationsLogicProps) => ({
+        values: [
+            userLogic,
+            ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
+            destinationsFiltersLogic({ types }),
+            ['filters'],
+        ],
+    })),
     actions({
         openFeedbackDialog: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ props }) => ({
         hogFunctionTemplates: [
             {} as Record<string, HogFunctionTemplateType>,
             {
                 loadHogFunctionTemplates: async () => {
-                    const destinationTypes = getDestinationTypes(!!values.featureFlags[FEATURE_FLAGS.SITE_DESTINATIONS])
-                    const templates = await api.hogFunctions.listTemplates(destinationTypes)
+                    // TODO: if flag
+                    const templates = await api.hogFunctions.listTemplates(props.types)
                     return templates.results.reduce((acc, template) => {
                         acc[template.id] = template
                         return acc
@@ -62,9 +70,14 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
 
     selectors(() => ({
         loading: [(s) => [s.hogFunctionTemplatesLoading], (hogFunctionTemplatesLoading) => hogFunctionTemplatesLoading],
+        types: [() => [(_, p) => p.types], (types) => types],
         batchExportServiceNames: [
-            (s) => [s.user, s.featureFlags],
-            (user, featureFlags): BatchExportService['type'][] => {
+            (s) => [s.user, s.featureFlags, s.types],
+            (user, featureFlags, types): BatchExportService['type'][] => {
+                // Only add batch exports on the "destinations" page
+                if (!types.includes('destination')) {
+                    return []
+                }
                 const httpEnabled =
                     featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
                 // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
@@ -84,7 +97,10 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         description: hogFunction.description,
                         backend: PipelineBackend.HogFunction as const,
                         url: combineUrl(
-                            urls.pipelineNodeNew(PipelineStage.Destination, `hog-${hogFunction.id}`),
+                            urls.pipelineNodeNew(
+                                hogFunctionTypeToPipelineStage(hogFunction.type),
+                                `hog-${hogFunction.id}`
+                            ),
                             {},
                             hashParams
                         ).url,
