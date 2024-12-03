@@ -12,7 +12,7 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, t
     response = "(function() {\n\n"
 
     # PostHog-JS adds itself to the window object for us to use
-    response += f"const posthog = window['__$$ph_site_app_{id}_posthog'] || window['posthog'];\n"
+    response += f"const posthog = window['__$$ph_site_app_{id}_posthog'] || window['__$$ph_site_app_{id}'] || window['posthog'];\n"
     response += f"const missedInvocations = window['__$$ph_site_app_{id}_missed_invocations'] || (() => []);\n"
     response += f"const callback = window['__$$ph_site_app_{id}_callback'] || (() => {'{}'});\n"
 
