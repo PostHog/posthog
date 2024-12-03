@@ -1,6 +1,5 @@
 import datetime as dt
 import json
-import uuid
 from unittest import mock
 
 from freezegun.api import freeze_time
@@ -9,7 +8,6 @@ from rest_framework import status
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.api.test.batch_exports.operations import create_batch_export_ok
 from posthog.batch_exports.models import BatchExportRun
-from posthog.client import sync_execute
 from posthog.models.activity_logging.activity_log import Detail, Trigger, log_activity
 from posthog.models.plugin import Plugin, PluginConfig
 from posthog.models.utils import UUIDT
@@ -18,20 +16,6 @@ from posthog.temporal.common.client import sync_connect
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 SAMPLE_PAYLOAD = {"dateRange": ["2021-06-10", "2022-06-12"], "parallelism": 1}
-
-
-def insert_event(team_id: int, timestamp: dt.datetime, event: str = "test-event"):
-    sync_execute(
-        "INSERT INTO `sharded_events` (uuid, team_id, event, timestamp) VALUES",
-        [
-            {
-                "uuid": uuid.uuid4(),
-                "team_id": team_id,
-                "event": event,
-                "timestamp": timestamp,
-            }
-        ],
-    )
 
 
 @freeze_time("2021-12-05T13:23:00Z")
@@ -116,7 +100,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
 
         temporal = sync_connect()
 
-        now = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.timezone.utc)
+        now = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.UTC)
         with start_test_worker(temporal):
             response = create_batch_export_ok(
                 self.client,
@@ -149,9 +133,6 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         data_interval_start=last_updated_at - dt.timedelta(hours=1),
                         status=BatchExportRun.Status.COMPLETED,
                     )
-                    for _ in range(3):
-                        insert_event(team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1))
-
                     BatchExportRun.objects.create(
                         batch_export_id=batch_export_id,
                         data_interval_end=last_updated_at - dt.timedelta(hours=2),
@@ -164,9 +145,6 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         data_interval_start=last_updated_at - dt.timedelta(hours=3),
                         status=BatchExportRun.Status.FAILED_RETRYABLE,
                     )
-                    for _ in range(5):
-                        timestamp = last_updated_at - dt.timedelta(hours=2, minutes=1)
-                        insert_event(team_id=self.team.pk, timestamp=timestamp)
 
             response = self.client.get(f"/api/projects/@current/app_metrics/{batch_export_id}?date_from=-7d")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -213,7 +191,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
         }
 
         temporal = sync_connect()
-        now = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.timezone.utc)
+        now = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.UTC)
 
         with start_test_worker(temporal):
             response = create_batch_export_ok(
@@ -235,7 +213,6 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         data_interval_start=last_updated_at - dt.timedelta(hours=1),
                         status=BatchExportRun.Status.COMPLETED,
                     )
-                    insert_event(team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1))
 
             response = self.client.get(f"/api/projects/@current/app_metrics/{batch_export_id}?date_from=-7d")
             self.assertEqual(response.status_code, status.HTTP_200_OK)

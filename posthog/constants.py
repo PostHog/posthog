@@ -36,6 +36,8 @@ class AvailableFeature(StrEnum):
     SURVEYS_MULTIPLE_QUESTIONS = "surveys_multiple_questions"
     AUTOMATIC_PROVISIONING = "automatic_provisioning"
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
+    DATA_PIPELINES = "data_pipelines"
+    ALERTS = "alerts"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -257,14 +259,6 @@ class RetentionQueryType(StrEnum):
     TARGET_FIRST_TIME = "target_first_time"
 
 
-class ExperimentSignificanceCode(StrEnum):
-    SIGNIFICANT = "significant"
-    NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
-    LOW_WIN_PROBABILITY = "low_win_probability"
-    HIGH_LOSS = "high_loss"
-    HIGH_P_VALUE = "high_p_value"
-
-
 class ExperimentNoResultsErrorKeys(StrEnum):
     NO_EVENTS = "no-events"
     NO_FLAG_INFO = "no-flag-info"
@@ -310,7 +304,11 @@ class FlagRequestType(StrEnum):
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
-BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
+BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
+SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
 
+
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
+
+INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid

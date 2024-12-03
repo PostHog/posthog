@@ -3657,5 +3657,5 @@
         "session_replay": 3,
         "product_analytics": 3
     },
-    "stripe_portal_url": "https://billing.stripe.com/p/session/test_YWNjdF8xSElNRERFdUlhdFJYU2R6LF9QaEVaQ0hCTUE0aE8wUFhlVWVqd29MaElGd3lwRjFa010044U4IxJp"
+    "stripe_portal_url": "http://localhost:8000/api/billing/portal"
 }

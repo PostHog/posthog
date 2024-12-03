@@ -2,7 +2,6 @@ from typing import Optional, Union
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.query_context import QueryContext
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.util import box_value
 from posthog.models.team.team import Team
 from posthog.schema import (
@@ -38,6 +37,8 @@ class FunnelQueryContext(QueryContext):
     includePrecedingTimestamp: Optional[bool]
     includeProperties: list[str]
     includeFinalMatchingEvents: Optional[bool]
+
+    max_steps_override: int | None = None
 
     def __init__(
         self,
@@ -101,10 +102,12 @@ class FunnelQueryContext(QueryContext):
             boxed_breakdown: list[Union[str, int]] = box_value(self.breakdownFilter.breakdown)
             self.breakdown = boxed_breakdown
         else:
-            self.breakdown = self.breakdownFilter.breakdown  # type: ignore
+            self.breakdown = self.breakdownFilter.breakdown
 
         self.actorsQuery = None
 
-    @cached_property
+    @property
     def max_steps(self) -> int:
+        if self.max_steps_override is not None:
+            return self.max_steps_override
         return len(self.query.series)

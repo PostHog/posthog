@@ -53,7 +53,7 @@ export const Template: StoryFn<typeof LemonDialog> = (props: LemonDialogProps) =
     }
     return (
         <div>
-            <div className="bg-default p-4">
+            <div className="bg-border p-4">
                 <LemonDialog {...props} inline />
             </div>
             <LemonButton type="primary" onClick={() => onClick()} className="mx-auto mt-2">

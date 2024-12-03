@@ -21,12 +21,12 @@
 
         &:not(.Playlist__list--collapsed) {
             width: 25%;
-            min-width: 305px;
-            max-width: 350px;
+            min-width: 285px;
+            max-width: 320px;
         }
 
         .text-link {
-            color: var(--text-3000);
+            color: var(--text-3000) !important;
         }
     }
 
@@ -51,8 +51,8 @@
 
 .SessionRecordingPlaylistHeightWrapper {
     // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
-    height: calc(100vh - 9rem);
-    min-height: 41rem;
+    height: calc(100vh - 15rem);
+    min-height: 25rem;
 }
 
 .SessionRecordingPreview {
@@ -63,6 +63,6 @@
     }
 
     &:hover {
-        background-color: var(--primary-3000-highlight);
+        background-color: var(--primary-highlight);
     }
 }

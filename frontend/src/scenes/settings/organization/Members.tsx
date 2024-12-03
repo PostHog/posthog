@@ -145,13 +145,13 @@ export function Members(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
 
-    if (!user) {
-        return null
-    }
-
     useEffect(() => {
         ensureAllMembersLoaded()
     }, [])
+
+    if (!user) {
+        return null
+    }
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {
@@ -257,6 +257,19 @@ export function Members(): JSX.Element | null {
                 )
             },
             sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
+        },
+        {
+            title: 'Last Logged In',
+            dataIndex: 'last_login',
+            key: 'last_login',
+            render: function RenderLastLogin(lastLogin) {
+                return (
+                    <div className="whitespace-nowrap">
+                        {lastLogin ? <TZLabel time={lastLogin as string} /> : 'Never'}
+                    </div>
+                )
+            },
+            sorter: (a, b) => new Date(a.last_login ?? 0).getTime() - new Date(b.last_login ?? 0).getTime(),
         },
         {
             key: 'actions',

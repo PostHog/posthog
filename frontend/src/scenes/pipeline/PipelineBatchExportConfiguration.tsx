@@ -9,13 +9,14 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { BatchExportGeneralEditFields, BatchExportsEditFields } from 'scenes/batch_exports/BatchExportEditForm'
-import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService } from '~/types'
 
-import { pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
+import { BatchExportGeneralEditFields, BatchExportsEditFields } from './batch-exports/BatchExportEditForm'
+import { BatchExportConfigurationForm } from './batch-exports/types'
+import { humanizeBatchExportName } from './batch-exports/utils'
+import { getDefaultConfiguration, pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
 import { RenderBatchExportIcon } from './utils'
 
 export function PipelineBatchExportConfiguration({ service, id }: { service?: string; id?: string }): JSX.Element {
@@ -36,7 +37,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
     const { resetConfiguration, submitConfiguration, setSelectedModel } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service)) {
+    if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service as any)) {
         return <NotFound object={`batch export service ${service}`} />
     }
 
@@ -49,7 +50,11 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
             <LemonButton
                 type="secondary"
                 htmlType="reset"
-                onClick={() => resetConfiguration(savedConfiguration || {})}
+                onClick={() =>
+                    isNew && service
+                        ? resetConfiguration(getDefaultConfiguration(service))
+                        : resetConfiguration(savedConfiguration)
+                }
                 disabledReason={
                     !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
                 }
@@ -61,6 +66,13 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                 htmlType="submit"
                 onClick={submitConfiguration}
                 loading={isConfigurationSubmitting}
+                disabledReason={
+                    !configurationChanged
+                        ? 'No changes to save'
+                        : isConfigurationSubmitting
+                        ? 'Saving in progress…'
+                        : undefined
+                }
             >
                 {isNew ? 'Create' : 'Save'}
             </LemonButton>
@@ -83,7 +95,9 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                 {configuration.destination ? (
                                     <>
                                         <RenderBatchExportIcon size="medium" type={configuration.destination} />
-                                        <div className="flex-1 font-semibold text-sm">{configuration.destination}</div>
+                                        <div className="flex-1 font-semibold text-sm">
+                                            {humanizeBatchExportName(configuration.destination)}
+                                        </div>
                                     </>
                                 ) : (
                                     <div className="flex-1" />
@@ -120,7 +134,10 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                         info="A model defines the data that will be exported."
                                     >
                                         <LemonSelect
-                                            options={tables.map((table) => ({ value: table.name, label: table.id }))}
+                                            options={tables.map((table) => ({
+                                                value: table.name,
+                                                label: table.id,
+                                            }))}
                                             value={selectedModel}
                                             onSelect={(newValue) => {
                                                 setSelectedModel(newValue)

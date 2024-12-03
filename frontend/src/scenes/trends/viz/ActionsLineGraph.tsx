@@ -1,7 +1,8 @@
 import { ChartType, defaults, LegendOptions } from 'chart.js'
-import { _DeepPartialObject } from 'chart.js/types/utils'
+import { DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
 import { Chart } from 'lib/Chart'
+import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
@@ -20,13 +21,13 @@ export function ActionsLineGraph({
     showPersonsModal = true,
     context,
 }: ChartParams): JSX.Element | null {
-    const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
+
     const {
         indexedResults,
         labelGroupType,
         incompletenessOffsetFromEnd,
         formula,
-        compareFilter,
         display,
         interval,
         showValuesOnSeries,
@@ -37,20 +38,26 @@ export function ActionsLineGraph({
         isStickiness,
         isDataWarehouseSeries,
         showLegend,
+        hiddenLegendIndexes,
         querySource,
+        yAxisScaleType,
     } = useValues(trendsDataLogic(insightProps))
+
+    const { alertThresholdLines } = useValues(
+        insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
+    )
 
     const labels =
         (indexedResults.length === 2 &&
             indexedResults.every((x) => x.compare) &&
-            indexedResults.find((x) => x.compare_label === 'current')?.days) ||
+            indexedResults.find((x) => x.compare_label === 'current')?.labels) ||
         (indexedResults[0] && indexedResults[0].labels) ||
         []
 
     const shortenLifecycleLabels = (s: string | undefined): string =>
         capitalizeFirstLetter(s?.split(' - ')?.[1] ?? s ?? 'None')
 
-    const legend: _DeepPartialObject<LegendOptions<ChartType>> = {
+    const legend: DeepPartial<LegendOptions<ChartType>> = {
         display: false,
     }
     if (isLifecycle && !!showLegend) {
@@ -76,7 +83,7 @@ export function ActionsLineGraph({
         <LineGraph
             data-attr="trend-line-graph"
             type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
-            hiddenLegendKeys={hiddenLegendKeys}
+            hiddenLegendIndexes={hiddenLegendIndexes}
             datasets={indexedResults}
             labels={labels}
             inSharedMode={inSharedMode}
@@ -87,6 +94,7 @@ export function ActionsLineGraph({
             showValuesOnSeries={showValuesOnSeries}
             showPercentStackView={showPercentStackView}
             supportsPercentStackView={supportsPercentStackView}
+            yAxisScaleType={yAxisScaleType}
             tooltip={
                 isLifecycle
                     ? {
@@ -100,11 +108,11 @@ export function ActionsLineGraph({
                       }
                     : undefined
             }
-            compare={!!compareFilter?.compare}
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             legend={legend}
+            alertLines={alertThresholdLines}
             onClick={
                 !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
                     ? undefined

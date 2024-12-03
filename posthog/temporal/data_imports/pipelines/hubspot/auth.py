@@ -2,7 +2,7 @@ import requests
 from django.conf import settings
 
 
-def refresh_access_token(refresh_token: str) -> str:
+def hubspot_refresh_access_token(refresh_token: str) -> str:
     res = requests.post(
         "https://api.hubapi.com/oauth/v1/token",
         data={
@@ -20,7 +20,7 @@ def refresh_access_token(refresh_token: str) -> str:
     return res.json()["access_token"]
 
 
-def get_access_token_from_code(code: str, redirect_uri: str) -> tuple[str, str]:
+def get_hubspot_access_token_from_code(code: str, redirect_uri: str) -> tuple[str, str]:
     res = requests.post(
         "https://api.hubapi.com/oauth/v1/token",
         data={

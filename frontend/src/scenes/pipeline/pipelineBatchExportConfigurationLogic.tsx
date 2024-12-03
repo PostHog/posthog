@@ -4,13 +4,13 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
-import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { pipelineDestinationsLogic } from './destinationsLogic'
+import { humanizeBatchExportName } from './batch-exports/utils'
+import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
 
@@ -30,9 +30,9 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
     }
 }
 
-function getDefaultConfiguration(service: BatchExportService['type']): Record<string, any> {
+export function getDefaultConfiguration(service: string): Record<string, any> {
     return {
-        name: service,
+        name: humanizeBatchExportName(service as BatchExportService['type']),
         destination: service,
         model: 'events',
         paused: true,
@@ -99,7 +99,7 @@ function getEventTable(service: BatchExportService['type']): DatabaseSchemaBatch
                 team_id: {
                     name: 'team_id',
                     hogql_value: service == 'Postgres' || service == 'Redshift' ? 'toInt32(team_id)' : 'team_id',
-                    type: 'string',
+                    type: 'integer',
                     schema_valid: true,
                 },
                 set: {
@@ -155,7 +155,7 @@ const personsTable: DatabaseSchemaBatchExportTable = {
         team_id: {
             name: 'team_id',
             hogql_value: 'team_id',
-            type: 'string',
+            type: 'integer',
             schema_valid: true,
         },
         distinct_id: {
@@ -174,6 +174,24 @@ const personsTable: DatabaseSchemaBatchExportTable = {
             name: 'properties',
             hogql_value: 'properties',
             type: 'json',
+            schema_valid: true,
+        },
+        person_version: {
+            name: 'person_version',
+            hogql_value: 'person_version',
+            type: 'integer',
+            schema_valid: true,
+        },
+        person_distinct_id_version: {
+            name: 'person_distinct_id_version',
+            hogql_value: 'person_distinct_id_version',
+            type: 'integer',
+            schema_valid: true,
+        },
+        created_at: {
+            name: 'created_at',
+            hogql_value: 'created_at',
+            type: 'datetime',
             schema_valid: true,
         },
     },
@@ -196,7 +214,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         batchExportConfig: [
             null as BatchExportConfiguration | null,
             {
@@ -235,6 +253,8 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         return res
                     }
                     const res = await api.batchExports.create(data)
+                    actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
+
                     router.actions.replace(
                         urls.pipelineNode(PipelineStage.Destination, res.id, PipelineNodeTab.Configuration)
                     )
@@ -283,7 +303,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             },
         ],
         configuration: [
-            props.service ? getDefaultConfiguration(props.service) : ({} as BatchExportConfigurationForm),
+            props.service ? getDefaultConfiguration(props.service) : ({} as Record<string, any>),
             {
                 loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
                     if (!batchExportConfig) {
@@ -296,6 +316,26 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     if (!batchExportConfig) {
                         return state
                     }
+
+                    return getConfigurationFromBatchExportConfig(batchExportConfig)
+                },
+            },
+        ],
+        savedConfiguration: [
+            {} as Record<string, any>,
+            {
+                loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
+                    if (!batchExportConfig) {
+                        return state
+                    }
+
+                    return getConfigurationFromBatchExportConfig(batchExportConfig)
+                },
+                updateBatchExportConfigSuccess: (state, { batchExportConfig }) => {
+                    if (!batchExportConfig) {
+                        return state
+                    }
+
                     return getConfigurationFromBatchExportConfig(batchExportConfig)
                 },
             },
@@ -303,31 +343,16 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     })),
     selectors(() => ({
         service: [(s, p) => [s.batchExportConfig, p.service], (config, service) => config?.destination.type || service],
-        savedConfiguration: [
-            (s, p) => [s.batchExportConfig, p.service],
-            (batchExportConfig, service) => {
-                if (!batchExportConfig || !service) {
-                    return {}
-                }
-                if (batchExportConfig) {
-                    return getConfigurationFromBatchExportConfig(batchExportConfig)
-                }
-                if (service) {
-                    return getDefaultConfiguration(service)
-                }
-                return {} as Record<string, any>
-            },
-        ],
         isNew: [(_, p) => [p.id], (id): boolean => !id],
         requiredFields: [
-            (s) => [s.service],
-            (service): string[] => {
+            (s) => [s.service, s.isNew],
+            (service, isNew): string[] => {
                 const generalRequiredFields = ['interval', 'name', 'model']
                 if (service === 'Postgres') {
                     return [
                         ...generalRequiredFields,
-                        'user',
-                        'password',
+                        ...(isNew ? ['user'] : []),
+                        ...(isNew ? ['password'] : []),
                         'host',
                         'port',
                         'database',
@@ -337,8 +362,8 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                 } else if (service === 'Redshift') {
                     return [
                         ...generalRequiredFields,
-                        'user',
-                        'password',
+                        ...(isNew ? ['user'] : []),
+                        ...(isNew ? ['password'] : []),
                         'host',
                         'port',
                         'database',
@@ -351,12 +376,12 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         'bucket_name',
                         'region',
                         'prefix',
-                        'aws_access_key_id',
-                        'aws_secret_access_key',
-                        'file_format',
+                        ...(isNew ? ['aws_access_key_id'] : []),
+                        ...(isNew ? ['aws_secret_access_key'] : []),
+                        ...(isNew ? ['file_format'] : []),
                     ]
                 } else if (service === 'BigQuery') {
-                    return [...generalRequiredFields, 'json_config_file', 'dataset_id', 'table_id']
+                    return [...generalRequiredFields, ...(isNew ? ['json_config_file'] : []), 'dataset_id', 'table_id']
                 } else if (service === 'HTTP') {
                     return [...generalRequiredFields, 'url', 'token']
                 } else if (service === 'Snowflake') {
@@ -365,8 +390,8 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         'account',
                         'database',
                         'warehouse',
-                        'user',
-                        'password',
+                        ...(isNew ? ['user'] : []),
+                        ...(isNew ? ['password'] : []),
                         'schema',
                         'table_name',
                     ]
@@ -380,6 +405,11 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             if (!batchExportConfig) {
                 return
             }
+            lemonToast.success('Batch export configuration updated successfully')
+
+            // Reset so that form doesn't think there are unsaved changes.
+            actions.resetConfiguration(getConfigurationFromBatchExportConfig(batchExportConfig))
+
             pipelineDestinationsLogic.findMounted()?.actions.updateBatchExportConfig(batchExportConfig)
         },
         setConfigurationValue: async ({ name, value }) => {
@@ -427,7 +457,11 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         enabled: () => values.configurationChanged,
         message: 'Leave action?\nChanges you made will be discarded.',
         onConfirm: () => {
-            actions.resetConfiguration()
+            values.batchExportConfig
+                ? actions.resetConfiguration(getConfigurationFromBatchExportConfig(values.batchExportConfig))
+                : values.service
+                ? actions.resetConfiguration(getDefaultConfiguration(values.service))
+                : actions.resetConfiguration()
         },
     })),
 

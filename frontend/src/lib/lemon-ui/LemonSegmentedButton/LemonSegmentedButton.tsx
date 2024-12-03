@@ -96,6 +96,7 @@ export function LemonSegmentedButton<T extends React.Key>({
                             }}
                             icon={option.icon}
                             data-attr={option['data-attr']}
+                            tooltip={option.tooltip}
                             center
                         >
                             {option.label}

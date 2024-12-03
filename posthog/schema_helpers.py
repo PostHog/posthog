@@ -70,8 +70,13 @@ def to_dict(query: BaseModel) -> dict:
                                 "toggledLifecycles",
                                 "showLabelsOnSeries",
                                 "showMean",
+                                "yAxisScaleType",
                             ]
                         }
+
+                        for key in ("targetEntity", "returningEntity"):
+                            if key in dumped[insightFilterKey] and "uuid" in dumped[insightFilterKey][key]:
+                                del dumped[insightFilterKey][key]["uuid"]
 
                         # use a canonical value for each display category
                         if "display" in dumped[insightFilterKey]:

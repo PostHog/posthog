@@ -1,0 +1,19 @@
+start
+try
+------------------
+start
+try
+------------------
+try again
+Error('An error occurred') was the exception
+------------------
+try again
+No var for error
+------------------
+base
+first
+second
+Throwing in third
+Caught in base: Error('Threw in third')
+Caught in root: Error('Threw in third')
+The end

@@ -37,17 +37,15 @@ export function FocusRect({ rect }: { rect: ElementRect }): JSX.Element {
             {rects.map((r) => (
                 <div
                     key={r.id}
+                    className="absolute z-10 transition-opacity duration-300"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        position: 'absolute',
                         top: r.y,
                         left: r.x,
                         width: r.w,
                         height: r.h,
-                        zIndex: 10,
                         background: r.bg,
                         backgroundBlendMode: 'multiply',
-                        transition: 'opacity 0.3s',
                     }}
                 />
             ))}

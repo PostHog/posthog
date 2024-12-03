@@ -4,6 +4,22 @@ export const ingestionWarningsResponse = (baseTime: dayjs.Dayjs): { results: Rec
     return {
         results: [
             {
+                type: 'replay_message_too_large',
+                lastSeen: baseTime.subtract(1, 'day'),
+                sparkline: [[1, baseTime.format('YYYY-MM-DD')]],
+                warnings: [
+                    {
+                        type: 'replay_message_too_large',
+                        timestamp: baseTime.subtract(1, 'day'),
+                        details: {
+                            timestamp: 'not a date',
+                            replayRecord: { session_id: 'some uuid' },
+                        },
+                    },
+                ],
+                count: 1,
+            },
+            {
                 type: 'replay_timestamp_invalid',
                 lastSeen: baseTime.subtract(1, 'day'),
                 sparkline: [[1, baseTime.format('YYYY-MM-DD')]],

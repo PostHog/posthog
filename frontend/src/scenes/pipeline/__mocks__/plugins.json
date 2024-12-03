@@ -127,6 +127,25 @@
             },
             "metrics": {},
             "public_jobs": {}
+        },
+        {
+            "id": 6,
+            "plugin_type": "inline",
+            "name": "Global inline",
+            "description": "inline desc",
+            "url": "inline://noop",
+            "icon": null,
+            "config_schema": [],
+            "tag": "",
+            "latest_tag": "",
+            "is_global": true,
+            "capabilities": {
+                "jobs": [],
+                "methods": ["processEvent"],
+                "scheduled_tasks": []
+            },
+            "metrics": {},
+            "public_jobs": {}
         }
     ]
 }

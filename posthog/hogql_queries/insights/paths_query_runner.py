@@ -8,7 +8,6 @@ from typing import Any, Literal, cast
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.caching.utils import is_stale
 from posthog.constants import PAGEVIEW_EVENT, SCREEN_EVENT, HOGQL
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -751,7 +750,7 @@ class PathsQueryRunner(QueryRunner):
             )
         return conditions
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         placeholders: dict[str, ast.Expr] = {
             "paths_per_person_query": self.paths_per_person_query(),
         }
@@ -794,11 +793,6 @@ class PathsQueryRunner(QueryRunner):
             interval=None,
             now=datetime.now(),
         )
-
-    def _is_stale(self, cached_result_package):
-        date_to = self.query_date_range.date_to()
-        interval = self.query_date_range.interval_name
-        return is_stale(self.team, date_to, interval, cached_result_package)
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
@@ -882,7 +876,7 @@ class PathsQueryRunner(QueryRunner):
     def extra_event_fields_and_properties(self) -> list[str]:
         return self.extra_event_fields + self.extra_event_properties
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         # To include matching_events, we need to add extra fields and properties
         # TODO: Make sure going via self is the best way to do this
         self.extra_event_fields = ["uuid", "timestamp"]

@@ -1,11 +1,54 @@
 import { Meta } from '@storybook/react'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 
+import { mswDecorator } from '~/mocks/browser'
 import { EventType } from '~/types'
 
 const meta: Meta<typeof ErrorDisplay> = {
     title: 'Components/Errors/Error Display',
     component: ErrorDisplay,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/error_tracking/stack_frames/': {
+                    results: [
+                        {
+                            id: '123456789',
+                            raw_id: 'rawId',
+                            contents: {},
+                            resolved: true,
+                            context: {
+                                before: [
+                                    {
+                                        number: 7,
+                                        line: '    const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)',
+                                    },
+                                    {
+                                        number: 8,
+                                        line: '',
+                                    },
+                                    { number: 9, line: '    useEffect(() => {' },
+                                ],
+                                line: { number: 10, line: '        loadFrameContexts({ frames })' },
+                                after: [
+                                    { number: 11, line: '    }, [frames, loadFrameContexts])' },
+                                    {
+                                        number: 12,
+                                        line: '',
+                                    },
+                                    {
+                                        number: 13,
+                                        line: '    const initiallyActiveIndex = displayFrames.findIndex((f) => f.in_app) || 0',
+                                    },
+                                ],
+                            },
+                            symbol_set_ref: 'https://static.posthog.com/chunks.js',
+                        },
+                    ],
+                },
+            },
+        }),
+    ],
 }
 export default meta
 
@@ -41,6 +84,7 @@ function errorProperties(properties: Record<string, any>): EventType['properties
         },
         $exception_message: 'ResizeObserver loop limit exceeded',
         $exception_type: 'Error',
+        $exception_fingerprint: 'Error',
         $exception_personURL: 'https://app.posthog.com/person/the-person-id',
         $sentry_event_id: 'id-from-the-sentry-integration',
         $sentry_exception: {
@@ -54,13 +98,14 @@ function errorProperties(properties: Record<string, any>): EventType['properties
                         synthetic: true,
                     },
                     stacktrace: {
+                        type: 'resolved',
                         frames: [
                             {
-                                colno: 0,
-                                filename: 'https://app.posthog.com/home',
-                                function: '?',
+                                column: 0,
+                                source: 'https://app.posthog.com/home',
+                                resolved_name: '?',
                                 in_app: true,
-                                lineno: 0,
+                                line: 0,
                             },
                         ],
                     },
@@ -124,7 +169,7 @@ export function ImportingModule(): JSX.Element {
             eventProperties={errorProperties({
                 $exception_type: 'UnhandledRejection',
                 $exception_message: "Importing module '/static/chunk-PIJHGO7Q.js' is not found.",
-                $exception_stack_trace_raw: '[]',
+                $exception_list: [],
                 $exception_handled: false,
             })}
         />
@@ -135,10 +180,137 @@ export function AnonymousErrorWithStackTrace(): JSX.Element {
     return (
         <ErrorDisplay
             eventProperties={errorProperties({
-                $exception_type: 'Error',
-                $exception_message: 'wat',
-                $exception_stack_trace_raw:
-                    '[{"filename":"<anonymous>","function":"?","in_app":true,"lineno":1,"colno":26}]',
+                $exception_list: [
+                    {
+                        type: 'Error',
+                        value: 'wat123',
+                        stacktrace: {
+                            type: 'resolved',
+                            frames: [
+                                {
+                                    source: '<anonymous>',
+                                    resolved_name: '?',
+                                    in_app: true,
+                                    line: 1,
+                                    column: 26,
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })}
+        />
+    )
+}
+
+export function ChainedErrorStack(): JSX.Element {
+    return (
+        <ErrorDisplay
+            eventProperties={errorProperties({
+                $exception_type: 'ZeroDivisionError',
+                $exception_message: 'division by zero',
+                $exception_list: [
+                    {
+                        module: null,
+                        type: 'ZeroDivisionError',
+                        value: 'division by zero',
+                        stacktrace: {
+                            type: 'resolved',
+                            frames: [
+                                {
+                                    source: '/posthog-python/example2.py',
+                                    resolved_name: 'will_raise',
+                                    line: 33,
+                                },
+                                {
+                                    source: '/posthog-python/example2.py',
+                                    resolved_name: 'more_obfuscation',
+                                    line: 29,
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        module: '__main__',
+                        type: 'CustomException',
+                        value: 'This is a custom exception',
+                        stacktrace: {
+                            type: 'resolved',
+                            frames: [
+                                {
+                                    source: '/Users/neilkakkar/Project/posthog-python/example2.py',
+                                    resolved_name: '<module>',
+                                    line: 37,
+                                },
+                                {
+                                    source: '/Users/neilkakkar/Project/posthog-python/example2.py',
+                                    resolved_name: 'will_raise',
+                                    line: 35,
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })}
+        />
+    )
+}
+
+export function StackTraceWithLineContext(): JSX.Element {
+    return (
+        <ErrorDisplay
+            eventProperties={errorProperties({
+                $exception_list: [
+                    {
+                        type: 'Error',
+                        value: 'wat123',
+                        stacktrace: {
+                            type: 'resolved',
+                            frames: [
+                                {
+                                    raw_id: 'rawId',
+                                    source: '<anonymous>',
+                                    resolved_name: '?',
+                                    in_app: true,
+                                    line: 1,
+                                    column: 26,
+                                    lang: 'javascript',
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })}
+        />
+    )
+}
+
+export function Stacktraceless(): JSX.Element {
+    return (
+        <ErrorDisplay
+            eventProperties={errorProperties({
+                $exception_list: [
+                    {
+                        type: 'Error',
+                        value: 'wat123',
+                    },
+                ],
+            })}
+        />
+    )
+}
+
+export function WithCymbalErrors(): JSX.Element {
+    return (
+        <ErrorDisplay
+            eventProperties={errorProperties({
+                $exception_list: [
+                    {
+                        type: 'Error',
+                        value: 'wat123',
+                    },
+                ],
+                $cymbal_errors: ['This is an ingestion error', 'This is a second one'],
             })}
         />
     )

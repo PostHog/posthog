@@ -17,7 +17,6 @@ from posthog.queries.test.test_retention import (
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    also_test_with_materialized_columns,
     create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
@@ -25,8 +24,12 @@ from posthog.test.base import (
 
 class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
     def _create_groups_and_events(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         create_group(
             team_id=self.team.pk,
@@ -233,9 +236,6 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(actor_result[1]["person"]["id"], "org:6")
         self.assertEqual(actor_result[1]["appearances"], [1, 1, 0, 1, 1, 0, 1])
 
-    @also_test_with_materialized_columns(
-        group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
-    )
     @snapshot_clickhouse_queries
     def test_groups_filtering_person_on_events(self):
         self._create_groups_and_events()
@@ -450,7 +450,6 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @also_test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_groups_aggregating_person_on_events(self):
         self._create_groups_and_events()
@@ -508,7 +507,6 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
-    @also_test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_groups_in_period_person_on_events(self):
         from posthog.models.team import util

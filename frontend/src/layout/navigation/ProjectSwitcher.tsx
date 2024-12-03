@@ -2,10 +2,12 @@ import { IconGear, IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeFlagIdIfPresent, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -14,6 +16,7 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature, TeamBasicType } from '~/types'
 
 import { globalModalsLogic } from '../GlobalModals'
+import { EnvironmentSwitcherOverlay } from './EnvironmentSwitcher'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
@@ -29,6 +32,11 @@ export function ProjectSwitcherOverlay({ onClickInside }: { onClickInside?: () =
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
+        return <EnvironmentSwitcherOverlay />
+    }
 
     return (
         <div className="project-switcher-container">
@@ -91,7 +99,19 @@ function OtherProjectButton({ team }: { team: TeamBasicType; onClickInside?: () 
         // project switch lands on something like insight/abc that won't exist.
         // On the other hand, if we remove the ID, it could be that someone opens a page, realizes they're in the wrong project
         // and after switching is on a different page than before.
-        const route = removeProjectIdIfPresent(location.pathname)
+        let route = removeProjectIdIfPresent(location.pathname)
+        route = removeFlagIdIfPresent(route)
+
+        // List of routes that should redirect to project home
+        // instead of keeping the current path.
+        const redirectToHomeRoutes = ['/products', '/onboarding']
+
+        const shouldRedirectToHome = redirectToHomeRoutes.some((redirectRoute) => route.includes(redirectRoute))
+
+        if (shouldRedirectToHome) {
+            return urls.project(team.id) // Go to project home
+        }
+
         return urls.project(team.id, route)
     }, [location.pathname])
 

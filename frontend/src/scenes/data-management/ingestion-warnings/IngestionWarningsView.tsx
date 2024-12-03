@@ -1,12 +1,11 @@
 import { useValues } from 'kea'
 import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
-import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
@@ -23,6 +22,7 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     message_size_too_large: 'Discarded event exceeding 1MB limit',
     replay_timestamp_invalid: 'Replay event timestamp is invalid',
     replay_timestamp_too_far: 'Replay event timestamp was too far in the future',
+    replay_message_too_large: 'Replay data was dropped because it was too large to ingest',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -154,15 +154,13 @@ const WARNING_TYPE_RENDERER = {
                     <li>session_id: {details.session_id}</li>
                 </ul>
                 <div className="max-w-30 mt-2">
-                    <LemonButton
+                    <ViewRecordingButton
+                        sessionId={details.session_id}
+                        timestamp={details.timestamp}
                         type="primary"
                         size="xsmall"
-                        to={urls.replaySingle(details.session_id)}
-                        sideIcon={<IconPlayCircle />}
                         data-attr="skewed-timestamp-view-recording"
-                    >
-                        View recording
-                    </LemonButton>
+                    />
                 </div>
             </>
         )
@@ -187,15 +185,39 @@ const WARNING_TYPE_RENDERER = {
                     <li>skew: {details.daysFromNow} days</li>
                 </ul>
                 <div className="max-w-30 mt-2">
-                    <LemonButton
+                    <ViewRecordingButton
+                        sessionId={details.session_id}
+                        timestamp={details.timestamp}
                         type="primary"
                         size="xsmall"
-                        to={urls.replaySingle(details.session_id)}
-                        sideIcon={<IconPlayCircle />}
                         data-attr="skewed-timestamp-view-recording"
-                    >
-                        View recording
-                    </LemonButton>
+                    />
+                </div>
+            </>
+        )
+    },
+    replay_message_too_large: function Render(warning: IngestionWarning): JSX.Element {
+        const details: {
+            timestamp: string
+            session_id: string
+        } = {
+            timestamp: warning.details.timestamp,
+            session_id: warning.details.replayRecord.session_id,
+        }
+        return (
+            <>
+                Session replay data dropped due to its size, this can cause playback problems:
+                <ul>
+                    <li>session_id: {details.session_id}</li>
+                </ul>
+                <div className="max-w-30 mt-2">
+                    <ViewRecordingButton
+                        sessionId={details.session_id}
+                        timestamp={details.timestamp}
+                        type="primary"
+                        size="xsmall"
+                        data-attr="message-too-large-view-recording"
+                    />
                 </div>
             </>
         )
@@ -238,7 +260,13 @@ export function IngestionWarningsView(): JSX.Element {
                             {
                                 title: 'Graph',
                                 render: function Render(_, summary: IngestionWarningSummary) {
-                                    return <Sparkline labels={dates} data={summaryDatasets[summary.type]} />
+                                    return (
+                                        <Sparkline
+                                            className="h-8"
+                                            labels={dates}
+                                            data={summaryDatasets[summary.type]}
+                                        />
+                                    )
                                 },
                             },
                             {

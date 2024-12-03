@@ -181,7 +181,7 @@ def sync_insight_caching_state(
         # This is a best-effort kind synchronization, safe to ignore errors
         logger.warn(
             "Failed to sync InsightCachingState, ignoring",
-            exception=err,
+            exception=str(err),
             team_id=team_id,
             insight_id=insight_id,
             dashboard_tile_id=dashboard_tile_id,

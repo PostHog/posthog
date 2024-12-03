@@ -21,7 +21,7 @@ export function InsightActorsQueryOptions({ setQuery, query }: InsightActorsQuer
 
     return query && insightActorsQueryOptions ? (
         <>
-            {cleanedInsightActorsQueryOptions(insightActorsQueryOptions).map(([key, options]) => (
+            {cleanedInsightActorsQueryOptions(insightActorsQueryOptions, query).map(([key, options]) => (
                 <div key={key}>
                     <LemonSelect
                         fullWidth

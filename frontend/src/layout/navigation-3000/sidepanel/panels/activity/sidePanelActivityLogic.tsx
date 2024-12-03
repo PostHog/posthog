@@ -8,7 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { ActivityFilters, activityForSceneLogic } from './activityForSceneLogic'
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
@@ -34,7 +34,7 @@ export enum SidePanelActivityTab {
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
     connect({
-        values: [activityForSceneLogic, ['sceneActivityFilters']],
+        values: [activityForSceneLogic, ['sceneActivityFilters'], projectLogic, ['currentProjectId']],
     }),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -104,7 +104,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                     }
 
                     await api.create(
-                        `api/projects/${teamLogic.values.currentTeamId}/activity_log/bookmark_activity_notification`,
+                        `api/projects/${values.currentProjectId}/activity_log/bookmark_activity_notification`,
                         {
                             bookmark: latestNotification.created_at.toISOString(),
                         }
@@ -123,7 +123,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
 
                     try {
                         const response = await api.get<ChangesResponse>(
-                            `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes?` +
+                            `api/projects/${values.currentProjectId}/activity_log/important_changes?` +
                                 toParams({ unread: onlyUnread })
                         )
 
@@ -228,9 +228,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                                 return 1
                             } else if (a.created_at.isAfter(b.created_at)) {
                                 return -1
-                            } else {
-                                return 0
                             }
+                            return 0
                         })
                         return notifications
                     }

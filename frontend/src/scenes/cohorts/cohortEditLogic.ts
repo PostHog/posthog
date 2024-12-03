@@ -1,11 +1,10 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
-import { ENTITY_MATCH_TYPE, FEATURE_FLAGS } from 'lib/constants'
+import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import {
@@ -43,7 +42,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     key((props) => props.id || 'new'),
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
     })),
 
@@ -71,11 +69,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
     }),
 
-    selectors({
-        useActorsQuery: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PERSONS_HOGQL_QUERY]],
-    }),
-
-    reducers(({ props, selectors }) => ({
+    reducers(({ props }) => ({
         cohort: [
             NEW_COHORT,
             {
@@ -168,31 +162,18 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
         query: [
-            ((state: Record<string, any>) =>
-                selectors.useActorsQuery(state)
-                    ? {
-                          kind: NodeKind.DataTableNode,
-                          source: {
-                              kind: NodeKind.ActorsQuery,
-                              fixedProperties: [
-                                  { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
-                              ],
-                          },
-                          full: true,
-                          showPropertyFilter: false,
-                          showEventFilter: false,
-                      }
-                    : {
-                          kind: NodeKind.DataTableNode,
-                          source: {
-                              kind: NodeKind.PersonsNode,
-                              cohort: props.id,
-                          },
-                          columns: undefined,
-                          showPropertyFilter: false,
-                          showEventFilter: true,
-                          full: true,
-                      }) as any as DataTableNode,
+            {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.ActorsQuery,
+                    fixedProperties: [
+                        { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
+                    ],
+                },
+                full: true,
+                showPropertyFilter: false,
+                showEventFilter: false,
+            } as DataTableNode,
             {
                 setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
             },

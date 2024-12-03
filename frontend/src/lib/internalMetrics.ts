@@ -6,6 +6,7 @@ import { getResponseBytes } from 'scenes/insights/utils'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 export interface TimeToSeeDataPayload {
+    team_id?: number | null
     type: 'dashboard_load' | 'insight_load' | 'properties_timeline_load' | 'property_values_load' | 'properties_load'
     context: 'dashboard' | 'insight' | 'actors_modal' | 'filters'
     time_to_see_data_ms: number

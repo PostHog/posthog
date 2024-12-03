@@ -2,20 +2,22 @@ import dataclasses
 from typing import Optional, cast, Literal
 
 from posthog.hogql import ast
+from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyTableToAdd, LazyJoinToAdd
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
+from posthog.hogql.transforms.property_types import PropertySwapper
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 
 # This mutates the nodes
 def resolve_lazy_tables(
-    node: ast.Expr,
+    node: _T_AST,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[list[ast.SelectQuery]] = None,
-    context: HogQLContext = None,
+    stack: Optional[list[ast.SelectQuery]],
+    context: HogQLContext,
 ):
     LazyTableResolver(stack=stack, context=context, dialect=dialect).visit(node)
 
@@ -38,6 +40,17 @@ class FieldChainReplacer(TraversingVisitor):
         for constraint in self.overrides:
             if node.chain == constraint.chain_to_replace:
                 node.chain = [constraint.table_name, constraint.alias]
+
+
+class FieldFinder(TraversingVisitor):
+    field_chains: list[list[str | int]] = []
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.field_chains = []
+
+    def visit_field(self, node: ast.Field):
+        self.field_chains.append(node.chain)
 
 
 class LazyFinder(TraversingVisitor):
@@ -67,8 +80,8 @@ class LazyTableResolver(TraversingVisitor):
     def __init__(
         self,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[list[ast.SelectQuery]] = None,
-        context: HogQLContext = None,
+        stack: Optional[list[ast.SelectQuery]],
+        context: HogQLContext,
     ):
         super().__init__()
         self.field_collectors: list[list[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
@@ -201,6 +214,7 @@ class LazyTableResolver(TraversingVisitor):
                             lazy_join=table_type.lazy_join,
                             from_table=from_table,
                             to_table=to_table,
+                            lazy_join_type=table_type,
                         )
                     new_join = joins_to_add[to_table]
                     if table_type == field.table_type:
@@ -243,6 +257,7 @@ class LazyTableResolver(TraversingVisitor):
                                 lazy_join=table_type.table_type.lazy_join,
                                 from_table=from_table,
                                 to_table=to_table,
+                                lazy_join_type=table_type.table_type,
                             )
                         new_join = joins_to_add[to_table]
                         if table_type == field.table_type:
@@ -304,12 +319,20 @@ class LazyTableResolver(TraversingVisitor):
                 new_join.to_table in joins_to_add or new_join.to_table in tables_to_add
             ):
                 create_override(new_join.to_table, new_join.lazy_join.to_field)
-
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
             subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [node.type]))
+            if self.context.property_swapper is not None:
+                subquery = PropertySwapper(
+                    timezone=self.context.property_swapper.timezone,
+                    group_properties=self.context.property_swapper.group_properties,
+                    event_properties={},
+                    person_properties={},
+                    context=self.context,
+                    setTimeZones=False,
+                ).visit(subquery)
             old_table_type = select_type.tables[table_name]
             select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 
@@ -335,7 +358,6 @@ class LazyTableResolver(TraversingVisitor):
                 self.context,
                 node,
             )
-
             overrides = [
                 *join_constraint_overrides.get(join_scope.to_table, []),
                 *join_constraint_overrides.get(join_scope.from_table, []),
@@ -345,9 +367,44 @@ class LazyTableResolver(TraversingVisitor):
 
             join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True, clear_types=True))
             join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, self.dialect, [node.type]))
+            if self.context.property_swapper is not None:
+                join_to_add = PropertySwapper(
+                    timezone=self.context.property_swapper.timezone,
+                    group_properties=self.context.property_swapper.group_properties,
+                    event_properties={},
+                    person_properties={},
+                    context=self.context,
+                    setTimeZones=False,
+                ).visit(join_to_add)
 
             if join_to_add.type is not None:
                 select_type.tables[to_table] = join_to_add.type
+
+            field_chain_finder = FieldFinder()
+            field_chain_finder.visit(join_to_add.constraint)
+
+            select_from_alias: str | int | None = None
+            if node.select_from and node.select_from.alias:
+                select_from_alias = node.select_from.alias
+            else:
+                if node.select_from and node.select_from.table and isinstance(node.select_from.table, ast.Field):
+                    select_from_alias = node.select_from.table.chain[0]
+
+            # Store all the constraint tables we've seen for this join to decide where in the order of joins the next join should be added
+            constraint_tables: list[str | int] = []
+            for field_chain in field_chain_finder.field_chains:
+                if field_chain[0] == select_from_alias:
+                    continue
+
+                added = False
+                for constraint_table_join in joins_to_add.values():
+                    if field_chain[0] == constraint_table_join.lazy_join_type.field:
+                        constraint_tables.append(constraint_table_join.to_table)
+                        added = True
+                        break
+
+                if not added:
+                    constraint_tables.append(field_chain[0])
 
             join_ptr = node.select_from
             added = False
@@ -355,8 +412,14 @@ class LazyTableResolver(TraversingVisitor):
                 if join_scope.from_table == join_ptr.alias or (
                     isinstance(join_ptr.table, ast.Field) and join_scope.from_table == join_ptr.table.chain[0]
                 ):
-                    join_to_add.next_join = join_ptr.next_join
-                    join_ptr.next_join = join_to_add
+                    # If the `join_to_add` is reliant on the existing `next_join`, then just append after instead of before
+                    if join_ptr.next_join and join_ptr.next_join.alias in constraint_tables:
+                        if join_ptr.next_join.next_join:
+                            join_to_add.next_join = join_ptr.next_join.next_join
+                        join_ptr.next_join.next_join = join_to_add
+                    else:
+                        join_to_add.next_join = join_ptr.next_join
+                        join_ptr.next_join = join_to_add
                     added = True
                     break
                 if join_ptr.next_join:

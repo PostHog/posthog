@@ -27,6 +27,7 @@ def get_property_values_for_key(
     property_exists_filter = ""
     event_filter = ""
     value_filter = ""
+    order_by_clause = ""
     extra_params = {}
 
     if mat_column_exists:
@@ -48,6 +49,8 @@ def get_property_values_for_key(
         value_filter = "AND {} ILIKE %(value)s".format(property_field)
         extra_params["value"] = "%{}%".format(value)
 
+        order_by_clause = f"order by length({property_field})"
+
     return insight_sync_execute(
         SELECT_PROP_VALUES_SQL_WITH_FILTER.format(
             parsed_date_from=parsed_date_from,
@@ -56,6 +59,7 @@ def get_property_values_for_key(
             event_filter=event_filter,
             value_filter=value_filter,
             property_exists_filter=property_exists_filter,
+            order_by_clause=order_by_clause,
         ),
         {"team_id": team.pk, "key": key, **extra_params},
         query_type="get_property_values_with_value",

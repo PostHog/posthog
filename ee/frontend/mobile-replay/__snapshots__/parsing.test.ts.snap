@@ -1,0 +1,339 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`snapshot parsing handles mobile data with no meta event 1`] = `
+[
+  {
+    "data": {
+      "payload": {
+        "requests": [
+          {
+            "duration": 28,
+            "entryType": "resource",
+            "initiatorType": "fetch",
+            "method": "GET",
+            "name": "https://1.bp.blogspot.com/-hkNkoCjc5UA/T4JTlCjhhfI/AAAAAAAAB98/XxQwZ-QPkI8/s1600/Free+Google+Wallpapers+3.jpg",
+            "responseStatus": 200,
+            "timestamp": 1725369200216,
+            "transferSize": 82375,
+          },
+        ],
+      },
+      "plugin": "rrweb/network@1",
+    },
+    "seen": 8833798676917222,
+    "timestamp": 1725369200216,
+    "type": 6,
+    "windowId": "0191C63B-03FF-73B5-96BE-40BE2761621C",
+  },
+  {
+    "data": {
+      "height": 852,
+      "href": "",
+      "width": 393,
+    },
+    "timestamp": 1725607643113,
+    "type": 4,
+    "windowId": "0191C63B-03FF-73B5-96BE-40BE2761621C",
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "data-rrweb-id": 3,
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {
+                  "data-rrweb-id": 4,
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "type": "text/css",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 101,
+                        "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                        padding-block: 0 !important;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 100,
+                    "tagName": "style",
+                    "type": 2,
+                  },
+                ],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "data-rrweb-id": 5,
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 4324378400,
+                      "height": 852,
+                      "src": "data:image/jpeg;base64,/9j/4AAQSkZJR",
+                      "style": "width: 393px;height: 852px;position: fixed;left: 0px;top: 0px;",
+                      "width": 393,
+                    },
+                    "childNodes": [],
+                    "id": 4324378400,
+                    "tagName": "img",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                      "data-rrweb-id": 9,
+                    },
+                    "childNodes": [],
+                    "id": 9,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                    },
+                    "childNodes": [],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 11,
+                    },
+                    "childNodes": [],
+                    "id": 11,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1725607643113,
+    "type": 2,
+    "windowId": "0191C63B-03FF-73B5-96BE-40BE2761621C",
+  },
+]
+`;
+
+exports[`snapshot parsing handles normal mobile data 1`] = `
+[
+  {
+    "data": {
+      "payload": {
+        "requests": [
+          {
+            "duration": 28,
+            "entryType": "resource",
+            "initiatorType": "fetch",
+            "method": "GET",
+            "name": "https://1.bp.blogspot.com/-hkNkoCjc5UA/T4JTlCjhhfI/AAAAAAAAB98/XxQwZ-QPkI8/s1600/Free+Google+Wallpapers+3.jpg",
+            "responseStatus": 200,
+            "timestamp": 1725369200216,
+            "transferSize": 82375,
+          },
+        ],
+      },
+      "plugin": "rrweb/network@1",
+    },
+    "seen": 8833798676917222,
+    "timestamp": 1725369200216,
+    "type": 6,
+    "windowId": "0191C63B-03FF-73B5-96BE-40BE2761621C",
+  },
+  {
+    "data": {
+      "height": 852,
+      "href": "",
+      "width": 393,
+    },
+    "timestamp": 1725607643113,
+    "type": 4,
+    "windowId": "0191C63B-03FF-73B5-96BE-40BE2761621C",
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "data-rrweb-id": 3,
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {
+                  "data-rrweb-id": 4,
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "type": "text/css",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 101,
+                        "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                        padding-block: 0 !important;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 100,
+                    "tagName": "style",
+                    "type": 2,
+                  },
+                ],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "data-rrweb-id": 5,
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 4324378400,
+                      "height": 852,
+                      "src": "data:image/jpeg;base64,/9j/4AAQSkZJR",
+                      "style": "width: 393px;height: 852px;position: fixed;left: 0px;top: 0px;",
+                      "width": 393,
+                    },
+                    "childNodes": [],
+                    "id": 4324378400,
+                    "tagName": "img",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                      "data-rrweb-id": 9,
+                    },
+                    "childNodes": [],
+                    "id": 9,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                    },
+                    "childNodes": [],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 11,
+                    },
+                    "childNodes": [],
+                    "id": 11,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1725607643113,
+    "type": 2,
+    "windowId": "0191C63B-03FF-73B5-96BE-40BE2761621C",
+  },
+]
+`;

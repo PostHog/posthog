@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { buildStringMatcher } from '../../config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
-import { Hub } from '../../types'
+import { Hub, PluginServerService } from '../../types'
 import { status } from '../../utils/status'
 import { eachBatchParallelIngestion, IngestionOverflowMode } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
@@ -11,7 +11,7 @@ export const startAnalyticsEventsIngestionHistoricalConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
 }: {
     hub: Hub
-}) => {
+}): Promise<PluginServerService> => {
     /*
         Consumes analytics events from the Kafka topic `events_plugin_ingestion_historical`
         and processes them for ingestion into ClickHouse.
@@ -39,5 +39,10 @@ export const startAnalyticsEventsIngestionHistoricalConsumer = async ({
 
     const { isHealthy } = await queue.start()
 
-    return { queue, isHealthy }
+    return {
+        id: 'analytics-ingestion-historical',
+        onShutdown: async () => await queue.stop(),
+        healthcheck: isHealthy,
+        batchConsumer: queue.consumer,
+    }
 }

@@ -19,8 +19,16 @@ const SEARCH_DEBOUNCE_MS = 300
 
 interface SidebarProps {
     navbarItem: SidebarNavbarItem // Sidebar can only be rendered if there's an active sidebar navbar item
+    sidebarOverlay?: React.ReactNode
+    sidebarOverlayProps?: SidebarOverlayProps
 }
-export function Sidebar({ navbarItem }: SidebarProps): JSX.Element {
+
+interface SidebarOverlayProps {
+    className?: string
+    isOpen?: boolean
+}
+
+export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: SidebarProps): JSX.Element {
     const inputElementRef = useRef<HTMLInputElement>(null)
 
     const {
@@ -81,6 +89,11 @@ export function Sidebar({ navbarItem }: SidebarProps): JSX.Element {
                     }
                 }}
             />
+            {sidebarOverlay && (
+                <SidebarOverlay {...sidebarOverlayProps} isOpen={isShown && sidebarOverlayProps?.isOpen} width={width}>
+                    {sidebarOverlay}
+                </SidebarOverlay>
+            )}
         </div>
     )
 }
@@ -135,7 +148,7 @@ function SidebarSearchBar({
     return (
         <div>
             <LemonInput
-                ref={inputElementRef}
+                inputRef={inputElementRef}
                 type="search"
                 value={localSearchTerm}
                 onChange={(value) => {
@@ -196,6 +209,27 @@ function SidebarKeyboardShortcut(): JSX.Element {
                 <i>Tip:</i> Press <KeyboardShortcut command b /> to toggle this sidebar
             </span>
             <LemonButton icon={<IconX />} size="small" onClick={() => acknowledgeSidebarKeyboardShortcut()} noPadding />
+        </div>
+    )
+}
+
+function SidebarOverlay({
+    className,
+    isOpen = false,
+    children,
+    width,
+}: SidebarOverlayProps & { children: React.ReactNode; width: number }): JSX.Element | null {
+    if (!isOpen) {
+        return null
+    }
+
+    return (
+        <div
+            className={clsx('absolute top-0 left-0 h-full bg-bg-3000', className)}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ width: `${width}px` }}
+        >
+            {children}
         </div>
     )
 }

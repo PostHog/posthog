@@ -15,7 +15,6 @@ from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.subscription import Subscription
 from posthog.test.base import APIBaseTest
 
 
@@ -24,7 +23,6 @@ from posthog.test.base import APIBaseTest
 @patch("ee.tasks.subscriptions.generate_assets")
 @freeze_time("2022-02-02T08:55:00.000Z")
 class TestSubscriptionsTasks(APIBaseTest):
-    subscriptions: list[Subscription] = None  # type: ignore
     dashboard: Dashboard
     insight: Insight
     tiles: list[DashboardTile] = None  # type: ignore

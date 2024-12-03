@@ -51,7 +51,7 @@ export function Sizes(): JSX.Element {
 export function TextColored(): JSX.Element {
     return (
         <div className="bg-default p-4 text-4xl">
-            <Spinner textColored className="text-white" />
+            <Spinner textColored className="text-bg-light" />
         </div>
     )
 }

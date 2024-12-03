@@ -47,6 +47,22 @@ export default defineConfig({
             name: 'chromium',
             use: {
                 ...devices['Desktop Chrome'],
+                launchOptions: {
+                    // https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-tools.md
+                    args: [
+                        '--headless=new',
+                        '--single-process',
+
+                        '--allow-pre-commit-input',
+                        '--deterministic-mode',
+                        '--disable-features=PaintHolding',
+                        '--disable-partial-raster',
+                        '--disable-skia-runtime-opt',
+                        '--in-process-gpu',
+                        '--use-gl=swiftshader',
+                        '--force-color-profile=srgb',
+                    ],
+                },
             },
         },
 

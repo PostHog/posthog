@@ -40,8 +40,12 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _create_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         create_group(
             team_id=self.team.pk,
@@ -3740,11 +3744,6 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @also_test_with_materialized_columns(
-        ["$current_url", "$screen_name"],
-        group_properties=[(0, "industry"), (1, "industry")],
-        materialize_only_with_person_on_events=True,
-    )
     @snapshot_clickhouse_queries
     def test_groups_filtering_person_on_events(self):
         self._create_groups()

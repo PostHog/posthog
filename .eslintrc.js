@@ -12,7 +12,7 @@ const globals = {
 }
 
 module.exports = {
-    ignorePatterns: ['node_modules', 'plugin-server', 'cypress'],
+    ignorePatterns: ['node_modules', 'plugin-server'],
     env,
     settings: {
         react: {
@@ -42,6 +42,7 @@ module.exports = {
     },
     plugins: [
         'react',
+        'react-hooks',
         'cypress',
         '@typescript-eslint',
         'compat',
@@ -51,6 +52,8 @@ module.exports = {
         'unused-imports',
     ],
     rules: {
+        'react-hooks/rules-of-hooks': 'error',
+        'react-hooks/exhaustive-deps': 'warn',
         // PyCharm always adds curly braces, I guess vscode doesn't, PR reviewers often complain they are present on props that don't need them
         // let's save the humans time and let the machines do the work
         // "never" means if the prop does not need the curly braces, they will be removed/errored
@@ -113,26 +116,6 @@ module.exports = {
                     {
                         name: 'dayjs',
                         message: 'Do not directly import dayjs. Only import the dayjs exported from lib/dayjs.',
-                    },
-                    {
-                        name: '@ant-design/icons',
-                        message: 'Please use icons from the @posthog/icons package instead',
-                    },
-                    {
-                        name: 'antd',
-                        importNames: [
-                            'Card',
-                            'Col',
-                            'Row',
-                            'Alert',
-                            'Tooltip',
-                            'Progress',
-                            'Radio',
-                            'Divider',
-                            'Popconfirm',
-                            'Table',
-                        ],
-                        message: 'please use the Lemon equivalent instead',
                     },
                 ],
             },
@@ -299,8 +282,8 @@ module.exports = {
                 node: true,
                 'jest/globals': true,
             },
-            "plugins": ["jest"],
-            "extends": ["plugin:jest/recommended"],
+            plugins: ['jest'],
+            extends: ['plugin:jest/recommended'],
             globals: {
                 ...globals,
                 given: 'readonly',
@@ -317,7 +300,27 @@ module.exports = {
                 // but it's helpful sometimes
                 'jest/no-export': 'off',
                 // also helpful sometimes, but not always
-                'jest/no-conditional-expect': 'warn'
+                'jest/no-conditional-expect': 'warn',
+            },
+        },
+        {
+            files: ['**/*.cy.ts'],
+            env: {
+                ...env,
+                node: true,
+                'jest/globals': true,
+            },
+            plugins: ['jest'],
+            extends: ['plugin:jest/recommended'],
+            globals: {
+                ...globals,
+                given: 'readonly',
+            },
+            rules: {
+                // don't complain about unknown expect statements
+                'jest/valid-expect': 'off',
+                // don't warn about missing expect
+                'jest/expect-expect': 'off',
             },
         },
         {

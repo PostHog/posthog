@@ -106,9 +106,7 @@ class SimEvent:
     group4_created_at: Optional[dt.datetime] = None
 
     def __str__(self) -> str:
-        separator = (
-            "-" if self.timestamp < dt.datetime.now(dt.timezone.utc) else "+"
-        )  # Future events are denoted by a '+'
+        separator = "-" if self.timestamp < dt.datetime.now(dt.UTC) else "+"  # Future events are denoted by a '+'
         display = f"{self.timestamp} {separator} {self.event} # {self.distinct_id}"
         if current_url := self.properties.get("$current_url"):
             display += f" @ {current_url}"
@@ -193,7 +191,7 @@ class SimBrowserClient(SimClient):
 
     def __enter__(self):
         """Start session within client."""
-        self.active_session_id = str(self.person.cluster.roll_uuidt())
+        self.active_session_id = str(self.person.cluster.roll_uuid_v7())
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         """End session within client. Handles `$pageleave` event."""

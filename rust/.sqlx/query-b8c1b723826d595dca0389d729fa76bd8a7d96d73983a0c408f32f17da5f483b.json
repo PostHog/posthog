@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO cyclotron_dead_letter_metadata (job_id, original_queue_name, reason, dlq_time) VALUES ($1, $2, $3, NOW())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b8c1b723826d595dca0389d729fa76bd8a7d96d73983a0c408f32f17da5f483b"
+}

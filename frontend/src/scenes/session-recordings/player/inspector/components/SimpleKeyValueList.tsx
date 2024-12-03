@@ -1,6 +1,8 @@
 // A React component that renders a list of key-value pairs in a simple way.
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { useEffect, useState } from 'react'
 
 export interface SimpleKeyValueListProps {
@@ -13,21 +15,35 @@ export interface SimpleKeyValueListProps {
     promotedKeys?: string[]
 }
 
-export function SimpleKeyValueList({ item, emptyMessage, promotedKeys }: SimpleKeyValueListProps): JSX.Element {
+export function SimpleKeyValueList({
+    item,
+    emptyMessage = 'No properties to display',
+    promotedKeys,
+}: SimpleKeyValueListProps): JSX.Element {
     const [sortedItemsPromotedFirst, setSortedItemsPromotedFirst] = useState<[string, any][]>([])
 
     useEffect(() => {
         const sortedItems = Object.entries(item).sort((a, b) => {
-            if (a[0] < b[0]) {
+            // if this is a posthog property we want to sort by its label
+            const left = getCoreFilterDefinition(a[0], TaxonomicFilterGroupType.EventProperties)?.label || a[0]
+            const right = getCoreFilterDefinition(b[0], TaxonomicFilterGroupType.EventProperties)?.label || b[0]
+
+            if (left < right) {
                 return -1
             }
-            if (a[0] > b[0]) {
+            if (left > right) {
                 return 1
             }
             return 0
         })
 
-        const promotedItems = promotedKeys?.length ? sortedItems.filter(([key]) => promotedKeys.includes(key)) : []
+        // promoted items are shown in the order provided
+        const promotedItems = promotedKeys?.length
+            ? Object.entries(item)
+                  .filter(([key]) => promotedKeys.includes(key))
+                  .sort((a, b) => promotedKeys.indexOf(a[0]) - promotedKeys.indexOf(b[0]))
+            : []
+        // all other keys are provided sorted by key
         const nonPromotedItems = promotedKeys?.length
             ? sortedItems.filter(([key]) => !promotedKeys.includes(key))
             : sortedItems

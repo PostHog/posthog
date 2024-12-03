@@ -8,7 +8,7 @@ from posthog.hogql.errors import ResolutionError, NotImplementedError
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
-    from posthog.hogql.ast import SelectQuery
+    from posthog.hogql.ast import SelectQuery, LazyJoinType
     from posthog.hogql.base import ConstantType
 
 
@@ -95,6 +95,8 @@ class BooleanDatabaseField(DatabaseField):
 
 class ExpressionField(DatabaseField):
     expr: Expr
+    # Pushes the parent table type to the scope when resolving any child fields
+    isolate_scope: Optional[bool] = None
 
 
 class FieldTraverser(FieldOrTable):
@@ -126,7 +128,11 @@ class Table(FieldOrTable):
         return []
 
     def get_asterisk(self):
-        fields_to_avoid = [*self.avoid_asterisk_fields(), "team_id"]
+        if isinstance(self, FunctionCallTable):
+            fields_to_avoid = self.avoid_asterisk_fields()
+        else:
+            fields_to_avoid = [*self.avoid_asterisk_fields(), "team_id"]
+
         asterisk: dict[str, FieldOrTable] = {}
         for key, field_ in self.fields.items():
             if key in fields_to_avoid:
@@ -186,6 +192,7 @@ class LazyJoinToAdd:
     from_table: str
     to_table: str
     lazy_join: LazyJoin
+    lazy_join_type: "LazyJoinType"
     fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
 
 
@@ -212,6 +219,7 @@ class SavedQuery(Table):
     A table that returns a subquery, e.g. my_saved_query -> (SELECT * FROM some_saved_table). The team_id guard is NOT added for the overall subquery
     """
 
+    id: str
     query: str
     name: str
 

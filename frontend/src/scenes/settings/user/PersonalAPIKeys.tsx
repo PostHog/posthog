@@ -24,7 +24,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
 
-import { API_KEY_SCOPE_PRESETS, APIScopes, personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { API_KEY_SCOPE_PRESETS, APIScopes, MAX_API_KEYS_PER_USER, personalAPIKeysLogic } from './personalAPIKeysLogic'
 
 function EditKeyModal(): JSX.Element {
     const {
@@ -81,7 +81,7 @@ function EditKeyModal(): JSX.Element {
                                     onChange={onChange}
                                     value={value}
                                     options={[
-                                        { label: 'All-access', value: 'all' },
+                                        { label: 'All access', value: 'all' },
                                         {
                                             label: 'Organizations',
                                             value: 'organizations',
@@ -310,8 +310,27 @@ function EditKeyModal(): JSX.Element {
     )
 }
 
+type TagListProps = { onMoreClick: () => void; tags: string[] }
+
+function TagList({ tags, onMoreClick }: TagListProps): JSX.Element {
+    return (
+        <span className="flex flex-wrap gap-1">
+            {tags.slice(0, 4).map((x) => (
+                <>
+                    <LemonTag key={x}>{x}</LemonTag>
+                </>
+            ))}
+            {tags.length > 4 && (
+                <Tooltip title={tags.slice(4).join(', ')}>
+                    <LemonTag onClick={onMoreClick}>+{tags.length - 4} more</LemonTag>
+                </Tooltip>
+            )}
+        </span>
+    )
+}
+
 function PersonalAPIKeysTable(): JSX.Element {
-    const { keys, keysLoading } = useValues(personalAPIKeysLogic)
+    const { keys, keysLoading, allOrganizations, allTeams } = useValues(personalAPIKeysLogic)
     const { deleteKey, loadKeys, setEditingKeyId } = useActions(personalAPIKeysLogic)
 
     useEffect(() => loadKeys(), [])
@@ -362,23 +381,37 @@ function PersonalAPIKeysTable(): JSX.Element {
                     dataIndex: 'scopes',
                     render: function RenderValue(_, key) {
                         return key.scopes[0] === '*' ? (
-                            <LemonTag type="warning">(all access)</LemonTag>
+                            <LemonTag type="warning">All access</LemonTag>
                         ) : (
-                            <span className="flex flex-wrap gap-1">
-                                {key.scopes.slice(0, 4).map((x) => (
-                                    <>
-                                        <LemonTag key={x}>{x}</LemonTag>
-                                    </>
-                                ))}
-                                {key.scopes.length > 4 && (
-                                    <Tooltip title={key.scopes.slice(4).join(', ')}>
-                                        <LemonTag onClick={() => setEditingKeyId(key.id)}>
-                                            +{key.scopes.length - 4} more
-                                        </LemonTag>
-                                    </Tooltip>
-                                )}
-                            </span>
+                            <TagList tags={key.scopes} onMoreClick={() => setEditingKeyId(key.id)} />
                         )
+                    },
+                },
+                {
+                    title: 'Organization & project access',
+                    key: 'access',
+                    dataIndex: 'id',
+                    render: function RenderValue(_, key) {
+                        if (key?.scoped_organizations?.length) {
+                            return (
+                                <TagList
+                                    tags={key.scoped_organizations?.map(
+                                        (id) => allOrganizations.find((org) => org.id === id)?.name || ''
+                                    )}
+                                    onMoreClick={() => setEditingKeyId(key.id)}
+                                />
+                            )
+                        } else if (key?.scoped_teams?.length) {
+                            return (
+                                <TagList
+                                    tags={key.scoped_teams?.map(
+                                        (id) => allTeams?.find((org) => org.id === id)?.name || ''
+                                    )}
+                                    onMoreClick={() => setEditingKeyId(key.id)}
+                                />
+                            )
+                        }
+                        return <LemonTag type="warning">All access</LemonTag>
                     },
                 },
                 {
@@ -435,6 +468,7 @@ function PersonalAPIKeysTable(): JSX.Element {
 }
 
 export function PersonalAPIKeys(): JSX.Element {
+    const { keys } = useValues(personalAPIKeysLogic)
     const { setEditingKeyId } = useActions(personalAPIKeysLogic)
 
     return (
@@ -451,7 +485,16 @@ export function PersonalAPIKeys(): JSX.Element {
                     More about API authentication in PostHog Docs.
                 </Link>
             </p>
-            <LemonButton type="primary" icon={<IconPlus />} onClick={() => setEditingKeyId('new')}>
+            <LemonButton
+                type="primary"
+                icon={<IconPlus />}
+                onClick={() => setEditingKeyId('new')}
+                disabledReason={
+                    keys.length >= MAX_API_KEYS_PER_USER
+                        ? `You can only have ${MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one.`
+                        : false
+                }
+            >
                 Create personal API key
             </LemonButton>
 

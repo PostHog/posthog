@@ -97,11 +97,15 @@ export const lemonToast = {
         })
     },
     error(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
-        posthog.capture('toast error', {
-            message: String(message),
-            button: button?.label,
-            toastId: toastOptions.toastId,
-        })
+        // when used inside the posthog toolbar, `posthog.capture` isn't loaded
+        // check if the function is available before calling it.
+        if (posthog.capture) {
+            posthog.capture('toast error', {
+                message: String(message),
+                button: button?.label,
+                toastId: toastOptions.toastId,
+            })
+        }
         toastOptions = ensureToastId(toastOptions)
         toast.error(
             <ToastContent

@@ -1,5 +1,5 @@
-import { randomString } from '../support/random'
 import { insight } from '../productAnalytics'
+import { randomString } from '../support/random'
 
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {

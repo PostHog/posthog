@@ -1,6 +1,12 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
-import { allOperatorsMapping, isOperatorFlag } from 'lib/utils'
+import {
+    allOperatorsMapping,
+    capitalizeFirstLetter,
+    cohortOperatorMap,
+    isOperatorCohort,
+    isOperatorFlag,
+} from 'lib/utils'
 
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
@@ -10,6 +16,7 @@ import {
     AnyPropertyFilter,
     CohortPropertyFilter,
     CohortType,
+    DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
     ElementPropertyFilter,
     EmptyPropertyFilter,
@@ -19,6 +26,7 @@ import {
     FilterLogicalOperator,
     GroupPropertyFilter,
     HogQLPropertyFilter,
+    LogEntryPropertyFilter,
     PersonPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
@@ -103,6 +111,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.DataWarehouse]: TaxonomicFilterGroupType.DataWarehouse,
         [PropertyFilterType.DataWarehousePersonProperty]: TaxonomicFilterGroupType.DataWarehousePersonProperties,
         [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
+        [PropertyFilterType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
     }
 
 export function formatPropertyLabel(
@@ -118,7 +127,8 @@ export function formatPropertyLabel(
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
 
     return type === 'cohort'
-        ? cohortsById[value]?.name || `ID ${value}`
+        ? `${capitalizeFirstLetter(cohortOperatorMap[operator || 'in'] || 'user in')} ` +
+              (cohortsById[value]?.name || `ID ${value}`)
         : (CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${allOperatorsMapping[operator]}`
@@ -202,11 +212,19 @@ export function isSessionPropertyFilter(filter?: AnyFilterLike | null): filter i
 export function isRecordingPropertyFilter(filter?: AnyFilterLike | null): filter is RecordingPropertyFilter {
     return filter?.type === PropertyFilterType.Recording
 }
+export function isLogEntryPropertyFilter(filter?: AnyFilterLike | null): filter is LogEntryPropertyFilter {
+    return filter?.type === PropertyFilterType.LogEntry
+}
 export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.Group
 }
 export function isDataWarehousePropertyFilter(filter?: AnyFilterLike | null): filter is DataWarehousePropertyFilter {
     return filter?.type === PropertyFilterType.DataWarehouse
+}
+export function isDataWarehousePersonPropertyFilter(
+    filter?: AnyFilterLike | null
+): filter is DataWarehousePropertyFilter {
+    return filter?.type === PropertyFilterType.DataWarehousePersonProperty
 }
 export function isFeaturePropertyFilter(filter?: AnyFilterLike | null): filter is FeaturePropertyFilter {
     return filter?.type === PropertyFilterType.Feature
@@ -223,6 +241,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isSessionPropertyFilter(filter) ||
         isCohortPropertyFilter(filter) ||
         isRecordingPropertyFilter(filter) ||
+        isLogEntryPropertyFilter(filter) ||
         isFeaturePropertyFilter(filter) ||
         isGroupPropertyFilter(filter)
     )
@@ -236,9 +255,11 @@ export function isPropertyFilterWithOperator(
     | ElementPropertyFilter
     | SessionPropertyFilter
     | RecordingPropertyFilter
+    | LogEntryPropertyFilter
     | FeaturePropertyFilter
     | GroupPropertyFilter
-    | DataWarehousePropertyFilter {
+    | DataWarehousePropertyFilter
+    | DataWarehousePersonPropertyFilter {
     return (
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
@@ -246,9 +267,12 @@ export function isPropertyFilterWithOperator(
             isElementPropertyFilter(filter) ||
             isSessionPropertyFilter(filter) ||
             isRecordingPropertyFilter(filter) ||
+            isLogEntryPropertyFilter(filter) ||
             isFeaturePropertyFilter(filter) ||
             isGroupPropertyFilter(filter) ||
-            isDataWarehousePropertyFilter(filter))
+            isCohortPropertyFilter(filter) ||
+            isDataWarehousePropertyFilter(filter) ||
+            isDataWarehousePersonPropertyFilter(filter))
     )
 }
 
@@ -271,9 +295,10 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
+    [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
 }
 
-const filterToTaxonomicFilterType = (
+export const filterToTaxonomicFilterType = (
     type?: string | null,
     group_type_index?: number | null,
     value?: (string | number)[] | string | number | null
@@ -317,6 +342,8 @@ export function propertyFilterTypeToPropertyDefinitionType(
         ? PropertyDefinitionType.Session
         : filterType === PropertyFilterType.Recording
         ? PropertyDefinitionType.Session
+        : filterType === PropertyFilterType.LogEntry
+        ? PropertyDefinitionType.LogEntry
         : PropertyDefinitionType.Event
 }
 
@@ -346,10 +373,6 @@ export function taxonomicFilterTypeToPropertyFilterType(
         return PropertyFilterType.DataWarehousePersonProperty
     }
 
-    if (filterType == TaxonomicFilterGroupType.Replay) {
-        return PropertyFilterType.Recording
-    }
-
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as
         | PropertyFilterType
         | undefined
@@ -371,13 +394,19 @@ export function createDefaultPropertyFilter(
     describeProperty: propertyDefinitionsModelType['values']['describeProperty']
 ): AnyPropertyFilter {
     if (propertyType === PropertyFilterType.Cohort) {
+        const operator =
+            (isPropertyFilterWithOperator(filter) && isOperatorCohort(filter?.operator) && filter?.operator) ||
+            PropertyOperator.In
         const cohortProperty: CohortPropertyFilter = {
             key: 'id',
             value: parseInt(String(propertyKey)),
             type: propertyType,
+            operator: operator,
         }
         return cohortProperty
-    } else if (propertyType === PropertyFilterType.HogQL) {
+    }
+
+    if (propertyType === PropertyFilterType.HogQL) {
         const hogQLProperty: HogQLPropertyFilter = {
             type: propertyType,
             key: String(propertyKey),
@@ -385,6 +414,7 @@ export function createDefaultPropertyFilter(
         }
         return hogQLProperty
     }
+
     const apiType = propertyFilterTypeToPropertyDefinitionType(propertyType) ?? PropertyDefinitionType.Event
 
     const propertyValueType = describeProperty(propertyKey, apiType, taxonomicGroup.groupTypeIndex)
@@ -398,7 +428,7 @@ export function createDefaultPropertyFilter(
     }
     const operator =
         property_name_to_default_operator_override[propertyKey] ||
-        (isPropertyFilterWithOperator(filter) ? filter.operator : null) ||
+        (isPropertyFilterWithOperator(filter) && !isOperatorCohort(filter.operator) ? filter.operator : null) ||
         property_value_type_to_default_operator_override[propertyValueType ?? ''] ||
         PropertyOperator.Exact
 

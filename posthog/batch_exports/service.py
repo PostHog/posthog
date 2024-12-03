@@ -5,6 +5,7 @@ from uuid import UUID
 
 import structlog
 import temporalio
+import temporalio.common
 from asgiref.sync import async_to_sync
 from temporalio.client import (
     Client,
@@ -23,7 +24,7 @@ from posthog.batch_exports.models import (
     BatchExportDestination,
     BatchExportRun,
 )
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
+from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -54,9 +55,15 @@ class BatchExportSchema(typing.TypedDict):
     values: dict[str, str]
 
 
+@dataclass
+class BatchExportModel:
+    name: str
+    schema: BatchExportSchema | None
+
+
 class BatchExportsInputsProtocol(typing.Protocol):
     team_id: int
-    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
     is_backfill: bool = False
 
 
@@ -90,10 +97,12 @@ class S3BatchExportInputs:
     include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
-    batch_export_schema: BatchExportSchema | None = None
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @dataclass
@@ -114,8 +123,10 @@ class SnowflakeBatchExportInputs:
     role: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
-    batch_export_schema: BatchExportSchema | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @dataclass
@@ -136,8 +147,10 @@ class PostgresBatchExportInputs:
     data_interval_end: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
-    batch_export_schema: BatchExportSchema | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @dataclass
@@ -165,8 +178,11 @@ class BigQueryBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     use_json_type: bool = False
-    batch_export_schema: BatchExportSchema | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
+
+    batch_export_model: BatchExportModel | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @dataclass
@@ -181,8 +197,10 @@ class HttpBatchExportInputs:
     data_interval_end: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
-    batch_export_schema: BatchExportSchema | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @dataclass
@@ -193,8 +211,9 @@ class NoOpInputs:
     team_id: int
     interval: str = "hour"
     arg: str = ""
-    batch_export_schema: BatchExportSchema | None = None
     is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 DESTINATION_WORKFLOWS = {
@@ -257,7 +276,7 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
         raise BatchExportServiceRPCError(f"BatchExport {batch_export_id} could not be paused") from exc
 
     batch_export.paused = True
-    batch_export.last_paused_at = dt.datetime.now(dt.timezone.utc)
+    batch_export.last_paused_at = dt.datetime.now(dt.UTC)
     batch_export.save()
 
     return True
@@ -285,7 +304,7 @@ async def apause_batch_export(temporal: Client, batch_export_id: str, note: str 
         raise BatchExportServiceRPCError(f"BatchExport {batch_export_id} could not be paused") from exc
 
     batch_export.paused = True
-    batch_export.last_paused_at = dt.datetime.now(dt.timezone.utc)
+    batch_export.last_paused_at = dt.datetime.now(dt.UTC)
     await batch_export.asave()
 
     return True
@@ -344,7 +363,14 @@ def disable_and_delete_export(instance: BatchExport):
     instance.deleted = True
 
     for backfill in running_backfills_for_batch_export(instance.id):
-        async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
+        try:
+            async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
+        except Exception:
+            logger.exception(
+                "Failed to delete backfill %s for batch export %s, but will continue on with delete",
+                backfill.id,
+                instance.id,
+            )
 
     try:
         batch_export_delete_schedule(temporal, str(instance.pk))
@@ -389,13 +415,23 @@ async def cancel_running_batch_export_backfill(temporal: Client, batch_export_ba
     await batch_export_backfill.asave()
 
 
+def cancel_running_batch_export_run(temporal: Client, batch_export_run: BatchExportRun) -> None:
+    """Cancel a running BatchExportRun."""
+
+    handle = temporal.get_workflow_handle(workflow_id=batch_export_run.workflow_id)
+    async_to_sync(handle.cancel)()
+
+    batch_export_run.status = BatchExportRun.Status.CANCELLED
+    batch_export_run.save()
+
+
 @dataclass
 class BackfillBatchExportInputs:
     """Inputs for the BackfillBatchExport Workflow."""
 
     team_id: int
     batch_export_id: str
-    start_at: str
+    start_at: str | None
     end_at: str | None
     buffer_limit: int = 1
     start_delay: float = 1.0
@@ -405,7 +441,7 @@ def backfill_export(
     temporal: Client,
     batch_export_id: str,
     team_id: int,
-    start_at: dt.datetime,
+    start_at: dt.datetime | None,
     end_at: dt.datetime | None,
 ) -> str:
     """Starts a backfill for given team and batch export covering given date range.
@@ -433,22 +469,33 @@ def backfill_export(
     inputs = BackfillBatchExportInputs(
         batch_export_id=batch_export_id,
         team_id=team_id,
-        start_at=start_at.isoformat(),
+        start_at=start_at.isoformat() if start_at else None,
         end_at=end_at.isoformat() if end_at else None,
     )
-    workflow_id = start_backfill_batch_export_workflow(temporal, inputs=inputs)
+    start_at_utc_str = start_at.astimezone(tz=dt.UTC).isoformat() if start_at else "START"
+    # TODO: Should we use another signal besides "None"? i.e. "Inf" or "END".
+    # Keeping it like this for now for backwards compatibility.
+    end_at_utc_str = end_at.astimezone(tz=dt.UTC).isoformat() if end_at else "END"
+
+    workflow_id = f"{inputs.batch_export_id}-Backfill-{start_at_utc_str}-{end_at_utc_str}"
+
+    workflow_id = start_backfill_batch_export_workflow(temporal, workflow_id, inputs=inputs)
     return workflow_id
 
 
 @async_to_sync
-async def start_backfill_batch_export_workflow(temporal: Client, inputs: BackfillBatchExportInputs) -> str:
+async def start_backfill_batch_export_workflow(
+    temporal: Client, workflow_id: str, inputs: BackfillBatchExportInputs
+) -> str:
     """Async call to start a BackfillBatchExportWorkflow."""
-    workflow_id = f"{inputs.batch_export_id}-Backfill-{inputs.start_at}-{inputs.end_at}"
     await temporal.start_workflow(
         "backfill-batch-export",
         inputs,
         id=workflow_id,
-        task_queue=BATCH_EXPORTS_TASK_QUEUE,
+        # TODO: Backfills could also run in async queue.
+        # But tests expect them not to, so we keep them in sync
+        # queue after everything is migrated.
+        task_queue=SYNC_BATCH_EXPORTS_TASK_QUEUE,
     )
 
     return workflow_id
@@ -456,7 +503,7 @@ async def start_backfill_batch_export_workflow(temporal: Client, inputs: Backfil
 
 def create_batch_export_run(
     batch_export_id: UUID,
-    data_interval_start: str,
+    data_interval_start: str | None,
     data_interval_end: str,
     status: str = BatchExportRun.Status.STARTING,
     records_total_count: int | None = None,
@@ -475,7 +522,7 @@ def create_batch_export_run(
     run = BatchExportRun(
         batch_export_id=batch_export_id,
         status=status,
-        data_interval_start=dt.datetime.fromisoformat(data_interval_start),
+        data_interval_start=dt.datetime.fromisoformat(data_interval_start) if data_interval_start else None,
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
         records_total_count=records_total_count,
     )
@@ -524,7 +571,7 @@ def update_batch_export_run(
         run_id: The id of the BatchExportRun to update.
     """
     model = BatchExportRun.objects.filter(id=run_id)
-    update_at = dt.datetime.now()
+    update_at = dt.datetime.now(dt.UTC)
 
     updated = model.update(
         **kwargs,
@@ -547,7 +594,7 @@ async def aupdate_batch_export_run(
         run_id: The id of the BatchExportRun to update.
     """
     model = BatchExportRun.objects.filter(id=run_id)
-    update_at = dt.datetime.now()
+    update_at = dt.datetime.now(dt.UTC)
 
     updated = await model.aupdate(
         **kwargs,
@@ -599,6 +646,11 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 
     destination_config_fields = {field.name for field in fields(workflow_inputs)}
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
+    task_queue = (
+        BATCH_EXPORTS_TASK_QUEUE
+        if batch_export.destination.type in ("BigQuery", "Redshift")
+        else SYNC_BATCH_EXPORTS_TASK_QUEUE
+    )
 
     temporal = sync_connect()
     schedule = Schedule(
@@ -609,18 +661,34 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     team_id=batch_export.team.id,
                     batch_export_id=str(batch_export.id),
                     interval=str(batch_export.interval),
-                    batch_export_schema=batch_export.schema,
+                    batch_export_model=BatchExportModel(
+                        name=batch_export.model or "events",
+                        schema=batch_export.schema,
+                    ),
+                    # TODO: This field is deprecated, but we still set it for backwards compatibility.
+                    # New exports created will always have `batch_export_schema` set to `None`, but existing
+                    # batch exports may still be using it.
+                    # This assignment should be removed after updating all existing exports to use
+                    # `batch_export_model` instead.
+                    batch_export_schema=None,
                     **destination_config,
                 )
             ),
             id=str(batch_export.id),
-            task_queue=BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=task_queue,
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=2,
+                non_retryable_error_types=["ActivityError", "ApplicationError", "CancelledError"],
+            ),
         ),
         spec=ScheduleSpec(
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
-            jitter=(batch_export.interval_time_delta / 12),
+            jitter=min(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
+            time_zone_name=batch_export.team.timezone,
         ),
         state=state,
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
@@ -629,7 +697,11 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
     if created:
         create_schedule(temporal, id=str(batch_export.id), schedule=schedule)
     else:
-        update_schedule(temporal, id=str(batch_export.id), schedule=schedule)
+        # For the time being, do not update existing time_zone_name to avoid losing
+        # data due to the shift in start times.
+        # TODO: This should require input from the user for example when changing a project's timezone.
+        # With user's input, then we can more confidently do the update.
+        update_schedule(temporal, id=str(batch_export.id), schedule=schedule, keep_tz=True)
 
     return batch_export
 
@@ -637,7 +709,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 def create_batch_export_backfill(
     batch_export_id: UUID,
     team_id: int,
-    start_at: str,
+    start_at: str | None,
     end_at: str | None,
     status: str = BatchExportRun.Status.RUNNING,
 ) -> BatchExportBackfill:
@@ -654,7 +726,7 @@ def create_batch_export_backfill(
     backfill = BatchExportBackfill(
         batch_export_id=batch_export_id,
         status=status,
-        start_at=dt.datetime.fromisoformat(start_at),
+        start_at=dt.datetime.fromisoformat(start_at) if start_at else None,
         end_at=dt.datetime.fromisoformat(end_at) if end_at else None,
         team_id=team_id,
     )

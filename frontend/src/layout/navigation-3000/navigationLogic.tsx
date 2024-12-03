@@ -8,6 +8,7 @@ import {
     IconHome,
     IconLive,
     IconLogomark,
+    IconMegaphone,
     IconNotebook,
     IconPeople,
     IconPieChart,
@@ -15,6 +16,7 @@ import {
     IconRewindPlay,
     IconRocket,
     IconServer,
+    IconSparkles,
     IconTestTube,
     IconToggle,
     IconWarning,
@@ -29,6 +31,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import React from 'react'
+import { editorSidebarLogic } from 'scenes/data-warehouse/editor/editorSidebarLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -101,9 +104,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     reducers({
         isSidebarShown: [
             true,
-            {
-                persist: true,
-            },
             {
                 hideSidebar: () => false,
                 showSidebar: () => true,
@@ -399,7 +399,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                           },
                           {
                               identifier: Scene.PersonsManagement,
-                              label: 'People',
+                              label: 'People and groups',
                               icon: <IconPeople />,
                               logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                               to: isUsingSidebar ? undefined : urls.persons(),
@@ -408,7 +408,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               identifier: Scene.Activity,
                               label: 'Activity',
                               icon: <IconLive />,
-                              to: featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity() : urls.events(),
+                              to: urls.activity(),
                           },
                       ]
                     : [
@@ -419,6 +419,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: urls.products(),
                           },
                       ]
+
+                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
+                    sectionOne.splice(1, 0, {
+                        identifier: Scene.Max,
+                        label: 'Max AI',
+                        icon: <IconSparkles />,
+                        to: urls.max(),
+                    })
+                }
 
                 return [
                     sectionOne,
@@ -441,7 +450,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Web analytics',
                             icon: <IconPieChart />,
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
-                            tag: 'beta' as const,
                         },
                         {
                             identifier: Scene.Replay,
@@ -455,6 +463,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Error tracking',
                                   icon: <IconWarning />,
                                   to: urls.errorTracking(),
+                                  tag: 'alpha' as const,
                               }
                             : null,
                         featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
@@ -475,7 +484,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         {
                             identifier: Scene.Experiments,
-                            label: 'A/B testing',
+                            label: 'Experiments',
                             icon: <IconTestTube />,
                             logic: isUsingSidebar ? experimentsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.experiments(),
@@ -494,30 +503,45 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.earlyAccessFeatures(),
                               }
                             : null,
-                        hasOnboardedAnyProduct
+                        {
+                            identifier: Scene.DataWarehouse,
+                            label: 'Data warehouse',
+                            icon: <IconServer />,
+                            to: isUsingSidebar ? undefined : urls.dataWarehouse(),
+                        },
+                        featureFlags[FEATURE_FLAGS.SQL_EDITOR]
                             ? {
-                                  identifier: Scene.DataWarehouse,
-                                  label: 'Data warehouse',
+                                  identifier: Scene.SQLEditor,
+                                  label: 'Data warehouse 3000',
                                   icon: <IconServer />,
-                                  to: urls.dataWarehouse(),
-                                  featureFlag: FEATURE_FLAGS.DATA_WAREHOUSE,
-                                  tag: 'beta' as const,
+                                  to: urls.sqlEditor(),
+                                  logic: editorSidebarLogic,
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.DATA_MODELING] && hasOnboardedAnyProduct
+                            ? {
+                                  identifier: Scene.DataModel,
+                                  label: 'Data model',
+                                  icon: <IconServer />,
+                                  to: isUsingSidebar ? undefined : urls.dataModel(),
                               }
                             : null,
                         hasOnboardedAnyProduct
-                            ? featureFlags[FEATURE_FLAGS.PIPELINE_UI]
-                                ? {
-                                      identifier: Scene.Pipeline,
-                                      label: 'Data pipeline',
-                                      icon: <IconDecisionTree />,
-                                      to: urls.pipeline(),
-                                  }
-                                : {
-                                      identifier: Scene.Apps,
-                                      label: 'Data pipeline',
-                                      icon: <IconDecisionTree />,
-                                      to: urls.projectApps(),
-                                  }
+                            ? {
+                                  identifier: Scene.Pipeline,
+                                  label: 'Data pipeline',
+                                  icon: <IconDecisionTree />,
+                                  to: urls.pipeline(),
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.MESSAGING] && hasOnboardedAnyProduct
+                            ? {
+                                  identifier: Scene.MessagingBroadcasts,
+                                  label: 'Messaging',
+                                  icon: <IconMegaphone />,
+                                  to: urls.messagingBroadcasts(),
+                                  tag: 'alpha' as const,
+                              }
                             : null,
                     ].filter(isNotNil),
                 ]
@@ -573,6 +597,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         activeNavbarItemId: [
             (s) => [s.activeNavbarItemIdRaw, featureFlagLogic.selectors.featureFlags],
             (activeNavbarItemIdRaw, featureFlags): string | null => {
+                if (featureFlags[FEATURE_FLAGS.SQL_EDITOR] && activeNavbarItemIdRaw === Scene.SQLEditor) {
+                    return Scene.SQLEditor
+                }
                 if (!featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]) {
                     return null
                 }

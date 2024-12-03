@@ -3,7 +3,7 @@ import { connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardTile, DashboardType } from '~/types'
+import { DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import type { textCardModalLogicType } from './textCardModalLogicType'
 
@@ -12,12 +12,12 @@ export interface TextTileForm {
 }
 
 export interface TextCardModalProps {
-    dashboard: DashboardType
+    dashboard: DashboardType<QueryBasedInsightModel>
     textTileId: number | 'new'
     onClose: () => void
 }
 
-const getTileBody = (dashboard: DashboardType, textTileId: number): string => {
+const getTileBody = (dashboard: DashboardType<QueryBasedInsightModel>, textTileId: number): string => {
     const dashboardTiles = dashboard.tiles
     const matchedTile = dashboardTiles?.find((tt) => tt.id === textTileId)
     return matchedTile?.text?.body || ''

@@ -1,4 +1,5 @@
 from typing import Optional
+from collections.abc import Generator
 
 from posthog import schema
 from posthog.hogql import ast
@@ -72,9 +73,12 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
         raise SyntaxError(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')
 
 
-def convert_hogqlx_tag(node: ast.HogQLXTag, team_id: int):
+def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
     from posthog.hogql_queries.query_runner import get_query_runner
     from posthog.models import Team
+
+    if team_id is None:
+        raise ResolutionError("team_id is required to convert a query tag to a query", start=node.start, end=node.end)
 
     try:
         query_node = ast_to_query_node(node)
@@ -83,3 +87,12 @@ def convert_hogqlx_tag(node: ast.HogQLXTag, team_id: int):
         return query
     except Exception as e:
         raise ResolutionError(f"Error parsing query tag: {e}", start=node.start, end=node.end)
+
+
+def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Generator[ast.SelectQuery, None, None]:
+    if isinstance(select, ast.SelectQuery):
+        yield select
+    else:
+        yield from extract_select_queries(select.initial_select_query)
+        for select_query in select.subsequent_select_queries:
+            yield from extract_select_queries(select_query.select_query)

@@ -1,5 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -7,13 +7,12 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { InsightType } from '~/types'
+import { ExperimentIdType, InsightType } from '~/types'
 
-import { EXPERIMENT_INSIGHT_ID } from '../constants'
+import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-
 interface ExperimentCalculatorProps {
-    experimentId: number | 'new'
+    experimentId: ExperimentIdType
 }
 
 function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Element {
@@ -108,20 +107,25 @@ function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Elem
 }
 
 export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorProps): JSX.Element {
-    const { experimentInsightType, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
+    const { getMetricType, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
         experimentLogic({ experimentId })
     )
     const { setExperiment } = useActions(experimentLogic({ experimentId }))
 
+    const metricType = getMetricType(0)
+
     // :KLUDGE: need these to mount the Query component to load the insight */
-    const insightLogicInstance = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID, syncWithUrl: false })
+    const insightLogicInstance = insightLogic({
+        dashboardItemId: metricType === InsightType.FUNNELS ? MetricInsightId.Funnels : MetricInsightId.Trends,
+        syncWithUrl: false,
+    })
     const { insightProps } = useValues(insightLogicInstance)
     const { query } = useValues(insightDataLogic(insightProps))
 
     const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
 
     let sliderMaxValue = 0
-    if (experimentInsightType === InsightType.FUNNELS) {
+    if (metricType === InsightType.FUNNELS) {
         if (100 - funnelConversionRate < 50) {
             sliderMaxValue = 100 - funnelConversionRate
         } else {
@@ -136,9 +140,29 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
             <div className="w-full">
                 <div className="mb-4 experiment-preview-row">
                     <div className="flex items-center">
-                        <b>Minimum acceptable improvement</b>
-                        <Tooltip title="Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.">
-                            <IconInfo className="ml-1 text-muted text-xl" />
+                        <b>Minimum detectable effect</b>
+                        <Tooltip
+                            title={
+                                <div className="space-y-2">
+                                    <div>
+                                        The Minimum detectable effect represents the smallest change that you want to be
+                                        able to detect in your experiment.
+                                    </div>
+                                    <div>
+                                        To make things easier, we initially set this value to a reasonable default.
+                                        However, we encourage you to review and adjust it based on your specific goals.
+                                    </div>
+                                    <div>
+                                        Read more in the{' '}
+                                        <Link to="https://posthog.com/docs/experiments/sample-size-running-time#minimum-detectable-effect-mde">
+                                            documentation.
+                                        </Link>
+                                    </div>
+                                </div>
+                            }
+                            closeDelayMs={200}
+                        >
+                            <IconInfo className="text-muted-alt text-base ml-1" />
                         </Tooltip>
                     </div>
                     <div className="flex gap-4">
@@ -159,7 +183,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                         />
                         <LemonInput
                             className="w-1/6"
-                            data-attr="min-acceptable-improvement"
+                            data-attr="min-detectable-effect"
                             type="number"
                             min={1}
                             max={sliderMaxValue}
@@ -184,7 +208,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                         The calculations are based on the events received in the last 14 days. This event count may
                         differ from what was considered in earlier estimates.
                     </LemonBanner>
-                    {experimentInsightType === InsightType.TRENDS ? (
+                    {getMetricType(0) === InsightType.TRENDS ? (
                         <TrendCalculation experimentId={experimentId} />
                     ) : (
                         <FunnelCalculation experimentId={experimentId} />

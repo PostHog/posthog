@@ -18,9 +18,11 @@ export interface LemonSwitchProps {
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     'data-attr'?: string
-    tooltip?: string | null
+    tooltip?: string | JSX.Element | null
     handleContent?: React.ReactElement | null
     'aria-label'?: string
+    sliderColorOverrideChecked?: string
+    sliderColorOverrideUnchecked?: string
 }
 
 /** Counter used for collision-less automatic switch IDs. */
@@ -44,6 +46,8 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
             'data-attr': dataAttr,
             'aria-label': ariaLabel,
             handleContent,
+            sliderColorOverrideChecked,
+            sliderColorOverrideUnchecked,
         },
         ref
     ): JSX.Element {
@@ -80,7 +84,13 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
                 disabled={disabled}
                 {...conditionalProps}
             >
-                <div className="LemonSwitch__slider" />
+                <div
+                    className={`LemonSwitch__slider ${
+                        sliderColorOverrideChecked || sliderColorOverrideUnchecked
+                            ? `bg-${checked ? sliderColorOverrideChecked : sliderColorOverrideUnchecked}`
+                            : ''
+                    }`}
+                />
                 <div className="LemonSwitch__handle">{handleContent}</div>
             </button>
         )

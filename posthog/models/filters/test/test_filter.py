@@ -796,6 +796,218 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             )
         self.assertTrue(matched_person)
 
+    def test_person_matching_greater_than_filter(self):
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 5},
+        )
+        filter = Filter(
+            data={"properties": [{"key": "registration_ts", "value": "4", "type": "person", "operator": "gt"}]}
+        )
+
+        with self.assertNumQueries(1):
+            matched_person = (
+                Person.objects.annotate(
+                    **{
+                        "properties_registrationts_68f210b8c014e1b_type": Func(
+                            F("properties__registration_ts"),
+                            function="JSONB_TYPEOF",
+                            output_field=CharField(),
+                        )
+                    }
+                )
+                .filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
+                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .exists()
+            )
+        self.assertTrue(matched_person)
+
+    def test_broken_person_filter_never_matching(self):
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 1716447600},
+        )
+        # This broken filter came from this issue: https://github.com/PostHog/posthog/issues/23213
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                # This is the valid condition
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716274800",
+                                    "negation": False,
+                                    "operator": "gte",
+                                },
+                                # This is the invalid condition (lte operator comparing against a list of values)
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": ["1716447600"],
+                                    "negation": False,
+                                    "operator": "lte",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            }
+        )
+
+        with self.assertNumQueries(1):
+            matched_person = (
+                Person.objects.annotate(
+                    **{
+                        "properties_registrationts_68f210b8c014e1b_type": Func(
+                            F("properties__registration_ts"),
+                            function="JSONB_TYPEOF",
+                            output_field=CharField(),
+                        )
+                    }
+                )
+                .filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
+                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .exists()
+            )
+        # This shouldn't pass because we have an AND condition with a broken lte operator
+        # (we should never have a lte operator comparing against a list of values)
+        # So this should never match
+        self.assertFalse(matched_person)
+
+    def test_broken_condition_does_not_break_entire_filter(self):
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 1716447600},
+        )
+        # Create a cohort with an OR filter that has an invalid condition
+        # (a lte operator comparing against a list of values)
+        # This should still evaluate to True, though, because the other condition is valid
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test OR Cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            # This is the valid condition
+                            "values": [
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716274800",
+                                    "negation": False,
+                                    "operator": "gte",
+                                },
+                                # This is the invalid condition
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": ["1716447600"],
+                                    "negation": False,
+                                    "operator": "lte",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]})
+        with self.assertNumQueries(2):
+            matched_person = (
+                Person.objects.annotate(
+                    **{
+                        "properties_registrationts_68f210b8c014e1b_type": Func(
+                            F("properties__registration_ts"),
+                            function="JSONB_TYPEOF",
+                            output_field=CharField(),
+                        )
+                    }
+                )
+                .filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
+                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .exists()
+            )
+        # This should now pass because the cohort filter still has one valid condition
+        self.assertTrue(matched_person)
+
+    def test_person_matching_real_filter(self):
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 1716447600},
+        )
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716274800",
+                                    "negation": False,
+                                    "operator": "gt",
+                                },
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": ["1716447600"],
+                                    "negation": False,
+                                    "operator": "exact",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            }
+        )
+        with self.assertNumQueries(1):
+            matched_person = (
+                Person.objects.annotate(
+                    **{
+                        "properties_registrationts_68f210b8c014e1b_type": Func(
+                            F("properties__registration_ts"),
+                            function="JSONB_TYPEOF",
+                            output_field=CharField(),
+                        )
+                    }
+                )
+                .filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
+                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .exists()
+            )
+        self.assertTrue(matched_person)
+
     def test_person_relative_date_parsing_with_override_property(self):
         person1_distinct_id = "example_id"
         Person.objects.create(
@@ -977,20 +1189,6 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             }
         )
         self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 1)
-
-        filter = Filter(
-            data={
-                "properties": [
-                    {
-                        "type": "person",
-                        "key": "$key",
-                        "value": ["2"],
-                        "operator": "gt",
-                    }
-                ]
-            }
-        )
-        self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 0)
 
 
 def filter_persons_with_property_group(

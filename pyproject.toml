@@ -1,9 +1,9 @@
 [project]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 [tool.black]
 line-length = 120
-target-version = ['py310']
+target-version = ['py311']
 
 [tool.isort]
 profile = "black"
@@ -38,6 +38,7 @@ select = [
     "B",
     "C4",
     "C9",
+    "DJ012",
     "E",
     "F",
     "RUF005",
@@ -45,12 +46,17 @@ select = [
     "RUF015",
     "RUF019",
     "T2",
+    "TRY201",
+    "TRY400",
     "UP",
     "W",
 ]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
 
 [tool.ruff.lint.per-file-ignores]
 "./posthog/queries/column_optimizer/column_optimizer.py" = ["F401"]

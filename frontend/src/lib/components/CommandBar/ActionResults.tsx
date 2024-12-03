@@ -14,7 +14,7 @@ type ResultsGroupProps = {
 const ResultsGroup = ({ scope, results, activeResultIndex }: ResultsGroupProps): JSX.Element => {
     return (
         <>
-            <div className="border-b pl-3 pr-2 pt-1 pb-1 bg-bg-3000 text-xs font-bold text-muted-3000 uppercase">
+            <div className="border-b px-5 pt-1 pb-1 bg-bg-3000 text-xs font-bold text-muted-3000 uppercase">
                 {getNameFromActionScope(scope)}
             </div>
             {results.map((result) => (

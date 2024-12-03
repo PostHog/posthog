@@ -1,7 +1,7 @@
-import { GroupTypeIndex, GroupTypeToColumnIndex, Team, TeamId } from '../../types'
+import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
-import { posthog } from '../../utils/posthog'
+import { captureTeamEvent } from '../../utils/posthog'
 import { getByAge } from '../../utils/utils'
 import { TeamManager } from './team-manager'
 
@@ -9,7 +9,7 @@ import { TeamManager } from './team-manager'
 export const MAX_GROUP_TYPES_PER_TEAM = 5
 
 export class GroupTypeManager {
-    private groupTypesCache: Map<number, [GroupTypeToColumnIndex, number]>
+    private groupTypesCache: Map<ProjectId, [GroupTypeToColumnIndex, number]>
     private instanceSiteUrl: string
 
     constructor(private postgres: PostgresRouter, private teamManager: TeamManager, instanceSiteUrl?: string | null) {
@@ -17,8 +17,8 @@ export class GroupTypeManager {
         this.instanceSiteUrl = instanceSiteUrl || 'unknown'
     }
 
-    public async fetchGroupTypes(teamId: TeamId): Promise<GroupTypeToColumnIndex> {
-        const cachedGroupTypes = getByAge(this.groupTypesCache, teamId)
+    public async fetchGroupTypes(projectId: ProjectId): Promise<GroupTypeToColumnIndex> {
+        const cachedGroupTypes = getByAge(this.groupTypesCache, projectId)
         if (cachedGroupTypes) {
             return cachedGroupTypes
         }
@@ -27,8 +27,8 @@ export class GroupTypeManager {
         try {
             const { rows } = await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `SELECT * FROM posthog_grouptypemapping WHERE team_id = $1`,
-                [teamId],
+                `SELECT * FROM posthog_grouptypemapping WHERE project_id = $1`,
+                [projectId],
                 'fetchGroupTypes'
             )
 
@@ -38,7 +38,7 @@ export class GroupTypeManager {
                 teamGroupTypes[row.group_type] = row.group_type_index
             }
 
-            this.groupTypesCache.set(teamId, [teamGroupTypes, Date.now()])
+            this.groupTypesCache.set(projectId, [teamGroupTypes, Date.now()])
 
             return teamGroupTypes
         } finally {
@@ -46,22 +46,29 @@ export class GroupTypeManager {
         }
     }
 
-    public async fetchGroupTypeIndex(teamId: TeamId, groupType: string): Promise<GroupTypeIndex | null> {
-        const groupTypes = await this.fetchGroupTypes(teamId)
+    public async fetchGroupTypeIndex(
+        teamId: TeamId,
+        projectId: ProjectId,
+        groupType: string
+    ): Promise<GroupTypeIndex | null> {
+        const groupTypes = await this.fetchGroupTypes(projectId)
 
         if (groupType in groupTypes) {
             return groupTypes[groupType]
         } else {
             const [groupTypeIndex, isInsert] = await this.insertGroupType(
                 teamId,
+                projectId,
                 groupType,
                 Object.keys(groupTypes).length
             )
             if (groupTypeIndex !== null) {
-                this.groupTypesCache.delete(teamId)
+                this.groupTypesCache.delete(projectId)
             }
 
             if (isInsert && groupTypeIndex !== null) {
+                // TODO: Is the `group type ingested` event being valuable? If not, we can remove
+                // `captureGroupTypeInsert()`. If yes, we should move this capture to use the project instead of team
                 await this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
             }
             return groupTypeIndex
@@ -70,6 +77,7 @@ export class GroupTypeManager {
 
     public async insertGroupType(
         teamId: TeamId,
+        projectId: ProjectId,
         groupType: string,
         index: number
     ): Promise<[GroupTypeIndex | null, boolean]> {
@@ -81,21 +89,21 @@ export class GroupTypeManager {
             PostgresUse.COMMON_WRITE,
             `
             WITH insert_result AS (
-                INSERT INTO posthog_grouptypemapping (team_id, group_type, group_type_index)
-                VALUES ($1, $2, $3)
+                INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index)
+                VALUES ($1, $2, $3, $4)
                 ON CONFLICT DO NOTHING
                 RETURNING group_type_index
             )
-            SELECT group_type_index, 1 AS is_insert  FROM insert_result
+            SELECT group_type_index, 1 AS is_insert FROM insert_result
             UNION
-            SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE team_id = $1 AND group_type = $2;
+            SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE project_id = $2 AND group_type = $3;
             `,
-            [teamId, groupType, index],
+            [teamId, projectId, groupType, index],
             'insertGroupType'
         )
 
         if (insertGroupTypeResult.rows.length == 0) {
-            return await this.insertGroupType(teamId, groupType, index + 1)
+            return await this.insertGroupType(teamId, projectId, groupType, index + 1)
         }
 
         const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]
@@ -110,19 +118,6 @@ export class GroupTypeManager {
             return
         }
 
-        posthog.capture({
-            distinctId: 'plugin-server',
-            event: 'group type ingested',
-            properties: {
-                team: team.uuid,
-                groupType,
-                groupTypeIndex,
-            },
-            groups: {
-                project: team.uuid,
-                organization: team.organization_id,
-                instance: this.instanceSiteUrl,
-            },
-        })
+        captureTeamEvent(team, 'group type ingested', { groupType, groupTypeIndex })
     }
 }

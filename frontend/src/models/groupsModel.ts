@@ -4,7 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { GroupType, GroupTypeIndex } from '~/types'
 
@@ -18,19 +18,19 @@ export interface Noun {
 export const groupsModel = kea<groupsModelType>([
     path(['models', 'groupsModel']),
     connect({
-        values: [teamLogic, ['currentTeamId'], groupsAccessLogic, ['groupsEnabled', 'groupsAccessStatus']],
+        values: [projectLogic, ['currentProjectId'], groupsAccessLogic, ['groupsEnabled', 'groupsAccessStatus']],
     }),
     loaders(({ values }) => ({
         groupTypesRaw: [
             [] as Array<GroupType>,
             {
                 loadAllGroupTypes: async () => {
-                    return await api.get(`api/projects/${values.currentTeamId}/groups_types`)
+                    return await api.get(`api/projects/${values.currentProjectId}/groups_types`)
                 },
                 updateGroupTypesMetadata: async (payload: Array<GroupType>) => {
                     if (values.groupsEnabled) {
                         return await api.update(
-                            `/api/projects/${teamLogic.values.currentTeamId}/groups_types/update_metadata`,
+                            `/api/projects/${values.currentProjectId}/groups_types/update_metadata`,
                             payload
                         )
                     }
@@ -80,7 +80,7 @@ export const groupsModel = kea<groupsModelType>([
                         const groupType = groupTypes.get(groupTypeIndex as GroupTypeIndex)
                         if (groupType) {
                             return {
-                                singular: groupType.name_plural || groupType.group_type,
+                                singular: groupType.name_singular || groupType.group_type,
                                 plural: groupType.name_plural || `${groupType.group_type}(s)`,
                             }
                         }

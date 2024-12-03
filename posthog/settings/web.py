@@ -2,11 +2,14 @@
 import os
 from datetime import timedelta
 
+import structlog
 from corsheaders.defaults import default_headers
 
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
+
+logger = structlog.get_logger(__name__)
 
 # django-axes settings to lockout after too many attempts
 
@@ -24,6 +27,11 @@ DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, typ
 DECIDE_BUCKET_CAPACITY = get_from_env("DECIDE_BUCKET_CAPACITY", type_cast=int, default=500)
 DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type_cast=float, default=10.0)
 
+# Prevent decide abuse
+
+# This is a list of team-ids that are prevented from using the /decide endpoint
+# until they fix an issue with their feature flags causing instability in posthog.
+DECIDE_SHORT_CIRCUITED_TEAM_IDS = [0]
 # Decide db settings
 
 DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, type_cast=str_to_bool)
@@ -32,6 +40,9 @@ DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, t
 
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
+
+# temporary, used for safe rollout of defaulting people into anonymous events / process_persons: identified_only
+DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN: int = get_from_env("DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN", 1000000, type_cast=int)
 
 # Decide regular request analytics
 # Takes 3 possible formats, all separated by commas:
@@ -44,6 +55,9 @@ DECIDE_TRACK_TEAM_IDS = get_list(os.getenv("DECIDE_TRACK_TEAM_IDS", ""))
 DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
     "DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES", False, type_cast=str_to_bool
 )
+
+# if `true` we disable session replay if over quota
+DECIDE_SESSION_REPLAY_QUOTA_CHECK = get_from_env("DECIDE_SESSION_REPLAY_QUOTA_CHECK", False, type_cast=str_to_bool)
 
 # Application definition
 
@@ -89,6 +103,7 @@ MIDDLEWARE = [
     "posthog.health.healthcheck_middleware",
     "posthog.middleware.ShortCircuitMiddleware",
     "posthog.middleware.AllowIPMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -102,7 +117,6 @@ MIDDLEWARE = [
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
     "posthog.middleware.CHQueries",
@@ -113,6 +127,8 @@ MIDDLEWARE = [
 if DEBUG:
     # Used on local devenv to reverse-proxy all of /i/* to capture-rs on port 3000
     INSTALLED_APPS.append("revproxy")
+    # rebase_migration command
+    INSTALLED_APPS.append("django_linear_migrations")
 
 # Append Enterprise Edition as an app if available
 try:
@@ -241,7 +257,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^/api/(?!early_access_features|surveys).*$"
+CORS_URLS_REGEX = r"^(/site_app/|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -282,14 +298,6 @@ SPECTACULAR_SETTINGS = {
 }
 
 EXCEPTIONS_HOG = {"EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting"}
-
-
-def add_recorder_js_headers(headers, path, url):
-    if url.endswith("/recorder.js") and not DEBUG:
-        headers["Cache-Control"] = "max-age=31536000, public"
-
-
-WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
@@ -360,8 +368,6 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # We keep the number of buckets low to reduce resource usage on the Prometheus
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
 
-SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
-
 # temporary flag to control new UUID version setting in posthog-js
 # is set to v7 to test new generation but can be set to "og" to revert
 POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
@@ -380,3 +386,6 @@ PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
+
+# disables frontend side navigation hooks to make hot-reload work seamlessly
+DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", False, type_cast=bool)

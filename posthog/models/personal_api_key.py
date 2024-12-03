@@ -1,4 +1,4 @@
-from typing import Optional, Literal, get_args
+from typing import Optional, Literal
 import hashlib
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
@@ -41,19 +41,19 @@ def mask_key_value(value: str) -> str:
 
 
 class PersonalAPIKey(models.Model):
-    id: models.CharField = models.CharField(primary_key=True, max_length=50, default=generate_random_token)
+    id = models.CharField(primary_key=True, max_length=50, default=generate_random_token)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="personal_api_keys")
-    label: models.CharField = models.CharField(max_length=40)
-    value: models.CharField = models.CharField(unique=True, max_length=50, editable=False, null=True, blank=True)
-    mask_value: models.CharField = models.CharField(max_length=11, editable=False, null=True)
-    secure_value: models.CharField = models.CharField(
+    label = models.CharField(max_length=40)
+    value = models.CharField(unique=True, max_length=50, editable=False, null=True, blank=True)
+    mask_value = models.CharField(max_length=11, editable=False, null=True)
+    secure_value = models.CharField(
         unique=True,
         max_length=300,
         null=True,
         editable=False,
     )
-    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
-    last_used_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    last_used_at = models.DateTimeField(null=True, blank=True)
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
@@ -66,57 +66,3 @@ class PersonalAPIKey(models.Model):
         null=True,
         blank=True,
     )
-
-
-## API Scopes
-# These are the scopes that are used to define the permissions of the API tokens.
-# Not every model needs a scope - it should more be for top-level things
-# Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
-
-# WARNING: Make sure to keep in sync with the frontend!
-APIScopeObject = Literal[
-    "alert",
-    "action",
-    "activity_log",
-    "annotation",
-    "batch_export",
-    "cohort",
-    "dashboard",
-    "dashboard_template",
-    "early_access_feature",
-    "event_definition",
-    "experiment",
-    "export",
-    "feature_flag",
-    "group",
-    "insight",
-    "query",  # Covers query and events endpoints
-    "notebook",
-    "organization",
-    "organization_member",
-    "person",
-    "plugin",
-    "project",
-    "property_definition",
-    "session_recording",
-    "session_recording_playlist",
-    "sharing_configuration",
-    "subscription",
-    "survey",
-    "user",
-    "webhook",
-]
-
-APIScopeActions = Literal[
-    "read",
-    "write",
-]
-
-APIScopeObjectOrNotSupported = Literal[
-    APIScopeObject,
-    "INTERNAL",
-]
-
-
-API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
-API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)

@@ -292,9 +292,9 @@ order by count() desc
                 pos,
                 buildNodeQueryContent({
                     kind: NodeKind.DataTableNode,
-                    columns: defaultDataTableColumns(NodeKind.PersonsNode),
+                    columns: defaultDataTableColumns(NodeKind.ActorsQuery),
                     source: {
-                        kind: NodeKind.PersonsNode,
+                        kind: NodeKind.ActorsQuery,
                         properties: [],
                     },
                 })

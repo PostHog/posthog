@@ -74,13 +74,6 @@
             font-weight: bold;
         }
 
-        &.skeleton-row {
-            // center-align this antd skeleton
-            .ant-skeleton-paragraph {
-                margin-bottom: 0;
-            }
-        }
-
         &.expand-row {
             color: var(--primary-3000);
         }

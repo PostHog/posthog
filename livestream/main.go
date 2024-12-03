@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/spf13/viper"
@@ -56,28 +56,26 @@ func main() {
 		log.Fatal("kafka.group_id must be set")
 	}
 
-	geolocator, err := NewGeoLocator(mmdb)
+	geolocator, err := NewMaxMindGeoLocator(mmdb)
 	if err != nil {
 		sentry.CaptureException(err)
 		log.Fatalf("Failed to open MMDB: %v", err)
 	}
 
-	teamStats := &TeamStats{
-		Store: make(map[string]*expirable.LRU[string, string]),
-	}
+	stats := newStatsKeeper()
 
 	phEventChan := make(chan PostHogEvent)
 	statsChan := make(chan PostHogEvent)
 	subChan := make(chan Subscription)
 	unSubChan := make(chan Subscription)
 
-	go teamStats.keepStats(statsChan)
+	go stats.keepStats(statsChan)
 
 	kafkaSecurityProtocol := "SSL"
 	if !isProd {
 		kafkaSecurityProtocol = "PLAINTEXT"
 	}
-	consumer, err := NewKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan, statsChan)
+	consumer, err := NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan, statsChan)
 	if err != nil {
 		sentry.CaptureException(err)
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
@@ -108,48 +106,14 @@ func main() {
 	// Routes
 	e.GET("/", index)
 
-	e.GET("/stats", func(c echo.Context) error {
+	e.GET("/served", servedHandler(stats))
 
-		type stats struct {
-			UsersOnProduct int    `json:"users_on_product,omitempty"`
-			Error          string `json:"error,omitempty"`
-		}
-
-		authHeader := c.Request().Header.Get("Authorization")
-		if authHeader == "" {
-			return errors.New("authorization header is required")
-		}
-
-		claims, err := decodeAuthToken(authHeader)
-		if err != nil {
-			return err
-		}
-		teamIdInt := int(claims["team_id"].(float64))
-
-		token, err := tokenFromTeamId(teamIdInt)
-		if err != nil {
-			return err
-		}
-
-		var hash *expirable.LRU[string, string]
-		var ok bool
-		if hash, ok = teamStats.Store[token]; !ok {
-			resp := stats{
-				Error: "no stats",
-			}
-			return c.JSON(http.StatusOK, resp)
-		}
-
-		siteStats := stats{
-			UsersOnProduct: hash.Len(),
-		}
-		return c.JSON(http.StatusOK, siteStats)
-	})
+	e.GET("/stats", statsHandler(stats))
 
 	e.GET("/events", func(c echo.Context) error {
 		e.Logger.Printf("SSE client connected, ip: %v", c.RealIP())
 
-		teamId := c.QueryParam("teamId")
+		var teamId string
 		eventType := c.QueryParam("eventType")
 		distinctId := c.QueryParam("distinctId")
 		geo := c.QueryParam("geo")
@@ -163,35 +127,20 @@ func main() {
 		} else {
 			teamId = ""
 
-			log.Println("~~~~ Looking for auth header")
 			authHeader := c.Request().Header.Get("Authorization")
 			if authHeader == "" {
 				return errors.New("authorization header is required")
 			}
 
-			log.Println("~~~~ decoding auth header")
 			claims, err := decodeAuthToken(authHeader)
 			if err != nil {
 				return err
 			}
 			teamId = strconv.Itoa(int(claims["team_id"].(float64)))
+			token = fmt.Sprint(claims["api_token"])
 
-			log.Printf("~~~~ team found %s", teamId)
 			if teamId == "" {
 				return errors.New("teamId is required unless geo=true")
-			}
-		}
-
-		if teamId != "" {
-			teamIdInt64, err := strconv.ParseInt(teamId, 10, 0)
-			if err != nil {
-				return err
-			}
-
-			teamIdInt := int(teamIdInt64)
-			token, err = tokenFromTeamId(teamIdInt)
-			if err != nil {
-				return err
 			}
 		}
 

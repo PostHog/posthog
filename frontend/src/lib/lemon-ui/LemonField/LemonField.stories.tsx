@@ -147,7 +147,7 @@ export const _FieldsWithKeaForm = (): JSX.Element => {
                     </LemonButton>
                 </div>
 
-                <pre className="rounded-lg text-white bg-default p-2 m-2">
+                <pre className="rounded-lg text-bg-light bg-default p-2 m-2">
                     formLogic.values = {JSON.stringify(formValues, null, 2)}
                 </pre>
             </div>

@@ -64,7 +64,7 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
             pluginJobEnqueueCounter.labels(String(pluginConfig.plugin?.id)).inc()
             await server.enqueuePluginJob(job)
         } catch (e) {
-            await pluginConfig.vm?.createLogEntry(
+            await pluginConfig.instance?.createLogEntry(
                 `Failed to enqueue job ${type} with error: ${e.message}`,
                 PluginLogEntryType.Error
             )

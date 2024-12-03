@@ -92,6 +92,13 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         table: {
             defaults: { ...NEW_WAREHOUSE_TABLE } as DataWarehouseTable,
             errors: ({ name, url_pattern, credential, format }) => {
+                if (url_pattern?.startsWith('s3://')) {
+                    return {
+                        url_pattern:
+                            'Please use the https version of your bucket url e.g. https://your-org.s3.amazonaws.com/airbyte/stripe/invoices/*.pqt',
+                    }
+                }
+
                 return {
                     name: !name && 'Please enter a name.',
                     url_pattern: !url_pattern && 'Please enter a url pattern.',

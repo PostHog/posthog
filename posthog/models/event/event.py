@@ -121,6 +121,18 @@ class Selector:
 
 
 class Event(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    event = models.CharField(max_length=200, null=True, blank=True)
+    distinct_id = models.CharField(max_length=200)
+    properties = models.JSONField(default=dict)
+    timestamp = models.DateTimeField(default=timezone.now, blank=True)
+    elements_hash = models.CharField(max_length=200, null=True, blank=True)
+    site_url = models.CharField(max_length=200, null=True, blank=True)
+
+    # DEPRECATED: elements are stored against element groups now
+    elements = models.JSONField(default=list, null=True, blank=True)
+
     class Meta:
         indexes = [
             models.Index(fields=["elements_hash"]),
@@ -132,15 +144,3 @@ class Event(models.Model):
             # adding this here to improve visibility.
             # models.Index(fields=["distinct_id"], name="idx_distinct_id"),
         ]
-
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    distinct_id: models.CharField = models.CharField(max_length=200)
-    properties: models.JSONField = models.JSONField(default=dict)
-    timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
-    elements_hash: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    site_url: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-
-    # DEPRECATED: elements are stored against element groups now
-    elements: models.JSONField = models.JSONField(default=list, null=True, blank=True)

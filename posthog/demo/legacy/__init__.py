@@ -19,21 +19,6 @@ def demo_route(request: HttpRequest):
     return render_template("demo.html", request=request, context={"api_token": project_api_token})
 
 
-def create_demo_team(organization: Organization, *args) -> Team:
-    team = Team.objects.create_with_data(
-        default_dashboards=False,
-        organization=organization,
-        name=TEAM_NAME,
-        ingested_event=True,
-        completed_snippet_onboarding=True,
-        session_recording_opt_in=True,
-        is_demo=True,
-    )
-    create_demo_data(team)
-    EventDefinition.objects.get_or_create(team=team, name="$pageview")
-    return team
-
-
 def create_demo_data(team: Team, dashboards=True):
     WebDataGenerator(team, n_people=40).create(dashboards=dashboards)
     AppDataGenerator(team, n_people=100).create(dashboards=dashboards)

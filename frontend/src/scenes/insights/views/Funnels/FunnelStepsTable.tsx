@@ -24,16 +24,12 @@ import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, funnelsFilter } = useValues(funnelDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns } = useValues(funnelDataLogic(insightProps))
+    const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility } = useActions(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
 
     const isOnlySeries = flattenedBreakdowns.length <= 1
-    const hiddenLegendBreakdowns = funnelsFilter?.hidden_legend_breakdowns
-    const setHiddenLegendBreakdowns = (hidden_legend_breakdowns: string[]): void => {
-        updateInsightFilter({ hidden_legend_breakdowns })
-    }
 
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -44,11 +40,6 @@ export function FunnelStepsTable(): JSX.Element | null {
     const someChecked = flattenedBreakdowns?.some(
         (b) => !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
     )
-    const toggleLegendBreakdownVisibility = (breakdown: string): void => {
-        hiddenLegendBreakdowns?.includes(breakdown)
-            ? setHiddenLegendBreakdowns(hiddenLegendBreakdowns.filter((b) => b !== breakdown))
-            : setHiddenLegendBreakdowns([...(hiddenLegendBreakdowns || []), breakdown])
-    }
 
     const columnsGrouped = [
         {
@@ -261,7 +252,9 @@ export function FunnelStepsTable(): JSX.Element | null {
                               ),
                               render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
                                   breakdown.steps?.[step.order]?.median_conversion_time != undefined
-                                      ? humanFriendlyDuration(breakdown.steps[step.order].median_conversion_time, 3)
+                                      ? humanFriendlyDuration(breakdown.steps[step.order].median_conversion_time, {
+                                            maxUnits: 3,
+                                        })
                                       : '–',
                               align: 'right',
                               width: 0,
@@ -277,7 +270,9 @@ export function FunnelStepsTable(): JSX.Element | null {
                               ),
                               render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
                                   breakdown.steps?.[step.order]?.average_conversion_time != undefined
-                                      ? humanFriendlyDuration(breakdown.steps[step.order].average_conversion_time, 3)
+                                      ? humanFriendlyDuration(breakdown.steps[step.order].average_conversion_time, {
+                                            maxUnits: 3,
+                                        })
                                       : '–',
                               align: 'right',
                               width: 0,

@@ -9,9 +9,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType } from '~/types'
+import { APIScopeObject, OrganizationBasicType, PersonalAPIKeyType, TeamBasicType } from '~/types'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
+
+export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
 
 export const API_KEY_SCOPE_PRESETS = [
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
@@ -30,7 +32,7 @@ export const API_KEY_SCOPE_PRESETS = [
 ]
 
 export type APIScope = {
-    key: string
+    key: APIScopeObject
     info?: string | JSX.Element
     disabledActions?: ('read' | 'write')[]
     disabledWhenProjectScoped?: boolean

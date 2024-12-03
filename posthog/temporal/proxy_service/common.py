@@ -23,6 +23,10 @@ class NonRetriableException(Exception):
     pass
 
 
+class RecordDeletedException(NonRetriableException):
+    pass
+
+
 @dataclass
 class UpdateProxyRecordInputs:
     organization_id: uuid.UUID
@@ -45,7 +49,10 @@ async def update_proxy_record(inputs: UpdateProxyRecordInputs):
     @sync_to_async
     def update_record(proxy_record_id):
         connection.connect()
-        pr = ProxyRecord.objects.get(id=proxy_record_id)
+        prs = ProxyRecord.objects.filter(id=proxy_record_id)
+        if len(prs) == 0:
+            raise RecordDeletedException("proxy record was deleted before workflow completed")
+        pr = prs[0]
         pr.status = inputs.status
         # clear message after every transition
         pr.message = ""

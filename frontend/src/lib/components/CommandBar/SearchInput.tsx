@@ -18,7 +18,7 @@ export const SearchInput = forwardRef(function SearchInput(_, ref: Ref<HTMLInput
         <div className="border-b">
             <LemonInput
                 data-attr="search-bar-input"
-                ref={ref}
+                inputRef={ref}
                 type="search"
                 className="CommandBar__input"
                 fullWidth

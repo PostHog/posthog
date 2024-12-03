@@ -11,8 +11,7 @@ export default meta
 
 export const TheHedgehog: StoryFn<typeof MyHedgehogBuddy> = () => {
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ height: 200 }}>
+        <div className="h-52">
             <MyHedgehogBuddy
                 onClose={() => {
                     // eslint-disable-next-line no-console

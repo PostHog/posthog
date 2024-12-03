@@ -46,8 +46,8 @@ export const mapSnapshotsToWindowId = (snapshots: RecordingSnapshot[]): Record<s
 
 export const createSegments = (
     snapshots: RecordingSnapshot[],
-    start?: Dayjs,
-    end?: Dayjs,
+    start: Dayjs | null,
+    end: Dayjs | null,
     trackedWindow?: string | null
 ): RecordingSegment[] => {
     let segments: RecordingSegment[] = []

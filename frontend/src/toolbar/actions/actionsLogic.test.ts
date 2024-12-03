@@ -6,9 +6,9 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ActionType } from '~/types'
 
 const unsortedActions: ActionType[] = [
-    { name: 'zoo', created_at: '', created_by: null, id: 1 },
-    { name: 'middle', created_at: '', created_by: null, id: 2 },
-    { name: 'begin', created_at: '', created_by: null, id: 3 },
+    { name: 'zoo', created_at: '', created_by: null, id: 1, pinned_at: null },
+    { name: 'middle', created_at: '', created_by: null, id: 2, pinned_at: null },
+    { name: 'begin', created_at: '', created_by: null, id: 3, pinned_at: null },
 ]
 const apiJson = { results: unsortedActions }
 
@@ -45,9 +45,9 @@ describe('toolbar actionsLogic', () => {
             .delay(0)
             .toMatchValues({
                 sortedActions: [
-                    { created_at: '', created_by: null, id: 3, name: 'begin' },
-                    { created_at: '', created_by: null, id: 2, name: 'middle' },
-                    { created_at: '', created_by: null, id: 1, name: 'zoo' },
+                    { created_at: '', created_by: null, id: 3, name: 'begin', pinned_at: null },
+                    { created_at: '', created_by: null, id: 2, name: 'middle', pinned_at: null },
+                    { created_at: '', created_by: null, id: 1, name: 'zoo', pinned_at: null },
                 ],
                 actionCount: 3,
                 allActions: apiJson.results,
@@ -62,8 +62,8 @@ describe('toolbar actionsLogic', () => {
             .delay(0)
             .toMatchValues({
                 sortedActions: [
-                    { created_at: '', created_by: null, id: 3, name: 'begin' },
-                    { created_at: '', created_by: null, id: 2, name: 'middle' },
+                    { created_at: '', created_by: null, id: 3, name: 'begin', pinned_at: null },
+                    { created_at: '', created_by: null, id: 2, name: 'middle', pinned_at: null },
                 ],
             })
     })

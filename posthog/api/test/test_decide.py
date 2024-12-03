@@ -3,22 +3,28 @@ import json
 import random
 import time
 from typing import Optional
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 import pytest
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection, connections
-from django.test import TransactionTestCase, TestCase
+from django.http import HttpRequest
+from django.test import TestCase, TransactionTestCase
 from django.test.client import Client
 from freezegun import freeze_time
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog import redis
-from posthog.api.decide import label_for_team_id_to_track
+from posthog.api.decide import get_decide, label_for_team_id_to_track
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.database_healthcheck import postgres_healthcheck
+from posthog.exceptions import (
+    RequestParsingError,
+    UnspecifiedCompressionFallbackParsingError,
+)
 from posthog.models import (
     FeatureFlag,
     GroupTypeMapping,
@@ -27,10 +33,12 @@ from posthog.models import (
     Plugin,
     PluginConfig,
     PluginSourceFile,
+    Project,
 )
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.group.group import Group
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person import PersonDistinctId
 from posthog.models.personal_api_key import hash_key_value
@@ -38,7 +46,32 @@ from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries, snapshot_postgres_queries_context
+from posthog.test.base import (
+    BaseTest,
+    QueryMatchingTest,
+    snapshot_postgres_queries,
+    snapshot_postgres_queries_context,
+)
+
+
+def make_session_recording_decide_response(overrides: Optional[dict] = None) -> dict:
+    if overrides is None:
+        overrides = {}
+
+    return {
+        "endpoint": "/s/",
+        "recorderVersion": "v2",
+        "consoleLogRecordingEnabled": True,
+        "linkedFlag": None,
+        "minimumDurationMilliseconds": None,
+        "networkPayloadCapture": None,
+        "urlTriggers": [],
+        "urlBlocklist": [],
+        "scriptConfig": None,
+        "sampleRate": None,
+        "eventTriggers": [],
+        **overrides,
+    }
 
 
 @patch(
@@ -105,7 +138,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         client = Client()
         client.force_login(self.user)
 
-        response = client.patch("/api/projects/@current/", data, content_type="application/json")
+        response = client.patch("/api/environments/@current/", data, content_type="application/json")
         self.assertEqual(response.status_code, expected_status_code)
 
         client.logout()
@@ -155,15 +188,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_opt_in": True})
 
         response = self._post_decide().json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-        }
+        assert response["sessionRecording"] == make_session_recording_decide_response()
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
     def test_user_console_log_opt_in(self, *args):
@@ -174,25 +199,20 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_opt_in": True, "capture_console_log_opt_in": True})
 
         response = self._post_decide().json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": True,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-        }
+        assert response["sessionRecording"] == make_session_recording_decide_response()
 
     def test_user_performance_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], False)
+        self.assertEqual(
+            response["capturePerformance"],
+            {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
+        )
 
-        self._update_team({"capture_performance_opt_in": True})
+        self._update_team({"capture_performance_opt_in": False})
 
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], True)
+        self.assertEqual(response["capturePerformance"], False)
 
     def test_session_recording_sample_rate(self, *args):
         # :TRICKY: Test for regression around caching
@@ -296,6 +316,49 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["linkedFlag"], {"flag": "my-flag", "variant": "test"})
 
+    def test_session_recording_url_trigger_patterns(self, *args):
+        self._update_team(
+            {
+                "session_recording_url_trigger_config": [{"url": "/replay-examples/", "matching": "regex"}],
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == make_session_recording_decide_response(
+            {
+                "urlTriggers": [{"url": "/replay-examples/", "matching": "regex"}],
+            }
+        )
+
+    def test_session_recording_url_blocklist_patterns(self, *args):
+        self._update_team(
+            {
+                "session_recording_url_blocklist_config": [{"url": "/replay-examples/iframe", "matching": "regex"}],
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == make_session_recording_decide_response(
+            {
+                "urlBlocklist": [{"url": "/replay-examples/iframe", "matching": "regex"}],
+            }
+        )
+
+    def test_session_recording_event_triggers(self, *args):
+        self._update_team(
+            {
+                "session_recording_event_trigger_config": ["$pageview", "$exception"],
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == make_session_recording_decide_response(
+            {"eventTriggers": ["$pageview", "$exception"]}
+        )
+
     def test_session_recording_network_payload_capture_config(self, *args):
         # :TRICKY: Test for regression around caching
 
@@ -356,8 +419,87 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["recordCanvas"], True)
-        self.assertEqual(response["sessionRecording"]["canvasFps"], 4)
-        self.assertEqual(response["sessionRecording"]["canvasQuality"], "0.6")
+        self.assertEqual(response["sessionRecording"]["canvasFps"], 3)
+        self.assertEqual(response["sessionRecording"]["canvasQuality"], "0.4")
+
+    @parameterized.expand(
+        [
+            [
+                "defaults to none",
+                None,
+                None,
+                {"scriptConfig": None},
+                False,
+            ],
+            [
+                "must have allowlist",
+                "new-recorder",
+                None,
+                {"scriptConfig": None},
+                False,
+            ],
+            [
+                "ignores empty allowlist",
+                "new-recorder",
+                [],
+                {"scriptConfig": None},
+                False,
+            ],
+            [
+                "wild card works",
+                "new-recorder",
+                ["*"],
+                {"scriptConfig": {"script": "new-recorder"}},
+                False,
+            ],
+            [
+                "can have wild card and team id",
+                "new-recorder",
+                ["*"],
+                {"scriptConfig": {"script": "new-recorder"}},
+                True,
+            ],
+            [
+                "allow list can exclude",
+                "new-recorder",
+                ["9999", "9998"],
+                {"scriptConfig": None},
+                False,
+            ],
+            [
+                "allow list can include",
+                "new-recorder",
+                ["9999", "9998"],
+                {"scriptConfig": {"script": "new-recorder"}},
+                True,
+            ],
+        ]
+    )
+    def test_session_recording_script_config(
+        self,
+        _mock_is_connected: Mock,
+        _name: str,
+        rrweb_script_name: str | None,
+        team_allow_list: list[str] | None,
+        expected: dict,
+        include_team_in_allowlist: bool,
+    ) -> None:
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        if team_allow_list and include_team_in_allowlist:
+            team_allow_list.append(f"{self.team.id}")
+
+        with self.settings(
+            SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
+            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=",".join(team_allow_list or []),
+        ):
+            response = self._post_decide(api_version=3)
+            assert response.status_code == 200
+            assert response.json()["sessionRecording"] == make_session_recording_decide_response(expected)
 
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
@@ -369,31 +511,38 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(
             response["autocaptureExceptions"],
-            {"errors_to_ignore": [], "endpoint": "/e/"},
+            {"endpoint": "/e/"},
         )
 
-    def test_exception_autocapture_errors_to_ignore(self, *args):
-        # :TRICKY: Test for regression around caching
+    def test_web_vitals_autocapture_opt_in(self, *args):
         response = self._post_decide().json()
-        self.assertEqual(response["autocaptureExceptions"], False)
-
-        self._update_team({"autocapture_exceptions_opt_in": True})
-        self._update_team(
-            {
-                "autocapture_exceptions_errors_to_ignore": [
-                    "ResizeObserver loop limit exceeded",
-                    ".* bot .*",
-                ]
-            }
+        self.assertEqual(
+            response["capturePerformance"],
+            {"web_vitals": False, "network_timing": True, "web_vitals_allowed_metrics": None},
         )
+
+        self._update_team({"autocapture_web_vitals_opt_in": True})
 
         response = self._post_decide().json()
         self.assertEqual(
-            response["autocaptureExceptions"],
-            {
-                "errors_to_ignore": ["ResizeObserver loop limit exceeded", ".* bot .*"],
-                "endpoint": "/e/",
-            },
+            response["capturePerformance"],
+            {"web_vitals": True, "network_timing": True, "web_vitals_allowed_metrics": None},
+        )
+
+    def test_web_vitals_autocapture_allowed_metrics(self, *args):
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["capturePerformance"],
+            {"web_vitals": False, "network_timing": True, "web_vitals_allowed_metrics": None},
+        )
+
+        self._update_team({"autocapture_web_vitals_opt_in": True})
+        self._update_team({"autocapture_web_vitals_allowed_metrics": ["CLS", "FCP"]})
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["capturePerformance"],
+            {"web_vitals": True, "network_timing": True, "web_vitals_allowed_metrics": ["CLS", "FCP"]},
         )
 
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
@@ -409,15 +558,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(origin="https://random.example.com").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-        }
+        assert response["sessionRecording"] == make_session_recording_decide_response()
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
         # Make sure the domain matches exactly
@@ -436,15 +577,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] is False
 
         response = self._post_decide(origin="https://example.com").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-        }
+        assert response["sessionRecording"] == make_session_recording_decide_response()
 
     def test_user_autocapture_opt_out(self, *args):
         # :TRICKY: Test for regression around caching
@@ -466,47 +599,33 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["heatmaps"], True)
 
+    def test_user_capture_dead_clicks_opt_in(self, *args):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["captureDeadClicks"], False)
+
+        self._update_team({"capture_dead_clicks": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["captureDeadClicks"], True)
+
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self, *args):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
 
         response = self._post_decide(origin="any.site.com").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-        }
+        assert response["sessionRecording"] == make_session_recording_decide_response()
 
     def test_user_session_recording_allowed_for_android(self, *args) -> None:
         self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://my-website.io"]})
 
         response = self._post_decide(origin="any.site.com", user_agent="posthog-android/3.1.0").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-        }
+        assert response["sessionRecording"] == make_session_recording_decide_response()
 
     def test_user_session_recording_allowed_for_ios(self, *args) -> None:
         self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://my-website.io"]})
 
         response = self._post_decide(origin="any.site.com", user_agent="posthog-ios/3.1.0").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-        }
+        assert response["sessionRecording"] == make_session_recording_decide_response()
 
     def test_user_session_recording_allowed_when_permitted_domains_are_not_http_based(self, *args):
         self._update_team(
@@ -517,15 +636,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(origin="capacitor://localhost:8000/home").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-        }
+        assert response["sessionRecording"] == make_session_recording_decide_response()
 
     @snapshot_postgres_queries
     def test_web_app_queries(self, *args):
@@ -553,7 +664,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions in the above mean fewer queries
         # 3 of these queries are just for setting transaction scope
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(8):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
@@ -578,12 +689,51 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.team.refresh_from_db()
         self.assertTrue(self.team.inject_web_apps)
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(9):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
             self.assertEqual(len(injected), 1)
             self.assertTrue(injected[0]["url"].startswith(f"/site_app/{plugin_config.id}/{plugin_config.web_token}/"))
+
+    def test_site_function_injection(self, *args):
+        # yype: site_app
+        site_app = HogFunction.objects.create(
+            team=self.team,
+            name="my_function",
+            hog="function onLoad(){}",
+            type="site_app",
+            transpiled="function onLoad(){}",
+            enabled=True,
+        )
+
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.inject_web_apps)
+        with self.assertNumQueries(9):
+            response = self._post_decide()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            injected = response.json()["siteApps"]
+            self.assertEqual(len(injected), 1)
+            self.assertTrue(injected[0]["url"].startswith(f"/site_function/{site_app.id}/"))
+
+        # yype: site_destination
+        site_destination = HogFunction.objects.create(
+            team=self.team,
+            name="my_function",
+            hog="function onLoad(){}",
+            type="site_destination",
+            transpiled="function onLoad(){}",
+            enabled=True,
+        )
+
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.inject_web_apps)
+        with self.assertNumQueries(8):
+            response = self._post_decide()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            injected = response.json()["siteApps"]
+            self.assertEqual(len(injected), 2)
+            self.assertTrue(injected[1]["url"].startswith(f"/site_function/{site_destination.id}/"))
 
     def test_feature_flags(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2117,7 +2267,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
         Person.objects.create(
             team=self.team,
             distinct_ids=["example_id"],
@@ -2222,6 +2374,149 @@ class TestDecide(BaseTest, QueryMatchingTest):
             # get cohort, get person filter
             response = self._post_decide(api_version=3, distinct_id="another_id")
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
+            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
+    def test_flag_with_invalid_cohort_filter_condition(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 1716447600},
+        )
+
+        # Create a cohort with an invalid filter condition (tis broken filter came from this issue: https://github.com/PostHog/posthog/issues/23213)
+        # The invalid condition is that the registration_ts property is compared against a list of values
+        # Since this filter must match everything, the flag should evaluate to False
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                # This is the valid condition
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716274800",
+                                    "operator": "gte",
+                                },
+                                # This is the invalid condition (lte operator comparing against a list of values)
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": ["1716447600"],
+                                    "operator": "lte",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="Test cohort",
+        )
+
+        # Create a feature flag that uses the cohort
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": cohort.pk,
+                            }
+                        ],
+                    }
+                ]
+            },
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=3, distinct_id=person1_distinct_id)
+            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
+            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
+    def test_flag_with_invalid_but_safe_cohort_filter_condition(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"registration_ts": 1716447600},
+        )
+
+        # Create a cohort with a safe OR filter that contains an invalid condition
+        # it should still evaluate the FeatureFlag to True
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                # This is the valid condition
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": "1716274800",
+                                    "operator": "gte",
+                                },
+                                # This is the invalid condition (lte operator comparing against a list of values)
+                                {
+                                    "key": "registration_ts",
+                                    "type": "person",
+                                    "value": ["1716447600"],
+                                    "operator": "lte",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="Test cohort",
+        )
+
+        # Create a feature flag that uses the cohort
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": cohort.pk,
+                            }
+                        ],
+                    }
+                ]
+            },
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=3, distinct_id=person1_distinct_id)
+            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
     def test_flag_with_unknown_cohort(self, *args):
@@ -2453,12 +2748,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             response = self._post_decide(api_version=3, distinct_id="example_id_1")
             self.assertEqual(response.json()["featureFlags"], {})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             response = self._post_decide(api_version=3, distinct_id="another_id")
             self.assertEqual(response.json()["featureFlags"], {})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
@@ -2491,6 +2786,40 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         response = self._post_decide({"distinct_id": "example_id", "api_key": None, "project_id": self.team.id})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_short_circuited_team(self, *args):
+        short_circuited_team_token = "short_circuited_team_token"
+
+        _, short_circuited_team = Project.objects.create_with_team(
+            organization=self.organization,
+            team_fields={
+                "api_token": short_circuited_team_token,
+                "test_account_filters": [
+                    {
+                        "key": "email",
+                        "value": "@posthog.com",
+                        "operator": "not_icontains",
+                        "type": "person",
+                    }
+                ],
+                "has_completed_onboarding_for": {"product_analytics": True},
+            },
+            initiating_user=self.user,
+        )
+        with self.settings(DECIDE_SHORT_CIRCUITED_TEAM_IDS=[short_circuited_team.id]):
+            response = self._post_decide(
+                {
+                    "distinct_id": "example_id",
+                    "api_key": short_circuited_team_token,
+                    "project_id": short_circuited_team.id,
+                }
+            )
+            self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+            response_data = response.json()
+            self.assertEqual(
+                response_data["detail"],
+                f"Team with ID {short_circuited_team.id} cannot access the /decide endpoint.Please contact us at hey@posthog.com",
+            )
 
     def test_invalid_payload_on_decide_endpoint(self, *args):
         invalid_payloads = [
@@ -2703,23 +3032,23 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         self.assertEqual(
             response["sessionRecording"],
-            {
-                "endpoint": "/s/",
-                "recorderVersion": "v2",
-                "consoleLogRecordingEnabled": True,
-                "sampleRate": "0.20",
-                "linkedFlag": None,
-                "minimumDurationMilliseconds": None,
-                "networkPayloadCapture": None,
-            },
+            make_session_recording_decide_response(
+                {
+                    "sampleRate": "0.20",
+                }
+            ),
         )
+
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
         self.assertEqual(response["siteApps"], [])
-        self.assertEqual(response["capturePerformance"], True)
+        self.assertEqual(
+            response["capturePerformance"],
+            {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
+        )
         self.assertEqual(response["featureFlags"], {})
         self.assertEqual(
             response["autocaptureExceptions"],
-            {"errors_to_ignore": [], "endpoint": "/e/"},
+            {"endpoint": "/e/"},
         )
 
         # now database is down
@@ -2728,22 +3057,22 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             self.assertEqual(
                 response["sessionRecording"],
-                {
-                    "endpoint": "/s/",
-                    "recorderVersion": "v2",
-                    "consoleLogRecordingEnabled": True,
-                    "sampleRate": "0.20",
-                    "linkedFlag": None,
-                    "minimumDurationMilliseconds": None,
-                    "networkPayloadCapture": None,
-                },
+                make_session_recording_decide_response(
+                    {
+                        "sampleRate": "0.20",
+                    }
+                ),
             )
+
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], True)
+            self.assertEqual(
+                response["capturePerformance"],
+                {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
+            )
             self.assertEqual(
                 response["autocaptureExceptions"],
-                {"errors_to_ignore": [], "endpoint": "/e/"},
+                {"endpoint": "/e/"},
             )
             self.assertEqual(response["featureFlags"], {})
 
@@ -3020,6 +3349,48 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "other id"})
             self.assertEqual(response.status_code, 429)
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_quota_limited_recordings_disabled(self, _fake_token_limiting, *args):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_SESSION_REPLAY_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.RECORDINGS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            self._update_team(
+                {
+                    "session_recording_opt_in": True,
+                }
+            )
+
+            response = self._post_decide().json()
+            assert response["sessionRecording"] is False
+            assert response["quotaLimited"] == ["recordings"]
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_quota_limited_recordings_other_token(self, _fake_token_limiting, *args):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_SESSION_REPLAY_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token + "a"] if args[0] == QuotaResource.RECORDINGS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            self._update_team(
+                {
+                    "session_recording_opt_in": True,
+                }
+            )
+
+            response = self._post_decide().json()
+            assert response["sessionRecording"] is not False
+            assert not response.get("quotaLimited")
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_only_fires_when_enabled(self, *args):
@@ -3323,6 +3694,19 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, 200)
             self.assertFalse("elementsChainAsString" in response.json())
 
+    def test_decide_default_identified_only(self, *args):
+        self.client.logout()
+        with self.settings(DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN=str(1000000)):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue("defaultIdentifiedOnly" in response.json())
+            self.assertFalse(response.json()["defaultIdentifiedOnly"])
+        team_id = self.team.id
+        with self.settings(DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN=str(team_id)):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json()["defaultIdentifiedOnly"])
+
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
     """
@@ -3376,7 +3760,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         client = Client()
         client.force_login(self.user)
 
-        response = client.patch("/api/projects/@current/", data, content_type="application/json")
+        response = client.patch("/api/environments/@current/", data, content_type="application/json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         client.logout()
@@ -3478,19 +3862,18 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
 
             self.assertEqual(
                 response["sessionRecording"],
-                {
-                    "endpoint": "/s/",
-                    "recorderVersion": "v2",
-                    "consoleLogRecordingEnabled": True,
-                    "sampleRate": "0.40",
-                    "linkedFlag": None,
-                    "minimumDurationMilliseconds": None,
-                    "networkPayloadCapture": None,
-                },
+                make_session_recording_decide_response(
+                    {
+                        "sampleRate": "0.40",
+                    }
+                ),
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], True)
+            self.assertEqual(
+                response["capturePerformance"],
+                {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
+            )
             self.assertEqual(response["featureFlags"], {"no-props": True})
             self.assertEqual(response["errorsWhileComputingFlags"], True)
 
@@ -3529,16 +3912,18 @@ class TestDecideUsesReadReplica(TransactionTestCase):
     databases = {"default", "replica"}
 
     def setup_user_and_team_in_db(self, dbname: str = "default"):
-        organization = Organization.objects.using(dbname).create(
+        organization = Organization.objects.db_manager(dbname).create(
             name="Org 1", slug=f"org-{dbname}-{random.randint(1, 1000000)}"
         )
-        team = Team.objects.using(dbname).create(organization=organization, name="Team 1 org 1")
-        user = User.objects.using(dbname).create(
+        team = Team.objects.db_manager(dbname).create(organization=organization, name="Team 1 org 1")
+        user = User.objects.db_manager(dbname).create(
             email=f"test-{random.randint(1, 100000)}@posthog.com",
             password="password",
             first_name="first_name",
+            current_team=team,
+            current_organization=organization,
         )
-        OrganizationMembership.objects.using(dbname).create(
+        OrganizationMembership.objects.db_manager(dbname).create(
             user=user,
             organization=organization,
             level=OrganizationMembership.Level.OWNER,
@@ -3550,7 +3935,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         created_flags = []
         created_persons = []
         for flag in flags:
-            f = FeatureFlag.objects.using(dbname).create(
+            f = FeatureFlag.objects.db_manager(dbname).create(
                 team=team,
                 rollout_percentage=flag.get("rollout_percentage") or None,
                 filters=flag.get("filters") or {},
@@ -3561,13 +3946,13 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )
             created_flags.append(f)
         for person in persons:
-            p = Person.objects.using(dbname).create(
+            p = Person.objects.db_manager(dbname).create(
                 team=team,
                 properties=person["properties"],
             )
             created_persons.append(p)
             for distinct_id in person["distinct_ids"]:
-                PersonDistinctId.objects.using(dbname).create(person=p, distinct_id=distinct_id, team=team)
+                PersonDistinctId.objects.db_manager(dbname).create(person=p, distinct_id=distinct_id, team=team)
 
         return created_flags, created_persons
 
@@ -4001,15 +4386,15 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
-        PersonDistinctId.objects.using("default").create(person=person, distinct_id="other_id", team=self.team)
+        PersonDistinctId.objects.db_manager("default").create(person=person, distinct_id="other_id", team=self.team)
         # hash key override already exists
-        FeatureFlagHashKeyOverride.objects.using("default").create(
+        FeatureFlagHashKeyOverride.objects.db_manager("default").create(
             team=self.team,
             person=person,
             hash_key="example_id",
             feature_flag_key="beta-feature",
         )
-        FeatureFlagHashKeyOverride.objects.using("default").create(
+        FeatureFlagHashKeyOverride.objects.db_manager("default").create(
             team=self.team,
             person=person,
             hash_key="example_id",
@@ -4174,7 +4559,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
-        PersonDistinctId.objects.using("default").create(person=person, distinct_id="other_id", team=self.team)
+        PersonDistinctId.objects.db_manager("default").create(person=person, distinct_id="other_id", team=self.team)
 
         # request with hash key overrides and _new_ writes should go to main database
         with self.assertNumQueries(8, using="replica"), self.assertNumQueries(9, using="default"):
@@ -4257,10 +4642,14 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         ]
         self.setup_flags_in_db("replica", team, user, flags, persons)
 
-        GroupTypeMapping.objects.using("replica").create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.using("default").create(team=self.team, group_type="project", group_type_index=1)
+        GroupTypeMapping.objects.db_manager("replica").create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.db_manager("default").create(
+            team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
+        )
 
-        Group.objects.using("replica").create(
+        Group.objects.db_manager("replica").create(
             team_id=self.team.pk,
             group_type_index=0,
             group_key="foo",
@@ -4341,7 +4730,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # update caches
         self._post_decide(api_version=3)
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
@@ -4356,8 +4745,12 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.organization, self.team, self.user = org, team, user
 
         FeatureFlag.objects.all().delete()
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         client = APIClient()
         client.force_login(self.user)
@@ -4444,7 +4837,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             response = self.client.get(f"/api/feature_flag/local_evaluation")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(5, using="default"):
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(9, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -4685,7 +5078,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
         cache.clear()
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(5, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(9, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -4955,7 +5348,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         client.logout()
         self.client.logout()
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(5, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(9, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -5134,3 +5527,31 @@ class TestDecideMetricLabel(TestCase):
             self.assertEqual(label_for_team_id_to_track(20), "20")
             self.assertEqual(label_for_team_id_to_track(25), "unknown")
             self.assertEqual(label_for_team_id_to_track(31), "31")
+
+
+class TestDecideExceptions(TestCase):
+    @patch("posthog.api.decide.capture_exception")
+    @patch("posthog.api.decide.load_data_from_request")
+    def test_unspecified_compression_fallback_parsing_error(self, mock_load_data, mock_capture_exception):
+        mock_load_data.side_effect = UnspecifiedCompressionFallbackParsingError("Test error")
+
+        request = HttpRequest()
+        request.method = "POST"
+
+        response = get_decide(request)
+
+        self.assertEqual(response.status_code, 400)
+        mock_capture_exception.assert_not_called()
+
+    @patch("posthog.api.decide.capture_exception")
+    @patch("posthog.api.decide.load_data_from_request")
+    def test_request_parsing_error(self, mock_load_data, mock_capture_exception):
+        mock_load_data.side_effect = RequestParsingError("Test error")
+
+        request = HttpRequest()
+        request.method = "POST"
+
+        response = get_decide(request)
+
+        self.assertEqual(response.status_code, 400)
+        mock_capture_exception.assert_called_once()

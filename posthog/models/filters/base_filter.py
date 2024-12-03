@@ -63,7 +63,7 @@ class BaseFilter(BaseParamMixin):
             ),
         )
         if self.team:
-            self.hogql_context.person_on_events_mode = self.team.person_on_events_mode
+            self.hogql_context.modifiers.personsOnEventsMode = self.team.person_on_events_mode
 
         if self.team and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
             simplified_filter = self.simplify(self.team)

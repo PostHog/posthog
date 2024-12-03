@@ -15,8 +15,9 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useState } from 'react'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { isInsightVizNode } from '~/queries/utils'
 import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
@@ -69,7 +70,6 @@ export function SharingModalContent({
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
-    const showLegendCheckbox = isInsightVizNode(insight?.query) && isTrendsQuery(insight?.query.source)
     const resource = dashboardId ? 'dashboard' : insightShortId ? 'insight' : recordingId ? 'recording' : 'this'
 
     useEffect(() => {
@@ -143,69 +143,67 @@ export function SharingModalContent({
                                     formKey="embedConfig"
                                     className="space-y-2"
                                 >
-                                    <LemonField name="whitelabel">
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                fullWidth
-                                                bordered
-                                                label={
-                                                    <div className="flex items-center">
-                                                        <span>Show PostHog branding</span>
-                                                        {!whitelabelAvailable && (
-                                                            <Tooltip title="This is a premium feature, click to learn more.">
-                                                                <IconLock className="ml-1 text-muted text-base" />
-                                                            </Tooltip>
-                                                        )}
-                                                    </div>
-                                                }
-                                                onChange={() =>
-                                                    guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
-                                                        onChange(!value)
-                                                    )
-                                                }
-                                                checked={!value}
-                                            />
+                                    <div className="grid grid-cols-2 gap-2 grid-flow odd:last:*:col-span-2">
+                                        {insight && (
+                                            <LemonField name="noHeader">
+                                                {({ value, onChange }) => (
+                                                    <LemonSwitch
+                                                        fullWidth
+                                                        bordered
+                                                        label={<div>Show title and description</div>}
+                                                        onChange={() => onChange(!value)}
+                                                        checked={!value}
+                                                    />
+                                                )}
+                                            </LemonField>
                                         )}
-                                    </LemonField>
-                                    {insight && (
-                                        <LemonField name="noHeader">
+                                        <LemonField name="whitelabel">
                                             {({ value, onChange }) => (
                                                 <LemonSwitch
                                                     fullWidth
                                                     bordered
-                                                    label={<div>Show title and description</div>}
-                                                    onChange={() => onChange(!value)}
+                                                    label={
+                                                        <div className="flex items-center">
+                                                            <span>Show PostHog branding</span>
+                                                            {!whitelabelAvailable && (
+                                                                <Tooltip title="This is a premium feature, click to learn more.">
+                                                                    <IconLock className="ml-1.5 text-muted text-lg" />
+                                                                </Tooltip>
+                                                            )}
+                                                        </div>
+                                                    }
+                                                    onChange={() =>
+                                                        guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
+                                                            onChange(!value)
+                                                        )
+                                                    }
                                                     checked={!value}
                                                 />
                                             )}
                                         </LemonField>
-                                    )}
-                                    {showLegendCheckbox && (
-                                        <LemonField name="legend">
-                                            {({ value, onChange }) => (
-                                                <LemonSwitch
-                                                    fullWidth
-                                                    bordered
-                                                    label={<div>Show legend</div>}
-                                                    onChange={() => onChange(!value)}
-                                                    checked={value}
-                                                />
-                                            )}
-                                        </LemonField>
-                                    )}
-                                    {recordingId && (
-                                        <LemonField name="showInspector">
-                                            {({ value, onChange }) => (
-                                                <LemonSwitch
-                                                    fullWidth
-                                                    bordered
-                                                    label={<div>Show inspector panel</div>}
-                                                    onChange={onChange}
-                                                    checked={value}
-                                                />
-                                            )}
-                                        </LemonField>
-                                    )}
+
+                                        {isInsightVizNode(insight?.query) && insightShortId && (
+                                            // These options are only valid for `InsightVizNode`s, and they rely on `insightVizDataLogic`
+                                            <>
+                                                <LegendCheckbox insightShortId={insightShortId} />
+                                                <DetailedResultsCheckbox insightShortId={insightShortId} />
+                                            </>
+                                        )}
+
+                                        {recordingId && (
+                                            <LemonField name="showInspector">
+                                                {({ value, onChange }) => (
+                                                    <LemonSwitch
+                                                        fullWidth
+                                                        bordered
+                                                        label={<div>Show inspector panel</div>}
+                                                        onChange={onChange}
+                                                        checked={value}
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        )}
+                                    </div>
 
                                     {previewIframe && (
                                         <div className="rounded border">
@@ -235,6 +233,44 @@ export function SharingModalContent({
                 )}
             </div>
         </div>
+    )
+}
+
+function DetailedResultsCheckbox({ insightShortId }: { insightShortId: InsightShortId }): JSX.Element | null {
+    const { hasDetailedResultsTable } = useValues(insightVizDataLogic({ dashboardItemId: insightShortId }))
+
+    if (!hasDetailedResultsTable) {
+        return null // No detailed results toggle
+    }
+
+    return (
+        <LemonField name="detailed">
+            {({ value, onChange }) => (
+                <LemonSwitch
+                    fullWidth
+                    bordered
+                    label="Show detailed results"
+                    onChange={() => onChange(!value)}
+                    checked={value}
+                />
+            )}
+        </LemonField>
+    )
+}
+
+function LegendCheckbox({ insightShortId }: { insightShortId: InsightShortId }): JSX.Element | null {
+    const { hasLegend } = useValues(insightVizDataLogic({ dashboardItemId: insightShortId }))
+
+    if (!hasLegend) {
+        return null // No legend to toggle
+    }
+
+    return (
+        <LemonField name="legend">
+            {({ value, onChange }) => (
+                <LemonSwitch fullWidth bordered label="Show legend" onChange={() => onChange(!value)} checked={value} />
+            )}
+        </LemonField>
     )
 }
 

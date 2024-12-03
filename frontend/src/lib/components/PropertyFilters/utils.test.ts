@@ -28,6 +28,7 @@ describe('isValidPropertyFilter()', () => {
             key: 'id',
             value: 33,
             type: PropertyFilterType.Cohort,
+            operator: PropertyOperator.NotIn,
         }
         expect(isValidPropertyFilter(emptyProperty)).toEqual(false)
         expect(isValidPropertyFilter(realProperty)).toEqual(true)
@@ -50,7 +51,12 @@ describe('propertyFilterTypeToTaxonomicFilterType()', () => {
     it('returns values correctly', () => {
         expect(propertyFilterTypeToTaxonomicFilterType({} as EmptyPropertyFilter)).toEqual(undefined)
         expect(
-            propertyFilterTypeToTaxonomicFilterType({ type: PropertyFilterType.Cohort, key: 'id', value: 33 })
+            propertyFilterTypeToTaxonomicFilterType({
+                type: PropertyFilterType.Cohort,
+                operator: PropertyOperator.In,
+                key: 'id',
+                value: 33,
+            })
         ).toEqual(TaxonomicFilterGroupType.Cohorts)
         expect(
             propertyFilterTypeToTaxonomicFilterType({

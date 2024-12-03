@@ -5,7 +5,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea'
 
-import { DashboardType } from '~/types'
+import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 export function TextCardModal({
     isOpen,
@@ -15,7 +15,7 @@ export function TextCardModal({
 }: {
     isOpen: boolean
     onClose: () => void
-    dashboard: DashboardType
+    dashboard: DashboardType<QueryBasedInsightModel>
     textTileId: number | 'new' | null
 }): JSX.Element {
     const modalLogic = textCardModalLogic({ dashboard, textTileId: textTileId ?? 'new', onClose })

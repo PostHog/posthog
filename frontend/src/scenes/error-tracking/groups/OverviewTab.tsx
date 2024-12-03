@@ -1,37 +1,55 @@
 import { PersonDisplay, TZLabel } from '@posthog/apps-common'
-import { Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { Playlist } from 'lib/components/Playlist/Playlist'
+import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton'
 import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 
-import { errorTrackingGroupSceneLogic, ExceptionEventType } from '../errorTrackingGroupSceneLogic'
+import { ErrorTrackingEvent, errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
 export const OverviewTab = (): JSX.Element => {
-    const { events, eventsLoading } = useValues(errorTrackingGroupSceneLogic)
+    const { events, issueLoading, eventsLoading, activeEventUUID } = useValues(errorTrackingIssueSceneLogic)
+    const { loadEvents, setActiveEventUUID } = useActions(errorTrackingIssueSceneLogic)
 
-    return eventsLoading ? (
-        <Spinner className="self-align-center justify-self-center" />
-    ) : (
-        <div className="ErrorTracking__group">
+    return (
+        <div className="ErrorTracking__issue">
             <div className="h-full space-y-2">
                 <Playlist
+                    loading={issueLoading || eventsLoading}
                     title="Exceptions"
                     sections={[
                         {
                             key: 'exceptions',
                             title: 'Exceptions',
-                            items: events,
+                            items: events.map((e) => ({ ...e, id: e.uuid })),
                             render: ListItemException,
                         },
                     ]}
-                    listEmptyState={<div>Empty</div>}
+                    onSelect={({ uuid }) => {
+                        setActiveEventUUID(uuid)
+                    }}
+                    activeItemId={activeEventUUID}
+                    listEmptyState={<div className="flex justify-center p-4">No exceptions found</div>}
                     content={({ activeItem: event }) =>
                         event ? (
-                            <div className="pl-2">
-                                <ErrorDisplay eventProperties={event.properties} />
+                            <div className="h-full overflow-auto">
+                                <div className="bg-bg-light p-1 flex justify-end border-b min-h-[42px]">
+                                    <ViewRecordingButton
+                                        size="small"
+                                        sessionId={event.properties.$session_id}
+                                        timestamp={event.timestamp}
+                                        disabledReason={
+                                            mightHaveRecording(event.properties)
+                                                ? undefined
+                                                : 'Replay was not active when capturing this event'
+                                        }
+                                    />
+                                </div>
+                                <div className="pl-2">
+                                    <ErrorDisplay eventProperties={event.properties} />
+                                </div>
                             </div>
                         ) : (
                             <EmptyMessage
@@ -40,19 +58,30 @@ export const OverviewTab = (): JSX.Element => {
                             />
                         )
                     }
+                    onScrollListEdge={(edge) => {
+                        if (edge === 'bottom' && !eventsLoading) {
+                            loadEvents()
+                        }
+                    }}
                 />
             </div>
         </div>
     )
 }
 
-const ListItemException = ({ item: event, isActive }: { item: ExceptionEventType; isActive: boolean }): JSX.Element => {
-    const properties = ['$browser', '$device_type', '$os']
+const ListItemException = ({
+    item: { timestamp, properties, person },
+    isActive,
+}: {
+    item: ErrorTrackingEvent
+    isActive: boolean
+}): JSX.Element => {
+    const recordingProperties = ['$browser', '$device_type', '$os']
         .flatMap((property) => {
-            let value = event.properties[property]
+            let value = properties[property]
             const label = value
             if (property === '$device_type') {
-                value = event.properties['$device_type'] || event.properties['$initial_device_type']
+                value = properties['$device_type'] || properties['$initial_device_type']
             }
 
             return { property, value, label }
@@ -60,17 +89,22 @@ const ListItemException = ({ item: event, isActive }: { item: ExceptionEventType
         .filter((property) => !!property.value)
 
     return (
-        <div className={clsx('cursor-pointer p-2 space-y-1', isActive && 'border-l-4 border-primary-3000')}>
-            <div className="flex justify-between items-center">
-                <PersonDisplay person={event.person} withIcon />
-                <PropertyIcons recordingProperties={properties} iconClassNames="text-muted" />
-            </div>
-            {event.properties.$current_url && (
-                <div className="text-xs text-muted truncate">{event.properties.$current_url}</div>
+        <div
+            className={clsx(
+                'cursor-pointer p-2 space-y-1 border-l-4',
+                isActive ? 'border-primary-3000' : 'border-transparent'
             )}
+        >
+            <div className="flex justify-between items-center space-x-3">
+                <div className="line-clamp-1">
+                    <PersonDisplay person={person} withIcon noPopover noLink />
+                </div>
+                <PropertyIcons recordingProperties={recordingProperties} iconClassNames="text-muted" />
+            </div>
+            {properties.$current_url && <div className="text-xs text-muted truncate">{properties.$current_url}</div>}
             <TZLabel
                 className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
-                time={event.timestamp}
+                time={timestamp}
                 placement="right"
                 showPopover={false}
             />

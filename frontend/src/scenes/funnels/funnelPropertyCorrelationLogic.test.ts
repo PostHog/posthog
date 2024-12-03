@@ -5,8 +5,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature, CorrelationConfigType, InsightLogicProps, InsightShortId, InsightType } from '~/types'
+import { AvailableFeature, CorrelationConfigType, InsightLogicProps, InsightShortId } from '~/types'
 
 import { DEFAULT_EXCLUDED_PERSON_PROPERTIES, funnelPropertyCorrelationLogic } from './funnelPropertyCorrelationLogic'
 
@@ -21,17 +22,17 @@ describe('funnelPropertyCorrelationLogic', () => {
         useAvailableFeatures([AvailableFeature.CORRELATION_ANALYSIS, AvailableFeature.GROUP_ANALYTICS])
         useMocks({
             get: {
-                '/api/projects/@current': () => [
+                '/api/environments/@current': () => [
                     200,
                     {
                         ...MOCK_DEFAULT_TEAM,
                         correlation_config: correlationConfig,
                     },
                 ],
-                '/api/projects/:team/insights/': { results: [{}] },
-                '/api/projects/:team/insights/:id/': {},
+                '/api/environments/:team_id/insights/': { results: [{}] },
+                '/api/environments/:team_id/insights/:id/': {},
                 '/api/projects/:team/groups_types/': [],
-                '/api/projects/:team/persons/properties': [
+                '/api/environments/:team_id/persons/properties': [
                     { name: 'some property', count: 20 },
                     { name: 'another property', count: 10 },
                     { name: 'third property', count: 5 },
@@ -45,7 +46,7 @@ describe('funnelPropertyCorrelationLogic', () => {
                 },
             },
             patch: {
-                '/api/projects/:id': (req) => [
+                '/api/environments/:id': (req) => [
                     200,
                     {
                         ...MOCK_DEFAULT_TEAM,
@@ -58,7 +59,7 @@ describe('funnelPropertyCorrelationLogic', () => {
                 ],
             },
             post: {
-                '/api/projects/:team/insights/funnel/correlation': (req) => {
+                '/api/environments/:team_id/insights/funnel/correlation': (req) => {
                     const data = req.body as any
                     const excludePropertyFromProjectNames = data?.funnel_correlation_exclude_names || []
                     const includePropertyNames = data?.funnel_correlation_names || []
@@ -101,20 +102,23 @@ describe('funnelPropertyCorrelationLogic', () => {
             },
         })
         initKeaTests(false)
-        window.POSTHOG_APP_CONTEXT = undefined // to force API request to /api/project/@current
+        window.POSTHOG_APP_CONTEXT = undefined // to force API request to /api/environments/@current
     })
 
     const defaultProps: InsightLogicProps = {
         dashboardItemId: undefined,
         cachedInsight: {
             short_id: undefined,
-            filters: {
-                insight: InsightType.FUNNELS,
-                actions: [
-                    { id: '$pageview', order: 0 },
-                    { id: '$pageview', order: 1 },
-                ],
-            },
+            query: {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        { kind: NodeKind.ActionsNode, id: 1 },
+                        { kind: NodeKind.ActionsNode, id: 1 },
+                    ],
+                },
+            } as InsightVizNode,
             result: null,
         },
     }

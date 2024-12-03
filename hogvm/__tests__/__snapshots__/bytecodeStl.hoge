@@ -1,0 +1,9 @@
+["_H", 1, 32, "--- arrayMap ----", 2, "print", 1, 35, 52, "lambda", 1, 0, 6, 33, 2, 36, 0, 8, 38, 53, 0, 33, 1, 33, 2,
+33, 3, 43, 3, 2, "arrayMap", 2, 2, "print", 1, 35, 32, "--- arrayExists ----", 2, "print", 1, 35, 52, "lambda", 1, 0, 6,
+32, "%nana%", 36, 0, 17, 38, 53, 0, 32, "apple", 32, "banana", 32, "cherry", 43, 3, 2, "arrayExists", 2, 2, "print", 1,
+35, 52, "lambda", 1, 0, 6, 32, "%boom%", 36, 0, 17, 38, 53, 0, 32, "apple", 32, "banana", 32, "cherry", 43, 3, 2,
+"arrayExists", 2, 2, "print", 1, 35, 52, "lambda", 1, 0, 6, 32, "%boom%", 36, 0, 17, 38, 53, 0, 43, 0, 2, "arrayExists",
+2, 2, "print", 1, 35, 32, "--- arrayFilter ----", 2, "print", 1, 35, 52, "lambda", 1, 0, 6, 32, "%nana%", 36, 0, 17, 38,
+53, 0, 32, "apple", 32, "banana", 32, "cherry", 43, 3, 2, "arrayFilter", 2, 2, "print", 1, 35, 52, "lambda", 1, 0, 6,
+32, "%e%", 36, 0, 17, 38, 53, 0, 32, "apple", 32, "banana", 32, "cherry", 43, 3, 2, "arrayFilter", 2, 2, "print", 1, 35,
+52, "lambda", 1, 0, 6, 32, "%boom%", 36, 0, 17, 38, 53, 0, 43, 0, 2, "arrayFilter", 2, 2, "print", 1, 35]

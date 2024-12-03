@@ -23,15 +23,17 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django_otp import login as otp_login
 from django_otp.util import random_hex
 from loginas.utils import is_impersonated_session
+from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
+from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
+from django_otp.plugins.otp_totp.models import TOTPDevice
 
-from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
@@ -39,6 +41,7 @@ from posthog.api.utils import (
     PublicIPOnlyHttpAdapter,
     raise_if_user_provided_url_unsafe,
     ClassicBehaviorBooleanFieldSerializer,
+    unparsed_hostname_in_allowed_url_list,
 )
 from posthog.auth import (
     PersonalAPIKeyAuthentication,
@@ -62,7 +65,9 @@ from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerification
 from posthog.tasks import user_identify
 from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
-from posthog.utils import get_js_url
+
+REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
+REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
 
 logger = structlog.get_logger(__name__)
 
@@ -484,16 +489,76 @@ class UserViewSet(
             instance.save()
             return Response(instance.hedgehog_config)
 
+    @action(methods=["GET"], detail=True)
+    def two_factor_status(self, request, **kwargs):
+        """Get current 2FA status including backup codes if enabled"""
+        user = self.get_object()
+        totp_device = TOTPDevice.objects.filter(user=user).first()
+        static_device = StaticDevice.objects.filter(user=user).first()
+
+        backup_codes = []
+        if static_device:
+            backup_codes = [token.token for token in static_device.token_set.all()]
+
+        return Response(
+            {
+                "is_enabled": default_device(user) is not None,
+                "backup_codes": backup_codes if totp_device else [],
+                "method": "TOTP" if totp_device else None,
+            }
+        )
+
+    @action(methods=["POST"], detail=True)
+    def two_factor_backup_codes(self, request, **kwargs):
+        """Generate new backup codes, invalidating any existing ones"""
+        user = self.get_object()
+
+        # Ensure user has 2FA enabled
+        if not default_device(user):
+            raise serializers.ValidationError("2FA must be enabled first", code="2fa_not_enabled")
+
+        # Remove existing backup codes
+        static_device = StaticDevice.objects.filter(user=user).first()
+        if static_device:
+            static_device.token_set.all().delete()
+        else:
+            static_device = StaticDevice.objects.create(user=user, name="Backup Codes")
+
+        # Generate new backup codes
+        backup_codes = []
+        for _ in range(10):  # Generate 10 backup codes
+            token = StaticToken.random_token()
+            static_device.token_set.create(token=token)
+            backup_codes.append(token)
+
+        return Response({"backup_codes": backup_codes})
+
+    @action(methods=["POST"], detail=True)
+    def two_factor_disable(self, request, **kwargs):
+        """Disable 2FA and remove all related devices"""
+        user = self.get_object()
+
+        # Remove all 2FA devices
+        TOTPDevice.objects.filter(user=user).delete()
+        StaticDevice.objects.filter(user=user).delete()
+
+        return Response({"success": True})
+
 
 @authenticate_secondarily
 def redirect_to_site(request):
+    REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
 
     if not app_url:
         return HttpResponse(status=404)
 
-    if not team or not hostname_in_allowed_url_list(team.app_urls, urllib.parse.urlparse(app_url).hostname):
+    if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
+        REDIRECT_TO_SITE_FAILED_COUNTER.inc()
+        logger.error(
+            "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
+        )
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
     request.user.temporary_token = secrets.token_urlsafe(32)
     request.user.save()
@@ -502,14 +567,12 @@ def redirect_to_site(request):
         "token": team.api_token,
         "temporaryToken": request.user.temporary_token,
         "actionId": request.GET.get("actionId"),
+        "experimentId": request.GET.get("experimentId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
         "apiURL": request.build_absolute_uri("/")[:-1],
         "dataAttributes": team.data_attributes,
     }
-
-    if get_js_url(request):
-        params["jsURL"] = get_js_url(request)
 
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True
@@ -532,6 +595,9 @@ def redirect_to_website(request):
         return HttpResponse(status=404)
 
     if not team or urllib.parse.urlparse(app_url).hostname not in PERMITTED_FORUM_DOMAINS:
+        logger.error(
+            "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
+        )
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
     token = ""

@@ -5,7 +5,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { EntityTypes, FunnelCorrelationResultsType, FunnelsFilterType, InsightLogicProps } from '~/types'
+import { EntityTypes, FunnelCorrelationResultsType, InsightLogicProps } from '~/types'
 
 import { funnelCorrelationLogic } from './funnelCorrelationLogic'
 import type { funnelCorrelationUsageLogicType } from './funnelCorrelationUsageLogicType'
@@ -22,7 +22,7 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
     connect((props: InsightLogicProps) => ({
         logic: [eventUsageLogic],
 
-        values: [insightLogic(props), ['filters', 'isInDashboardContext']],
+        values: [insightLogic(props), ['isInDashboardContext'], insightVizDataLogic(props), ['querySource']],
 
         actions: [
             insightVizDataLogic(props),
@@ -86,9 +86,9 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
             breakpoint: BreakPointFunction
         ) => {
             if (visible && values.shouldReportCorrelationViewed) {
-                actions.reportCorrelationViewed(values.filters, 0)
+                actions.reportCorrelationViewed(values.querySource, 0)
                 await breakpoint(10000)
-                actions.reportCorrelationViewed(values.filters, 10)
+                actions.reportCorrelationViewed(values.querySource, 10)
             }
         },
         setCorrelationTypes: ({ types }) => {
@@ -110,9 +110,9 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
             breakpoint: BreakPointFunction
         ) => {
             if (visible && values.shouldReportPropertyCorrelationViewed) {
-                actions.reportCorrelationViewed(values.filters, 0, true)
+                actions.reportCorrelationViewed(values.querySource, 0, true)
                 await breakpoint(10000)
-                actions.reportCorrelationViewed(values.filters, 10, true)
+                actions.reportCorrelationViewed(values.querySource, 10, true)
             }
         },
         setPropertyCorrelationTypes: ({ types }) => {
@@ -166,8 +166,7 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
                 eventUsageLogic.actions.reportCorrelationInteraction(
                     FunnelCorrelationResultsType.Properties,
-                    'person modal',
-                    (values.filters as FunnelsFilterType)?.funnel_correlation_person_entity
+                    'person modal'
                 )
             } else {
                 const { name, properties } = parseEventAndProperty(correlation.event)

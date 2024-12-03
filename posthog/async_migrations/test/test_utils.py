@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from unittest.mock import patch
 
 import pytest
@@ -49,7 +49,7 @@ class TestUtils(AsyncMigrationBaseTest):
 
         sm.refresh_from_db()
         self.assertEqual(sm.status, MigrationStatus.Errored)
-        self.assertGreater(sm.finished_at, datetime.now(timezone.utc) - timedelta(hours=1))
+        self.assertGreater(sm.finished_at, datetime.now(UTC) - timedelta(hours=1))
         errors = AsyncMigrationError.objects.filter(async_migration=sm).order_by("created_at")
         self.assertEqual(errors.count(), 2)
         self.assertEqual(errors[0].description, "some error")
@@ -81,7 +81,7 @@ class TestUtils(AsyncMigrationBaseTest):
         sm.refresh_from_db()
 
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
-        self.assertGreater(sm.finished_at, datetime.now(timezone.utc) - timedelta(hours=1))
+        self.assertGreater(sm.finished_at, datetime.now(UTC) - timedelta(hours=1))
 
         self.assertEqual(sm.progress, 100)
         errors = AsyncMigrationError.objects.filter(async_migration=sm)

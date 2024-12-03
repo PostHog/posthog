@@ -3,7 +3,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 
 from rest_framework import exceptions, serializers, viewsets, pagination
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 

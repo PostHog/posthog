@@ -9,11 +9,13 @@ import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic
 import { hasFormErrors, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 import {
+    BaseMathType,
     Breadcrumb,
     FeatureFlagFilters,
     MultipleSurveyQuestion,
@@ -27,7 +29,7 @@ import {
     SurveyUrlMatchType,
 } from '~/types'
 
-import { defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
+import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import { sanitizeHTML } from './utils'
@@ -38,7 +40,7 @@ export enum SurveyEditSection {
     Presentation = 'presentation',
     Appearance = 'appearance',
     Customization = 'customization',
-    Targeting = 'targeting',
+    DisplayConditions = 'DisplayConditions',
     Scheduling = 'scheduling',
     CompletionConditions = 'CompletionConditions',
 }
@@ -103,6 +105,7 @@ export interface QuestionResultsReady {
     [key: string]: boolean
 }
 
+export type DataCollectionType = 'until_stopped' | 'until_limit' | 'until_adaptive_limit'
 export type ScheduleType = 'once' | 'recurring'
 
 const getResponseField = (i: number): string => (i === 0 ? '$survey_response' : `$survey_response_${i}`)
@@ -131,11 +134,8 @@ export const surveyLogic = kea<surveyLogicType>([
             eventUsageLogic,
             [
                 'reportSurveyCreated',
-                'reportSurveyLaunched',
                 'reportSurveyEdited',
                 'reportSurveyArchived',
-                'reportSurveyStopped',
-                'reportSurveyResumed',
                 'reportSurveyViewed',
                 'reportSurveyCycleDetected',
             ],
@@ -169,6 +169,9 @@ export const surveyLogic = kea<surveyLogicType>([
             nextStep,
             specificQuestionIndex,
         }),
+        setDataCollectionType: (dataCollectionType: DataCollectionType) => ({
+            dataCollectionType,
+        }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
         deleteBranchingLogic: true,
         archiveSurvey: true,
@@ -179,9 +182,16 @@ export const surveyLogic = kea<surveyLogicType>([
 
         setSchedule: (schedule: ScheduleType) => ({ schedule }),
         resetTargeting: true,
+        resetSurveyAdaptiveSampling: true,
+        resetSurveyResponseLimits: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
     }),
     loaders(({ props, actions, values }) => ({
+        responseSummary: {
+            summarize: async ({ questionIndex }: { questionIndex?: number }) => {
+                return api.surveys.summarize_responses(props.id, questionIndex)
+            },
+        },
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
@@ -198,9 +208,23 @@ export const surveyLogic = kea<surveyLogicType>([
                     }
                 }
                 if (props.id === 'new' && router.values.hashParams.fromTemplate) {
-                    return values.survey
+                    const templatedSurvey = values.survey
+                    templatedSurvey.appearance = {
+                        ...defaultSurveyAppearance,
+                        ...teamLogic.values.currentTeam?.survey_config?.appearance,
+                        ...templatedSurvey.appearance,
+                    }
+                    return templatedSurvey
                 }
-                return { ...NEW_SURVEY }
+
+                const newSurvey = NEW_SURVEY
+                newSurvey.appearance = {
+                    ...defaultSurveyAppearance,
+                    ...teamLogic.values.currentTeam?.survey_config?.appearance,
+                    ...newSurvey.appearance,
+                }
+
+                return newSurvey
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
                 return await api.surveys.create(sanitizeQuestions(surveyPayload))
@@ -241,8 +265,8 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         surveyUserStats: {
             loadSurveyUserStats: async (): Promise<SurveyUserStats> => {
-                const { survey } = values
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -289,14 +313,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 questionIndex: number
                 iteration?: number | null | undefined
             }): Promise<SurveyRatingResults> => {
-                const { survey } = values
-
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.Rating) {
                     throw new Error(`Survey question type must be ${SurveyQuestionType.Rating}`)
                 }
 
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -344,14 +367,13 @@ export const surveyLogic = kea<surveyLogicType>([
             }: {
                 questionIndex: number
             }): Promise<SurveyRecurringNPSResults> => {
-                const { survey } = values
-
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.Rating) {
                     throw new Error(`Survey question type must be ${SurveyQuestionType.Rating}`)
                 }
 
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -430,8 +452,8 @@ export const surveyLogic = kea<surveyLogicType>([
             }: {
                 questionIndex: number
             }): Promise<SurveySingleChoiceResults> => {
-                const { survey } = values
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -466,14 +488,13 @@ export const surveyLogic = kea<surveyLogicType>([
             }: {
                 questionIndex: number
             }): Promise<SurveyMultipleChoiceResults> => {
-                const { survey } = values
-
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.MultipleChoice) {
                     throw new Error(`Survey question type must be ${SurveyQuestionType.MultipleChoice}`)
                 }
 
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -521,14 +542,13 @@ export const surveyLogic = kea<surveyLogicType>([
             }: {
                 questionIndex: number
             }): Promise<SurveyOpenTextResults> => {
-                const { survey } = values
-
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.Open) {
                     throw new Error(`Survey question type must be ${SurveyQuestionType.Open}`)
                 }
 
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -581,21 +601,31 @@ export const surveyLogic = kea<surveyLogicType>([
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
             actions.loadSurveys()
-            actions.reportSurveyLaunched(survey)
         },
-        stopSurveySuccess: ({ survey }) => {
+        stopSurveySuccess: () => {
             actions.loadSurveys()
-            actions.reportSurveyStopped(survey)
         },
-        resumeSurveySuccess: ({ survey }) => {
+        resumeSurveySuccess: () => {
             actions.loadSurveys()
-            actions.reportSurveyResumed(survey)
         },
         archiveSurvey: () => {
             actions.updateSurvey({ archived: true })
         },
         loadSurveySuccess: () => {
             actions.loadSurveyUserStats()
+        },
+        resetSurveyResponseLimits: () => {
+            actions.setSurveyValue('responses_limit', null)
+        },
+
+        resetSurveyAdaptiveSampling: () => {
+            actions.setSurveyValues({
+                response_sampling_interval: null,
+                response_sampling_interval_type: null,
+                response_sampling_limit: null,
+                response_sampling_start_date: null,
+                response_sampling_daily_limits: null,
+            })
         },
         resetTargeting: () => {
             actions.setSurveyValue('linked_flag_id', NEW_SURVEY.linked_flag_id)
@@ -613,7 +643,7 @@ export const surveyLogic = kea<surveyLogicType>([
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
             if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
-                actions.setSelectedSection(SurveyEditSection.Targeting)
+                actions.setSelectedSection(SurveyEditSection.DisplayConditions)
             } else {
                 actions.setSelectedSection(SurveyEditSection.Steps)
             }
@@ -636,6 +666,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 setSurveyMissing: () => true,
             },
         ],
+        dataCollectionType: [
+            'until_stopped' as DataCollectionType,
+            {
+                setDataCollectionType: (_, { dataCollectionType }) => dataCollectionType,
+            },
+        ],
 
         survey: [
             { ...NEW_SURVEY } as NewSurvey | Survey,
@@ -651,7 +687,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ? state.questions[idx].description
                         : defaultSurveyFieldValues[type].questions[0].description
                     const thankYouMessageHeader = isEditingThankYouMessage
-                        ? state.appearance.thankYouMessageHeader
+                        ? state.appearance?.thankYouMessageHeader
                         : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
                     const newQuestions = [...state.questions]
                     newQuestions[idx] = {
@@ -866,6 +902,24 @@ export const surveyLogic = kea<surveyLogicType>([
                 return !!(survey.start_date && !survey.end_date)
             },
         ],
+        surveyUsesLimit: [
+            (s) => [s.survey],
+            (survey: Survey): boolean => {
+                return !!(survey.responses_limit && survey.responses_limit > 0)
+            },
+        ],
+        surveyUsesAdaptiveLimit: [
+            (s) => [s.survey],
+            (survey: Survey): boolean => {
+                return !!(
+                    survey.response_sampling_interval &&
+                    survey.response_sampling_interval > 0 &&
+                    survey.response_sampling_interval_type !== '' &&
+                    survey.response_sampling_limit &&
+                    survey.response_sampling_limit > 0
+                )
+            },
+        ],
         surveyShufflingQuestionsAvailable: [
             (s) => [s.survey],
             (survey: Survey): boolean => {
@@ -878,6 +932,11 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey: Survey) => (questionIndex: number) => {
                 return survey.questions[questionIndex].descriptionContentType
             },
+        ],
+        surveyRepeatedActivationAvailable: [
+            (s) => [s.survey],
+            (survey: Survey): boolean =>
+                survey.conditions?.events?.values != undefined && survey.conditions?.events?.values?.length > 0,
         ],
         hasTargetingSet: [
             (s) => [s.survey],
@@ -908,7 +967,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (survey.id === 'new') {
                     return null
                 }
-                const createdAt = (survey as Survey).created_at
+                const surveyWithResults = survey as Survey
+                const startDate = surveyWithResults.start_date || surveyWithResults.created_at
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
@@ -929,10 +989,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             }),
                             'timestamp',
                             'person',
+                            `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
+                            `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
+                            `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
                         ],
                         orderBy: ['timestamp DESC'],
                         where: [`event == 'survey sent'`],
-                        after: createdAt,
+                        after: startDate,
                         properties: [
                             {
                                 type: PropertyFilterType.Event,
@@ -1002,6 +1065,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             },
         ],
+
         getBranchingDropdownValue: [
             (s) => [s.survey],
             (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {
@@ -1110,6 +1174,47 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey) =>
                 survey.questions.some((question) => question.branching && Object.keys(question.branching).length > 0),
         ],
+        surveyAsInsightURL: [
+            (s) => [s.survey],
+            (survey) => {
+                const query: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        properties: [
+                            {
+                                key: '$survey_id',
+                                value: survey.id,
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'survey sent',
+                                name: 'survey sent',
+                                math: BaseMathType.TotalCount,
+                            },
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'survey shown',
+                                name: 'survey shown',
+                                math: BaseMathType.TotalCount,
+                            },
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'survey dismissed',
+                                name: 'survey dismissed',
+                                math: BaseMathType.TotalCount,
+                            },
+                        ],
+                    },
+                }
+
+                return urls.insightNew(undefined, undefined, query)
+            },
+        ],
     }),
     forms(({ actions, props, values }) => ({
         survey: {
@@ -1118,15 +1223,33 @@ export const surveyLogic = kea<surveyLogicType>([
                 // NOTE: When more validation errors are added, the submitSurveyFailure listener should be updated
                 // to scroll to the right error section
                 name: !name && 'Please enter a name.',
-                questions: questions.map((question) => ({
-                    question: !question.question && 'Please enter a question.',
-                    ...(question.type === SurveyQuestionType.Rating
-                        ? {
-                              display: !question.display && 'Please choose a display type.',
-                              scale: !question.scale && 'Please choose a scale.',
-                          }
-                        : {}),
-                })),
+                questions: questions.map((question) => {
+                    const questionErrors = {
+                        question: !question.question && 'Please enter a question label.',
+                    }
+
+                    if (question.type === SurveyQuestionType.Rating) {
+                        return {
+                            ...questionErrors,
+                            display: !question.display && 'Please choose a display type.',
+                            scale: !question.scale && 'Please choose a scale.',
+                            lowerBoundLabel: !question.lowerBoundLabel && 'Please enter a lower bound label.',
+                            upperBoundLabel: !question.upperBoundLabel && 'Please enter an upper bound label.',
+                        }
+                    } else if (
+                        question.type === SurveyQuestionType.SingleChoice ||
+                        question.type === SurveyQuestionType.MultipleChoice
+                    ) {
+                        return {
+                            ...questionErrors,
+                            choices: question.choices.some((choice) => !choice.trim())
+                                ? 'Please ensure all choices are non-empty.'
+                                : undefined,
+                        }
+                    }
+
+                    return questionErrors
+                }),
                 // release conditions controlled using a PureField in the form
                 targeting_flag_filters: values.flagPropertyErrors,
                 // controlled using a PureField in the form
@@ -1152,7 +1275,7 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     urlToAction(({ actions, props }) => ({
-        [urls.survey(props.id ?? 'new')]: (_, __, ___, { method }) => {
+        [urls.survey(props.id ?? 'new')]: (_, { edit }, __, { method }) => {
             // We always set the editingSurvey to true when we create a new survey
             if (props.id === 'new') {
                 actions.editingSurvey(true)
@@ -1166,6 +1289,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     actions.resetSurvey()
                 }
             }
+
+            if (edit) {
+                actions.editingSurvey(true)
+            }
         },
     })),
     actionToUrl(({ values }) => ({
@@ -1174,6 +1301,16 @@ export const surveyLogic = kea<surveyLogicType>([
             hashParams['fromTemplate'] = true
 
             return [urls.survey(values.survey.id), router.values.searchParams, hashParams]
+        },
+        editingSurvey: ({ editing }) => {
+            const searchParams = router.values.searchParams
+            if (editing) {
+                searchParams['edit'] = true
+            } else {
+                delete searchParams['edit']
+            }
+
+            return [router.values.location.pathname, router.values.searchParams, router.values.hashParams]
         },
     })),
     afterMount(({ props, actions }) => {

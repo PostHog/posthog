@@ -65,7 +65,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_person(self):
-        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 
         _create_event(
             event_uuid=uuid4(),
@@ -101,7 +101,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_person_when_not_done(self):
-        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 
         _create_event(
             event_uuid=uuid4(),
@@ -226,7 +226,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_alter_queries
     def test_delete_person(self):
-        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 
         # Event for person, created before AsyncDeletion, so it should be deleted
         _create_event(
@@ -264,7 +264,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_alter_queries
     def test_delete_person_unrelated(self):
-        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 
         _create_event(
             event_uuid=uuid4(),

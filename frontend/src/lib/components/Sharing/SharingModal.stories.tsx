@@ -6,14 +6,15 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
-import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
+import { examples } from '~/queries/examples'
+import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { SharingModal, SharingModalProps } from './SharingModal'
 
-const fakeInsight: Partial<InsightModel> = {
+const fakeInsight: Partial<QueryBasedInsightModel> = {
     id: 123,
     short_id: 'insight123' as InsightShortId,
-    filters: { insight: InsightType.TRENDS },
+    query: examples.InsightTrendsQuery,
 }
 
 const meta: Meta<typeof SharingModal> = {
@@ -35,9 +36,9 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
     useStorybookMocks({
         get: {
             ...[
-                '/api/projects/:id/insights/:insight_id/sharing/',
-                '/api/projects/:id/dashboards/:dashboard_id/sharing/',
-                '/api/projects/:id/session_recordings/:recording_id/sharing/',
+                '/api/environments/:id/insights/:insight_id/sharing/',
+                '/api/environments/:id/dashboards/:dashboard_id/sharing/',
+                '/api/environments/:id/session_recordings/:recording_id/sharing/',
             ].reduce(
                 (acc, url) => ({
                     ...acc,
@@ -49,13 +50,13 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
                 }),
                 {}
             ),
-            '/api/projects/:id/insights/': { results: [fakeInsight] },
+            '/api/environments/:id/insights/': { results: [fakeInsight] },
         },
         patch: {
             ...[
-                '/api/projects/:id/insights/:insight_id/sharing/',
-                '/api/projects/:id/dashboards/:dashboard_id/sharing/',
-                '/api/projects/:id/session_recordings/:recording_id/sharing/',
+                '/api/environments/:id/insights/:insight_id/sharing/',
+                '/api/environments/:id/dashboards/:dashboard_id/sharing/',
+                '/api/environments/:id/session_recordings/:recording_id/sharing/',
             ].reduce(
                 (acc, url) => ({
                     ...acc,

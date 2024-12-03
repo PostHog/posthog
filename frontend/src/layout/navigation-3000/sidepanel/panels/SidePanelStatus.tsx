@@ -24,7 +24,13 @@ export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element 
             <span {...props}>
                 <IconWithBadge
                     content={status !== 'operational' ? '!' : '✓'}
-                    status={status.includes('outage') ? 'danger' : status.includes('degraded') ? 'warning' : 'success'}
+                    status={
+                        status.includes('outage')
+                            ? 'danger'
+                            : status.includes('degraded') || status.includes('monitoring')
+                            ? 'warning'
+                            : 'success'
+                    }
                 >
                     <IconCloud />
                 </IconWithBadge>

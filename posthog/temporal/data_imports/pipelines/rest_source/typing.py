@@ -1,9 +1,5 @@
-from typing import (
-    Any,
-    Literal,
-    Optional,
-    TypedDict,
-)
+from typing import Any, Literal, Optional, TypedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from dlt.common import jsonpath
@@ -171,6 +167,7 @@ class IncrementalArgs(TypedDict, total=False):
     primary_key: Optional[TTableHintTemplate[TColumnNames]]
     end_value: Optional[str]
     row_order: Optional[TSortOrder]
+    convert: Optional[Callable[..., Any]]
 
 
 class IncrementalConfig(IncrementalArgs, total=False):

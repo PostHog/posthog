@@ -1,5 +1,4 @@
-// eslint-disable-next-line no-restricted-imports
-import { FundOutlined } from '@ant-design/icons'
+import { IconPulse } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -25,7 +24,8 @@ export function SmoothingFilter(): JSX.Element | null {
         label:
             value === smoothingIntervals ? (
                 <>
-                    <FundOutlined className="mr-1 text-muted" /> {label}
+                    <IconPulse className="mr-1.5 text-muted" />
+                    {label}
                 </>
             ) : (
                 label

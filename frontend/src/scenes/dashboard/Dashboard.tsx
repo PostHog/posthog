@@ -12,14 +12,15 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
+import { DashboardMode, DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface DashboardProps {
     id?: string
-    dashboard?: DashboardType
+    dashboard?: DashboardType<QueryBasedInsightModel>
     placement?: DashboardPlacement
 }
 
@@ -117,13 +118,14 @@ function DashboardScene(): JSX.Element {
                                 >
                                     {[DashboardPlacement.Public].includes(placement) ? (
                                         <LastRefreshText />
-                                    ) : (
+                                    ) : !(dashboardMode === DashboardMode.Edit) ? (
                                         <DashboardReloadAction />
-                                    )}
+                                    ) : null}
                                 </div>
                             </div>
                         )}
                     </div>
+                    <VariablesForDashboard />
                     <DashboardItems />
                 </div>
             )}

@@ -4,10 +4,10 @@ from .utils import UUIDModel
 
 
 class UserScenePersonalisation(UUIDModel):
-    scene: models.CharField = models.CharField(max_length=200)
-    dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.CASCADE, null=True, blank=True)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True, blank=True)
-    user: models.ForeignKey = models.ForeignKey(
+    scene = models.CharField(max_length=200)
+    dashboard = models.ForeignKey("Dashboard", on_delete=models.CASCADE, null=True, blank=True)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, null=True, blank=True)
+    user = models.ForeignKey(
         "User",
         on_delete=models.CASCADE,
         null=True,

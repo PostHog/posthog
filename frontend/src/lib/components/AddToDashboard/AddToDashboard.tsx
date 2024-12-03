@@ -4,10 +4,10 @@ import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { InsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
 interface SaveToDashboardProps {
-    insight: Partial<InsightModel>
+    insight: Partial<QueryBasedInsightModel>
     setOpenModal: (open: boolean) => void
 }
 
@@ -25,8 +25,9 @@ export function AddToDashboard({ insight, setOpenModal }: SaveToDashboardProps):
                         <IconDashboard />
                     </IconWithCount>
                 }
+                tooltip={dashboards.length === 0 ? 'Add to dashboard' : 'Manage dashboards'}
             >
-                {dashboards.length === 0 ? 'Add to dashboard' : 'Manage dashboards'}
+                Dashboards
             </LemonButton>
         </span>
     )

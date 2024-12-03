@@ -78,11 +78,14 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         # Since we can FULL OUTER JOIN, we may end up with pairs of uuids where one side is blank. Always try to choose the non blank ID
         q, fields = self._build_sources(subq)
 
+        # optimize_aggregation_in_order slows down this query but massively decreases memory usage
+        # this is fine for offline cohort calculation
         final_query = f"""
         SELECT {fields} AS id  FROM
         {q}
         WHERE 1 = 1
         {conditions}
+        SETTINGS optimize_aggregation_in_order = 1, join_algorithm = 'auto'
         """
 
         return final_query, self.params

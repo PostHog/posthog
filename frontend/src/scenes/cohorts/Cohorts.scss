@@ -1,17 +1,8 @@
-.cohorts-drawer .ant-drawer-content-wrapper {
-    width: 100% !important;
-    max-width: 850px !important;
-}
-
 .cohort-recalculating {
     padding: 0.5rem 1rem;
     margin-top: 1rem;
     background-color: var(--bg-3000);
     border-radius: var(--radius);
-
-    .ant-spin-spinning {
-        margin-right: 0.375rem;
-    }
 }
 
 .cohort-csv-dragger {

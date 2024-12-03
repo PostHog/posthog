@@ -1,10 +1,13 @@
+import { Tooltip } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { Lettermark } from 'lib/lemon-ui/Lettermark'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -32,8 +35,12 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             ['user', 'otherOrganizations'],
             organizationLogic,
             ['currentOrganization'],
+            projectLogic,
+            ['currentProject'],
             teamLogic,
             ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions({
@@ -74,18 +81,24 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 (state, props): Breadcrumb[] => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
                     const activeScene = s.activeScene(state, props)
+
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
-                        const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
-                        return activeSceneLogic.selectors.breadcrumbs(
-                            state,
-                            activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
-                        )
-                    } else if (activeScene) {
+                        try {
+                            const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
+                            return activeSceneLogic.selectors.breadcrumbs(
+                                state,
+                                activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
+                            )
+                        } catch (e) {
+                            // If the breadcrumb selector fails, we'll just ignore it and return an empty array below
+                        }
+                    }
+
+                    if (activeScene) {
                         const sceneConfig = s.sceneConfig(state, props)
                         return [{ name: sceneConfig?.name ?? identifierToHuman(activeScene), key: activeScene }]
-                    } else {
-                        return []
                     }
+                    return []
                 },
             ],
             (crumbs): Breadcrumb[] => crumbs,
@@ -98,10 +111,20 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 s.activeScene,
                 s.user,
                 s.currentOrganization,
+                s.currentProject,
                 s.currentTeam,
-                s.otherOrganizations,
+                s.featureFlags,
             ],
-            (preflight, sceneConfig, activeScene, user, currentOrganization, currentTeam, otherOrganizations) => {
+            (
+                preflight,
+                sceneConfig,
+                activeScene,
+                user,
+                currentOrganization,
+                currentProject,
+                currentTeam,
+                featureFlags
+            ) => {
                 const breadcrumbs: Breadcrumb[] = []
                 if (!activeScene || !sceneConfig) {
                     return breadcrumbs
@@ -114,7 +137,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     breadcrumbs.push({
                         key: 'me',
                         name: user.first_name,
-                        symbol: <ProfilePicture user={user} size="md" />,
                     })
                 }
                 // Instance
@@ -125,7 +147,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     breadcrumbs.push({
                         key: 'instance',
                         name: stripHTTP(preflight.site_url),
-                        symbol: <Lettermark name="@" />,
                     })
                 }
                 // Organization
@@ -135,24 +156,30 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     }
                     breadcrumbs.push({
                         key: 'organization',
-                        name: currentOrganization.name,
-                        symbol: <Lettermark name={currentOrganization.name} />,
-                        popover:
-                            otherOrganizations?.length || preflight?.can_create_org
-                                ? {
-                                      overlay: <OrganizationSwitcherOverlay />,
-                                  }
-                                : undefined,
+                        symbol: (
+                            <Tooltip title={currentOrganization.name} placement="left">
+                                <UploadedLogo
+                                    name={currentOrganization.name}
+                                    entityId={currentOrganization.id}
+                                    mediaId={currentOrganization.logo_media_id}
+                                    size="xsmall"
+                                />
+                            </Tooltip>
+                        ),
+                        popover: {
+                            overlay: <OrganizationSwitcherOverlay />,
+                        },
                     })
                 }
                 // Project
                 if (sceneConfig.projectBased) {
-                    if (!currentTeam) {
+                    if (!currentProject || !currentTeam) {
                         return breadcrumbs
                     }
                     breadcrumbs.push({
                         key: 'project',
-                        name: currentTeam.name,
+                        name: featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? currentProject.name : currentTeam.name,
+                        tag: featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? currentTeam.name : null,
                         popover: {
                             overlay: <ProjectSwitcherOverlay />,
                         },

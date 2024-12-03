@@ -22,7 +22,7 @@ export function PermissionsGrid(): JSX.Element {
     const { roles, rolesLoading } = useValues(rolesLogic)
     const { setRoleInFocus, openCreateRoleModal } = useActions(rolesLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
-    const isRestricted = !!useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin }) // TODO: check if this is correct
+    const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin }) // TODO: check if this is correct
 
     const columns: LemonTableColumns<RoleType> = [
         {
@@ -107,7 +107,7 @@ export function PermissionsGrid(): JSX.Element {
                         Edit organizational default permission levels for PostHog resources. Use roles to apply
                         permissions to specific sets of users.
                     </div>
-                    {!isRestricted && (
+                    {!restrictionReason && (
                         <LemonButton type="primary" onClick={openCreateRoleModal} data-attr="create-role-button">
                             Create role
                         </LemonButton>

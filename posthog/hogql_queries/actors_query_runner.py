@@ -1,10 +1,14 @@
 import itertools
 from typing import Optional
 from collections.abc import Sequence, Iterator
+
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
@@ -118,12 +122,21 @@ class ActorsQueryRunner(QueryRunner):
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def calculate(self) -> ActorsQueryResponse:
+        # Funnel queries require the experimental analyzer to run correctly
+        # Can remove once clickhouse moves to version 24.3 or above
+        settings = None
+        if isinstance(self.source_query_runner, InsightActorsQueryRunner) and isinstance(
+            self.source_query_runner.source_runner, FunnelsQueryRunner
+        ):
+            settings = HogQLGlobalSettings(allow_experimental_analyzer=True)
+
         response = self.paginator.execute_hogql_query(
             query_type="ActorsQuery",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            settings=settings,
         )
         input_columns = self.input_columns()
         missing_actors_count = None
@@ -159,12 +172,12 @@ class ActorsQueryRunner(QueryRunner):
         return self.strategy.input_columns()
 
     # TODO: Figure out a more sure way of getting the actor id than using the alias or chain name
-    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectUnionQuery) -> list[str]:
+    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectSetQuery) -> list[str]:
         # Figure out the id column of the source query, first column that has id in the name
         if isinstance(source_query, ast.SelectQuery):
             select = source_query.select
         else:
-            select = source_query.select_queries[0].select
+            select = next(extract_select_queries(source_query)).select
 
         for column in select:
             if isinstance(column, ast.Alias) and (column.alias in ("group_key", "actor_id", "person_id")):
@@ -244,24 +257,23 @@ class ActorsQueryRunner(QueryRunner):
                 order_by = []
 
         with self.timings.measure("select"):
-            join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
-            stmt = ast.SelectQuery(
-                select=columns,
-                select_from=join_expr,
-                where=where,
-                having=having,
-                group_by=group_by if has_any_aggregation else None,
-            )
+            if not self.query.source:
+                join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+            else:
+                assert self.source_query_runner is not None  # For type checking
+                source_query = self.source_query_runner.to_actors_query()
+                if isinstance(source_query, ast.SelectQuery):  # typing fun
+                    source_query.order_by = order_by
+                    return source_query
 
-        if self.query.source and self.source_query_runner:
-            source_query = self.source_query_runner.to_actors_query()
-            if isinstance(source_query, ast.SelectQuery):  # typing fun
-                source_query.order_by = order_by
-                return source_query
-
-        stmt.order_by = order_by
-
-        return stmt
+        return ast.SelectQuery(
+            select=columns,
+            select_from=join_expr,
+            where=where,
+            having=having,
+            group_by=group_by if has_any_aggregation else None,
+            order_by=order_by,
+        )
 
     def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()

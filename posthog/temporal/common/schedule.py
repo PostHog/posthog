@@ -22,9 +22,13 @@ async def a_create_schedule(temporal: Client, id: str, schedule: Schedule, trigg
 
 
 @async_to_sync
-async def update_schedule(temporal: Client, id: str, schedule: Schedule) -> None:
+async def update_schedule(temporal: Client, id: str, schedule: Schedule, keep_tz: bool = False) -> None:
     """Update a Temporal Schedule."""
     handle = temporal.get_schedule_handle(id)
+
+    if keep_tz:
+        desc = await handle.describe()
+        schedule.spec.time_zone_name = desc.schedule.spec.time_zone_name
 
     async def updater(_: ScheduleUpdateInput) -> ScheduleUpdate:
         return ScheduleUpdate(schedule=schedule)

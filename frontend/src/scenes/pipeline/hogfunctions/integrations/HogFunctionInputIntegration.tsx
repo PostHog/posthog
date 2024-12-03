@@ -1,64 +1,33 @@
-import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { SlackIntegrationView } from 'lib/integrations/SlackIntegrationHelpers'
-import { IconSlack } from 'lib/lemon-ui/icons'
+import { useActions } from 'kea'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 import { HogFunctionInputSchemaType } from '~/types'
 
-export type HogFunctionInputIntegrationConfigureProps = {
-    value?: number
-    onChange?: (value: number | null) => void
-}
+import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
+import { IntegrationChoice, IntegrationConfigureProps } from './IntegrationChoice'
 
-export type HogFunctionInputIntegrationProps = HogFunctionInputIntegrationConfigureProps & {
+export type HogFunctionInputIntegrationProps = IntegrationConfigureProps & {
     schema: HogFunctionInputSchemaType
 }
 
 export function HogFunctionInputIntegration({ schema, ...props }: HogFunctionInputIntegrationProps): JSX.Element {
-    if (schema.integration === 'slack') {
-        return <HogFunctionIntegrationSlackConnection {...props} />
-    }
+    const { persistForUnload } = useActions(hogFunctionConfigurationLogic)
     return (
-        <div className="text-danger">
-            <p>Unsupported integration type: {schema.integration}</p>
-        </div>
+        <>
+            <IntegrationChoice
+                {...props}
+                integration={schema.integration}
+                redirectUrl={`${window.location.pathname}?integration_target=${schema.key}`}
+                beforeRedirect={() => persistForUnload()}
+            />
+            {schema.type === 'integration' && schema.integration === 'google-ads' ? (
+                <LemonBanner type="warning">
+                    <span>
+                        We are still waiting for our Google Ads integration to be approved. You might see a `Google
+                        hasn’t verified this app` warning when trying to connect your account.
+                    </span>
+                </LemonBanner>
+            ) : null}
+        </>
     )
-}
-
-export function HogFunctionIntegrationSlackConnection({
-    onChange,
-    value,
-}: HogFunctionInputIntegrationConfigureProps): JSX.Element {
-    const { integrationsLoading, slackIntegrations, addToSlackButtonUrl } = useValues(integrationsLogic)
-
-    const integration = slackIntegrations?.find((integration) => integration.id === value)
-
-    if (integrationsLoading) {
-        return <LemonSkeleton className="h-10" />
-    }
-
-    const button = (
-        <LemonMenu
-            items={[
-                ...(slackIntegrations?.map((integration) => ({
-                    icon: <IconSlack />,
-                    onClick: () => onChange?.(integration.id),
-                    label: integration.config.team.name,
-                })) || []),
-                {
-                    to: addToSlackButtonUrl(window.location.pathname + '?target_type=slack') || '',
-                    label: 'Add to different Slack workspace',
-                },
-            ]}
-        >
-            {integration ? (
-                <LemonButton type="secondary">Change</LemonButton>
-            ) : (
-                <LemonButton type="secondary"> Choose Slack connection</LemonButton>
-            )}
-        </LemonMenu>
-    )
-
-    return <>{integration ? <SlackIntegrationView integration={integration} suffix={button} /> : button}</>
 }

@@ -1,6 +1,6 @@
 from typing import Any
 
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -26,7 +26,7 @@ class CanEditInsight(BasePermission):
         return view.user_permissions.insight(insight).effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
 
 
-class ClickhouseInsightsViewSet(InsightViewSet):
+class EnterpriseInsightsViewSet(InsightViewSet):
     permission_classes = [CanEditInsight]
     retention_query_class = ClickhouseRetention
     stickiness_query_class = ClickhouseStickiness

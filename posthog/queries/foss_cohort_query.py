@@ -613,6 +613,9 @@ class FOSSCohortQuery(EventQuery):
                 self._team_id,
                 f"{prepend}_entity_{idx}",
                 self._filter.hogql_context,
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+                if self._person_on_events_mode != PersonsOnEventsMode.DISABLED
+                else None,
             )
         elif event[0] == "events":
             self._add_event(str(event[1]))

@@ -11,7 +11,7 @@ import React, { useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 import useResizeObserver from 'use-resize-observer'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
+import { BillingFeatureType, BillingPlanType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { convertLargeNumberToWords, getProration, getProrationMessage, getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -23,7 +23,7 @@ export function PlanIcon({
     className,
     timeDenominator,
 }: {
-    feature?: BillingV2FeatureType
+    feature?: BillingFeatureType
     className?: string
     timeDenominator?: string
 }): JSX.Element {
@@ -56,7 +56,7 @@ const PricingTiers = ({
     plan,
     product,
 }: {
-    plan: BillingV2PlanType
+    plan: BillingPlanType
     product: BillingProductV2Type | BillingProductV2AddonType
 }): JSX.Element => {
     const { width, ref: tiersRef } = useResizeObserver()
@@ -114,7 +114,7 @@ const PricingTiers = ({
  * @param {string} plan.included_if - Condition for plan inclusion.
  * @returns {string} - The pricing description for the plan.
  */
-function getPlanDescription(plan: BillingV2PlanType): string {
+function getPlanDescription(plan: BillingPlanType): string {
     if (plan.free_allocation && !plan.tiers) {
         return 'Free forever'
     } else if (plan.unit_amount_usd) {
@@ -134,19 +134,24 @@ export const AllProductsPlanComparison = ({
     product: BillingProductV2Type
     includeAddons?: boolean
 }): JSX.Element | null => {
+    const { billing, redirectPath, timeRemainingInSeconds, timeTotalInSeconds } = useValues(billingLogic)
+    const { ref: planComparisonRef } = useResizeObserver()
+    const { reportBillingUpgradeClicked, reportBillingDowngradeClicked } = useActions(eventUsageLogic)
+    const { surveyID, comparisonModalHighlightedFeatureKey, billingProductLoading } = useValues(
+        billingProductLogic({ product })
+    )
+    const { reportSurveyShown, setSurveyResponse, setBillingProductLoading } = useActions(
+        billingProductLogic({ product })
+    )
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const plans = product.plans?.filter(
         (plan) => !plan.included_if || plan.included_if == 'has_subscription' || plan.current_plan
     )
     if (plans?.length === 0) {
         return null
     }
-    const { billing, redirectPath, timeRemainingInSeconds, timeTotalInSeconds } = useValues(billingLogic)
-    const { ref: planComparisonRef } = useResizeObserver()
-    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
-    const { surveyID, comparisonModalHighlightedFeatureKey } = useValues(billingProductLogic({ product }))
-    const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const nonInclusionProducts = billing?.products.filter((p) => !p.inclusion_only) || []
     const inclusionProducts = billing?.products.filter((p) => !!p.inclusion_only) || []
@@ -164,13 +169,12 @@ export const AllProductsPlanComparison = ({
                     to={
                         plan.contact_support
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
+                            : i < currentPlanIndex
+                            ? undefined // Downgrade action handled in onClick
                             : getUpgradeProductLink({
                                   product,
-                                  upgradeToPlanKey: plan.plan_key || '',
                                   redirectPath,
                                   includeAddons,
-                                  subscriptionLevel: billing?.subscription_level,
-                                  featureFlags,
                               })
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
@@ -193,14 +197,17 @@ export const AllProductsPlanComparison = ({
                     }
                     onClick={() => {
                         if (!plan.current_plan) {
-                            // TODO: add current plan key and new plan key
-                            reportBillingUpgradeClicked(product.type)
-                        }
-                        if (plan.included_if == 'has_subscription' && !plan.current_plan && i < currentPlanIndex) {
-                            setSurveyResponse(product.type, '$survey_response_1')
-                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                            setBillingProductLoading(product.type)
+                            if (i < currentPlanIndex) {
+                                setSurveyResponse('$survey_response_1', product.type)
+                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                                reportBillingDowngradeClicked(product.type)
+                            } else {
+                                reportBillingUpgradeClicked(product.type)
+                            }
                         }
                     }}
+                    loading={billingProductLoading === product.type && !plan.current_plan && !plan.contact_support}
                     data-attr={`upgrade-${plan.name}`}
                 >
                     {plan.current_plan
@@ -283,7 +290,7 @@ export const AllProductsPlanComparison = ({
                                     </th>
                                 </tr>
                                 {includedPlans
-                                    .find((plan: BillingV2PlanType) => plan.included_if == 'has_subscription')
+                                    .find((plan: BillingPlanType) => plan.included_if == 'has_subscription')
                                     ?.features?.map((feature) => (
                                         // Inclusion product feature row
                                         <tr key={`tr-${feature.key}`} className="border-b">
@@ -334,7 +341,7 @@ export const AllProductsPlanComparison = ({
                                 </span>
                             </span>
                         ),
-                        className: 'bg-white',
+                        className: 'bg-bg-3000',
                         key: currentProduct.type,
                         content: (
                             <table className="w-full table-fixed max-w-[920px]" ref={planComparisonRef}>
@@ -521,13 +528,7 @@ export const AllProductsPlanComparisonModal = ({
     )
 }
 
-const AddonPlanTiers = ({
-    plan,
-    addon,
-}: {
-    plan: BillingV2PlanType
-    addon: BillingProductV2AddonType
-}): JSX.Element => {
+const AddonPlanTiers = ({ plan, addon }: { plan: BillingPlanType; addon: BillingProductV2AddonType }): JSX.Element => {
     const [showTiers, setShowTiers] = useState(false)
 
     return showTiers ? (

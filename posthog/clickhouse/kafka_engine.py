@@ -35,11 +35,13 @@ KAFKA_COLUMNS_WITH_PARTITION = """
 , _partition UInt64
 """
 
+KAFKA_TIMESTAMP_MS_COLUMN = "_timestamp_ms DateTime64"
 
-def kafka_engine(topic: str, kafka_host: str | None = None, group="group1") -> str:
+
+def kafka_engine(topic: str, kafka_host: str | None = None, group="group1", serialization="JSONEachRow") -> str:
     if kafka_host is None:
         kafka_host = ",".join(settings.KAFKA_HOSTS_FOR_CLICKHOUSE)
-    return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization="JSONEachRow")
+    return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization=serialization)
 
 
 def ttl_period(field: str = "created_at", amount: int = 3, unit: Literal["DAY", "WEEK"] = "WEEK") -> str:

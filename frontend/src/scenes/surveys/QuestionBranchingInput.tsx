@@ -35,7 +35,7 @@ export function QuestionBranchingInput({
                 <LemonSelect
                     className="max-w-80 whitespace-nowrap"
                     value={branchingDropdownValue}
-                    data-attr={`branching-question-${questionIndex}`}
+                    data-attr={`survey-question-${questionIndex}-branching-select`}
                     onSelect={(type) => {
                         const handleSelect = (): void => {
                             let specificQuestionIndex
@@ -46,7 +46,7 @@ export function QuestionBranchingInput({
                             setQuestionBranchingType(questionIndex, type, specificQuestionIndex)
                         }
 
-                        if (survey.appearance.shuffleQuestions) {
+                        if (survey.appearance && survey.appearance.shuffleQuestions) {
                             LemonDialog.open({
                                 title: 'Your survey has question shuffling enabled',
                                 description: (
@@ -81,7 +81,7 @@ export function QuestionBranchingInput({
                               ]
                             : []),
                         {
-                            label: survey.appearance.displayThankYouMessage ? 'Confirmation message' : 'End',
+                            label: survey.appearance?.displayThankYouMessage ? 'Confirmation message' : 'End',
                             value: SurveyQuestionBranchingType.End,
                         },
                         ...(hasResponseBasedBranching
@@ -137,6 +137,12 @@ function QuestionResponseBasedBranchingInput({
             { value: 'neutral', label: '3 (Neutral)' },
             { value: 'positive', label: '4 to 5 (Positive)' },
         ]
+    } else if (question.type === SurveyQuestionType.Rating && question.scale === 7) {
+        config = [
+            { value: 'negative', label: '1 to 3 (Negative)' },
+            { value: 'neutral', label: '4 (Neutral)' },
+            { value: 'positive', label: '5 to 7 (Positive)' },
+        ]
     } else if (question.type === SurveyQuestionType.Rating && question.scale === 10) {
         config = [
             // NPS categories
@@ -164,7 +170,7 @@ function QuestionResponseBasedBranchingInput({
                         <LemonSelect
                             className="w-full whitespace-nowrap"
                             value={getResponseBasedBranchingDropdownValue(questionIndex, question, value)}
-                            data-attr={`branching-question-${questionIndex}`}
+                            data-attr={`survey-question-${questionIndex}-branching-response_based-select-${i}`}
                             onSelect={(nextStep) => {
                                 let specificQuestionIndex
                                 if (nextStep.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
@@ -192,7 +198,7 @@ function QuestionResponseBasedBranchingInput({
                                     value: SurveyQuestionBranchingType.End,
                                 },
                                 ...availableNextQuestions.map((question) => ({
-                                    label: truncate(`${question.questionIndex + 1}. ${question.question}`, 20),
+                                    label: truncate(`${question.questionIndex + 1}. ${question.question}`, 28),
                                     value: `${SurveyQuestionBranchingType.SpecificQuestion}:${question.questionIndex}`,
                                 })),
                             ]}

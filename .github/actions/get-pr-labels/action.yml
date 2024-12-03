@@ -24,18 +24,22 @@ runs:
           shell: bash
           if: steps.pr-info.outputs.data
           id: extract-pr
+          continue-on-error: true
           run: |
               echo "PR_NUMBER=$(cat | jq -r '.[-1].number' <<EOF
-                ${{ steps.pr-info.outputs.data }}
+                ${{ toJSON(fromJSON(steps.pr-info.outputs.data)) }}
               EOF
               )" >> $GITHUB_OUTPUT
 
         - name: Fetch PR Labels
           shell: bash
-          if: steps.extract-pr.outputs.PR_NUMBER
           id: labels
           run: |
               PR_NUMBER=${{ steps.extract-pr.outputs.PR_NUMBER }}
+              if [ -z "${PR_NUMBER}" ] || [ "${PR_NUMBER}" = "null" ]; then
+                echo labels="[]" >> $GITHUB_OUTPUT
+                exit 0
+              fi
               LABELS=$(curl \
                 -H "Authorization: Bearer ${{ inputs.token }}" \
                 -H "Accept: application/vnd.github.v3+json" \

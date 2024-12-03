@@ -1,5 +1,6 @@
 from enum import StrEnum
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional, Union, get_args
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
@@ -56,6 +57,19 @@ class ReturnStatement(Statement):
 
 
 @dataclass(kw_only=True)
+class ThrowStatement(Statement):
+    expr: Expr
+
+
+@dataclass(kw_only=True)
+class TryCatchStatement(Statement):
+    try_stmt: Statement
+    # var name (e), error type (RetryError), stmt ({})  # (e: RetryError) {}
+    catches: list[tuple[Optional[str], Optional[str], Statement]]
+    finally_stmt: Optional[Statement] = None
+
+
+@dataclass(kw_only=True)
 class IfStatement(Statement):
     expr: Expr
     then: Statement
@@ -73,6 +87,14 @@ class ForStatement(Statement):
     initializer: Optional[VariableDeclaration | VariableAssignment | Expr]
     condition: Optional[Expr]
     increment: Optional[Expr]
+    body: Statement
+
+
+@dataclass(kw_only=True)
+class ForInStatement(Statement):
+    keyVar: Optional[str]
+    valueVar: str
+    expr: Expr
     body: Statement
 
 
@@ -144,13 +166,15 @@ class BaseTableType(Type):
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
             if isinstance(field, ExpressionField):
-                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
+                return ExpressionFieldType(
+                    table_type=self, name=name, expr=field.expr, isolate_scope=field.isolate_scope or False
+                )
             return FieldType(name=name, table_type=self)
         raise QueryError(f"Field not found: {name}")
 
 
 TableOrSelectType = Union[
-    BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType", "SelectViewType"
+    BaseTableType, "SelectSetQueryType", "SelectQueryType", "SelectQueryAliasType", "SelectViewType"
 ]
 
 
@@ -220,9 +244,9 @@ class SelectQueryType(Type):
     tables: dict[str, TableOrSelectType] = field(default_factory=dict)
     ctes: dict[str, CTE] = field(default_factory=dict)
     # all from and join subqueries without aliases
-    anonymous_tables: list[Union["SelectQueryType", "SelectUnionQueryType"]] = field(default_factory=list)
+    anonymous_tables: list[Union["SelectQueryType", "SelectSetQueryType"]] = field(default_factory=list)
     # the parent select query, if this is a lambda
-    parent: Optional[Union["SelectQueryType", "SelectUnionQueryType"]] = None
+    parent: Optional[Union["SelectQueryType", "SelectSetQueryType"]] = None
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():
@@ -253,8 +277,8 @@ class SelectQueryType(Type):
 
 
 @dataclass(kw_only=True)
-class SelectUnionQueryType(Type):
-    types: list[SelectQueryType]
+class SelectSetQueryType(Type):
+    types: list[Union[SelectQueryType, "SelectSetQueryType"]]
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
@@ -273,7 +297,7 @@ class SelectUnionQueryType(Type):
 class SelectViewType(Type):
     view_name: str
     alias: str
-    select_query_type: SelectQueryType | SelectUnionQueryType
+    select_query_type: SelectQueryType | SelectSetQueryType
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
@@ -295,7 +319,9 @@ class SelectViewType(Type):
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
             if isinstance(field, ExpressionField):
-                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
+                return ExpressionFieldType(
+                    table_type=self, name=name, expr=field.expr, isolate_scope=field.isolate_scope or False
+                )
             return FieldType(name=name, table_type=self)
         raise ResolutionError(f"Field {name} not found on view query with name {self.view_name}")
 
@@ -318,7 +344,7 @@ class SelectViewType(Type):
 @dataclass(kw_only=True)
 class SelectQueryAliasType(Type):
     alias: str
-    select_query_type: SelectQueryType | SelectUnionQueryType
+    select_query_type: SelectQueryType | SelectSetQueryType
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
@@ -384,6 +410,14 @@ class DateTimeType(ConstantType):
 
 
 @dataclass(kw_only=True)
+class IntervalType(ConstantType):
+    data_type: ConstantDataType = field(default="unknown", init=False)
+
+    def print_type(self) -> str:
+        return "IntervalType"
+
+
+@dataclass(kw_only=True)
 class UUIDType(ConstantType):
     data_type: ConstantDataType = field(default="uuid", init=False)
 
@@ -443,6 +477,8 @@ class ExpressionFieldType(Type):
     name: str
     expr: Expr
     table_type: TableOrSelectType
+    # Pushes the parent table type to the scope when resolving any child fields
+    isolate_scope: bool = False
 
     def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
         if self.expr.type is not None:
@@ -604,6 +640,18 @@ class CompareOperationOp(StrEnum):
     NotIRegex = "!~*"
 
 
+NEGATED_COMPARE_OPS: list[CompareOperationOp] = [
+    CompareOperationOp.NotEq,
+    CompareOperationOp.NotLike,
+    CompareOperationOp.NotILike,
+    CompareOperationOp.NotIn,
+    CompareOperationOp.GlobalNotIn,
+    CompareOperationOp.NotInCohort,
+    CompareOperationOp.NotRegex,
+    CompareOperationOp.NotIRegex,
+]
+
+
 @dataclass(kw_only=True)
 class CompareOperation(Expr):
     left: Expr
@@ -628,6 +676,7 @@ class OrderExpr(Expr):
 class ArrayAccess(Expr):
     array: Expr
     property: Expr
+    nullish: bool = False
 
 
 @dataclass(kw_only=True)
@@ -644,6 +693,7 @@ class Dict(Expr):
 class TupleAccess(Expr):
     tuple: Expr
     index: int
+    nullish: bool = False
 
 
 @dataclass(kw_only=True)
@@ -654,7 +704,7 @@ class Tuple(Expr):
 @dataclass(kw_only=True)
 class Lambda(Expr):
     args: list[str]
-    expr: Expr
+    expr: Expr | Block
 
 
 @dataclass(kw_only=True)
@@ -669,7 +719,18 @@ class Field(Expr):
 
 @dataclass(kw_only=True)
 class Placeholder(Expr):
-    field: str
+    expr: Expr
+
+    @property
+    def chain(self) -> list[str | int] | None:
+        expr = self.expr
+        while isinstance(expr, Alias):
+            expr = expr.expr
+        return expr.chain if isinstance(expr, Field) else None
+
+    @property
+    def field(self) -> str | None:
+        return ".".join(str(chain) for chain in self.chain) if self.chain else None
 
 
 @dataclass(kw_only=True)
@@ -686,6 +747,12 @@ class Call(Expr):
 
 
 @dataclass(kw_only=True)
+class ExprCall(Expr):
+    expr: Expr
+    args: list[Expr]
+
+
+@dataclass(kw_only=True)
 class JoinConstraint(Expr):
     expr: Expr
     constraint_type: Literal["ON", "USING"]
@@ -697,7 +764,7 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
+    table: Optional[Union["SelectQuery", "SelectSetQuery", Field]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
@@ -754,10 +821,35 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
 
+SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DISTINCT", "EXCEPT"]
+
+
 @dataclass(kw_only=True)
-class SelectUnionQuery(Expr):
-    type: Optional[SelectUnionQueryType] = None
-    select_queries: list[SelectQuery]
+class SelectSetNode:
+    select_query: Union[SelectQuery, "SelectSetQuery"]
+    set_operator: SetOperator
+
+    def __post_init__(self):
+        if self.set_operator not in get_args(SetOperator):
+            raise ValueError("Invalid Set Operator")
+
+
+@dataclass(kw_only=True)
+class SelectSetQuery(Expr):
+    type: Optional[SelectSetQueryType] = None
+    initial_select_query: Union[SelectQuery, "SelectSetQuery"]
+    subsequent_select_queries: list[SelectSetNode]
+
+    @classmethod
+    def create_from_queries(
+        cls, queries: Sequence[Union[SelectQuery, "SelectSetQuery"]], set_operator: SetOperator
+    ) -> "SelectSetQuery":
+        return SelectSetQuery(
+            initial_select_query=queries[0],
+            subsequent_select_queries=[
+                SelectSetNode(select_query=query, set_operator=set_operator) for query in queries[1:]
+            ],
+        )
 
 
 @dataclass(kw_only=True)

@@ -2,7 +2,6 @@ import './ActionsPie.scss'
 
 import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
-import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { useEffect, useState } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -17,19 +16,14 @@ import { ChartDisplayType, ChartParams, GraphDataset, GraphType } from '~/types'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
-export function ActionsPie({
-    inSharedMode,
-    inCardView,
-    showPersonsModal = true,
-    context,
-}: ChartParams): JSX.Element | null {
+export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
 
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const {
         indexedResults,
         labelGroupType,
@@ -43,6 +37,7 @@ export function ActionsPie({
         isDataWarehouseSeries,
         querySource,
         breakdownFilter,
+        hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
 
     const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
@@ -76,7 +71,10 @@ export function ActionsPie({
             },
         ])
         setTotal(
-            indexedResults.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0)
+            indexedResults.reduce(
+                (prev, item, i) => prev + (!hiddenLegendIndexes?.includes(i) ? item.aggregated_value : 0),
+                0
+            )
         )
     }
 
@@ -84,7 +82,7 @@ export function ActionsPie({
         if (indexedResults) {
             updateData()
         }
-    }, [indexedResults, hiddenLegendKeys])
+    }, [indexedResults, hiddenLegendIndexes])
 
     const onClick =
         renderingMetadata?.onSegmentClick ||
@@ -113,7 +111,7 @@ export function ActionsPie({
                     <div className="ActionsPie__chart">
                         <PieChart
                             data-attr="trend-pie-graph"
-                            hiddenLegendKeys={hiddenLegendKeys}
+                            hiddenLegendIndexes={hiddenLegendIndexes}
                             type={GraphType.Pie}
                             datasets={data}
                             labels={data[0].labels}
@@ -136,7 +134,6 @@ export function ActionsPie({
                         </div>
                     )}
                 </div>
-                {inCardView && trendsFilter?.showLegend && <InsightLegend inCardView />}
             </div>
         ) : (
             <p className="text-center mt-16">We couldn't find any matching actions.</p>

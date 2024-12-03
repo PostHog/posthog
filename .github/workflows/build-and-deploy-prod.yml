@@ -1,4 +1,4 @@
-name: Notify Sentry and Slack
+name: Notify Sentry
 
 #
 # Comment the `on:` section below if you want to stop deploys
@@ -18,7 +18,7 @@ jobs:
         if: github.repository == 'PostHog/posthog'
         steps:
             - name: Checkout master
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
             - name: Notify Sentry
               uses: getsentry/action-release@v1
               env:

@@ -1,0 +1,2505 @@
+{
+    "id": 838513,
+    "short_id": "dEMd6kZm",
+    "name": "Organic SEO Trend (Trend)",
+    "derived_name": "Pageview unique users by event's Referring Domain",
+    "filters": {
+        "events": [
+            {
+                "id": "$pageview",
+                "math": "dau",
+                "name": "$pageview",
+                "type": "events",
+                "order": 0,
+                "properties": [
+                    {
+                        "key": "$referring_domain",
+                        "type": "event",
+                        "value": "google|duckduckgo|brave|bing",
+                        "operator": "regex"
+                    },
+                    {
+                        "key": "$host",
+                        "type": "event",
+                        "value": ["posthog.com"],
+                        "operator": "exact"
+                    },
+                    {
+                        "key": "utm_medium",
+                        "type": "event",
+                        "value": "cpc",
+                        "operator": "not_icontains"
+                    }
+                ]
+            }
+        ],
+        "compare": false,
+        "date_to": null,
+        "display": "ActionsLineGraph",
+        "insight": "TRENDS",
+        "interval": "week",
+        "breakdown": "$referring_domain",
+        "date_from": "-90d",
+        "properties": {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": []
+                }
+            ]
+        },
+        "entity_type": "events",
+        "breakdown_type": "event",
+        "filter_test_accounts": true
+    },
+    "query": null,
+    "order": null,
+    "deleted": false,
+    "dashboards": [51661, 49928, 92173, 56695, 65101],
+    "dashboard_tiles": [
+        {
+            "id": 197575,
+            "dashboard_id": 51661,
+            "deleted": null
+        },
+        {
+            "id": 197574,
+            "dashboard_id": 49928,
+            "deleted": null
+        },
+        {
+            "id": 404238,
+            "dashboard_id": 92173,
+            "deleted": null
+        },
+        {
+            "id": 404230,
+            "dashboard_id": 56695,
+            "deleted": null
+        },
+        {
+            "id": 249021,
+            "dashboard_id": 65101,
+            "deleted": null
+        }
+    ],
+    "last_refresh": "2024-07-24T03:34:28.695726Z",
+    "cache_target_age": "2024-07-24T15:34:28.695726Z",
+    "next_allowed_client_refresh": "2024-07-24T03:49:28.695726Z",
+    "result": [
+        {
+            "data": [
+                16804.0, 16334.0, 15828.0, 16407.0, 16857.0, 20255.0, 19151.0, 17283.0, 16243.0, 15994.0, 17095.0,
+                17485.0, 16841.0, 6588.0
+            ],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 229165.0,
+            "label": "www.google.com",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.com"
+        },
+        {
+            "data": [554.0, 652.0, 509.0, 565.0, 509.0, 911.0, 759.0, 659.0, 650.0, 625.0, 729.0, 637.0, 664.0, 228.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 8651.0,
+            "label": "duckduckgo.com",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "duckduckgo.com"
+        },
+        {
+            "data": [326.0, 315.0, 297.0, 314.0, 291.0, 399.0, 395.0, 349.0, 347.0, 321.0, 297.0, 342.0, 334.0, 113.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 4440.0,
+            "label": "www.bing.com",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.bing.com"
+        },
+        {
+            "data": [153.0, 156.0, 153.0, 143.0, 147.0, 250.0, 212.0, 172.0, 172.0, 171.0, 178.0, 192.0, 174.0, 73.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 2346.0,
+            "label": "search.brave.com",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "search.brave.com"
+        },
+        {
+            "data": [58.0, 26.0, 70.0, 54.0, 73.0, 75.0, 55.0, 67.0, 65.0, 62.0, 60.0, 51.0, 63.0, 29.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 808.0,
+            "label": "www.google.com.hk",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.com.hk"
+        },
+        {
+            "data": [22.0, 35.0, 18.0, 12.0, 52.0, 25.0, 59.0, 34.0, 16.0, 24.0, 66.0, 34.0, 73.0, 11.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 481.0,
+            "label": "com.google.android.gm",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "com.google.android.gm"
+        },
+        {
+            "data": [24.0, 49.0, 23.0, 10.0, 60.0, 16.0, 52.0, 45.0, 21.0, 19.0, 37.0, 23.0, 52.0, 7.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 438.0,
+            "label": "mail.google.com",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "mail.google.com"
+        },
+        {
+            "data": [25.0, 26.0, 28.0, 38.0, 27.0, 39.0, 33.0, 31.0, 23.0, 16.0, 33.0, 29.0, 24.0, 14.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 386.0,
+            "label": "www.google.co.uk",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.co.uk"
+        },
+        {
+            "data": [21.0, 18.0, 22.0, 20.0, 18.0, 33.0, 26.0, 20.0, 24.0, 16.0, 19.0, 19.0, 14.0, 6.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 276.0,
+            "label": "www.google.de",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.de"
+        },
+        {
+            "data": [11.0, 17.0, 19.0, 28.0, 16.0, 17.0, 9.0, 13.0, 15.0, 12.0, 18.0, 20.0, 23.0, 11.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 229.0,
+            "label": "www.google.co.in",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.co.in"
+        },
+        {
+            "data": [26.0, 13.0, 10.0, 14.0, 12.0, 25.0, 17.0, 11.0, 16.0, 21.0, 14.0, 13.0, 13.0, 3.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 208.0,
+            "label": "www.google.ru",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.ru"
+        },
+        {
+            "data": [15.0, 13.0, 11.0, 12.0, 14.0, 19.0, 19.0, 13.0, 15.0, 13.0, 10.0, 12.0, 10.0, 5.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 181.0,
+            "label": "www.google.fr",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.fr"
+        },
+        {
+            "data": [9.0, 5.0, 13.0, 9.0, 17.0, 15.0, 14.0, 14.0, 13.0, 11.0, 20.0, 16.0, 12.0, 6.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 174.0,
+            "label": "cn.bing.com",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "cn.bing.com"
+        },
+        {
+            "data": [8.0, 12.0, 10.0, 9.0, 7.0, 11.0, 9.0, 14.0, 16.0, 10.0, 10.0, 13.0, 19.0, 6.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 154.0,
+            "label": "www.google.ca",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.ca"
+        },
+        {
+            "data": [8.0, 13.0, 10.0, 7.0, 6.0, 14.0, 9.0, 11.0, 3.0, 10.0, 13.0, 12.0, 2.0, 2.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 120.0,
+            "label": "bing.com",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "bing.com"
+        },
+        {
+            "data": [7.0, 11.0, 5.0, 6.0, 8.0, 13.0, 9.0, 4.0, 4.0, 4.0, 8.0, 3.0, 8.0, 3.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 93.0,
+            "label": "www.google.com.au",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.com.au"
+        },
+        {
+            "data": [7.0, 8.0, 2.0, 3.0, 7.0, 6.0, 6.0, 3.0, 5.0, 5.0, 8.0, 12.0, 2.0, 1.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 75.0,
+            "label": "com.google.android.googlequicksearchbox",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "com.google.android.googlequicksearchbox"
+        },
+        {
+            "data": [4.0, 6.0, 4.0, 7.0, 8.0, 7.0, 10.0, 6.0, 4.0, 5.0, 5.0, 2.0, 6.0, 1.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 75.0,
+            "label": "www.google.nl",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.nl"
+        },
+        {
+            "data": [4.0, 4.0, 5.0, 4.0, 2.0, 7.0, 6.0, 5.0, 7.0, 5.0, 4.0, 8.0, 7.0, 4.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 72.0,
+            "label": "www.google.pl",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.pl"
+        },
+        {
+            "data": [4.0, 12.0, 7.0, 6.0, 4.0, 6.0, 7.0, 9.0, 5.0, 1.0, 1.0, 4.0, 1.0, 1.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 68.0,
+            "label": "www.google.it",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.it"
+        },
+        {
+            "data": [7.0, 1.0, 6.0, 7.0, 5.0, 9.0, 8.0, 4.0, 5.0, 4.0, 2.0, 3.0, 3.0, 2.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 66.0,
+            "label": "www.google.com.br",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.com.br"
+        },
+        {
+            "data": [4.0, 5.0, 6.0, 5.0, 4.0, 6.0, 3.0, 6.0, 4.0, 6.0, 5.0, 3.0, 4.0, 1.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 62.0,
+            "label": "www.google.es",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.es"
+        },
+        {
+            "data": [4.0, 5.0, 5.0, 4.0, 2.0, 7.0, 8.0, 5.0, 3.0, 7.0, 4.0, 2.0, 2.0, 2.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 60.0,
+            "label": "edgeservices.bing.com",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "edgeservices.bing.com"
+        },
+        {
+            "data": [1.0, 3.0, 1.0, 4.0, 3.0, 1.0, 3.0, 5.0, 7.0, 7.0, 3.0, 4.0, 3.0, 3.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 48.0,
+            "label": "www.google.com.vn",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.com.vn"
+        },
+        {
+            "data": [9.0, 2.0, 3.0, 2.0, 5.0, 4.0, 4.0, 4.0, 2.0, 0.0, 4.0, 4.0, 4.0, 0.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 47.0,
+            "label": "www.google.co.kr",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "www.google.co.kr"
+        },
+        {
+            "data": [80.0, 70.0, 58.0, 76.0, 89.0, 88.0, 76.0, 64.0, 70.0, 56.0, 65.0, 70.0, 79.0, 35.0],
+            "labels": [
+                "22-Apr-2024",
+                "29-Apr-2024",
+                "6-May-2024",
+                "13-May-2024",
+                "20-May-2024",
+                "27-May-2024",
+                "3-Jun-2024",
+                "10-Jun-2024",
+                "17-Jun-2024",
+                "24-Jun-2024",
+                "1-Jul-2024",
+                "8-Jul-2024",
+                "15-Jul-2024",
+                "22-Jul-2024"
+            ],
+            "days": [
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+                "2024-05-20",
+                "2024-05-27",
+                "2024-06-03",
+                "2024-06-10",
+                "2024-06-17",
+                "2024-06-24",
+                "2024-07-01",
+                "2024-07-08",
+                "2024-07-15",
+                "2024-07-22"
+            ],
+            "count": 976.0,
+            "label": "$$_posthog_breakdown_other_$$",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": []
+                        }
+                    ]
+                },
+                "filter_test_accounts": true,
+                "date_to": "2024-07-23T23:59:59.999999-07:00",
+                "date_from": "2024-04-24T00:00:00-07:00",
+                "entity_type": "events",
+                "interval": "week",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "action": {
+                "days": [
+                    "2024-04-22T00:00:00-07:00",
+                    "2024-04-29T00:00:00-07:00",
+                    "2024-05-06T00:00:00-07:00",
+                    "2024-05-13T00:00:00-07:00",
+                    "2024-05-20T00:00:00-07:00",
+                    "2024-05-27T00:00:00-07:00",
+                    "2024-06-03T00:00:00-07:00",
+                    "2024-06-10T00:00:00-07:00",
+                    "2024-06-17T00:00:00-07:00",
+                    "2024-06-24T00:00:00-07:00",
+                    "2024-07-01T00:00:00-07:00",
+                    "2024-07-08T00:00:00-07:00",
+                    "2024-07-15T00:00:00-07:00",
+                    "2024-07-22T00:00:00-07:00"
+                ],
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "dau",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "breakdown_value": "$$_posthog_breakdown_other_$$"
+        }
+    ],
+    "columns": null,
+    "created_at": "2022-09-15T14:44:27.145275Z",
+    "created_by": {
+        "id": 6812,
+        "uuid": "017dbe90-f7e1-0000-f9b2-066e605a6172",
+        "distinct_id": "AEi8RtsOBwQ3AtdjkMotQEYpR56YsStyqRS487easBq",
+        "first_name": "Some",
+        "last_name": "User",
+        "email": "test@example.com",
+        "is_email_verified": true,
+        "hedgehog_config": {
+            "use_as_profile": true,
+            "color": "light",
+            "accessories": ["flag", "eyepatch", "parrot"]
+        }
+    },
+    "description": "Organic website traffic from Google",
+    "updated_at": "2024-05-24T10:54:13.810047Z",
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2024-05-24T10:54:13.809473Z",
+    "last_modified_by": {
+        "id": 6812,
+        "uuid": "017dbe90-f7e1-0000-f9b2-066e605a6172",
+        "distinct_id": "AEi8RtsOBwQ3AtdjkMotQEYpR56YsStyqRS487easBq",
+        "first_name": "Andy",
+        "last_name": "Vandervell",
+        "email": "andy@posthog.com",
+        "is_email_verified": true,
+        "hedgehog_config": {
+            "use_as_profile": true,
+            "color": "light",
+            "accessories": ["flag", "eyepatch", "parrot"]
+        }
+    },
+    "is_sample": false,
+    "effective_restriction_level": 37,
+    "effective_privilege_level": 37,
+    "timezone": "US/Pacific",
+    "is_cached": true,
+    "query_status": null,
+    "hogql": "SELECT\n    groupArray(1)(date)[1] AS date,\n    arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,\n    if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value\nFROM\n    (SELECT\n        arrayMap(number -> plus(toStartOfWeek(assumeNotNull(toDateTime('2024-04-24 00:00:00'))), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(toDateTime('2024-04-24 00:00:00'))), toStartOfWeek(assumeNotNull(toDateTime('2024-07-23 23:59:59'))))), 1))) AS date,\n        arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total,\n        breakdown_value AS breakdown_value,\n        rowNumberInAllBlocks() AS row_number\n    FROM\n        (SELECT\n            sum(total) AS count,\n            day_start,\n            breakdown_value\n        FROM\n            (SELECT\n                count(DISTINCT e.person_id) AS total,\n                toStartOfWeek(timestamp) AS day_start,\n                ifNull(nullIf(toString(properties.$referring_domain), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value\n            FROM\n                events AS e SAMPLE 1\n            WHERE\n                and(greaterOrEquals(timestamp, toStartOfWeek(assumeNotNull(toDateTime('2024-04-24 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-23 23:59:59'))), equals(event, '$pageview'), notILike(person.properties.email, '%posthog.com%'), and(notEquals(properties.$host, '127.0.0.1:3000'), notEquals(properties.$host, '127.0.0.1:5000'), notEquals(properties.$host, 'localhost:5000'), notEquals(properties.$host, 'localhost:8000'), notEquals(properties.$host, 'localhost:8001'), notEquals(properties.$host, 'localhost')), notILike(properties.distinct_id, '%posthog.com%'), notEquals(person.properties.email, 'capturi@capturi.com'), notEquals(person.properties.email, 'fuziontech@gmail.com'), notEquals(properties.realm, 'demo'), notEquals(properties.$ip, '71.84.26.175'), notEquals(person.properties.email, 'corywatilo@gmail.com'), 1, and(ifNull(match(toString(properties.$referring_domain), 'google|duckduckgo|brave|bing'), 0), equals(properties.$host, 'posthog.com'), notILike(properties.utm_medium, '%cpc%')))\n            GROUP BY\n                day_start,\n                breakdown_value)\n        GROUP BY\n            day_start,\n            breakdown_value\n        ORDER BY\n            day_start ASC,\n            breakdown_value ASC)\n    GROUP BY\n        breakdown_value\n    ORDER BY\n        if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC,\n        arraySum(total) DESC,\n        breakdown_value ASC)\nWHERE\n    notEquals(breakdown_value, NULL)\nGROUP BY\n    breakdown_value\nORDER BY\n    if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC,\n    arraySum(total) DESC,\n    breakdown_value ASC\nLIMIT 50000",
+    "tags": [],
+    "filters_hash": "cache_e602fce24dcd9dc0b8e3f9adbaa38217"
+}

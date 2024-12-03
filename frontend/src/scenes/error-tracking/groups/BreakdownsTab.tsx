@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { Query } from '~/queries/Query/Query'
 
 import { errorTrackingLogic } from '../errorTrackingLogic'
-import { errorTrackingGroupBreakdownQuery } from '../queries'
+import { errorTrackingIssueBreakdownQuery } from '../queries'
 
 const gridColumnsMap = {
     small: 'grid-cols-1',
@@ -44,7 +44,7 @@ export const BreakdownsTab = (): JSX.Element => {
     })
 
     return (
-        <div className={clsx('grid gap-5', gridColumnsMap[size])} ref={ref}>
+        <div className={clsx('ErrorTracking__breakdowns grid gap-5', gridColumnsMap[size])} ref={ref}>
             {breakdownGroups.map((group, index) => (
                 <BreakdownGroup key={index} group={group} />
             ))}
@@ -57,12 +57,12 @@ const BreakdownGroup = ({ group }: { group: BreakdownGroup }): JSX.Element => {
     const [selectedProperty, setSelectedProperty] = useState<string>(group.options[0].value)
 
     return (
-        <div>
+        <div className="flex flex-col">
             <div className="flex justify-between">
                 <h2>{group.title}</h2>
                 {group.options.length > 1 && (
                     <LemonSegmentedButton
-                        size="small"
+                        size="xsmall"
                         value={selectedProperty}
                         options={group.options}
                         onChange={setSelectedProperty}
@@ -70,7 +70,7 @@ const BreakdownGroup = ({ group }: { group: BreakdownGroup }): JSX.Element => {
                 )}
             </div>
             <Query
-                query={errorTrackingGroupBreakdownQuery({
+                query={errorTrackingIssueBreakdownQuery({
                     breakdownProperty: selectedProperty,
                     dateRange: dateRange,
                     filterTestAccounts: filterTestAccounts,

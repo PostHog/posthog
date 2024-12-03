@@ -1,7 +1,7 @@
 import './TopBar.scss'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -66,17 +66,13 @@ export function TopBar(): JSX.Element | null {
 
     return breadcrumbs.length ? (
         <div
-            className="TopBar3000"
+            className={clsx(
+                'TopBar3000',
+                effectiveCompactionRate === 0 && 'TopBar3000--full',
+                effectiveCompactionRate === 1 && 'TopBar3000--compact'
+            )}
             // eslint-disable-next-line react/forbid-dom-props
-            style={
-                {
-                    '--breadcrumbs-compaction-rate': effectiveCompactionRate,
-                    // It wouldn't be necessary to set visibility, but for some reason without this positioning
-                    // of breadcrumbs becomes borked when entering title editing mode
-                    '--breadcrumbs-title-large-visibility': effectiveCompactionRate === 1 ? 'hidden' : 'visible',
-                    '--breadcrumbs-title-small-visibility': effectiveCompactionRate === 0 ? 'hidden' : 'visible',
-                } as React.CSSProperties
-            }
+            style={{ '--breadcrumbs-compaction-rate': effectiveCompactionRate } as React.CSSProperties}
         >
             <div className="TopBar3000__content">
                 {mobileLayout && (
@@ -127,7 +123,9 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
     const breadcrumbName = isOnboarding && here ? 'Onboarding' : (breadcrumb.name as string)
 
     let nameElement: JSX.Element
-    if (breadcrumb.name != null && breadcrumb.onRename) {
+    if (breadcrumb.symbol) {
+        nameElement = breadcrumb.symbol
+    } else if (breadcrumb.name != null && breadcrumb.onRename) {
         nameElement = (
             <EditableField
                 name="item-name-small"
@@ -151,7 +149,12 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             />
         )
     } else {
-        nameElement = <span>{breadcrumbName || <i>Unnamed</i>}</span>
+        nameElement = (
+            <span className="flex items-center gap-1.5">
+                {breadcrumbName || <i>Unnamed</i>}
+                {'tag' in breadcrumb && breadcrumb.tag && <LemonTag size="small">{breadcrumb.tag}</LemonTag>}
+            </span>
+        )
     }
 
     const Component = breadcrumb.path ? Link : 'div'
@@ -170,7 +173,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             to={breadcrumb.path}
         >
             {nameElement}
-            {breadcrumb.popover && <IconChevronDown />}
+            {breadcrumb.popover && !breadcrumb.symbol && <IconChevronDown />}
         </Component>
     )
 

@@ -14,6 +14,7 @@ from posthog.metrics import LABEL_PATH, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings.utils import get_list
 from token_bucket import Limiter, MemoryStorage
+from posthog.models.personal_api_key import hash_key_value
 
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
@@ -68,7 +69,7 @@ path_by_team_pattern = re.compile(r"/api/projects/(\d+)/")
 path_by_org_pattern = re.compile(r"/api/organizations/(.+)/")
 
 
-class TeamRateThrottle(SimpleRateThrottle):
+class PersonalApiKeyRateThrottle(SimpleRateThrottle):
     @staticmethod
     def safely_get_team_id_from_view(view):
         """
@@ -87,63 +88,72 @@ class TeamRateThrottle(SimpleRateThrottle):
             return True
 
         # Only rate limit authenticated requests made with a personal API key
-        if request.user.is_authenticated and PersonalAPIKeyAuthentication.find_key_with_source(request) is None:
+        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+        if request.user.is_authenticated and personal_api_key is None:
             return True
 
-        # As we're figuring out what our throttle limits should be, we don't actually want to throttle anything.
-        # Instead of throttling, this logs that the request would have been throttled.
         try:
             request_would_be_allowed = super().allow_request(request, view)
-            if not request_would_be_allowed:
-                team_id = self.safely_get_team_id_from_view(view)
-                path = getattr(request, "path", None)
-                if path:
-                    path = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
-                    path = path_by_org_pattern.sub("/api/organizations/ORG_ID/", path)
+            if request_would_be_allowed:
+                return True
 
-                if self.team_is_allowed_to_bypass_throttle(team_id):
-                    statsd.incr(
-                        "team_allowed_to_bypass_rate_limit_exceeded",
-                        tags={"team_id": team_id, "path": path},
-                    )
-                    RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=path).inc()
-                    return True
-                else:
-                    scope = getattr(self, "scope", None)
-                    rate = getattr(self, "rate", None)
+            team_id = self.safely_get_team_id_from_view(view)
+            path = getattr(request, "path", None)
+            if path:
+                path = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
+                path = path_by_org_pattern.sub("/api/organizations/ORG_ID/", path)
 
-                    statsd.incr(
-                        "rate_limit_exceeded",
-                        tags={
-                            "team_id": team_id,
-                            "scope": scope,
-                            "rate": rate,
-                            "path": path,
-                        },
-                    )
-                    RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=path).inc()
+            if self.team_is_allowed_to_bypass_throttle(team_id):
+                statsd.incr(
+                    "team_allowed_to_bypass_rate_limit_exceeded",
+                    tags={"team_id": team_id, "path": path},
+                )
+                RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=path).inc()
+                return True
+            else:
+                scope = getattr(self, "scope", None)
+                rate = getattr(self, "rate", None)
 
-            return request_would_be_allowed
+                statsd.incr(
+                    "rate_limit_exceeded",
+                    tags={
+                        "team_id": team_id,
+                        "scope": scope,
+                        "rate": rate,
+                        "path": path,
+                        "hashed_personal_api_key": hash_key_value(personal_api_key[0]) if personal_api_key else None,
+                    },
+                )
+                RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=path).inc()
+
+            return False
         except Exception as e:
             capture_exception(e)
             return True
 
     def get_cache_key(self, request, view):
         """
-        Attempts to throttle based on the team_id of the request. If it can't do that, it falls back to the user_id.
-        And then finally to the IP address.
+        Tries the following options in order:
+        - personal_api_key
+        - team_id
+        - user_id
+        - ip
         """
         ident = None
         if request.user.is_authenticated:
-            try:
-                team_id = self.safely_get_team_id_from_view(view)
-                if team_id:
-                    ident = team_id
-                else:
-                    ident = request.user.pk
-            except Exception as e:
-                capture_exception(e)
-                ident = self.get_ident(request)
+            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+            if api_key is not None:
+                ident = hash_key_value(api_key[0])
+            else:
+                try:
+                    team_id = self.safely_get_team_id_from_view(view)
+                    if team_id:
+                        ident = team_id
+                    else:
+                        ident = request.user.pk
+                except Exception as e:
+                    capture_exception(e)
+                    ident = self.get_ident(request)
         else:
             ident = self.get_ident(request)
 
@@ -157,7 +167,7 @@ class TeamRateThrottle(SimpleRateThrottle):
 class DecideRateThrottle(BaseThrottle):
     """
     This is a custom throttle that is used to limit the number of requests to the /decide endpoint.
-    It is different from the TeamRateThrottle in that it does not use the Django cache, but instead
+    It is different from the PersonalApiKeyRateThrottle in that it does not use the Django cache, but instead
     uses the Limiter from the `token-bucket` library.
     This uses the token bucket algorithm to limit the number of requests to the endpoint. It's a lot
     more performant than DRF's SimpleRateThrottle, which inefficiently uses the Django cache.
@@ -243,28 +253,28 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
-class BurstRateThrottle(TeamRateThrottle):
+class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
     scope = "burst"
     rate = "480/minute"
 
 
-class SustainedRateThrottle(TeamRateThrottle):
+class SustainedRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block slower but sustained bursts of requests, per project
     scope = "sustained"
     rate = "4800/hour"
 
 
-class ClickHouseBurstRateThrottle(TeamRateThrottle):
+class ClickHouseBurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit ClickHouse
     # Intended to block quick bursts of requests, per project
     scope = "clickhouse_burst"
     rate = "240/minute"
 
 
-class ClickHouseSustainedRateThrottle(TeamRateThrottle):
+class ClickHouseSustainedRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit OpenAI
     # Intended to block slower but sustained bursts of requests, per project
     scope = "clickhouse_sustained"
@@ -283,6 +293,12 @@ class AISustainedRateThrottle(UserRateThrottle):
     # Intended to block slower but sustained bursts of requests, per user
     scope = "ai_sustained"
     rate = "40/day"
+
+
+class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
+    # Lower rate limit for HogQL queries
+    scope = "query"
+    rate = "120/hour"
 
 
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):

@@ -1,4 +1,6 @@
 .LemonCheckbox {
+    --lemon-checkbox-height: calc(2.125rem + 3px); // Medium size button height + button shadow height;
+
     display: flex;
     align-items: center;
     width: fit-content;
@@ -6,7 +8,7 @@
     line-height: 1.5rem;
 
     .LemonCheckbox__input {
-        width: 0 !important; // Some ant-form styles override this so we mark as important
+        width: 0 !important;
         height: 0 !important;
         appearance: none !important;
     }
@@ -88,7 +90,7 @@
         line-height: 1.4;
 
         label {
-            min-height: 2.5rem;
+            min-height: var(--lemon-checkbox-height);
             padding: 0 0.75rem;
             background: var(--bg-light);
             border: 1px solid var(--border);
@@ -99,6 +101,13 @@
             label {
                 min-height: 2rem;
                 padding: 0 0.5rem;
+            }
+        }
+
+        &.LemonCheckbox--xsmall {
+            label {
+                min-height: 1.625rem;
+                padding: 0 0.375rem;
             }
         }
 

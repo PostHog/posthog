@@ -1,5 +1,3 @@
-import { urls } from 'scenes/urls'
-
 describe('System Status', () => {
     it('System Status loaded', () => {
         cy.location('pathname').should('eq', '/project/1/insights')

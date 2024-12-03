@@ -7,11 +7,12 @@ import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
     const { selfManagedTables } = useValues(dataWarehouseSettingsLogic)
-    const { deleteSelfManagedTable } = useActions(dataWarehouseSettingsLogic)
+    const { deleteSelfManagedTable, refreshSelfManagedTableSchema } = useActions(dataWarehouseSettingsLogic)
 
     return (
         <LemonTable
             dataSource={selfManagedTables}
+            pagination={{ pageSize: 10 }}
             columns={[
                 {
                     title: 'Name',
@@ -23,6 +24,13 @@ export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
                     render: (_, item: DatabaseSchemaDataWarehouseTable) => {
                         return (
                             <div className="flex flex-row justify-end">
+                                <LemonButton
+                                    data-attr={`refresh-data-warehouse-${item.name}`}
+                                    key={`refresh-data-warehouse-${item.name}`}
+                                    onClick={() => refreshSelfManagedTableSchema(item.id)}
+                                >
+                                    Update schema from source
+                                </LemonButton>
                                 <LemonButton
                                     status="danger"
                                     data-attr={`delete-data-warehouse-${item.name}`}

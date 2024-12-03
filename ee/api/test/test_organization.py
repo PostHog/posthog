@@ -28,7 +28,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             OrganizationMembership.Level.OWNER,
         )
 
-    @patch("secrets.choice", return_value="Y")
+    @patch("posthog.models.utils.generate_random_short_suffix", return_value="YYYY")
     def test_create_two_similarly_named_organizations(self, mock_choice):
         response = self.client.post(
             "/api/organizations/",
@@ -133,7 +133,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
                 response.json(),
                 {
                     "attr": None,
-                    "detail": "Your organization access level is insufficient.",
+                    "detail": "You do not have admin access to this resource."
+                    if level == OrganizationMembership.Level.MEMBER
+                    else "Your organization access level is insufficient.",
                     "code": "permission_denied",
                     "type": "authentication_error",
                 },
@@ -196,7 +198,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
             expected_response = {
                 "attr": None,
-                "detail": "Your organization access level is insufficient.",
+                "detail": "You do not have admin access to this resource.",
                 "code": "permission_denied",
                 "type": "authentication_error",
             }

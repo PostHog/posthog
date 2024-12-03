@@ -1,5 +1,6 @@
+import asyncio
 import signal
-import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
@@ -20,8 +21,10 @@ async def start_worker(
     server_root_ca_cert=None,
     client_cert=None,
     client_key=None,
+    max_concurrent_workflow_tasks=None,
+    max_concurrent_activities=None,
 ):
-    runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address="0.0.0.0:%d" % metrics_port)))
+    runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address=f"0.0.0.0:{metrics_port:d}")))
     client = await connect(
         host,
         port,
@@ -39,14 +42,17 @@ async def start_worker(
         workflow_runner=UnsandboxedWorkflowRunner(),
         graceful_shutdown_timeout=timedelta(minutes=5),
         interceptors=[SentryInterceptor()],
+        activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
+        max_concurrent_activities=max_concurrent_activities or 50,
+        max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
     )
 
     # catch the TERM signal, and stop the worker gracefully
     # https://github.com/temporalio/sdk-python#worker-shutdown
-    async def signal_handler(sig, frame):
+    async def shutdown_worker():
         await worker.shutdown()
-        sys.exit(0)
 
-    signal.signal(signal.SIGTERM, signal_handler)
+    loop = asyncio.get_event_loop()
+    loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(shutdown_worker()))
 
     await worker.run()

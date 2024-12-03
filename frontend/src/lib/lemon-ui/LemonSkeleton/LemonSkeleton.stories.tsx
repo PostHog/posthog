@@ -75,22 +75,6 @@ export function Customisation(): JSX.Element {
     )
 }
 
-export function DarkBackground(): JSX.Element {
-    return (
-        <div className="space-y-2 bg-default p-2 rounded">
-            <p className="text-white">
-                Skeletons have a bunch of presets to help with simulating other LemonUI Components
-            </p>
-
-            <div className="flex items-center gap-2">
-                <LemonSkeleton.Circle />
-                <LemonSkeleton />
-                <LemonSkeleton.Button />
-            </div>
-        </div>
-    )
-}
-
 export function Repeat(): JSX.Element {
     return (
         <div className="space-y-2 p-2 rounded">

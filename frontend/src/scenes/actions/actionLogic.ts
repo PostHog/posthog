@@ -5,7 +5,7 @@ import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActionType, Breadcrumb, PluginConfigWithPluginInfoNew } from '~/types'
+import { ActionType, Breadcrumb, HogFunctionType } from '~/types'
 
 import { actionEditLogic } from './actionEditLogic'
 import type { actionLogicType } from './actionLogicType'
@@ -19,6 +19,7 @@ export const actionLogic = kea<actionLogicType>([
     key((props) => props.id || 'new'),
     path((key) => ['scenes', 'actions', 'actionLogic', key]),
     actions(() => ({
+        updateAction: (action: Partial<ActionType>) => ({ action }),
         checkIsFinished: (action) => ({ action }),
         setPollTimeout: (pollTimeout) => ({ pollTimeout }),
         setIsComplete: (isComplete) => ({ isComplete }),
@@ -35,11 +36,11 @@ export const actionLogic = kea<actionLogicType>([
                 },
             },
         ],
-        matchingPluginConfigs: [
-            null as PluginConfigWithPluginInfoNew[] | null,
+        matchingHogFunctions: [
+            null as HogFunctionType[] | null,
             {
-                loadMatchingPluginConfigs: async () => {
-                    const res = await api.actions.listMatchingPluginConfigs(props.id!)
+                loadMatchingHogFunctions: async () => {
+                    const res = await api.hogFunctions.list({ actions: [{ id: `${props.id}` }] })
 
                     return res.results
                 },
@@ -47,6 +48,12 @@ export const actionLogic = kea<actionLogicType>([
         ],
     })),
     reducers(() => ({
+        action: [
+            null as ActionType | null,
+            {
+                updateAction: (state, { action }) => (state ? { ...state, ...action } : null),
+            },
+        ],
         pollTimeout: [
             null as number | null,
             {
@@ -70,7 +77,7 @@ export const actionLogic = kea<actionLogicType>([
             (action, inProgressName): Breadcrumb[] => [
                 {
                     key: Scene.DataManagement,
-                    name: `Data Management`,
+                    name: `Data management`,
                     path: urls.eventDefinitions(),
                 },
                 {
@@ -92,6 +99,10 @@ export const actionLogic = kea<actionLogicType>([
                     forceEditMode: !action?.id,
                 },
             ],
+        ],
+        hasCohortFilters: [
+            (s) => [s.action],
+            (action) => action?.steps?.some((step) => step.properties?.find((p) => p.type === 'cohort')) ?? false,
         ],
     }),
     listeners(({ actions, values }) => ({

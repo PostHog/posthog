@@ -1,7 +1,7 @@
 import { LemonModal } from '@posthog/lemon-ui'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType } from '~/types'
+import { BillingPlanType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { getTierDescription } from './BillingProduct'
 
@@ -19,7 +19,7 @@ export const ProductPricingModal = ({
     if (!planKey) {
         return null
     }
-    const tiers = product?.plans?.find((plan: BillingV2PlanType) => plan.plan_key === planKey)?.tiers
+    const tiers = product?.plans?.find((plan: BillingPlanType) => plan.plan_key === planKey)?.tiers
 
     if (!product || !tiers) {
         return null

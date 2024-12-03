@@ -13,7 +13,7 @@ export function OpenEditorButton({ query, ...props }: OpenEditorButtonProps): JS
         <LemonButton
             data-attr="open-json-editor-button"
             type="secondary"
-            to={query ? urls.insightNew(undefined, undefined, JSON.stringify(query)) : undefined}
+            to={query ? urls.insightNew(undefined, undefined, query) : undefined}
             icon={<IconPreview />}
             tooltip="Open as a new insight"
             {...props}

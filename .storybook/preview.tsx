@@ -1,5 +1,4 @@
 import '~/styles'
-import './storybook.scss'
 import type { Meta, Parameters, Preview } from '@storybook/react'
 import { Title, Subtitle, Description, Primary, Controls, Stories } from '@storybook/blocks'
 import { worker } from '~/mocks/browser'

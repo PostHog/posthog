@@ -111,14 +111,14 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
         os.remove(image_path)
 
-    except Exception as err:
+    except Exception:
         # Ensure we clean up the tmp file in case anything went wrong
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
 
         log_error_if_site_url_not_reachable()
 
-        raise err
+        raise
 
 
 def _screenshot_asset(
@@ -137,7 +137,7 @@ def _screenshot_asset(
         try:
             WebDriverWait(driver, 20).until_not(lambda x: x.find_element_by_class_name("Spinner"))
         except TimeoutException:
-            logger.error(
+            logger.exception(
                 "image_exporter.timeout",
                 url_to_render=url_to_render,
                 wait_for_css_selector=wait_for_css_selector,
@@ -151,8 +151,22 @@ def _screenshot_asset(
                 except Exception:
                     pass
                 capture_exception()
+        # For example funnels use a table that can get very wide, so try to get its width
+        width = driver.execute_script("""
+            tableElement = document.querySelector('table');
+            if (tableElement) {
+                return tableElement.offsetWidth * 1.5;
+            }
+        """)
         height = driver.execute_script("return document.body.scrollHeight")
-        driver.set_window_size(screenshot_width, height)
+        if isinstance(width, int):
+            width = max(int(screenshot_width), min(1800, width or screenshot_width))
+        else:
+            width = screenshot_width
+        driver.set_window_size(width, height)
+        # The needed height might have changed when setting width, so we need to get it again
+        height = driver.execute_script("return document.body.scrollHeight")
+        driver.set_window_size(width, height)
         driver.save_screenshot(image_path)
     except Exception as e:
         # To help with debugging, add a screenshot and any chrome logs
@@ -172,7 +186,7 @@ def _screenshot_asset(
                     pass
         capture_exception(e)
 
-        raise e
+        raise
     finally:
         if driver:
             driver.quit()
@@ -193,7 +207,9 @@ def export_image(exported_asset: ExportedAsset) -> None:
                         exported_asset.insight.query,
                         dashboard_filters_json=exported_asset.dashboard.filters if exported_asset.dashboard else None,
                         limit_context=LimitContext.QUERY_ASYNC,
-                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                        insight_id=exported_asset.insight.id,
+                        dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
                     )
 
             if exported_asset.export_format == "image/png":
@@ -217,4 +233,4 @@ def export_image(exported_asset: ExportedAsset) -> None:
 
             logger.error("image_exporter.failed", exception=e, exc_info=True)
             EXPORT_FAILED_COUNTER.labels(type="image").inc()
-            raise e
+            raise

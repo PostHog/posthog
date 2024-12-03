@@ -3,14 +3,12 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { Dispatch, SetStateAction, useEffect, useState } from 'react'
+import { Dispatch, SetStateAction } from 'react'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
-import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
-import { DatabaseSchemaTable, HogQLQuery, NodeKind } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema'
 
-import { ViewLinkModal } from '../ViewLinkModal'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { dataWarehouseSceneLogic } from '../settings/dataWarehouseSceneLogic'
 
 export function TableData(): JSX.Element {
     const {
@@ -18,29 +16,12 @@ export function TableData(): JSX.Element {
         isEditingSavedQuery,
         inEditSchemaMode,
         editSchemaIsLoading,
-        databaseLoading,
     } = useValues(dataWarehouseSceneLogic)
-    const {
-        deleteDataWarehouseSavedQuery,
-        deleteDataWarehouseTable,
-        setIsEditingSavedQuery,
-        updateDataWarehouseSavedQuery,
-        toggleEditSchemaMode,
-        updateSelectedSchema,
-        saveSchema,
-        cancelEditSchema,
-    } = useActions(dataWarehouseSceneLogic)
-    const [localQuery, setLocalQuery] = useState<HogQLQuery>()
-    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+    const { setIsEditingSavedQuery, toggleEditSchemaMode, updateSelectedSchema, saveSchema, cancelEditSchema } =
+        useActions(dataWarehouseSceneLogic)
 
     const isExternalTable = table?.type === 'data_warehouse'
     const isManuallyLinkedTable = isExternalTable && !table.source
-
-    useEffect(() => {
-        if (table && table.type === 'view') {
-            setLocalQuery(table.query)
-        }
-    }, [table])
 
     return (
         <div className="border rounded p-3 bg-bg-light">
@@ -91,11 +72,6 @@ export function TableData(): JSX.Element {
                                         Edit schema
                                     </LemonButton>
                                 )}
-                                {table.type === 'view' && (
-                                    <LemonButton type="primary" onClick={() => setIsEditingSavedQuery(true)}>
-                                        Edit
-                                    </LemonButton>
-                                )}
                             </div>
                         )}
                     </div>
@@ -139,71 +115,10 @@ export function TableData(): JSX.Element {
                             />
                         </div>
                     )}
-
-                    {table.type === 'view' && isEditingSavedQuery && (
-                        <div className="mt-2">
-                            <span className="card-secondary">Update View Definition</span>
-                            <HogQLQueryEditor
-                                query={{
-                                    kind: NodeKind.HogQLQuery,
-                                    // TODO: Use `hogql` tag?
-                                    query: `${localQuery && localQuery.query}`,
-                                }}
-                                onChange={(queryInput) => {
-                                    setLocalQuery({
-                                        kind: NodeKind.HogQLQuery,
-                                        query: queryInput,
-                                    })
-                                }}
-                                editorFooter={(hasErrors, error, isValidView) => (
-                                    <LemonButton
-                                        className="ml-2"
-                                        onClick={() => {
-                                            localQuery &&
-                                                updateDataWarehouseSavedQuery({
-                                                    ...table,
-                                                    query: localQuery,
-                                                })
-                                        }}
-                                        loading={databaseLoading}
-                                        type="primary"
-                                        center
-                                        disabledReason={
-                                            hasErrors
-                                                ? error ?? 'Query has errors'
-                                                : !isValidView
-                                                ? 'All fields must have an alias'
-                                                : ''
-                                        }
-                                        data-attr="hogql-query-editor-save-as-view"
-                                    >
-                                        Save as view
-                                    </LemonButton>
-                                )}
-                            />
-                        </div>
-                    )}
                 </>
             ) : (
                 <div className="px-4 py-3 h-100 col-span-2 flex justify-center items-center" />
             )}
-            {table && (
-                <DeleteTableModal
-                    table={table}
-                    isOpen={isDeleteModalOpen}
-                    setIsOpen={setIsDeleteModalOpen}
-                    onDelete={() => {
-                        if (table) {
-                            if (table.type === 'view') {
-                                deleteDataWarehouseSavedQuery(table.id)
-                            } else {
-                                deleteDataWarehouseTable(table.id)
-                            }
-                        }
-                    }}
-                />
-            )}
-            <ViewLinkModal />
         </div>
     )
 }

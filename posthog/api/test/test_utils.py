@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from django.http import HttpRequest
 from django.test.client import RequestFactory
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.utils import (
@@ -15,6 +16,7 @@ from posthog.api.utils import (
     raise_if_user_provided_url_unsafe,
     safe_clickhouse_string,
     PublicIPOnlyHttpAdapter,
+    unparsed_hostname_in_allowed_url_list,
 )
 from posthog.models.filters.filter import Filter
 from posthog.test.base import BaseTest
@@ -233,3 +235,26 @@ class TestUtils(BaseTest):
             "Internal IP",
             lambda: session.get(address),
         )
+
+    @parameterized.expand(
+        [
+            ("empty allowlist", [], "http://localhost:8123", False),
+            ("no allowlist", None, "http://localhost:8123", False),
+            ("allowlist is empty string", ["     "], "http://localhost:8123", False),
+            ("allowlist is not a domain", ["this little piggy"], "http://localhost:8123", False),
+            ("needle is the empty string", ["http://localhost"], "", False),
+            ("needle is whitespace", ["http://localhost"], "    ", False),
+            ("needle is absent", ["http://localhost"], None, False),
+            ("single element matches", ["http://localhost"], "http://localhost:8123", True),
+            ("single element matches but is url encoded", ["http://localhost"], "http%3A%2F%2Flocalhost:8123", True),
+            ("multi element matches", ["http://localhost", "http://posthog.com"], "http://localhost:8123", True),
+            ("scheme should be ignored", ["ftp://localhost"], "https://localhost:8123", True),
+            ("needle is not in allowlist", ["http://localhost"], "http://posthog.com:8123", False),
+            ("regex needle is not in allowlist", ["http://*.com"], "http://localhost:8123", False),
+            ("regex needle is in allowlist", ["http://*.com"], "http://posthog.com:8123", True),
+        ]
+    )
+    def test_unparsed_hostname_in_allowed_url_list(
+        self, _name: str, allowlist: list[str], needle: str | None, expected: bool
+    ) -> None:
+        assert unparsed_hostname_in_allowed_url_list(allowlist, needle) == expected

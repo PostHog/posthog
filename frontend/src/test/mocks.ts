@@ -142,6 +142,7 @@ export const mockActionDefinition = {
     last_calculated_at: '2022-01-24T21:32:38.359756Z',
     team_id: 1,
     created_by: null,
+    pinned_at: null,
 }
 
 export const mockCohort: CohortType = {
@@ -218,6 +219,8 @@ export const mockIntegration: IntegrationType = {
             name: 'PostHog',
         },
     },
+    icon_url: '',
+    display_name: '',
     created_at: '2022-01-01T00:09:00',
     created_by: mockBasicUser,
 }

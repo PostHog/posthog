@@ -126,6 +126,7 @@ class TestFilters(PGTestFilters):
                             {
                                 "key": "id",
                                 "value": cohort.pk,
+                                "negation": False,
                                 "type": "precalculated-cohort",
                             }
                         ],
@@ -141,6 +142,7 @@ class TestFilters(PGTestFilters):
                         "values": [
                             {
                                 "key": "id",
+                                "negation": False,
                                 "value": cohort.pk,
                                 "type": "precalculated-cohort",
                             }
@@ -158,7 +160,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "values": [{"type": "static-cohort", "key": "id", "value": cohort.pk}],
+                    "values": [{"type": "static-cohort", "negation": False, "key": "id", "value": cohort.pk}],
                 }
             },
         )
@@ -172,7 +174,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "values": [{"type": "cohort", "key": "id", "value": cohort.pk}],
+                    "values": [{"type": "cohort", "negation": False, "key": "id", "value": cohort.pk}],
                 }
             },
         )

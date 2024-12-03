@@ -53,7 +53,7 @@ export function RetentionModal(): JSX.Element | null {
             footer={
                 <div className="flex justify-between gap-2 w-full">
                     <div className="flex gap-2">
-                        {people.result?.length && !exploreUrl && (
+                        {!!people.result?.length && !exploreUrl && (
                             <LemonButton
                                 type="secondary"
                                 onClick={() =>
@@ -68,7 +68,7 @@ export function RetentionModal(): JSX.Element | null {
                                 Download CSV
                             </LemonButton>
                         )}
-                        {people.result?.length && !!dataTableNodeQuery && (
+                        {!!people.result?.length && !!dataTableNodeQuery && (
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
@@ -95,7 +95,7 @@ export function RetentionModal(): JSX.Element | null {
                 </div>
             }
             width={isEmpty ? undefined : '90%'}
-            title={`${dayjs(row.date).format('MMMM D, YYYY')} Cohort`}
+            title={`${dayjs.utc(row.date).format('MMMM D, YYYY')} Cohort`}
         >
             {people && !!people.missing_persons && (
                 <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={people.missing_persons} />
@@ -129,8 +129,7 @@ export function RetentionModal(): JSX.Element | null {
                                 {people.result &&
                                     people.result.map((personAppearances: RetentionTableAppearanceType) => (
                                         <tr key={personAppearances.person.id}>
-                                            {/* eslint-disable-next-line react/forbid-dom-props */}
-                                            <td style={{ minWidth: 200 }}>
+                                            <td className="min-w-[200px]">
                                                 {isGroupType(personAppearances.person) ? (
                                                     <LemonButton
                                                         size="small"

@@ -21,6 +21,8 @@ import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/use
 import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
+import { LemonTableLoader } from '../LemonTable/LemonTableLoader'
+
 export interface PopoverProps {
     ref?: React.MutableRefObject<HTMLDivElement | null> | React.Ref<HTMLDivElement> | null
     visible: boolean
@@ -38,7 +40,13 @@ export interface PopoverProps {
     placement?: Placement
     /** Where the popover should start relative to children if there's insufficient space for original placement. */
     fallbackPlacements?: Placement[]
-    /** Whether the popover is actionable rather than just informative - actionable means a colored border. */
+    /**
+     * Whether to show a loading bar at the top of the overlay.
+     * DON'T ENABLE WHEN USING SKELETON CONTENT! Having both a skeleton AND loading bar is too much.
+     * Note: for (dis)appearance of the bar to be smooth, you should flip between false/true, and not undefined/true.
+     */
+    loadingBar?: boolean
+    /** @deprecated */
     actionable?: boolean
     /** Whether the popover's width should be synced with the children's width or bigger. */
     matchWidth?: boolean
@@ -47,9 +55,7 @@ export interface PopoverProps {
     /** Whether default box padding should be applies. @default true */
     padded?: boolean
     middleware?: Middleware[]
-    /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popovers.
-     * Works also with strings, matching classnames or ids, for antd legacy components that don't support refs
-     * **/
+    /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popovers. */
     additionalRefs?: React.MutableRefObject<HTMLDivElement | null>[]
     referenceRef?: UseFloatingReturn['refs']['reference']
     floatingRef?: UseFloatingReturn['refs']['floating']
@@ -80,6 +86,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         children,
         referenceElement,
         overlay,
+        loadingBar,
         visible,
         onClickOutside,
         onClickInside,
@@ -127,12 +134,12 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         strategy: 'fixed',
         middleware: [
             ...(fallbackPlacements ? [flip({ fallbackPlacements, fallbackStrategy: 'initialPlacement' })] : []),
-            shift(),
+            shift({ padding: 8, boundary: document.body }), // Add padding and use document.body as boundary
             size({
                 padding: 4,
                 apply({ availableWidth, availableHeight, rects, elements: { floating } }) {
                     floating.style.maxHeight = `${availableHeight}px`
-                    floating.style.maxWidth = `${availableWidth}px`
+                    floating.style.maxWidth = `${Math.min(availableWidth, window.innerWidth - 16)}px` // Ensure popover doesn't extend past window edge
                     floating.style.width = 'initial'
                     if (matchWidth) {
                         floating.style.minWidth = `${rects.reference.width}px`
@@ -192,7 +199,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         if (visible && referenceRef?.current && floatingElement) {
             return autoUpdate(referenceRef.current, floatingElement, update)
         }
-    }, [visible, referenceRef?.current, floatingElement, ...additionalRefs])
+    }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs])
 
     const floatingContainer = useFloatingContainer()
 
@@ -269,6 +276,10 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                                 // eslint-disable-next-line react/forbid-dom-props
                                                 style={arrowStyle}
                                             />
+                                        )}
+
+                                        {loadingBar != null && (
+                                            <LemonTableLoader loading={loadingBar} placement="top" />
                                         )}
 
                                         {!overflowHidden ? (

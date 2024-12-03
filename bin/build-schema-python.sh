@@ -18,20 +18,13 @@ ruff format posthog/schema.py
 # Check schema.py and autofix
 ruff check --fix posthog/schema.py
 
-# HACK: Datamodel-codegen output for enum-type fields with a default is invalid – the default value is a plain string,
-# and not the expected enum member. We fix this using sed, which is pretty hacky, but does the job.
-# Specifically, we need to replace `Optional[PropertyOperator] = "exact"`
-# with `Optional[PropertyOperator] = PropertyOperator("exact")` to make the default value valid.
-# Remove this when https://github.com/koxudaxi/datamodel-code-generator/issues/1929 is resolved.
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # sed needs `-i` to be followed by `''` on macOS
-    sed -i '' -e 's/Optional\[PropertyOperator\] = \("[A-Za-z_]*"\)/Optional[PropertyOperator] = PropertyOperator(\1)/g' posthog/schema.py
-else
-    sed -i -e 's/Optional\[PropertyOperator\] = \("[A-Za-z_]*"\)/Optional[PropertyOperator] = PropertyOperator(\1)/g' posthog/schema.py
-fi
-
 # Replace class Foo(str, Enum) with class Foo(StrEnum) for proper handling in format strings in python 3.11
 # Remove this when https://github.com/koxudaxi/datamodel-code-generator/issues/1313 is resolved
-
-sed -i -e 's/str, Enum/StrEnum/g' posthog/schema.py
-sed -i 's/from enum import Enum/from enum import Enum, StrEnum/g' posthog/schema.py
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # sed needs `-i` to be followed by `''` on macOS
+    sed -i '' -e 's/str, Enum/StrEnum/g' posthog/schema.py
+    sed -i '' 's/from enum import Enum/from enum import Enum, StrEnum/g' posthog/schema.py
+else
+    sed -i -e 's/str, Enum/StrEnum/g' posthog/schema.py
+    sed -i 's/from enum import Enum/from enum import Enum, StrEnum/g' posthog/schema.py
+fi

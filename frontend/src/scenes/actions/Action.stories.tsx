@@ -61,6 +61,7 @@ const MOCK_ACTION: ActionType = {
     deleted: false,
     is_calculating: false,
     last_calculated_at: '2024-05-21T12:57:50.894221Z',
+    pinned_at: null,
 }
 
 const meta: Meta = {
@@ -75,7 +76,6 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/actions/': toPaginatedResponse([MOCK_ACTION]),
                 '/api/projects/:team_id/actions/1/': MOCK_ACTION,
-                '/api/projects/:team_id/actions/1/plugin_configs': toPaginatedResponse([]),
             },
         }),
     ],

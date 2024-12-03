@@ -7,7 +7,6 @@ from typing import Any
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.caching.utils import is_stale
 from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
     RetentionQueryType,
@@ -88,7 +87,7 @@ class RetentionQueryRunner(QueryRunner):
 
     def _get_events_for_entity(self, entity: RetentionEntity) -> list[str | None]:
         if entity.type == EntityType.ACTIONS and entity.id:
-            action = Action.objects.get(pk=int(entity.id))
+            action = Action.objects.get(pk=int(entity.id), team__project_id=self.team.project_id)
             return action.get_step_events()
         return [entity.id] if isinstance(entity.id, str) else [None]
 
@@ -125,7 +124,7 @@ class RetentionQueryRunner(QueryRunner):
 
         return events_where
 
-    def actor_query(self, breakdown_values_filter: Optional[int] = None) -> ast.SelectQuery:
+    def actor_query(self, breakdown_values_filter: Optional[int] = None, cumulative: bool = False) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
             source=ast.Field(chain=["events", "timestamp"])
         )
@@ -171,7 +170,12 @@ class RetentionQueryRunner(QueryRunner):
                 {
                     "target_timestamps": target_timestamps,
                     "min_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
-                        parse_expr("min(events.timestamp)")
+                        parse_expr(
+                            "minIf(events.timestamp, {target_entity_expr})",
+                            {
+                                "target_entity_expr": target_entity_expr,
+                            },
+                        )
                     ),
                 },
             )
@@ -198,6 +202,10 @@ class RetentionQueryRunner(QueryRunner):
                         ),
                     ),
                 )
+
+        intervals_from_base_array_aggregator = "arrayJoin"
+        if cumulative:
+            intervals_from_base_array_aggregator = "arrayMax"
 
         inner_query = ast.SelectQuery(
             select=[
@@ -265,11 +273,11 @@ class RetentionQueryRunner(QueryRunner):
                 ast.Alias(
                     alias="intervals_from_base",
                     expr=parse_expr(
-                        """
-                    arrayJoin(
+                        f"""
+                    {intervals_from_base_array_aggregator}(
                         arrayConcat(
                             if(
-                                {is_first_interval_from_base},
+                                {{is_first_interval_from_base}},
                                 [0],
                                 []
                             ),
@@ -308,12 +316,22 @@ class RetentionQueryRunner(QueryRunner):
 
         return inner_query
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        placeholders = {
-            "actor_query": self.actor_query(),
-        }
-
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
+            if self.query.retentionFilter.cumulative:
+                actor_query = parse_select(
+                    """
+                    SELECT
+                        actor_id,
+                        arrayJoin(range(0, intervals_from_base + 1)) as intervals_from_base,
+                        breakdown_values
+                    FROM {actor_query}
+                    """,
+                    {"actor_query": self.actor_query(cumulative=True)},
+                )
+            else:
+                actor_query = self.actor_query()
+
             retention_query = parse_select(
                 """
                     SELECT [actor_activity.breakdown_values]       AS breakdown_values,
@@ -330,7 +348,7 @@ class RetentionQueryRunner(QueryRunner):
 
                     LIMIT 10000
                 """,
-                placeholders,
+                {"actor_query": actor_query},
                 timings=self.timings,
             )
         return retention_query
@@ -352,11 +370,6 @@ class RetentionQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    def _is_stale(self, cached_result_package):
-        date_to = self.query_date_range.date_to()
-        interval = self.query_date_range.interval_name
-        return is_stale(self.team, date_to, interval, cached_result_package)
-
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
         date_from = self.query_date_range.date_from()
@@ -373,6 +386,16 @@ class RetentionQueryRunner(QueryRunner):
             refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
         return refresh_frequency
+
+    def get_date(self, first_interval):
+        date = self.query_date_range.date_from() + self.query_date_range.determine_time_delta(
+            first_interval, self.query_date_range.interval_name.title()
+        )
+        if self.query_date_range.interval_type == IntervalType.HOUR:
+            utfoffset = self.team.timezone_info.utcoffset(date)
+            if utfoffset is not None:
+                date = date + utfoffset
+        return date
 
     def calculate(self) -> RetentionQueryResponse:
         query = self.to_query()
@@ -394,7 +417,6 @@ class RetentionQueryRunner(QueryRunner):
             }
             for (breakdown_values, intervals_from_base, count) in response.results
         }
-
         results = [
             {
                 "values": [
@@ -402,12 +424,7 @@ class RetentionQueryRunner(QueryRunner):
                     for return_interval in range(self.query_date_range.total_intervals - first_interval)
                 ],
                 "label": f"{self.query_date_range.interval_name.title()} {first_interval}",
-                "date": (
-                    self.query_date_range.date_from()
-                    + self.query_date_range.determine_time_delta(
-                        first_interval, self.query_date_range.interval_name.title()
-                    )
-                ),
+                "date": self.get_date(first_interval),
             }
             for first_interval in range(self.query_date_range.total_intervals)
         ]

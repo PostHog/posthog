@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
-import { CodeEditor } from 'lib/components/CodeEditors'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 

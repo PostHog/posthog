@@ -112,11 +112,12 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
                         return 'operational'
                     }
 
-                    return (
-                        statusPage.components.find(
-                            ({ group_id, status }) => relevantGroups.includes(group_id) && status !== 'operational'
-                        )?.status || 'operational'
-                    )
+                    const componentStatus = statusPage.components.find(
+                        ({ group_id, status }) =>
+                            group_id && relevantGroups.includes(group_id) && status !== 'operational'
+                    )?.status
+
+                    return componentStatus || 'operational'
                 },
                 loadStatusPageFailure: () => 'operational',
             },

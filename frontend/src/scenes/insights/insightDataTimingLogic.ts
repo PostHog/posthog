@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import { captureTimeToSeeData } from 'lib/internalMetrics'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -24,6 +24,7 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'abortQuery as loadDataCancellation'],
         ],
+        logic: [eventUsageLogic],
     })),
     actions({
         startQuery: (queryId: string) => ({ queryId }),
@@ -52,7 +53,9 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
             }
 
             const duration = performance.now() - values.queryStartTimes[payload.queryId]
-            void captureTimeToSeeData(values.currentTeamId, {
+
+            eventUsageLogic.actions.reportTimeToSeeData({
+                team_id: values.currentTeamId,
                 type: 'insight_load',
                 context: 'insight',
                 primary_interaction_id: payload.queryId,
@@ -76,7 +79,8 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
             }
 
             const duration = performance.now() - values.queryStartTimes[errorObject.queryId]
-            void captureTimeToSeeData(values.currentTeamId, {
+            eventUsageLogic.actions.reportTimeToSeeData({
+                team_id: values.currentTeamId,
                 type: 'insight_load',
                 context: 'insight',
                 primary_interaction_id: errorObject.queryId,
@@ -95,7 +99,8 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
         },
         loadDataCancellation: (payload) => {
             const duration = performance.now() - values.queryStartTimes[payload.queryId]
-            void captureTimeToSeeData(values.currentTeamId, {
+            eventUsageLogic.actions.reportTimeToSeeData({
+                team_id: values.currentTeamId,
                 type: 'insight_load',
                 context: 'insight',
                 primary_interaction_id: payload.queryId,

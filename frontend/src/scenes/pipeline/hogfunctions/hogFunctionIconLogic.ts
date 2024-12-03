@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -8,7 +8,6 @@ import type { hogFunctionIconLogicType } from './hogFunctionIconLogicType'
 
 export interface HogFunctionIconLogicProps {
     logicKey: string
-    search: string
     src?: string
     onChange?: (src: string) => void
 }
@@ -41,12 +40,12 @@ export const hogFunctionIconLogic = kea<hogFunctionIconLogicType>([
         ],
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ values }) => ({
         possibleIcons: [
             null as HogFunctionIconResponse[] | null,
             {
                 loadPossibleIcons: async (_, breakpoint) => {
-                    const search = values.searchTerm ?? props.search
+                    const search = values.searchTerm
 
                     if (!search) {
                         return []
@@ -63,18 +62,7 @@ export const hogFunctionIconLogic = kea<hogFunctionIconLogicType>([
         ],
     })),
 
-    listeners(({ actions, values, props }) => ({
-        loadPossibleIconsSuccess: async () => {
-            const autoChange = props.onChange && (!props.src || props.src.includes('temp=true'))
-            if (!autoChange) {
-                return
-            }
-            const firstValue = values.possibleIcons?.[0]
-            if (firstValue) {
-                props.onChange?.(firstValue.url)
-            }
-        },
-
+    listeners(({ actions }) => ({
         setShowPopover: ({ show }) => {
             if (show) {
                 actions.loadPossibleIcons()
@@ -85,13 +73,4 @@ export const hogFunctionIconLogic = kea<hogFunctionIconLogicType>([
             actions.loadPossibleIcons()
         },
     })),
-
-    propsChanged(({ props, actions }, oldProps) => {
-        if (!props.onChange) {
-            return
-        }
-        if (!props.src || (props.search !== oldProps.search && props.src.includes('temp=true'))) {
-            actions.loadPossibleIcons()
-        }
-    }),
 ])

@@ -5,11 +5,11 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
+import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
 
@@ -37,8 +37,8 @@ export const experimentsLogic = kea<experimentsLogicType>([
     path(['scenes', 'experiments', 'experimentsLogic']),
     connect({
         values: [
-            teamLogic,
-            ['currentTeamId'],
+            projectLogic,
+            ['currentProjectId'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             featureFlagLogic,
@@ -76,16 +76,16 @@ export const experimentsLogic = kea<experimentsLogicType>([
             [] as Experiment[],
             {
                 loadExperiments: async () => {
-                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments?limit=1000`)
+                    const response = await api.get(`api/projects/${values.currentProjectId}/experiments?limit=1000`)
                     return response.results as Experiment[]
                 },
                 deleteExperiment: async (id: number) => {
-                    await api.delete(`api/projects/${values.currentTeamId}/experiments/${id}`)
+                    await api.delete(`api/projects/${values.currentProjectId}/experiments/${id}`)
                     lemonToast.info('Experiment removed')
                     return values.experiments.filter((experiment) => experiment.id !== id)
                 },
                 archiveExperiment: async (id: number) => {
-                    await api.update(`api/projects/${values.currentTeamId}/experiments/${id}`, { archived: true })
+                    await api.update(`api/projects/${values.currentProjectId}/experiments/${id}`, { archived: true })
                     lemonToast.info('Experiment archived')
                     return values.experiments.filter((experiment) => experiment.id !== id)
                 },
@@ -143,14 +143,9 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 return experiments.length === 0 && !experimentsLoading && !values.searchTerm && !values.searchStatus
             },
         ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user, s.featureFlags],
-            (user, featureFlags): boolean => {
-                return (
-                    !user?.has_seen_product_intro_for?.[ProductKey.EXPERIMENTS] &&
-                    !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
-                )
-            },
+        webExperimentsAvailable: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (featureFlags: FeatureFlagsSet) => featureFlags[FEATURE_FLAGS.WEB_EXPERIMENTS],
         ],
     })),
     events(({ actions }) => ({

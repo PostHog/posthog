@@ -5,7 +5,6 @@ import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogicWrapper } from 'kea'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -22,13 +21,13 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
-import type { PostHog } from 'posthog-js'
+import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { QueryContext } from '~/queries/types'
@@ -36,13 +35,22 @@ import { QueryContext } from '~/queries/types'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
+    ExperimentFunnelsQuery,
+    ExperimentTrendsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
+    HogQLVariable,
     InsightVizNode,
     Node,
     QueryStatus,
+    RecordingOrder,
+    RecordingsQuery,
 } from './queries/schema'
 import { NodeKind } from './queries/schema'
+
+// Type alias for number to be reflected as integer in json-schema.
+/** @asType integer */
+type integer = number
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -90,6 +98,7 @@ export enum AvailableFeature {
     SURVEYS_WAIT_PERIODS = 'surveys_wait_periods',
     SURVEYS_RECURRING = 'surveys_recurring',
     SURVEYS_EVENTS = 'surveys_events',
+    SURVEYS_ACTIONS = 'surveys_actions',
     TRACKED_USERS = 'tracked_users',
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
@@ -149,13 +158,14 @@ export enum AvailableFeature {
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     HIPAA_BAA = 'hipaa_baa',
-    CUSTOMM_MSA = 'custom_msa',
+    CUSTOM_MSA = 'custom_msa',
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
     DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
     AUTOMATIC_PROVISIONING = 'automatic_provisioning',
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
+    ALERTS = 'alerts',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -163,6 +173,7 @@ type AvailableFeatureUnion = `${AvailableFeature}`
 export enum ProductKey {
     COHORTS = 'cohorts',
     ACTIONS = 'actions',
+    ALERTS = 'alerts',
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',
     ANNOTATIONS = 'annotations',
@@ -184,6 +195,7 @@ export enum ProductKey {
     INTEGRATIONS = 'integrations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     TEAMS = 'teams',
+    WEB_ANALYTICS = 'web_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -291,9 +303,12 @@ export interface MinimalHedgehogConfig {
     accessories: string[]
 }
 
+export type HedgehogSkin = 'default' | 'spiderhog'
+
 export interface HedgehogConfig extends MinimalHedgehogConfig {
     enabled: boolean
     color: HedgehogColorOptions | null
+    skin?: HedgehogSkin
     accessories: string[]
     walking_enabled: boolean
     interactions_enabled: boolean
@@ -329,6 +344,7 @@ export interface OrganizationBasicType {
     id: string
     name: string
     slug: string
+    logo_media_id: string | null
     membership_level: OrganizationMembershipLevel | null
 }
 
@@ -341,7 +357,8 @@ export interface OrganizationType extends OrganizationBasicType {
     updated_at: string
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[]
-    available_product_features: BillingV2FeatureType[]
+    projects: ProjectBasicType[]
+    available_product_features: BillingFeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
@@ -367,6 +384,7 @@ export interface OrganizationDomainType {
 export interface BaseMemberType {
     id: string
     user: UserBasicType
+    last_login: string | null
     joined_at: string
     updated_at: string
     is_2fa_enabled: boolean
@@ -432,10 +450,17 @@ export interface PropertyUsageType {
     volume: number
 }
 
+export interface ProjectBasicType {
+    id: number
+    organization_id: string
+    name: string
+}
+
 export interface TeamBasicType {
     id: number
     uuid: string
     organization: string // Organization ID
+    project_id: number
     api_token: string
     name: string
     completed_snippet_onboarding: boolean
@@ -461,6 +486,14 @@ export interface SessionRecordingAIConfig {
     important_user_properties: string[]
 }
 
+export interface ProjectType extends ProjectBasicType {
+    product_description: string | null
+    created_at: string
+}
+
+export interface TeamSurveyConfigType {
+    appearance?: SurveyAppearance
+}
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -470,8 +503,10 @@ export interface TeamType extends TeamBasicType {
     slack_incoming_webhook: string
     autocapture_opt_out: boolean
     session_recording_opt_in: boolean
-    capture_console_log_opt_in: boolean
-    capture_performance_opt_in: boolean
+    // These fields in the database accept null values and were previously set to NULL by default
+    capture_console_log_opt_in: boolean | null
+    capture_performance_opt_in: boolean | null
+    capture_dead_clicks: boolean | null
     // a string representation of the decimal value between 0 and 1
     session_recording_sample_rate: string
     session_recording_minimum_duration_milliseconds: number | null
@@ -481,7 +516,13 @@ export interface TeamType extends TeamBasicType {
         | undefined
         | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
+    survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
+    autocapture_web_vitals_opt_in?: boolean
+    autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
+    session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
+    session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
+    session_recording_event_trigger_config?: string[]
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -507,10 +548,16 @@ export interface TeamType extends TeamBasicType {
      */
     correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
-    groups_on_events_querying_enabled: boolean
     extra_settings?: Record<string, string | number | boolean | undefined>
     modifiers?: HogQLQueryModifiers
     default_modifiers?: HogQLQueryModifiers
+    product_intents?: ProductIntentType[]
+}
+
+export interface ProductIntentType {
+    product_type: string
+    created_at: string
+    onboarding_completed_at?: string
 }
 
 // This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
@@ -537,6 +584,7 @@ export interface ActionType {
     action_id?: number // alias of id to make it compatible with event definitions uuid
     bytecode?: any[]
     bytecode_error?: string
+    pinned_at: string | null
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -557,6 +605,7 @@ export interface ActionStepType {
     url?: string | null
     /** @default StringMatching.Contains */
     url_matching?: ActionStepStringMatching | null
+    name?: string | null
 }
 
 export interface ElementType {
@@ -571,17 +620,18 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps'
+export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps' | 'add-experiment' | 'edit-experiment'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
+export type ExperimentIdType = number | 'new' | 'web'
 /* sync with posthog-js */
 export interface ToolbarParams {
     apiURL?: string
-    jsURL?: string
     token?: string /** public posthog-js token */
     temporaryToken?: string /** private temporary user token */
     actionId?: number
+    experimentId?: ExperimentIdType
     userIntent?: ToolbarUserIntent
     source?: ToolbarSource
     toolbarVersion?: ToolbarVersion
@@ -622,6 +672,8 @@ export enum PropertyOperator {
     NotBetween = 'not_between',
     Minimum = 'min',
     Maximum = 'max',
+    In = 'in',
+    NotIn = 'not_in',
 }
 
 export enum SavedInsightsTabs {
@@ -629,18 +681,20 @@ export enum SavedInsightsTabs {
     Yours = 'yours',
     Favorites = 'favorites',
     History = 'history',
+    Alerts = 'alerts',
 }
 
 export enum ReplayTabs {
-    Recent = 'recent',
+    Templates = 'templates',
+    Home = 'home',
     Playlists = 'playlists',
-    Errors = 'errors',
 }
 
 export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
     Archived = 'archived',
+    Holdouts = 'holdouts',
 }
 
 export enum ActivityTab {
@@ -653,17 +707,18 @@ export enum PipelineTab {
     Transformations = 'transformations',
     Destinations = 'destinations',
     SiteApps = 'site-apps',
-    DataImport = 'data-import',
+    Sources = 'sources',
     ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
+    History = 'history',
 }
 
 export enum PipelineStage {
     Transformation = 'transformation',
     Destination = 'destination',
+    Source = 'source',
     SiteApp = 'site-app',
     ImportApp = 'legacy-source',
-    DataImport = 'data source',
 }
 
 export enum PipelineNodeTab {
@@ -672,6 +727,9 @@ export enum PipelineNodeTab {
     Logs = 'logs',
     Metrics = 'metrics',
     History = 'history',
+    Schemas = 'schemas',
+    Syncs = 'syncs',
+    SourceConfiguration = 'source configuration',
 }
 
 export enum ProgressStatus {
@@ -693,6 +751,7 @@ export enum PropertyFilterType {
     Session = 'session',
     Cohort = 'cohort',
     Recording = 'recording',
+    LogEntry = 'log_entry',
     Group = 'group',
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
@@ -748,17 +807,20 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     key: 'id'
     /**  @asType integer */
     value: number
+    /** @default 'in' */
+    operator: PropertyOperator
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Group
-    group_type_index?: number | null
+    group_type_index?: integer | null
     operator: PropertyOperator
 }
 
 export interface FeaturePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Feature
     operator: PropertyOperator
+    key: string
 }
 
 export interface HogQLPropertyFilter extends BasePropertyFilter {
@@ -780,6 +842,7 @@ export type AnyPropertyFilter =
     | SessionPropertyFilter
     | CohortPropertyFilter
     | RecordingPropertyFilter
+    | LogEntryPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
@@ -824,6 +887,7 @@ export type RecordingConsoleLog = RecordingConsoleLogBase & RecordingTimeMixinTy
 export type RecordingConsoleLogV2 = {
     timestamp: number
     windowId: string | undefined
+    windowNumber?: number | '?' | undefined
     level: LogLevel
     content: string
     // JS code associated with the log - implicitly the empty array when not provided
@@ -909,8 +973,8 @@ export interface SessionPlayerData {
     bufferedToTime: number | null
     snapshotsByWindowId: Record<string, eventWithTime[]>
     durationMs: number
-    start?: Dayjs
-    end?: Dayjs
+    start: Dayjs | null
+    end: Dayjs | null
     fullyLoaded: boolean
     sessionRecordingId: SessionRecordingId
 }
@@ -921,8 +985,18 @@ export enum SessionRecordingUsageType {
     LOADED = 'loaded',
 }
 
-export enum SessionRecordingPlayerTab {
-    ALL = 'all',
+export enum SessionRecordingSidebarTab {
+    OVERVIEW = 'overview',
+    INSPECTOR = 'inspector',
+    DEBUGGER = 'debugger',
+}
+
+export enum SessionRecordingSidebarStacking {
+    Vertical = 'vertical',
+    Horizontal = 'horizontal',
+}
+
+export enum FilterableInspectorListItemTypes {
     EVENTS = 'events',
     CONSOLE = 'console',
     NETWORK = 'network',
@@ -950,7 +1024,7 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source'
+    key: DurationType | 'snapshot_source' | 'visited_page'
     operator: PropertyOperator
 }
 
@@ -959,15 +1033,29 @@ export interface RecordingDurationFilter extends RecordingPropertyFilter {
     value: number
 }
 
-export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
+export interface LogEntryPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.LogEntry
+    operator: PropertyOperator
+}
 
+export interface LogEntryPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.LogEntry
+    operator: PropertyOperator
+}
+
+export interface LogEntryLevelFilter extends LogEntryPropertyFilter {
+    key: 'level'
+    value: FilterableLogLevel[]
+}
+export interface LogEntryMessageFilter extends LogEntryPropertyFilter {
+    key: 'message'
+    value: string
+}
+
+export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 
-export interface RecordingFilters {
-    /**
-     * live mode is front end only, sets date_from and date_to to the last hour
-     */
-    live_mode?: boolean
+export interface LegacyRecordingFilters {
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -975,29 +1063,29 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
-    console_search_query?: string
+    console_search_query?: LogEntryMessageFilter['value']
+    console_logs?: LogEntryLevelFilter['value']
     snapshot_source?: AnyPropertyFilter | null
-    console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
     operand?: FilterLogicalOperator
 }
 
 export interface RecordingUniversalFilters {
-    /**
-     * live mode is front end only, sets date_from and date_to to the last hour
-     */
-    live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
     duration: RecordingDurationFilter[]
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
+    order?: RecordingsQuery['order']
 }
 
-export interface SessionRecordingsResponse {
-    results: SessionRecordingType[]
-    has_next: boolean
+export interface UniversalFiltersGroup {
+    type: FilterLogicalOperator
+    values: UniversalFiltersGroupValue[]
 }
+
+export type UniversalFiltersGroupValue = UniversalFiltersGroup | UniversalFilterValue
+export type UniversalFilterValue = AnyPropertyFilter | ActionFilter
 
 export type ErrorCluster = {
     cluster: number
@@ -1038,7 +1126,8 @@ export type EntityFilter = {
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
-    math_group_type_index?: number | null
+    math_property_type?: TaxonomicFilterGroupType
+    math_group_type_index?: integer | null
     math_hogql?: string
     properties?: AnyPropertyFilter[]
     type: EntityType
@@ -1140,7 +1229,7 @@ export interface GroupActorType extends CommonActorType {
     /** Group key. */
     id: string
     group_key: string
-    group_type_index: number
+    group_type_index: integer
 }
 
 export type ActorType = PersonActorType | GroupActorType
@@ -1165,7 +1254,7 @@ export interface CohortCriteriaType {
     value: BehavioralFilterType
     type: BehavioralFilterKey
     operator?: PropertyOperator | null
-    group_type_index?: number | null
+    group_type_index?: integer | null
     event_type?: TaxonomicFilterGroupType | null
     operator_value?: PropertyFilterValue
     time_value?: number | string | null
@@ -1308,7 +1397,7 @@ export interface SessionRecordingPlaylistType {
     created_by: UserBasicType | null
     last_modified_at: string
     last_modified_by: UserBasicType | null
-    filters?: RecordingFilters
+    filters?: LegacyRecordingFilters
 }
 
 export interface SessionRecordingSegmentType {
@@ -1347,6 +1436,21 @@ export interface SessionRecordingType {
     storage?: 'object_storage_lts' | 'object_storage'
     summary?: string
     snapshot_source: 'web' | 'mobile' | 'unknown'
+    /** whether we have received data for this recording in the last 5 minutes
+     * (assumes the recording was loaded from ClickHouse)
+     * **/
+    ongoing?: boolean
+    /**
+     * calculated on the backend so that we can sort by it, definition may change over time
+     */
+    activity_score?: number
+}
+
+export interface SessionRecordingUpdateType {
+    viewed?: boolean
+    analyzed?: boolean
+    player_metadata?: Record<string, any> | null
+    durations?: Record<string, any> | null
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1463,6 +1567,7 @@ export interface PerformanceEvent {
     first_contentful_paint?: number // https://web.dev/fcp/
     time_to_interactive?: number // https://web.dev/tti/
     total_blocking_time?: number // https://web.dev/tbt/
+    web_vitals?: Set<RecordingEventType>
 
     // request/response capture - merged in from rrweb/network@1 payloads
     request_headers?: Record<string, string>
@@ -1470,6 +1575,9 @@ export interface PerformanceEvent {
     request_body?: Body
     response_body?: Body
     method?: string
+    // normally, can rely on performance event values like duration,
+    // but they may be absent in which case the SDK may have sent start and end time
+    end_time?: number
 
     //rrweb/network@1 - i.e. not in ClickHouse table
     is_initial?: boolean
@@ -1486,7 +1594,7 @@ export interface CurrentBillCycleType {
     current_period_end: number
 }
 
-export type BillingV2FeatureType = {
+export type BillingFeatureType = {
     key: AvailableFeatureUnion
     name: string
     description?: string | null
@@ -1499,10 +1607,11 @@ export type BillingV2FeatureType = {
         dark: string
     } | null
     icon_key?: string | null
+    entitlement_only?: boolean
     type?: 'primary' | 'secondary' | null
 }
 
-export interface BillingV2TierType {
+export interface BillingTierType {
     flat_amount_usd: string
     unit_amount_usd: string
     current_amount_usd: string | null
@@ -1510,6 +1619,10 @@ export interface BillingV2TierType {
     projected_usage: number | null
     projected_amount_usd: string | null
     up_to: number | null
+}
+
+export interface BillingTrialType {
+    length: number
 }
 
 export interface BillingProductV2Type {
@@ -1525,7 +1638,7 @@ export interface BillingProductV2Type {
     docs_url: string
     free_allocation?: number | null
     subscribed: boolean | null
-    tiers?: BillingV2TierType[] | null
+    tiers?: BillingTierType[] | null
     tiered: boolean
     current_usage?: number
     projected_amount_usd?: string | null
@@ -1537,13 +1650,14 @@ export interface BillingProductV2Type {
     has_exceeded_limit: boolean
     unit: string | null
     unit_amount_usd: string | null
-    plans: BillingV2PlanType[]
+    plans: BillingPlanType[]
     contact_support: boolean | null
     inclusion_only: any
-    features: BillingV2FeatureType[]
+    features: BillingFeatureType[]
     addons: BillingProductV2AddonType[]
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
+    trial?: BillingTrialType
 }
 
 export interface BillingProductV2AddonType {
@@ -1554,7 +1668,7 @@ export interface BillingProductV2AddonType {
     icon_key?: string
     docs_url: string | null
     type: string
-    tiers: BillingV2TierType[] | null
+    tiers: BillingTierType[] | null
     tiered: boolean
     subscribed: boolean
     // sometimes addons are included with the base product, but they aren't subscribed individually
@@ -1567,15 +1681,16 @@ export interface BillingProductV2AddonType {
     current_usage: number
     projected_usage: number | null
     projected_amount_usd: string | null
-    plans: BillingV2PlanType[]
+    plans: BillingPlanType[]
     usage_key?: string
     free_allocation?: number | null
     percentage_usage?: number
-    features: BillingV2FeatureType[]
+    features: BillingFeatureType[]
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     usage_limit?: number | null
+    trial?: BillingTrialType
 }
-export interface BillingV2Type {
+export interface BillingType {
     customer_id: string
     has_active_subscription: boolean
     subscription_level: 'free' | 'paid' | 'custom'
@@ -1587,7 +1702,7 @@ export interface BillingV2Type {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
-        [key: string]: string | null | undefined
+        [key: string]: number | null
     }
     billing_period?: {
         current_period_start: Dayjs
@@ -1597,15 +1712,21 @@ export interface BillingV2Type {
     license?: {
         plan: LicensePlan
     }
-    available_plans?: BillingV2PlanType[]
+    available_plans?: BillingPlanType[]
     discount_percent?: number
     discount_amount_usd?: string
     amount_off_expires_at?: Dayjs
+    trial?: {
+        type: 'autosubscribe' | 'standard'
+        status: 'active' | 'expired' | 'cancelled' | 'converted'
+        target: 'paid' | 'teams' | 'enterprise'
+        expires_at: string
+    }
 }
 
-export interface BillingV2PlanType {
+export interface BillingPlanType {
     free_allocation?: number | null
-    features: BillingV2FeatureType[]
+    features: BillingFeatureType[]
     name: string
     description: string
     is_free?: boolean
@@ -1617,10 +1738,10 @@ export interface BillingV2PlanType {
     flat_rate: boolean
     product_key: ProductKeyUnion
     current_plan?: boolean | null
-    tiers?: BillingV2TierType[] | null
+    tiers?: BillingTierType[] | null
     unit_amount_usd: string | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
-    initial_billing_limit?: number
+    initial_billing_limit?: number | null
     contact_support: boolean | null
 }
 
@@ -1649,6 +1770,7 @@ export enum InsightColor {
 export interface Cacheable {
     last_refresh: string | null
     next_allowed_client_refresh?: string | null
+    cache_target_age?: string | null
 }
 
 export interface TileLayout extends Omit<Layout, 'i'> {
@@ -1660,9 +1782,9 @@ export interface Tileable {
     color: InsightColor | null
 }
 
-export interface DashboardTile extends Tileable, Cacheable {
+export interface DashboardTile<T = InsightModel> extends Tileable {
     id: number
-    insight?: InsightModel
+    insight?: T
     text?: TextModel
     deleted?: boolean
     is_cached?: boolean
@@ -1746,23 +1868,30 @@ export interface DashboardTemplateListParams {
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 
-export interface DashboardType extends DashboardBasicType {
-    tiles: DashboardTile[]
+export interface DashboardType<T = InsightModel> extends DashboardBasicType {
+    tiles: DashboardTile<T>[]
     filters: DashboardFilter
+    variables?: Record<string, HogQLVariable>
 }
 
-export interface DashboardTemplateType {
+export enum TemplateAvailabilityContext {
+    GENERAL = 'general',
+    ONBOARDING = 'onboarding',
+}
+
+export interface DashboardTemplateType<T = InsightModel> {
     id: string
     team_id?: number
     created_at?: string
     template_name: string
     dashboard_description?: string
     dashboard_filters?: DashboardFilter
-    tiles: DashboardTile[]
+    tiles: DashboardTile<T>[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
     scope?: DashboardTemplateScope
+    availability_contexts?: TemplateAvailabilityContext[]
 }
 
 export interface MonacoMarker {
@@ -1779,8 +1908,12 @@ export interface DashboardTemplateVariableType {
     name: string
     description: string
     type: 'event'
-    default: Record<string, JsonType>
+    default: TemplateVariableStep
     required: boolean
+    touched?: boolean
+    selector?: string
+    href?: string
+    url?: string
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
@@ -1816,6 +1949,7 @@ export enum PluginInstallationType {
     Custom = 'custom',
     Repository = 'repository',
     Source = 'source',
+    Inline = 'inline',
 }
 
 export interface PluginType {
@@ -1836,6 +1970,7 @@ export interface PluginType {
     metrics?: Record<string, StoredMetricMathOperations>
     capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[] | undefined>
     public_jobs?: Record<string, JobSpec>
+    hog_function_migration_available?: boolean
 }
 
 export type AppType = PluginType
@@ -1905,29 +2040,6 @@ export interface PluginConfigTypeNew {
     updated_at: string
     delivery_rate_24h?: number | null
     config: Record<string, any>
-    filters?: PluginConfigFilters | null
-}
-
-// subset of EntityFilter
-export interface PluginConfigFilterBase {
-    id: string
-    name: string | null
-    order: number
-    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
-}
-
-export interface PluginConfigFilterEvents extends PluginConfigFilterBase {
-    type: 'events'
-}
-
-export interface PluginConfigFilterActions extends PluginConfigFilterBase {
-    type: 'actions'
-}
-
-export interface PluginConfigFilters {
-    events?: PluginConfigFilterEvents[]
-    actions?: PluginConfigFilterActions[]
-    filter_test_accounts?: boolean
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
@@ -1943,21 +2055,25 @@ export interface PluginErrorType {
     event?: Record<string, any>
 }
 
+export type LogEntryLevel = 'DEBUG' | 'LOG' | 'INFO' | 'WARN' | 'WARNING' | 'ERROR'
+
 // The general log entry format that eventually everything should match
 export type LogEntry = {
     log_source_id: string
     instance_id: string
     timestamp: string
-    level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+    level: LogEntryLevel
     message: string
 }
 
-export enum PluginLogEntryType {
-    Debug = 'DEBUG',
-    Log = 'LOG',
-    Info = 'INFO',
-    Warn = 'WARN',
-    Error = 'ERROR',
+export type LogEntryRequestParams = {
+    limit?: number
+    after?: string
+    before?: string
+    // Comma separated list of log levels
+    level?: string
+    search?: string
+    instance_id?: string
 }
 
 export interface PluginLogEntry {
@@ -1966,23 +2082,16 @@ export interface PluginLogEntry {
     plugin_id: number
     plugin_config_id: number
     timestamp: string
-    type: PluginLogEntryType
+    source: string
+    type: LogEntryLevel
     is_system: boolean
     message: string
     instance_id: string
 }
 
-export interface BatchExportLogEntry {
-    team_id: number
-    batch_export_id: number
-    run_id: number
-    timestamp: string
-    level: PipelineLogLevel
-    message: string
-}
-
 export enum AnnotationScope {
     Insight = 'dashboard_item',
+    Dashboard = 'dashboard',
     Project = 'project',
     Organization = 'organization',
 }
@@ -1996,8 +2105,11 @@ export interface RawAnnotationType {
     created_at: string
     updated_at: string
     dashboard_item?: number | null
-    insight_short_id?: InsightModel['short_id'] | null
-    insight_name?: InsightModel['name'] | null
+    insight_short_id?: QueryBasedInsightModel['short_id'] | null
+    insight_name?: QueryBasedInsightModel['name'] | null
+    insight_derived_name?: QueryBasedInsightModel['derived_name'] | null
+    dashboard_id?: DashboardBasicType['id'] | null
+    dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
 }
@@ -2014,6 +2126,7 @@ export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'>
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
     ActionsBar = 'ActionsBar',
+    ActionsStackedBar = 'ActionsStackedBar',
     ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     BoldNumber = 'BoldNumber',
@@ -2080,12 +2193,18 @@ export enum RetentionPeriod {
     Month = 'Month',
 }
 
-export type BreakdownKeyType = string | number | (string | number)[] | null
+// eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+export type BreakdownKeyType = integer | string | number | (integer | string | number)[] | null
 
+/**
+ * Legacy breakdown.
+ */
 export interface Breakdown {
     property: string | number
     type: BreakdownType
     normalize_url?: boolean
+    histogram_bin_count?: number
+    group_type_index?: number
 }
 
 export interface FilterType {
@@ -2121,11 +2240,25 @@ export interface FilterType {
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
-    breakdown_group_type_index?: number | null
+    breakdown_group_type_index?: integer | null
     breakdown_hide_other_aggregation?: boolean | null
-    /** @asType integer */
-    breakdown_limit?: number | null
-    aggregation_group_type_index?: number // Groups aggregation
+    breakdown_limit?: integer | null
+    aggregation_group_type_index?: integer // Groups aggregation
+}
+
+export interface TemplateVariableStep {
+    id?: string
+    math?: BaseMathType
+    name?: string | null
+    order?: number
+    type?: EntityTypes
+    event?: string
+    selector?: string | null
+    href?: string | null
+    url?: string | null
+    properties?: Record<string, any>[]
+    custom_name?: string
+    custom_event?: boolean
 }
 
 export interface PropertiesTimelineFilterType {
@@ -2155,6 +2288,7 @@ export interface TrendsFilterType extends FilterType {
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 
     // frontend only
+    show_alert_threshold_lines?: boolean // used to show/hide horizontal lines on insight representing alert thresholds set on the insight
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
@@ -2164,6 +2298,7 @@ export interface TrendsFilterType extends FilterType {
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
+    y_axis_scale_type?: 'log10' | 'linear'
 }
 
 export interface StickinessFilterType extends FilterType {
@@ -2222,7 +2357,7 @@ export interface PathsFilterType extends FilterType {
     /** @asType integer */
     step_limit?: number // Paths Step Limit
     path_replacements?: boolean
-    local_path_cleaning_filters?: PathCleaningFilter[]
+    local_path_cleaning_filters?: PathCleaningFilter[] | null
     /** @asType integer */
     edge_limit?: number | undefined // Paths edge limit
     /** @asType integer */
@@ -2236,9 +2371,11 @@ export interface PathsFilterType extends FilterType {
     path_dropoff_key?: string // Paths People Dropoff Key
 }
 
+export type RetentionEntityKind = NodeKind.ActionsNode | NodeKind.EventsNode
+
 export interface RetentionEntity {
     id?: string | number // TODO: Fix weird typing issues
-    kind?: NodeKind.ActionsNode | NodeKind.EventsNode
+    kind?: RetentionEntityKind
     name?: string
     type?: EntityType
     /**  @asType integer */
@@ -2257,6 +2394,7 @@ export interface RetentionFilterType extends FilterType {
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod
+    cumulative?: boolean
 
     //frontend only
     show_mean?: boolean
@@ -2323,7 +2461,7 @@ export interface InsightEditorFilter {
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
-    valueSelector?: (insight: Partial<InsightModel>) => any
+    valueSelector?: (insight: Partial<QueryBasedInsightModel>) => any
     /** Editor filter component. Cannot be an anonymous function or the key would not work! */
     component?: (props: EditorFilterProps) => JSX.Element | null
 }
@@ -2393,7 +2531,7 @@ export interface TrendResult {
     dates?: string[]
     label: string
     labels: string[]
-    breakdown_value?: string | number
+    breakdown_value?: string | number | string[]
     aggregated_value: number
     status?: string
     compare_label?: CompareLabelType
@@ -2556,28 +2694,33 @@ export interface HistogramGraphDatum {
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
-export interface InsightLogicProps {
+export interface InsightLogicProps<T = InsightVizNode> {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
     /** cached insight */
-    cachedInsight?: Partial<InsightModel> | null
+    cachedInsight?: Partial<QueryBasedInsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
     loadPriority?: number
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** query when used as ad-hoc insight */
-    query?: InsightVizNode
-    setQuery?: (node: InsightVizNode) => void
+    query?: T
+    setQuery?: (node: T) => void
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
+
+    /** Dashboard filters to override the ones in the query */
+    filtersOverride?: DashboardFilter | null
+    /** Dashboard variables to override the ones in the query */
+    variablesOverride?: Record<string, HogQLVariable> | null
 }
 
 export interface SetInsightOptions {
     /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
-    overrideFilter?: boolean
+    overrideQuery?: boolean
     /** calling with this updates the "last saved" filters */
     fromPersistentApi?: boolean
 }
@@ -2597,13 +2740,20 @@ export interface Survey {
         selector: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
+        actions: {
+            values: {
+                id: number
+                name: string
+            }[]
+        } | null
         events: {
+            repeatedActivation?: boolean
             values: {
                 name: string
             }[]
         } | null
     } | null
-    appearance: SurveyAppearance
+    appearance: SurveyAppearance | null
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
     created_by: UserBasicType | null
@@ -2617,6 +2767,11 @@ export interface Survey {
     iteration_start_dates?: string[]
     current_iteration?: number | null
     current_iteration_start_date?: string
+    response_sampling_start_date?: string | null
+    response_sampling_interval_type?: string | null
+    response_sampling_interval?: number | null
+    response_sampling_limit?: number | null
+    response_sampling_daily_limits?: string[] | null
 }
 
 export enum SurveyUrlMatchType {
@@ -2643,6 +2798,7 @@ export interface SurveyAppearance {
     submitButtonColor?: string
     // TODO: remove submitButtonText in favor of buttonText once it's more deprecated
     submitButtonText?: string
+    submitButtonTextColor?: string
     ratingButtonColor?: string
     ratingButtonActiveColor?: string
     borderColor?: string
@@ -2652,14 +2808,17 @@ export interface SurveyAppearance {
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
+    thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
     position?: string
+    zIndex?: string
+    shuffleQuestions?: boolean
+    surveyPopupDelaySeconds?: number
     // widget only
     widgetType?: 'button' | 'tab' | 'selector'
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
-    shuffleQuestions?: boolean
 }
 
 export interface SurveyQuestionBase {
@@ -2747,7 +2906,7 @@ interface SpecificQuestionBranching {
 export interface FeatureFlagGroupType {
     properties?: AnyPropertyFilter[]
     rollout_percentage?: number | null
-    variant: string | null
+    variant?: string | null
     users_affected?: number
 }
 
@@ -2764,7 +2923,7 @@ export interface MultivariateFlagOptions {
 export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate: MultivariateFlagOptions | null
-    aggregation_group_type_index?: number | null
+    aggregation_group_type_index?: integer | null
     payloads: Record<string, JsonType>
     super_groups?: FeatureFlagGroupType[]
 }
@@ -2941,6 +3100,9 @@ export interface PreflightStatus {
         hubspot: {
             client_id?: string
         }
+        salesforce: {
+            client_id?: string
+        }
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
@@ -2951,6 +3113,7 @@ export interface PreflightStatus {
     buffer_conversion_seconds?: number
     object_storage: boolean
     public_egress_ip_addresses?: string[]
+    dev_disable_navigation_hooks?: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
@@ -3041,6 +3204,7 @@ export enum PropertyType {
     Boolean = 'Boolean',
     Duration = 'Duration',
     Selector = 'Selector',
+    Cohort = 'Cohort',
 }
 
 export enum PropertyDefinitionType {
@@ -3048,6 +3212,8 @@ export enum PropertyDefinitionType {
     Person = 'person',
     Group = 'group',
     Session = 'session',
+    LogEntry = 'log_entry',
+    Meta = 'meta',
 }
 
 export interface PropertyDefinition {
@@ -3103,21 +3269,30 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
+export interface ExperimentMetric {
+    type: string
+    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
+}
+
 export interface Experiment {
-    id: number | 'new'
+    id: ExperimentIdType
     name: string
+    type?: string
     description?: string
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
     exposure_cohort?: number
-    filters: FilterType
+    filters: TrendsFilterType | FunnelsFilterType
+    metrics: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics_secondary: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     parameters: {
         minimum_detectable_effect?: number
         recommended_running_time?: number
         recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
-        aggregation_group_type_index?: number
+        aggregation_group_type_index?: integer
+        variant_screenshot_media_ids?: Record<string, string[]>
     }
     start_date?: string | null
     end_date?: string | null
@@ -3126,6 +3301,8 @@ export interface Experiment {
     created_at: string | null
     created_by: UserBasicType | null
     updated_at: string | null
+    holdout_id?: number | null
+    holdout?: Holdout
 }
 
 export interface FunnelExperimentVariant {
@@ -3152,17 +3329,20 @@ interface BaseExperimentResults {
 }
 
 export interface _TrendsExperimentResults extends BaseExperimentResults {
-    insight: TrendResult[]
+    insight: Record<string, any>[]
     filters: TrendsFilterType
+    exposure_filters: TrendsFilterType
     variants: TrendExperimentVariant[]
     last_refresh?: string | null
+    credible_intervals: { [key: string]: [number, number] }
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
-    insight: FunnelStep[][]
+    insight: Record<string, any>[]
     filters: FunnelsFilterType
     variants: FunnelExperimentVariant[]
     last_refresh?: string | null
+    credible_intervals: { [key: string]: [number, number] }
 }
 
 export interface TrendsExperimentResults {
@@ -3246,6 +3426,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
     current_user: UserType | null
+    current_project: ProjectType | null
     current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
     default_event_name: string
@@ -3296,26 +3477,36 @@ export interface DateMappingOption {
 interface BreadcrumbBase {
     /** E.g. scene, tab, or scene with item ID. Particularly important for `onRename`. */
     key: string | number | [scene: Scene, key: string | number]
-    /** Name to display. */
-    name: string | null | undefined
-    /** Symbol, e.g. a lettermark or a profile picture. */
-    symbol?: React.ReactNode
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
 }
 interface LinkBreadcrumb extends BreadcrumbBase {
+    /** Name to display. */
+    name: string | null | undefined
+    symbol?: never
     /** Path to link to. */
     path?: string
+    /** Extra tag shown next to name. */
+    tag?: string | null
     onRename?: never
 }
 interface RenamableBreadcrumb extends BreadcrumbBase {
+    /** Name to display. */
+    name: string | null | undefined
+    symbol?: never
     path?: never
     /** When this is set, an "Edit" button shows up next to the title */
     onRename?: (newName: string) => Promise<void>
     /** When this is true, the name is always in edit mode, and `onRename` runs on every input change. */
     forceEditMode?: boolean
 }
-export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
+interface SymbolBreadcrumb extends BreadcrumbBase {
+    name?: never
+    /** Symbol, e.g. a lettermark or a profile picture. */
+    symbol: React.ReactElement
+    path?: never
+}
+export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb
 
 export enum GraphType {
     Bar = 'bar',
@@ -3350,7 +3541,7 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Toggled on to draw incompleteness lines in LineGraph.tsx */
         dotted?: boolean
         /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownValues?: (string | number | undefined)[]
+        breakdownValues?: (string | number | string[] | undefined)[]
         /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
         breakdownLabels?: (string | number | undefined)[]
         /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
@@ -3399,12 +3590,19 @@ export interface InstanceSetting {
     is_secret: boolean
 }
 
+export enum FunnelMathType {
+    AnyMatch = 'total',
+    FirstTimeForUser = 'first_time_for_user',
+    FirstTimeForUserWithFilters = 'first_time_for_user_with_filters',
+}
+
 export enum BaseMathType {
     TotalCount = 'total',
     UniqueUsers = 'dau',
     WeeklyActiveUsers = 'weekly_active',
     MonthlyActiveUsers = 'monthly_active',
     UniqueSessions = 'unique_session',
+    FirstTimeForUser = 'first_time_for_user',
 }
 
 export enum PropertyMathType {
@@ -3481,6 +3679,12 @@ export enum DateOperatorType {
     IsNotSet = 'is_not_set',
 }
 
+export enum SingleFieldDateType {
+    IsDateExact = 'is_date_exact',
+    IsDateBefore = 'is_date_before',
+    IsDateAfter = 'is_date_after',
+}
+
 export enum ValueOptionType {
     MostRecent = 'most_recent',
     Previous = 'previous',
@@ -3522,12 +3726,23 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
+export type IntegrationKind =
+    | 'slack'
+    | 'salesforce'
+    | 'hubspot'
+    | 'google-pubsub'
+    | 'google-cloud-storage'
+    | 'google-ads'
+
 export interface IntegrationType {
     id: number
-    kind: 'slack'
+    kind: IntegrationKind
+    display_name: string
+    icon_url: string
     config: any
     created_by?: UserBasicType | null
     created_at: string
+    errors?: string
 }
 
 export interface SlackChannelType {
@@ -3642,6 +3857,37 @@ export interface RoleMemberType {
     user_uuid: string
 }
 
+export type APIScopeObject =
+    | 'action'
+    | 'activity_log'
+    | 'annotation'
+    | 'batch_export'
+    | 'cohort'
+    | 'dashboard'
+    | 'dashboard_template'
+    | 'early_access_feature'
+    | 'event_definition'
+    | 'experiment'
+    | 'export'
+    | 'feature_flag'
+    | 'group'
+    | 'insight'
+    | 'query'
+    | 'notebook'
+    | 'organization'
+    | 'organization_member'
+    | 'person'
+    | 'plugin'
+    | 'project'
+    | 'property_definition'
+    | 'session_recording'
+    | 'session_recording_playlist'
+    | 'sharing_configuration'
+    | 'subscription'
+    | 'survey'
+    | 'user'
+    | 'webhook'
+
 export interface OrganizationResourcePermissionType {
     id: string
     resource: Resource
@@ -3689,6 +3935,7 @@ export enum ActivityScope {
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
+    HOG_FUNCTION = 'HogFunction',
     DATA_MANAGEMENT = 'DataManagement',
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',
@@ -3780,7 +4027,7 @@ export interface DataWarehouseTable {
     format: DataWarehouseTableTypes
     url_pattern: string
     credential: DataWarehouseCredential
-    external_data_source?: ExternalDataStripeSource
+    external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
 }
 
@@ -3792,6 +4039,8 @@ export interface DataWarehouseSavedQuery {
     name: string
     query: HogQLQuery
     columns: DatabaseSchemaField[]
+    last_run_at?: string
+    status?: string
 }
 
 export interface DataWarehouseViewLink {
@@ -3803,18 +4052,34 @@ export interface DataWarehouseViewLink {
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null
+    configuration?: {
+        experiments_optimized?: boolean
+        experiments_timestamp_key?: string | null
+    }
 }
 
 export enum DataWarehouseSettingsTab {
     Managed = 'managed',
-    SelfManaged = 'self_managed',
+    SelfManaged = 'self-managed',
 }
 
-export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake'] as const
+export const externalDataSources = [
+    'Stripe',
+    'Hubspot',
+    'Postgres',
+    'MySQL',
+    'MSSQL',
+    'Zendesk',
+    'Snowflake',
+    'Salesforce',
+    'Vitally',
+    'BigQuery',
+    'Chargebee',
+] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
-export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2']
+export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
 
 export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 
@@ -3823,16 +4088,17 @@ export interface ExternalDataSourceCreatePayload {
     prefix: string
     payload: Record<string, any>
 }
-export interface ExternalDataStripeSource {
+export interface ExternalDataSource {
     id: string
     source_id: string
     connection_id: string
     status: string
-    source_type: string
+    source_type: ExternalDataSourceType
     prefix: string
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
+    job_inputs: Record<string, any>
 }
 export interface SimpleExternalDataSourceSchema {
     id: string
@@ -3841,20 +4107,43 @@ export interface SimpleExternalDataSourceSchema {
     last_synced_at?: Dayjs
 }
 
+export type SchemaIncrementalFieldsResponse = IncrementalField[]
+
+export interface IncrementalField {
+    label: string
+    type: string
+    field: string
+    field_type: string
+}
+
 export interface ExternalDataSourceSyncSchema {
     table: string
     should_sync: boolean
-    sync_type: 'full_refresh' | 'incremental'
-    sync_types: {
-        full_refresh: boolean
-        incremental: boolean
-    }
+    incremental_field: string | null
+    incremental_field_type: string | null
+    sync_type: 'full_refresh' | 'incremental' | null
+    incremental_fields: IncrementalField[]
+    incremental_available: boolean
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
-    incremental?: boolean
+    incremental: boolean
+    sync_type: 'incremental' | 'full_refresh' | null
     status?: string
+    incremental_field: string | null
+    incremental_field_type: string | null
+    sync_frequency: DataWarehouseSyncInterval
+}
+
+export interface ExternalDataJob {
+    id: string
+    created_at: string
+    status: 'Running' | 'Failed' | 'Completed' | 'Billing limits'
+    schema: SimpleExternalDataSourceSchema
+    rows_synced: number
+    latest_error: string
+    workflow_run_id?: string
 }
 
 export interface SimpleDataWarehouseTable {
@@ -3960,7 +4249,14 @@ export type BatchExportServiceRedshift = {
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
 // and update batchExportServiceNames in pipelineNodeNewLogic
-export const BATCH_EXPORT_SERVICE_NAMES = ['S3', 'Snowflake', 'Postgres', 'BigQuery', 'Redshift', 'HTTP']
+export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
+    'S3',
+    'Snowflake',
+    'Postgres',
+    'BigQuery',
+    'Redshift',
+    'HTTP',
+]
 export type BatchExportService =
     | BatchExportServiceS3
     | BatchExportServiceSnowflake
@@ -3971,7 +4267,7 @@ export type BatchExportService =
 
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
 
-export type DataWarehouseSyncInterval = 'day' | 'week' | 'month'
+export type DataWarehouseSyncInterval = '5min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
@@ -3989,6 +4285,24 @@ export type BatchExportConfiguration = {
     latest_runs?: BatchExportRun[]
 }
 
+export type RawBatchExportRun = {
+    id: string
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
+    created_at: string
+    data_interval_start?: string
+    data_interval_end: string
+    last_updated_at?: string
+}
+
 export type BatchExportRun = {
     id: string
     status:
@@ -4002,7 +4316,7 @@ export type BatchExportRun = {
         | 'Running'
         | 'Starting'
     created_at: Dayjs
-    data_interval_start: Dayjs
+    data_interval_start?: Dayjs
     data_interval_end: Dayjs
     last_updated_at?: Dayjs
 }
@@ -4043,11 +4357,13 @@ export enum SDKKey {
     GATSBY = 'gatsby',
     GO = 'go',
     GOOGLE_TAG_MANAGER = 'google_tag_manager',
+    HELICONE = 'helicone',
     HTML_SNIPPET = 'html',
     IOS = 'ios',
     JAVA = 'java',
     JS_WEB = 'javascript_web',
     LARAVEL = 'laravel',
+    LANGFUSE = 'langfuse',
     NEXT_JS = 'nextjs',
     NODE_JS = 'nodejs',
     NUXT_JS = 'nuxtjs',
@@ -4064,6 +4380,7 @@ export enum SDKKey {
     SENTRY = 'sentry',
     SHOPIFY = 'shopify',
     SVELTE = 'svelte',
+    TRACELOOP = 'traceloop',
     VUE_JS = 'vuejs',
     WEBFLOW = 'webflow',
     WORDPRESS = 'wordpress',
@@ -4075,6 +4392,7 @@ export enum SDKTag {
     SERVER = 'Server',
     INTEGRATION = 'Integration',
     RECOMMENDED = 'Recommended',
+    LLM = 'LLM',
     OTHER = 'Other',
 }
 
@@ -4110,6 +4428,13 @@ export enum SidePanelTab {
     Exports = 'exports',
 }
 
+export interface SourceFieldOauthConfig {
+    type: 'oauth'
+    name: string
+    label: string
+    required: boolean
+}
+
 export interface SourceFieldInputConfig {
     type: LemonInputProps['type'] | 'textarea'
     name: string
@@ -4133,15 +4458,31 @@ export interface SourceFieldSwitchGroupConfig {
     label: string
     default: string | number | boolean
     fields: SourceFieldConfig[]
+    caption?: string
 }
 
-export type SourceFieldConfig = SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig
+export interface SourceFieldFileUploadConfig {
+    type: 'file-upload'
+    name: string
+    label: string
+    fileFormat: string
+    required: boolean
+}
+
+export type SourceFieldConfig =
+    | SourceFieldInputConfig
+    | SourceFieldSwitchGroupConfig
+    | SourceFieldSelectConfig
+    | SourceFieldOauthConfig
+    | SourceFieldFileUploadConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType
+    label?: string
     caption: string | React.ReactNode
     fields: SourceFieldConfig[]
     disabledReason?: string | null
+    oauthPayload?: string[]
 }
 
 export interface ProductPricingTierSubrows {
@@ -4171,7 +4512,13 @@ export type AvailableOnboardingProducts = Pick<
     {
         [key in ProductKey]: OnboardingProduct
     },
-    ProductKey.PRODUCT_ANALYTICS | ProductKey.SESSION_REPLAY | ProductKey.FEATURE_FLAGS | ProductKey.SURVEYS
+    | ProductKey.PRODUCT_ANALYTICS
+    | ProductKey.SESSION_REPLAY
+    | ProductKey.FEATURE_FLAGS
+    | ProductKey.EXPERIMENTS
+    | ProductKey.SURVEYS
+    | ProductKey.DATA_WAREHOUSE
+    | ProductKey.WEB_ANALYTICS
 >
 
 export type OnboardingProduct = {
@@ -4184,7 +4531,7 @@ export type OnboardingProduct = {
 }
 
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field'
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -4197,8 +4544,67 @@ export type HogFunctionInputSchemaType = {
     integration_field?: 'slack_channel'
 }
 
+export type HogFunctionInputType = {
+    value: any
+    secret?: boolean
+    bytecode?: any
+}
+
+export type HogFunctionMasking = {
+    ttl: number | null
+    threshold?: number | null
+    hash: string
+    bytecode?: any
+}
+
+// subset of EntityFilter
+export interface HogFunctionFilterBase {
+    id: string
+    name?: string | null
+    order?: number
+    properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+}
+
+export interface HogFunctionFilterEvents extends HogFunctionFilterBase {
+    type: 'events'
+}
+
+export interface HogFunctionFilterActions extends HogFunctionFilterBase {
+    type: 'actions'
+}
+
+export type HogFunctionFilterPropertyFilter = (
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | GroupPropertyFilter
+    | FeaturePropertyFilter
+    | HogQLPropertyFilter
+)[]
+
+export interface HogFunctionFiltersType {
+    events?: HogFunctionFilterEvents[]
+    actions?: HogFunctionFilterActions[]
+    properties?: HogFunctionFilterPropertyFilter[]
+    filter_test_accounts?: boolean
+    bytecode?: any[]
+    bytecode_error?: string
+}
+
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'site_destination'
+    | 'site_app'
+    | 'email'
+    | 'sms'
+    | 'push'
+    | 'activity'
+    | 'alert'
+    | 'broadcast'
+
 export type HogFunctionType = {
     id: string
+    type: HogFunctionTypeType
     icon_url?: string
     name: string
     description: string
@@ -4209,24 +4615,36 @@ export type HogFunctionType = {
     hog: string
 
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<
-        string,
-        {
-            value: any
-            bytecode?: any
-        }
-    >
-    filters?: PluginConfigFilters | null
+    inputs?: Record<string, HogFunctionInputType> | null
+    masking?: HogFunctionMasking | null
+    filters?: HogFunctionFiltersType | null
     template?: HogFunctionTemplateType
+    status?: HogFunctionStatus
 }
 
-export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at'>
+export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated' | 'client-side'
+export type HogFunctionSubTemplateIdType = 'early_access_feature_enrollment' | 'survey_response'
+
+export type HogFunctionConfigurationType = Omit<
+    HogFunctionType,
+    'id' | 'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
+> & {
+    hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
+    sub_template_id?: HogFunctionSubTemplateIdType
+}
+
+export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking'> & {
+    id: HogFunctionSubTemplateIdType
+    name: string
+    description: string | null
+}
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url'
+    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
 > & {
-    status: 'alpha' | 'beta' | 'stable'
+    status: HogFunctionTemplateStatus
+    sub_templates?: HogFunctionSubTemplateType[]
 }
 
 export type HogFunctionIconResponse = {
@@ -4235,17 +4653,101 @@ export type HogFunctionIconResponse = {
     url: string
 }
 
-export interface AnomalyCondition {
-    absoluteThreshold: {
-        lower?: number
-        upper?: number
-    }
+export enum HogWatcherState {
+    healthy = 1,
+    overflowed = 2,
+    disabledForPeriod = 3,
+    disabledIndefinitely = 4,
 }
 
-export interface AlertType {
-    id: number
+export type HogFunctionStatus = {
+    state: HogWatcherState
+    rating: number
+    tokens: number
+}
+
+export type HogFunctionInvocationGlobals = {
+    project: {
+        id: number
+        name: string
+        url: string
+    }
+    source?: {
+        name: string
+        url: string
+    }
+    event: {
+        uuid: string
+        event: string
+        elements_chain: string
+        distinct_id: string
+        properties: Record<string, any>
+        timestamp: string
+        url: string
+    }
+    person?: {
+        id: string
+        properties: Record<string, any>
+        name: string
+        url: string
+    }
+    groups?: Record<
+        string,
+        {
+            id: string // the "key" of the group
+            type: string
+            index: number
+            url: string
+            properties: Record<string, any>
+        }
+    >
+}
+
+export type AppMetricsV2Response = {
+    labels: string[]
+    series: {
+        name: string
+        values: number[]
+    }[]
+}
+
+export type AppMetricsTotalsV2Response = {
+    totals: Record<string, number>
+}
+
+export type AppMetricsV2RequestParams = {
+    after?: string
+    before?: string
+    // Comma separated list of log levels
+    name?: string
+    kind?: string
+    interval?: 'hour' | 'day' | 'week'
+    breakdown_by?: 'name' | 'kind'
+}
+
+export type SessionReplayUrlTriggerConfig = {
+    url: string
+    matching: 'regex'
+}
+
+export type ReplayTemplateType = {
+    key: string
     name: string
-    insight?: number
-    target_value: string
-    anomaly_condition: AnomalyCondition
+    description: string
+    variables?: ReplayTemplateVariableType[]
+    categories: ReplayTemplateCategory[]
+    icon?: React.ReactNode
+    order?: RecordingOrder
+}
+export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'
+
+export type ReplayTemplateVariableType = {
+    type: 'event' | 'flag' | 'pageview' | 'person-property' | 'snapshot_source'
+    name: string
+    key: string
+    touched?: boolean
+    value?: string
+    description?: string
+    filterGroup?: UniversalFiltersGroupValue
+    noTouch?: boolean
 }

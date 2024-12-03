@@ -16,6 +16,10 @@ class RequestParsingError(Exception):
     pass
 
 
+class UnspecifiedCompressionFallbackParsingError(Exception):
+    pass
+
+
 class EnterpriseFeatureException(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     default_code = "payment_required"

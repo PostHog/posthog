@@ -6,13 +6,14 @@ from django.db.models import Q
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from rest_framework import request, response, serializers, viewsets
-from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
+from posthog.helpers.full_text_search import build_rank
 from posthog.models.dashboard_templates import DashboardTemplate
 
 logger = structlog.get_logger(__name__)
@@ -47,6 +48,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             "image_url",
             "team_id",
             "scope",
+            "availability_contexts",
         ]
 
     def create(self, validated_data: dict, *args, **kwargs) -> DashboardTemplate:
@@ -96,9 +98,14 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
         else:
             query_condition = Q(team_id=self.team_id) | Q(scope=DashboardTemplate.Scope.GLOBAL)
 
-        if search:
-            query_condition &= (
-                Q(template_name__search=search) | Q(dashboard_description__search=search) | Q(tags__contains=[search])
-            )
+        qs = DashboardTemplate.objects.filter(query_condition)
 
-        return DashboardTemplate.objects.filter(query_condition)
+        # weighted full-text search
+        if isinstance(search, str):
+            qs = qs.annotate(
+                rank=build_rank({"template_name": "A", "dashboard_description": "C", "tags": "B"}, search),
+            )
+            qs = qs.filter(rank__gt=0.05)
+            qs = qs.order_by("-rank")
+
+        return qs

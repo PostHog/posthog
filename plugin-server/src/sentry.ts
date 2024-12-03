@@ -39,6 +39,7 @@ export function initSentry(config: PluginsServerConfig): void {
                 tags: {
                     PLUGIN_SERVER_MODE: config.PLUGIN_SERVER_MODE,
                     DEPLOYMENT: config.CLOUD_DEPLOYMENT,
+                    PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: config.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE,
                 },
             },
             release,

@@ -1,36 +1,60 @@
+import json
+from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
+from loginas.utils import is_impersonated_session
 
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
+from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
 from posthog.cdp.services.icons import CDPIconsService
-from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
-from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
+from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
+from posthog.cdp.site_functions import get_transpiled_function
+from posthog.constants import AvailableFeature
+from posthog.hogql.compiler.javascript import JavaScriptCompiler
+from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
+from posthog.models.hog_functions.hog_function import (
+    HogFunction,
+    HogFunctionState,
+    TYPES_WITH_COMPILED_FILTERS,
+    TYPES_WITH_TRANSPILED_FILTERS,
+    TYPES_WITH_JAVASCRIPT_SOURCE,
+)
+from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
 
 logger = structlog.get_logger(__name__)
 
 
+class HogFunctionStatusSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(choices=[state.value for state in HogFunctionState])
+    rating: serializers.FloatField = serializers.FloatField()
+    tokens: serializers.IntegerField = serializers.IntegerField()
+
+
 class HogFunctionMinimalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
 
     class Meta:
         model = HogFunction
         fields = [
             "id",
+            "type",
             "name",
             "description",
             "created_at",
@@ -40,17 +64,35 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "hog",
             "filters",
             "icon_url",
+            "template",
+            "status",
         ]
         read_only_fields = fields
 
 
+class HogFunctionMaskingSerializer(serializers.Serializer):
+    ttl = serializers.IntegerField(
+        required=True, min_value=60, max_value=60 * 60 * 24
+    )  # NOTE: 24 hours max for now - we might increase this later
+    threshold = serializers.IntegerField(required=False, allow_null=True)
+    hash = serializers.CharField(required=True)
+    bytecode = serializers.JSONField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        attrs["bytecode"] = generate_template_bytecode(attrs["hash"])
+
+        return super().validate(attrs)
+
+
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
+    masking = HogFunctionMaskingSerializer(required=False, allow_null=True)
 
     class Meta:
         model = HogFunction
         fields = [
             "id",
+            "type",
             "name",
             "description",
             "created_at",
@@ -60,12 +102,15 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "deleted",
             "hog",
             "bytecode",
+            "transpiled",
             "inputs_schema",
             "inputs",
             "filters",
+            "masking",
             "icon_url",
             "template",
             "template_id",
+            "status",
         ]
         read_only_fields = [
             "id",
@@ -73,63 +118,186 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "created_by",
             "updated_at",
             "bytecode",
+            "transpiled",
             "template",
+            "status",
         ]
         extra_kwargs = {
+            "hog": {"required": False},
+            "inputs_schema": {"required": False},
             "template_id": {"write_only": True},
             "deleted": {"write_only": True},
         }
-
-    def validate_inputs_schema(self, value):
-        return validate_inputs_schema(value)
 
     def validate(self, attrs):
         team = self.context["get_team"]()
         attrs["team"] = team
 
-        if self.context["view"].action == "create":
+        has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+
+        if not has_addon:
+            template_id = attrs.get("template_id", instance.template_id if instance else None)
+            template = HOG_FUNCTION_TEMPLATES_BY_ID.get(template_id, None)
+
+            # In this case they are only allowed to create or update the function with free templates
+            if not template:
+                raise serializers.ValidationError(
+                    {"template_id": "The Data Pipelines addon is required to create custom functions."}
+                )
+
+            if template.status != "free" and not instance:
+                raise serializers.ValidationError(
+                    {"template_id": "The Data Pipelines addon is required for this template."}
+                )
+
+            # Without the addon, they cannot deviate from the template
+            attrs["inputs_schema"] = template.inputs_schema
+            attrs["hog"] = template.hog
+
+        if "type" not in attrs:
+            attrs["type"] = "destination"
+
+        if self.context.get("view") and self.context["view"].action == "create":
             # Ensure we have sensible defaults when created
-            attrs["filters"] = attrs.get("filters", {})
-            attrs["inputs_schema"] = attrs.get("inputs_schema", [])
-            attrs["inputs"] = attrs.get("inputs", {})
+            attrs["filters"] = attrs.get("filters") or {}
+            attrs["inputs_schema"] = attrs.get("inputs_schema") or []
+            attrs["inputs"] = attrs.get("inputs") or {}
+
+        if "inputs_schema" in attrs:
+            attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
 
         if "inputs" in attrs:
-            attrs["inputs"] = validate_inputs(attrs["inputs_schema"], attrs["inputs"])
-        if "hog" in attrs:
-            attrs["bytecode"] = compile_hog(attrs["hog"])
+            inputs = attrs["inputs"] or {}
+            existing_encrypted_inputs = None
 
-        return attrs
+            if instance and instance.encrypted_inputs:
+                existing_encrypted_inputs = instance.encrypted_inputs
+
+            attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
+            attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs, attrs["type"])
+
+        if "filters" in attrs:
+            if attrs["type"] in TYPES_WITH_COMPILED_FILTERS:
+                attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
+            elif attrs["type"] in TYPES_WITH_TRANSPILED_FILTERS:
+                compiler = JavaScriptCompiler()
+                code = compiler.visit(compile_filters_expr(attrs["filters"], team))
+                attrs["filters"]["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
+                if "bytecode" in attrs["filters"]:
+                    del attrs["filters"]["bytecode"]
+
+        if "hog" in attrs:
+            if attrs["type"] in TYPES_WITH_JAVASCRIPT_SOURCE:
+                # Upon creation, this code will be run before the model has an "id".
+                # If that's the case, the code just makes sure transpilation doesn't throw. We'll re-transpile after creation.
+                id = str(instance.id) if instance else "__"
+                try:
+                    attrs["transpiled"] = get_transpiled_function(
+                        id, attrs["hog"], attrs["filters"], attrs["inputs"], team
+                    )
+                except TranspilerError:
+                    raise serializers.ValidationError({"hog": f"Error in TypeScript code"})
+                attrs["bytecode"] = None
+            else:
+                attrs["bytecode"] = compile_hog(attrs["hog"])
+                attrs["transpiled"] = None
+        else:
+            attrs["bytecode"] = None
+            attrs["transpiled"] = None
+
+        return super().validate(attrs)
+
+    def to_representation(self, data):
+        encrypted_inputs = data.encrypted_inputs or {} if isinstance(data, HogFunction) else {}
+        data = super().to_representation(data)
+
+        inputs_schema = data.get("inputs_schema", [])
+        inputs = data.get("inputs") or {}
+
+        for schema in inputs_schema:
+            if schema.get("secret"):
+                # TRICKY: We used to store these inputs so we check both the encrypted and non-encrypted inputs
+                has_value = encrypted_inputs.get(schema["key"]) or inputs.get(schema["key"])
+                if has_value:
+                    # Marker to indicate to the user that a secret is set
+                    inputs[schema["key"]] = {"secret": True}
+
+        data["inputs"] = inputs
+
+        return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        return super().create(validated_data=validated_data)
+        hog_function = super().create(validated_data=validated_data)
+        if validated_data.get("type") in TYPES_WITH_JAVASCRIPT_SOURCE:
+            # Re-run the transpilation now that we have an ID
+            hog_function.transpiled = get_transpiled_function(
+                str(hog_function.id), hog_function.hog, hog_function.filters, hog_function.inputs, hog_function.team
+            )
+        return hog_function
+
+    def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
+        res: HogFunction = super().update(instance, validated_data)
+
+        if res.enabled and res.status.get("state", 0) >= HogFunctionState.DISABLED_TEMPORARILY.value:
+            res.set_function_status(HogFunctionState.DEGRADED.value)
+
+        return res
 
 
 class HogFunctionInvocationSerializer(serializers.Serializer):
     configuration = HogFunctionSerializer(write_only=True)
-    event = serializers.DictField(write_only=True)
+    globals = serializers.DictField(write_only=True)
     mock_async_functions = serializers.BooleanField(default=True, write_only=True)
     status = serializers.CharField(read_only=True)
     logs = serializers.ListField(read_only=True)
 
 
-class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class HogFunctionViewSet(
+    TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
+):
     scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["id", "team", "created_by", "enabled"]
 
-    permission_classes = [PostHogFeatureFlagPermission]
-    posthog_feature_flag = {"hog-functions": ["create", "partial_update", "update"]}
     log_source = "hog_function"
+    app_source = "hog_function"
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
-            queryset = queryset.filter(deleted=False)
+            if "type" in self.request.GET:
+                types = [self.request.GET.get("type", "destination")]
+            elif "types" in self.request.GET:
+                types = self.request.GET.get("types", "destination").split(",")
+            else:
+                types = ["destination"]
+            queryset = queryset.filter(deleted=False, type__in=types)
+
+        if self.request.GET.get("filters"):
+            try:
+                filters = json.loads(self.request.GET["filters"])
+                if "actions" in filters:
+                    action_ids = [str(action.get("id")) for action in filters.get("actions", []) if action.get("id")]
+                    del filters["actions"]
+                    query = """
+                        EXISTS (
+                            SELECT 1
+                            FROM jsonb_array_elements(filters->'actions') AS elem
+                            WHERE elem->>'id' = ANY(%s)
+                        )
+                    """
+                    queryset = queryset.extra(where=[query], params=[action_ids])
+
+                if filters:
+                    queryset = queryset.filter(filters__contains=filters)
+            except (ValueError, KeyError, TypeError):
+                raise exceptions.ValidationError({"filter": f"Invalid filter"})
 
         return queryset
 
@@ -156,7 +324,9 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
         hog_function = self.get_object()
-        serializer = HogFunctionInvocationSerializer(data=request.data, context=self.get_serializer_context())
+        serializer = HogFunctionInvocationSerializer(
+            data=request.data, context={**self.get_serializer_context(), "instance": hog_function}
+        )
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
@@ -164,13 +334,13 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
         # Remove the team from the config
         configuration.pop("team")
 
-        event = serializer.validated_data["event"]
+        globals = serializer.validated_data["globals"]
         mock_async_functions = serializer.validated_data["mock_async_functions"]
 
         res = create_hog_invocation_test(
             team_id=hog_function.team_id,
             hog_function_id=hog_function.id,
-            event=event,
+            globals=globals,
             configuration=configuration,
             mock_async_functions=mock_async_functions,
         )
@@ -179,3 +349,41 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
             return Response({"status": "error"}, status=res.status_code)
 
         return Response(res.json())
+
+    def perform_create(self, serializer):
+        serializer.save()
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
+            item_id=serializer.instance.id,
+            scope="HogFunction",
+            activity="created",
+            detail=Detail(name=serializer.instance.name, type=serializer.instance.type or "destination"),
+        )
+
+    def perform_update(self, serializer):
+        instance_id = serializer.instance.id
+
+        try:
+            before_update = HogFunction.objects.get(pk=instance_id)
+        except HogFunction.DoesNotExist:
+            before_update = None
+
+        serializer.save()
+
+        changes = changes_between("HogFunction", previous=before_update, current=serializer.instance)
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
+            item_id=instance_id,
+            scope="HogFunction",
+            activity="updated",
+            detail=Detail(
+                changes=changes, name=serializer.instance.name, type=serializer.instance.type or "destination"
+            ),
+        )

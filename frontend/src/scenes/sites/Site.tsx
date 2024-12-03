@@ -1,7 +1,11 @@
 import './Site.scss'
 
 import { useValues } from 'kea'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import {
+    authorizedUrlListLogic,
+    AuthorizedUrlListType,
+    defaultAuthorizedUrlProperties,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { siteLogic, SiteLogicProps } from './siteLogic'
@@ -14,7 +18,7 @@ export const scene: SceneExport = {
 
 export function Site({ url }: { url?: string } = {}): JSX.Element {
     const { launchUrl } = useValues(
-        authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS })
+        authorizedUrlListLogic({ ...defaultAuthorizedUrlProperties, type: AuthorizedUrlListType.TOOLBAR_URLS })
     )
 
     const decodedUrl = decodeURIComponent(url || '')

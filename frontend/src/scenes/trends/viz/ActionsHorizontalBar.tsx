@@ -23,7 +23,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const {
         indexedResults,
         labelGroupType,
@@ -33,6 +33,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         isDataWarehouseSeries,
         querySource,
         breakdownFilter,
+        hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
 
     function updateData(): void {
@@ -82,7 +83,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             labelGroupType={labelGroupType}
             datasets={data}
             labels={data[0].labels}
-            hiddenLegendKeys={hiddenLegendKeys}
+            hiddenLegendIndexes={hiddenLegendIndexes}
             showPersonsModal={showPersonsModal}
             trendsFilter={trendsFilter}
             formula={formula}

@@ -1,8 +1,10 @@
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect } from 'react'
+import { DebugCHQueries } from 'lib/components/CommandPalette/DebugCHQueries'
+import { isObject } from 'lib/utils'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
+import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema'
@@ -19,37 +21,32 @@ export interface InsightSceneProps {
 
 export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
-    const { insightMode, insight } = useValues(insightSceneLogic)
+    const { insightMode, insight, filtersOverride, variablesOverride } = useValues(insightSceneLogic)
 
     // insightLogic
     const logic = insightLogic({
         dashboardItemId: insightId || 'new',
-        cachedInsight: insight?.short_id === insightId ? insight : null,
+        // don't use cached insight if we have filtersOverride
+        cachedInsight:
+            (isObject(filtersOverride) || isObject(variablesOverride)) && insight?.short_id === insightId
+                ? insight
+                : null,
+        filtersOverride,
+        variablesOverride,
     })
-    const { insightProps, insightLoading, filtersKnown } = useValues(logic)
-    const { reportInsightViewedForRecentInsights } = useActions(logic)
+    const { insightProps } = useValues(logic)
 
     // insightDataLogic
-    const { query, showQueryEditor } = useValues(insightDataLogic(insightProps))
+    const { query, showQueryEditor, showDebugPanel } = useValues(insightDataLogic(insightProps))
     const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
 
-    useEffect(() => {
-        reportInsightViewedForRecentInsights()
-    }, [insightId])
-
-    // Show the skeleton if loading an insight for which we only know the id
-    // This helps with the UX flickering and showing placeholder "name" text.
-    if (insightId !== 'new' && insightLoading && !filtersKnown) {
-        return <InsightSkeleton />
-    }
-
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
-    const setQuery = (query: Node): void => {
-        if (!isInsightVizNode(query)) {
+    const setQuery = (query: Node, isSourceUpdate?: boolean): void => {
+        if (!isInsightVizNode(query) || isSourceUpdate) {
             setInsightQuery(query)
         }
     }
@@ -59,11 +56,32 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
             <div className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
 
+                {(isObject(filtersOverride) || isObject(variablesOverride)) && (
+                    <LemonBanner type="warning" className="mb-4">
+                        <div className="flex flex-row items-center justify-between gap-2">
+                            <span>
+                                You are viewing this insight with{' '}
+                                {isObject(variablesOverride) ? 'variables' : 'filters'} from a dashboard
+                            </span>
+
+                            <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>
+                                Discard dashboard {isObject(variablesOverride) ? 'variables' : 'filters'}
+                            </LemonButton>
+                        </div>
+                    </LemonBanner>
+                )}
+
                 {insightMode === ItemMode.Edit && <InsightsNav />}
+
+                {showDebugPanel && (
+                    <div className="mb-4">
+                        <DebugCHQueries insightId={insightProps.cachedInsight?.id} />
+                    </div>
+                )}
 
                 <Query
                     query={isInsightVizNode(query) ? { ...query, full: true } : query}
-                    setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
+                    setQuery={setQuery}
                     readOnly={insightMode !== ItemMode.Edit}
                     context={{
                         showOpenEditorButton: false,
@@ -71,6 +89,8 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                         showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
                         insightProps,
                     }}
+                    filtersOverride={filtersOverride}
+                    variablesOverride={variablesOverride}
                 />
             </div>
         </BindLogic>

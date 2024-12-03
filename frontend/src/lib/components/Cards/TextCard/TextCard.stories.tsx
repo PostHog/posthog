@@ -1,6 +1,6 @@
 import { Meta, Story } from '@storybook/react'
 
-import { DashboardTile, InsightColor } from '~/types'
+import { DashboardTile, InsightColor, QueryBasedInsightModel } from '~/types'
 
 import { TextCard } from './TextCard'
 
@@ -10,7 +10,7 @@ const meta: Meta = {
     parameters: {},
 }
 export default meta
-const makeTextTile = (body: string, color: InsightColor | null = null): DashboardTile => {
+const makeTextTile = (body: string, color: InsightColor | null = null): DashboardTile<QueryBasedInsightModel> => {
     return {
         id: 1,
         text: {
@@ -27,8 +27,6 @@ const makeTextTile = (body: string, color: InsightColor | null = null): Dashboar
 
         layouts: {},
         color,
-        last_refresh: null,
-        next_allowed_client_refresh: null,
     }
 }
 
@@ -72,8 +70,7 @@ export const Template: Story = () => {
                     textTile={makeTextTile('showing handles')}
                 />
             </div>
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div className="w-full" style={{ height: '200px' }}>
+            <div className="w-full h-[200px]">
                 <h5>Large Card</h5>
                 <TextCard
                     className="h-full w-full react-grid-item react-draggable cssTransforms react-resizable"

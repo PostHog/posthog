@@ -2,7 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
     createDefaultPropertyFilter,
-    isGroupPropertyFilter,
+    isAnyPropertyfilter,
     propertyFilterTypeToTaxonomicFilterType,
     sanitizePropertyFilter,
     taxonomicFilterTypeToPropertyFilterType,
@@ -73,7 +73,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         activeTaxonomicGroup: [
             (s) => [s.filter, s.taxonomicGroups],
             (filter, groups): TaxonomicFilterGroup | undefined => {
-                if (isGroupPropertyFilter(filter)) {
+                if (isAnyPropertyfilter(filter)) {
                     const taxonomicGroupType = propertyFilterTypeToTaxonomicFilterType(filter)
                     return groups.find((group) => group.type === taxonomicGroupType)
                 }

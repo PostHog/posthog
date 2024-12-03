@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from enum import StrEnum
+import sys
 from typing import Optional, Literal, TypeAlias
 from uuid import UUID
 from pydantic import ConfigDict, BaseModel
@@ -53,6 +54,7 @@ class LimitContext(StrEnum):
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
     HEATMAPS = "heatmaps"
+    SAVED_QUERY = "saved_query"
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
@@ -62,6 +64,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
+    elif limit_context == LimitContext.SAVED_QUERY:
+        return sys.maxsize  # Max python int
     else:
         raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
@@ -76,6 +80,8 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
+    elif limit_context == LimitContext.SAVED_QUERY:
+        return sys.maxsize  # Max python int
     else:
         raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
@@ -92,6 +98,8 @@ def get_breakdown_limit_for_context(limit_context: LimitContext) -> int:
 class HogQLQuerySettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     optimize_aggregation_in_order: Optional[bool] = None
+    date_time_output_format: Optional[str] = None
+    date_time_input_format: Optional[str] = None
 
 
 # Settings applied on top of all HogQL queries.
@@ -101,7 +109,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_execution_time: Optional[int] = 60
     allow_experimental_object_type: Optional[bool] = True
     format_csv_allow_double_quotes: Optional[bool] = False
-    max_ast_elements: Optional[int] = 50000 * 20  # default value 50000
-    max_expanded_ast_elements: Optional[int] = 1000000
-    max_query_size: Optional[int] = 262144 * 2  # default value 262144 (= 256 KiB)
+    max_ast_elements: Optional[int] = 4_000_000  # default value 50000
+    max_expanded_ast_elements: Optional[int] = 4_000_000
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
+    allow_experimental_analyzer: Optional[bool] = None

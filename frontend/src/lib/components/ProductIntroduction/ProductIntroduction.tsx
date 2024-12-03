@@ -1,5 +1,5 @@
 import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { userLogic } from 'scenes/userLogic'
 
@@ -44,8 +44,19 @@ export const ProductIntroduction = ({
     actionElementOverride,
     docsURL,
     customHog: CustomHog,
-}: ProductIntroductionProps): JSX.Element => {
+}: ProductIntroductionProps): JSX.Element | null => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
+    const { user } = useValues(userLogic)
+
+    if (!user) {
+        return null
+    }
+
+    if (!isEmpty && user.has_seen_product_intro_for?.[productKey]) {
+        // Hide if its not an empty list but the user has seen it before
+        return null
+    }
+
     const actionable = action || actionElementOverride
     return (
         <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded mt-2 mb-4">

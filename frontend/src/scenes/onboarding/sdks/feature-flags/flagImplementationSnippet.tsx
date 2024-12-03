@@ -16,7 +16,7 @@ export const FlagImplementationSnippet = ({ sdkKey }: { sdkKey: SDKKey }): JSX.E
             <h3>Running experiments</h3>
             <p>
                 Experiments run on top of our feature flags. Once you've implemented the flag in your code, you run an
-                A/B test by creating a new experiment in the PostHog dashboard.
+                experiment by creating a new experiment in the PostHog dashboard.
             </p>
         </>
     )

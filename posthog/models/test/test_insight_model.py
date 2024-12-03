@@ -64,6 +64,15 @@ class TestInsightModel(BaseTest):
 
         assert filters_with_dashboard_with_same_date_from["date_from"] == "-30d"
 
+    def test_dashboard_filters_works_with_null_properties(self) -> None:
+        insight = Insight.objects.create(
+            team=self.team, filters={"date_from": "-30d", "compare": True, "properties": None}
+        )
+        dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": "all", "properties": {"a": 1}})
+
+        # Check that this doesn't throw an error
+        insight.dashboard_filters(dashboard=dashboard)
+
     def test_dashboard_with_date_from_all_overrides_compare(self) -> None:
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d", "compare": True})
         dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": "all"})

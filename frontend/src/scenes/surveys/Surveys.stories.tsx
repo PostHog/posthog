@@ -2,6 +2,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
+import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -102,7 +103,12 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     },
     questions: [{ question: 'question 2?', type: SurveyQuestionType.Open }],
     appearance: { backgroundColor: 'white', submitButtonColor: '#2C2C2C' },
-    conditions: { url: 'posthog', selector: '', events: { values: [{ name: 'user_subscribed' }] } },
+    conditions: {
+        url: 'posthog',
+        selector: '',
+        events: { values: [{ name: 'user_subscribed' }] },
+        actions: { values: [] },
+    },
     linked_flag: {
         id: 7,
         team_id: 1,
@@ -215,7 +221,7 @@ const meta: Meta = {
                 }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag]),
             },
             post: {
-                '/api/projects/:team_id/query/': async (req, res, ctx) => {
+                '/api/environments/:team_id/query/': async (req, res, ctx) => {
                     const body = await req.json()
                     if (body.kind == 'EventsQuery') {
                         return res(ctx.json(MOCK_SURVEY_RESULTS))
@@ -235,6 +241,13 @@ export default meta
 export const SurveysList: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.surveys())
+    }, [])
+    return <App />
+}
+
+export const SurveysGlobalSettings: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.surveys(SurveysTabs.Settings))
     }, [])
     return <App />
 }
@@ -287,9 +300,9 @@ export const NewSurveyPresentationSection: StoryFn = () => {
 
 export const NewSurveyTargetingSection: StoryFn = () => {
     useEffect(() => {
-        router.actions.push(urls.survey('new'))
+        router.actions.push(urls.survey('new?edit=true'))
         surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Targeting)
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
         surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
             groups: [
@@ -310,7 +323,7 @@ NewSurveyTargetingSection.parameters = {
 
 export const NewSurveyAppearanceSection: StoryFn = () => {
     useEffect(() => {
-        router.actions.push(urls.survey('new'))
+        router.actions.push(urls.survey('new?edit=true'))
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
     }, [])
@@ -340,7 +353,7 @@ export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
         },
     })
     useEffect(() => {
-        router.actions.push(urls.survey('new'))
+        router.actions.push(urls.survey('new?edit=true'))
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
@@ -357,14 +370,13 @@ export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
 
 NewSurveyWithHTMLQuestionDescription.parameters = {
     testOptions: {
-        waitForSelector:
-            '#survey > div.flex.flex-row.gap-4 > div.max-w-80.mx-4.flex.flex-col.items-center.h-full.w-full.sticky.top-0.pt-16 > div > div:nth-child(1) > form > div > div > div:nth-child(2) > div.description > strong',
+        waitForSelector: '.survey-question-description strong',
     },
 }
 
 export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn = () => {
     useEffect(() => {
-        router.actions.push(urls.survey('new'))
+        router.actions.push(urls.survey('new?edit=true'))
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
@@ -381,8 +393,7 @@ export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn 
 
 NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML.parameters = {
     testOptions: {
-        waitForSelector:
-            '#survey > div.flex.flex-row.gap-4 > div.max-w-80.mx-4.flex.flex-col.items-center.h-full.w-full.sticky.top-0.pt-16 > div > div:nth-child(1) > form > div > div > div:nth-child(2) > div.description',
+        waitForSelector: '.survey-question-description',
     },
 }
 

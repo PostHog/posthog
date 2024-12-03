@@ -15,8 +15,37 @@ from posthog.models.property import Property, PropertyGroup
 
 class PropertyMixin(BaseParamMixin):
     @cached_property
-    def old_properties(self) -> list[Property]:
-        _props = self._data.get(PROPERTIES)
+    def property_groups(self) -> PropertyGroup:
+        return self._parse_data(key=PROPERTIES)
+
+    def _parse_data(self, key: str) -> PropertyGroup:
+        _props = self._data.get(key)
+
+        if isinstance(_props, str):
+            try:
+                loaded_props = json.loads(_props)
+            except json.decoder.JSONDecodeError:
+                raise ValidationError("Data is unparsable!")
+        else:
+            loaded_props = _props
+
+        # if grouped properties
+        if isinstance(loaded_props, dict) and "type" in loaded_props and "values" in loaded_props:
+            try:
+                return self._parse_property_group(loaded_props)
+            except ValidationError:
+                raise
+            except ValueError as e:
+                raise ValidationError(f"PropertyGroup is unparsable: {e}")
+        # already a PropertyGroup just return
+        elif isinstance(loaded_props, PropertyGroup):
+            return loaded_props
+
+        # old properties
+        return PropertyGroup(type=PropertyOperatorType.AND, values=self.old_properties(key=key))
+
+    def old_properties(self, key: str) -> list[Property]:
+        _props = self._data.get(key)
 
         if isinstance(_props, str):
             try:
@@ -36,33 +65,6 @@ class PropertyMixin(BaseParamMixin):
         else:
             # old style dict properties or a list of properties
             return self._parse_properties(loaded_props)
-
-    @cached_property
-    def property_groups(self) -> PropertyGroup:
-        _props = self._data.get(PROPERTIES)
-
-        if isinstance(_props, str):
-            try:
-                loaded_props = json.loads(_props)
-            except json.decoder.JSONDecodeError:
-                raise ValidationError("Properties are unparsable!")
-        else:
-            loaded_props = _props
-
-        # if grouped properties
-        if isinstance(loaded_props, dict) and "type" in loaded_props and "values" in loaded_props:
-            try:
-                return self._parse_property_group(loaded_props)
-            except ValidationError as e:
-                raise e
-            except ValueError as e:
-                raise ValidationError(f"PropertyGroup is unparsable: {e}")
-        # already a PropertyGroup just return
-        elif isinstance(loaded_props, PropertyGroup):
-            return loaded_props
-
-        # old properties
-        return PropertyGroup(type=PropertyOperatorType.AND, values=self.old_properties)
 
     def _parse_properties(self, properties: Optional[Any]) -> list[Property]:
         if isinstance(properties, list):

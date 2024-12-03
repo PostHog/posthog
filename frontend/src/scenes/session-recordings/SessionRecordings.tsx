@@ -1,8 +1,12 @@
 import { IconEllipsis, IconGear } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import {
+    authorizedUrlListLogic,
+    AuthorizedUrlListType,
+    defaultAuthorizedUrlProperties,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
@@ -20,16 +24,16 @@ import { urls } from 'scenes/urls'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
 
-import { SessionRecordingErrors } from './errors/SessionRecordingErrors'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
+import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
 
 function Header(): JSX.Element {
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
+    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     const { playlists } = useValues(playlistsLogic)
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -54,7 +58,7 @@ function Header(): JSX.Element {
         <PageHeader
             buttons={
                 <>
-                    {tab === ReplayTabs.Recent && !recordingsDisabled && (
+                    {tab === ReplayTabs.Home && !recordingsDisabled && (
                         <>
                             <LemonMenu
                                 items={[
@@ -132,7 +136,7 @@ function Warnings(): JSX.Element {
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     const theAuthorizedUrlsLogic = authorizedUrlListLogic({
-        actionId: null,
+        ...defaultAuthorizedUrlProperties,
         type: AuthorizedUrlListType.RECORDING_DOMAINS,
     })
     const { suggestions, authorizedUrls } = useValues(theAuthorizedUrlsLogic)
@@ -162,7 +166,8 @@ function Warnings(): JSX.Element {
                     action={{
                         type: 'secondary',
                         icon: <IconGear />,
-                        onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
+                        onClick: () =>
+                            openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay-authorized-domains' }),
                         children: 'Configure',
                     }}
                     dismissKey={`session-recordings-authorized-domains-warning/${suggestions.join(',')}`}
@@ -184,21 +189,21 @@ function MainPanel(): JSX.Element {
 
             {!tab ? (
                 <Spinner />
-            ) : tab === ReplayTabs.Recent ? (
+            ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper">
                     <SessionRecordingsPlaylist updateSearchParams />
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
-            ) : tab === ReplayTabs.Errors ? (
-                <SessionRecordingErrors />
+            ) : tab === ReplayTabs.Templates ? (
+                <SessionRecordingTemplates />
             ) : null}
         </div>
     )
 }
 
 function PageTabs(): JSX.Element {
-    const { tab, tabs } = useValues(sessionReplaySceneLogic)
+    const { tab, tabs, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
 
     return (
         <LemonTabs
@@ -206,7 +211,14 @@ function PageTabs(): JSX.Element {
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             tabs={tabs.map((replayTab) => {
                 return {
-                    label: humanFriendlyTabName(replayTab),
+                    label: (
+                        <>
+                            {humanFriendlyTabName(replayTab)}
+                            {replayTab === ReplayTabs.Templates && shouldShowNewBadge && (
+                                <LemonBadge className="ml-1" size="small" />
+                            )}
+                        </>
+                    ),
                     key: replayTab,
                 }
             })}

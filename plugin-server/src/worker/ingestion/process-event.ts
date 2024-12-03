@@ -5,7 +5,6 @@ import { DateTime } from 'luxon'
 import { Counter, Summary } from 'prom-client'
 
 import {
-    ClickHouseTimestamp,
     Element,
     GroupTypeIndex,
     Hub,
@@ -13,8 +12,10 @@ import {
     Person,
     PersonMode,
     PreIngestionEvent,
-    RawClickHouseEvent,
+    ProjectId,
+    RawKafkaEvent,
     Team,
+    TeamId,
     TimestampFormat,
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
@@ -27,7 +28,7 @@ import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
-import { PropertyDefinitionsManager } from './property-definitions-manager'
+import { GroupAndFirstEventManager } from './property-definitions-manager'
 import { TeamManager } from './team-manager'
 import { captureIngestionWarning } from './utils'
 
@@ -50,7 +51,7 @@ export class EventsProcessor {
     kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
-    propertyDefinitionsManager: PropertyDefinitionsManager
+    groupAndFirstEventManager: GroupAndFirstEventManager
 
     constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
@@ -59,11 +60,10 @@ export class EventsProcessor {
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.teamManager = pluginsServer.teamManager
         this.groupTypeManager = new GroupTypeManager(pluginsServer.postgres, this.teamManager, pluginsServer.SITE_URL)
-        this.propertyDefinitionsManager = new PropertyDefinitionsManager(
+        this.groupAndFirstEventManager = new GroupAndFirstEventManager(
             this.teamManager,
             this.groupTypeManager,
-            pluginsServer.db,
-            pluginsServer
+            pluginsServer.db
         )
     }
 
@@ -157,7 +157,12 @@ export class EventsProcessor {
 
         if (this.pluginsServer.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
             try {
-                await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
+                await this.groupAndFirstEventManager.updateGroupsAndFirstEvent(
+                    team.id,
+                    team.project_id,
+                    event,
+                    properties
+                )
             } catch (err) {
                 Sentry.captureException(err, { tags: { team_id: team.id } })
                 status.warn('⚠️', 'Failed to update property definitions for an event', {
@@ -170,10 +175,10 @@ export class EventsProcessor {
 
         if (processPerson) {
             // Adds group_0 etc values to properties
-            properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
+            properties = await addGroupProperties(team.id, team.project_id, properties, this.groupTypeManager)
 
             if (event === '$groupidentify') {
-                await this.upsertGroup(team.id, properties, timestamp)
+                await this.upsertGroup(team.id, team.project_id, properties, timestamp)
             }
         }
 
@@ -184,6 +189,7 @@ export class EventsProcessor {
             properties,
             timestamp: timestamp.toISO() as ISOTimestamp,
             teamId: team.id,
+            projectId: team.project_id,
         }
     }
 
@@ -198,12 +204,8 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(
-        preIngestionEvent: PreIngestionEvent,
-        person: Person,
-        processPerson: boolean
-    ): Promise<[RawClickHouseEvent, Promise<void>]> {
-        const { eventUuid: uuid, event, teamId, distinctId, properties, timestamp } = preIngestionEvent
+    createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawKafkaEvent {
+        const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
         try {
@@ -218,11 +220,8 @@ export class EventsProcessor {
             })
         }
 
-        let groupsColumns: Record<string, string | ClickHouseTimestamp> = {}
         let eventPersonProperties = '{}'
         if (processPerson) {
-            const groupIdentifiers = this.getGroupIdentifiers(properties)
-            groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
             eventPersonProperties = JSON.stringify({
                 ...person.properties,
                 // For consistency, we'd like events to contain the properties that they set, even if those were changed
@@ -238,8 +237,6 @@ export class EventsProcessor {
             }
         }
 
-        // TODO: Remove Redis caching for person that's not used anymore
-
         let personMode: PersonMode = 'full'
         if (person.force_upgrade) {
             personMode = 'force_upgrade'
@@ -247,12 +244,13 @@ export class EventsProcessor {
             personMode = 'propertyless'
         }
 
-        const rawEvent: RawClickHouseEvent = {
+        const rawEvent: RawKafkaEvent = {
             uuid,
             event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
             timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
             team_id: teamId,
+            project_id: projectId,
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
@@ -260,13 +258,16 @@ export class EventsProcessor {
             person_properties: eventPersonProperties,
             person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
             person_mode: personMode,
-            ...groupsColumns,
         }
 
+        return rawEvent
+    }
+
+    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
         const ack = this.kafkaProducer
             .produce({
                 topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                key: uuid,
+                key: rawEvent.uuid,
                 value: Buffer.from(JSON.stringify(rawEvent)),
                 waitForAck: true,
             })
@@ -274,30 +275,36 @@ export class EventsProcessor {
                 // Some messages end up significantly larger than the original
                 // after plugin processing, person & group enrichment, etc.
                 if (error instanceof MessageSizeTooLarge) {
-                    await captureIngestionWarning(this.db.kafkaProducer, teamId, 'message_size_too_large', {
-                        eventUuid: uuid,
-                        distinctId: distinctId,
+                    await captureIngestionWarning(this.db.kafkaProducer, rawEvent.team_id, 'message_size_too_large', {
+                        eventUuid: rawEvent.uuid,
+                        distinctId: rawEvent.distinct_id,
                     })
                 } else {
                     throw error
                 }
             })
 
-        return [rawEvent, ack]
+        return ack
     }
 
-    private async upsertGroup(teamId: number, properties: Properties, timestamp: DateTime): Promise<void> {
+    private async upsertGroup(
+        teamId: TeamId,
+        projectId: ProjectId,
+        properties: Properties,
+        timestamp: DateTime
+    ): Promise<void> {
         if (!properties['$group_type'] || !properties['$group_key']) {
             return
         }
 
         const { $group_type: groupType, $group_key: groupKey, $group_set: groupPropertiesToSet } = properties
-        const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, groupType)
+        const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType)
 
         if (groupTypeIndex !== null) {
             await upsertGroup(
                 this.db,
                 teamId,
+                projectId,
                 groupTypeIndex,
                 groupKey.toString(),
                 groupPropertiesToSet || {},

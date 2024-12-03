@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   node-rdkafka@2.17.0:
-    hash: p4aetcvho53cvjti6c3zi7tfaq
+    hash: bugorwxdhlhl2utknko2c5ibqm
     path: patches/node-rdkafka@2.17.0.patch
 
 dependencies:
@@ -43,9 +43,12 @@ dependencies:
   '@posthog/clickhouse':
     specifier: ^1.7.0
     version: 1.7.0
+  '@posthog/cyclotron':
+    specifier: file:../rust/cyclotron-node
+    version: file:../rust/cyclotron-node
   '@posthog/hogvm':
-    specifier: ^1.0.14
-    version: 1.0.14
+    specifier: ^1.0.61
+    version: 1.0.61(luxon@3.4.4)
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -73,6 +76,9 @@ dependencies:
   aws-sdk:
     specifier: ^2.927.0
     version: 2.1366.0
+  detect-browser:
+    specifier: ^5.3.0
+    version: 5.3.0
   escape-string-regexp:
     specifier: ^4.0.0
     version: 4.0.0
@@ -85,6 +91,9 @@ dependencies:
   fast-deep-equal:
     specifier: ^3.1.3
     version: 3.1.3
+  fernet-nodejs:
+    specifier: ^1.0.6
+    version: 1.0.6
   generic-pool:
     specifier: ^3.7.1
     version: 3.9.0
@@ -107,14 +116,17 @@ dependencies:
     specifier: ^6.0.0
     version: 6.0.0
   luxon:
-    specifier: ^1.27.0
-    version: 1.28.1
+    specifier: ^3.4.4
+    version: 3.4.4
+  lz4-kafkajs:
+    specifier: 1.0.0
+    version: 1.0.0
   node-fetch:
     specifier: ^2.6.1
     version: 2.6.9
   node-rdkafka:
     specifier: ^2.17.0
-    version: 2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq)
+    version: 2.17.0(patch_hash=bugorwxdhlhl2utknko2c5ibqm)
   node-schedule:
     specifier: ^2.1.0
     version: 2.1.1
@@ -3110,8 +3122,12 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
-  /@posthog/hogvm@1.0.14:
-    resolution: {integrity: sha512-mIdVcKGnJUqgfwnn/urNLZwkZtWMLIjsEmqtGUOX8Kw++log4QuBIvMf1eYY1yeVI4hC9oldr1GJttltwRAv5g==}
+  /@posthog/hogvm@1.0.61(luxon@3.4.4):
+    resolution: {integrity: sha512-zCwQp6Zn2F2/QNhd1/0IwpndhElVZ2pzsoh2IOZWapZ+jNo6y/taL3128Uwoiec01IYiPXF8EVYOJP7X4Woj+A==}
+    peerDependencies:
+      luxon: ^3.4.4
+    dependencies:
+      luxon: 3.4.4
     dev: false
 
   /@posthog/plugin-scaffold@1.4.4:
@@ -5133,7 +5149,7 @@ packages:
     resolution: {integrity: sha512-jbokKWGcyU4gl6jAfX97E1gDpY12DJ1cLJZmoDzaAln/shZ+S3KBFBuA2Q6WeUN4gJf/8klnV1EfvhA2lK5IRQ==}
     engines: {node: '>=12.0.0'}
     dependencies:
-      luxon: 3.3.0
+      luxon: 3.4.4
     dev: false
 
   /cross-spawn@7.0.3:
@@ -5163,6 +5179,10 @@ packages:
   /crypto-random-string@2.0.0:
     resolution: {integrity: sha512-v1plID3y9r/lPhviJ1wrXpLeyUIGAZ2SHNYTEapm7/8A9nLPoyvVp3RK/EPFqn5kEznyWgYZNsRtYYIWbuG8KA==}
     engines: {node: '>=8'}
+    dev: false
+
+  /cuint@0.2.2:
+    resolution: {integrity: sha512-d4ZVpCW31eWwCMe1YT3ur7mUDnTXbgwyzaL320DrcRT45rfjYxkt5QWLrmOJ+/UEAI2+fQgKe/fCjR8l4TpRgw==}
     dev: false
 
   /d3-array@2.12.1:
@@ -5397,6 +5417,10 @@ packages:
   /destroy@1.2.0:
     resolution: {integrity: sha512-2sJGJTaXIIaR1w4iJSNoN0hnMY7Gpc/n8D4qSCJw8QqFWXf7cuAgnEHxBpweaVcPevC2l3KpjYCx3NypQQgaJg==}
     engines: {node: '>= 0.8', npm: 1.2.8000 || >= 1.4.16}
+    dev: false
+
+  /detect-browser@5.3.0:
+    resolution: {integrity: sha512-53rsFbGdwMwlF7qvCt0ypLM5V5/Mbl0szB7GPN8y9NCcbknYOeVVXdrXEq+90IwAfrrzt6Hd+u2E2ntakICU8w==}
     dev: false
 
   /detect-libc@1.0.3:
@@ -6125,6 +6149,10 @@ packages:
     dependencies:
       bser: 2.1.1
     dev: true
+
+  /fernet-nodejs@1.0.6:
+    resolution: {integrity: sha512-KXh8DfPm3kWP3lR4dyiUfS4vs/dVTNB836+qQnLVXIUfI3+irGSRXDstfSDlUVqe2xDrcb0epiCh2SEBOySrtA==}
+    dev: false
 
   /file-entry-cache@6.0.1:
     resolution: {integrity: sha512-7Gps/XWymbLk2QLYK4NzpMOrYjMhdIxXuIvy2QBsLE6ljuodKvdkWs/cpyJJ3CVIVpH0Oi1Hvg1ovbMzLdFBBg==}
@@ -7932,13 +7960,26 @@ packages:
     resolution: {integrity: sha512-Pn9cox5CsMYngeDbmChANltQl+5pi6XmTrraMSzhPmMBbmgcxmqWry0U3PGapCU1yB4/LqCcom7qhHZiF/jGfQ==}
     dev: false
 
-  /luxon@1.28.1:
-    resolution: {integrity: sha512-gYHAa180mKrNIUJCbwpmD0aTu9kV0dREDrwNnuyFAsO1Wt0EVYSZelPnJlbj9HplzXX/YWXHFTL45kvZ53M0pw==}
+  /luxon@3.4.4:
+    resolution: {integrity: sha512-zobTr7akeGHnv7eBOXcRgMeCP6+uyYsczwmeRCauvpvaAltgNyTbLH/+VaEAPUeWBT+1GuNmz4wC/6jtQzbbVA==}
+    engines: {node: '>=12'}
     dev: false
 
-  /luxon@3.3.0:
-    resolution: {integrity: sha512-An0UCfG/rSiqtAIiBPO0Y9/zAnHUZxAMiCpTd5h2smgsj7GGmcenvrvww2cqNA8/4A5ZrD1gJpHN2mIHZQF+Mg==}
-    engines: {node: '>=12'}
+  /lz4-kafkajs@1.0.0:
+    resolution: {integrity: sha512-h6BPUx/yO55Ys30ZLgAl9ps7Rj0PEaMYDZXJGnc5ZqAclPXwp1goi13oalwqsc0QjMaUGBrE1WlmZOlypNN9Aw==}
+    dependencies:
+      lz4: 0.6.5
+    dev: false
+
+  /lz4@0.6.5:
+    resolution: {integrity: sha512-KSZcJU49QZOlJSItaeIU3p8WoAvkTmD9fJqeahQXNu1iQ/kR0/mQLdbrK8JY9MY8f6AhJoMrihp1nu1xDbscSQ==}
+    engines: {node: '>= 0.10'}
+    requiresBuild: true
+    dependencies:
+      buffer: 5.6.0
+      cuint: 0.2.2
+      nan: 2.17.0
+      xxhashjs: 0.2.2
     dev: false
 
   /magic-string@0.23.2:
@@ -8429,7 +8470,7 @@ packages:
     resolution: {integrity: sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw==}
     dev: true
 
-  /node-rdkafka@2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq):
+  /node-rdkafka@2.17.0(patch_hash=bugorwxdhlhl2utknko2c5ibqm):
     resolution: {integrity: sha512-vFABzRcE5FaH0WqfqJRxDoqeG6P8UEB3M4qFQ7SkwMgQueMMO78+fm8MYfl5hLW3bBYfBekK2BXIIr0lDQtSEQ==}
     engines: {node: '>=6.0.0'}
     requiresBuild: true
@@ -10665,6 +10706,12 @@ packages:
     resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
     engines: {node: '>=0.4'}
 
+  /xxhashjs@0.2.2:
+    resolution: {integrity: sha512-AkTuIuVTET12tpsVIQo+ZU6f/qDmKuRUcjaqR+OIvm+aCBsZ95i7UVY5WJ9TMsSaZ0DA2WxoZ4acu0sPH+OKAw==}
+    dependencies:
+      cuint: 0.2.2
+    dev: false
+
   /y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
     engines: {node: '>=10'}
@@ -10722,3 +10769,8 @@ packages:
   /yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
+
+  file:../rust/cyclotron-node:
+    resolution: {directory: ../rust/cyclotron-node, type: directory}
+    name: '@posthog/cyclotron'
+    dev: false

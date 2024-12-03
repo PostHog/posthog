@@ -90,6 +90,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     firstColumnSticky?: boolean
     // Max width for the column headers
     maxHeaderWidth?: string
+    /** Whether to hide the scrollbar. */
+    hideScrollbar?: boolean
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -125,6 +127,7 @@ export function LemonTable<T extends Record<string, any>>({
     footer,
     firstColumnSticky,
     maxHeaderWidth,
+    hideScrollbar,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -234,7 +237,11 @@ export function LemonTable<T extends Record<string, any>>({
             style={style}
             data-attr={dataAttr}
         >
-            <ScrollableShadows direction="horizontal" scrollRef={scrollRef}>
+            <ScrollableShadows
+                innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
+                direction="horizontal"
+                scrollRef={scrollRef}
+            >
                 <div className="LemonTable__content">
                     <table>
                         <colgroup>
@@ -294,7 +301,18 @@ export function LemonTable<T extends Record<string, any>>({
                                                 style={{ textAlign: column.align }}
                                                 onClick={
                                                     column.sorter && !column.more
-                                                        ? () => {
+                                                        ? (event) => {
+                                                              const target = event.target as HTMLElement
+
+                                                              // Check if the click happened on the checkbox input, label, or its specific SVG (LemonCheckbox__box)
+                                                              if (
+                                                                  target.classList.contains('LemonCheckbox__box') ||
+                                                                  target.tagName.toLowerCase() === 'label' ||
+                                                                  target.tagName.toLowerCase() === 'input'
+                                                              ) {
+                                                                  return // Do nothing if the click is on the checkbox
+                                                              }
+
                                                               const nextSorting = getNextSorting(
                                                                   currentSorting,
                                                                   determineColumnKey(column, 'sorting'),

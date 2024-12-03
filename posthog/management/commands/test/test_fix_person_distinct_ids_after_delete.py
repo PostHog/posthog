@@ -48,7 +48,7 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
             distinct_id="distinct_id",
             version=0,
         )
-        options = {"live_run": False, "team_id": self.team.pk, "new_version": 2500}
+        options = {"all_distinct_ids": True, "live_run": False, "team_id": self.team.pk, "new_version": 2500}
         run(options, True)
 
         # postgres didn't change
@@ -124,7 +124,7 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
             distinct_id="distinct_id-2",
             version=0,
         )
-        options = {"live_run": True, "team_id": self.team.pk, "new_version": 2500}
+        options = {"all_distinct_ids": True, "live_run": True, "team_id": self.team.pk, "new_version": 2500}
         run(options, True)
 
         # postgres
@@ -193,7 +193,7 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
         )
         person_deleted_1.delete()
 
-        options = {"live_run": True, "team_id": self.team.pk, "new_version": 2500}
+        options = {"all_distinct_ids": True, "live_run": True, "team_id": self.team.pk, "new_version": 2500}
         run(options, True)
 
         # postgres

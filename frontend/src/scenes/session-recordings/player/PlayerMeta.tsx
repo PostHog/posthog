@@ -1,6 +1,6 @@
 import './PlayerMeta.scss'
 
-import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -10,6 +10,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { percentage } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
+import { PlayerMetaLinks } from 'scenes/session-recordings/player/PlayerMetaLinks'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { urls } from 'scenes/urls'
 
@@ -58,7 +59,27 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
     )
 }
 
-export function PlayerMeta(): JSX.Element {
+function PlayerWarningsRow(): JSX.Element | null {
+    const { messageTooLargeWarnings } = useValues(sessionRecordingPlayerLogic)
+
+    return messageTooLargeWarnings.length ? (
+        <div>
+            <LemonBanner
+                type="error"
+                action={{
+                    children: 'Learn more',
+                    to: 'https://posthog.com/docs/session-replay/troubleshooting#message-too-large-warning',
+                    targetBlank: true,
+                }}
+            >
+                This session recording had recording data that was too large and could not be captured. This will mean
+                playback is not 100% accurate.{' '}
+            </LemonBanner>
+        </div>
+    ) : null
+}
+
+export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const {
@@ -157,12 +178,7 @@ export function PlayerMeta(): JSX.Element {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                <div
-                    className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
-                        'p-2 h-10': !isFullScreen,
-                        'p-1 px-3 text-xs h-12': isFullScreen,
-                    })}
-                >
+                <div className="flex items-center justify-between gap-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
                     {sessionPlayerMetaDataLoading ? (
                         <LemonSkeleton className="w-1/3 h-4 my-1" />
                     ) : (
@@ -187,8 +203,10 @@ export function PlayerMeta(): JSX.Element {
                         </>
                     )}
                     <div className={clsx('flex-1', isSmallPlayer ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
+                    <PlayerMetaLinks iconsOnly={iconsOnly} />
                     {resolutionView}
                 </div>
+                <PlayerWarningsRow />
             </div>
         </DraggableToNotebook>
     )

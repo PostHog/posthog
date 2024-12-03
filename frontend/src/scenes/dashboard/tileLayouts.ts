@@ -3,10 +3,13 @@ import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardLogic'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType, DashboardLayoutSize, DashboardTile } from '~/types'
+import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
 
-export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLayoutSize): Array<DashboardTile> => {
-    return [...tiles].sort((a: DashboardTile, b: DashboardTile) => {
+export const sortTilesByLayout = (
+    tiles: Array<DashboardTile<QueryBasedInsightModel>>,
+    col: DashboardLayoutSize
+): Array<DashboardTile<QueryBasedInsightModel>> => {
+    return [...tiles].sort((a: DashboardTile<QueryBasedInsightModel>, b: DashboardTile<QueryBasedInsightModel>) => {
         const ax = a.layouts[col]?.x ?? 0
         const ay = a.layouts[col]?.y ?? 0
         const bx = b.layouts[col]?.x ?? 0
@@ -20,7 +23,9 @@ export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLay
         return 0
     })
 }
-export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<DashboardLayoutSize, Layout[]>> => {
+export const calculateLayouts = (
+    tiles: DashboardTile<QueryBasedInsightModel>[]
+): Partial<Record<DashboardLayoutSize, Layout[]>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
     let referenceOrder: number[] | undefined = undefined
@@ -28,7 +33,7 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
     for (const breakpoint of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
         const columnCount = BREAKPOINT_COLUMN_COUNTS[breakpoint]
 
-        let sortedDashboardTiles: DashboardTile[] | undefined
+        let sortedDashboardTiles: DashboardTile<QueryBasedInsightModel>[] | undefined
         if (referenceOrder === undefined) {
             sortedDashboardTiles = sortTilesByLayout(tiles, breakpoint)
             referenceOrder = sortedDashboardTiles.map((tile) => tile.id)

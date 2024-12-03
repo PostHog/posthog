@@ -1,6 +1,6 @@
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.response import Response
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework import (
     mixins,
     viewsets,
@@ -179,6 +179,7 @@ class OrganizationFeatureFlagView(
             context = {
                 "request": request,
                 "team_id": target_project_id,
+                "project_id": target_project_id,
             }
 
             existing_flag = FeatureFlag.objects.filter(

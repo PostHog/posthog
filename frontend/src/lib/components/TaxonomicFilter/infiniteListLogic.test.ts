@@ -9,7 +9,10 @@ import { AppContext, PropertyDefinition } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 
-window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
+window.POSTHOG_APP_CONTEXT = {
+    current_team: { id: MOCK_TEAM_ID },
+    current_project: { id: MOCK_TEAM_ID },
+} as unknown as AppContext
 
 describe('infiniteListLogic', () => {
     let logic: ReturnType<typeof infiniteListLogic.build>
@@ -63,6 +66,7 @@ describe('infiniteListLogic', () => {
             taxonomicFilterLogicKey: 'testList',
             listGroupType: TaxonomicFilterGroupType.Events,
             taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+            showNumericalPropsOnly: false,
         }
         const logicWithProps = infiniteListLogic({ ...defaultProps, ...props })
         logicWithProps.mount()
@@ -95,6 +99,7 @@ describe('infiniteListLogic', () => {
                 taxonomicFilterLogicKey: 'testList',
                 listGroupType: TaxonomicFilterGroupType.Events,
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
             })
             logic.mount()
         })
@@ -177,11 +182,11 @@ describe('infiniteListLogic', () => {
                     index: 0,
                     remoteItems: partial({ count: 156 }),
                     localItems: partial({ count: 1 }),
-                    items: partial({ count: 157 }),
+                    items: partial({ count: 101 }),
                 })
-                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 156 })
-                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 155 })
-                expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 156 })
+                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 100 })
+                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 99 })
+                expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 100 })
                 expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 0 })
                 expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 1 })
                 expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 0 })
@@ -193,7 +198,7 @@ describe('infiniteListLogic', () => {
                     index: 0,
                     remoteItems: partial({ count: 156 }),
                     localItems: partial({ count: 1 }),
-                    items: partial({ count: 157 }),
+                    items: partial({ count: 101 }),
                 })
 
                 await expectLogic(logic, () =>
@@ -234,6 +239,7 @@ describe('infiniteListLogic', () => {
                 taxonomicFilterLogicKey: 'testList',
                 listGroupType: TaxonomicFilterGroupType.Wildcards,
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                showNumericalPropsOnly: false,
                 optionsFromProp: {
                     wildcard: [{ name: 'first' }, { name: 'second' }],
                 },
@@ -257,6 +263,7 @@ describe('infiniteListLogic', () => {
                 listGroupType: TaxonomicFilterGroupType.EventProperties,
                 eventNames: ['$pageview'],
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                showNumericalPropsOnly: false,
             })
             logic.mount()
         })
@@ -365,9 +372,9 @@ describe('infiniteListLogic', () => {
                     isExpandable: false,
                     isExpanded: true,
                     isExpandableButtonSelected: false,
-                    totalResultCount: 2,
+                    totalResultCount: 3,
                     totalExtraCount: 0,
-                    totalListCount: 2,
+                    totalListCount: 3,
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
@@ -386,6 +393,7 @@ describe('infiniteListLogic', () => {
             taxonomicFilterLogicKey: 'test-element-list',
             listGroupType: TaxonomicFilterGroupType.Elements,
             taxonomicGroupTypes: [TaxonomicFilterGroupType.Elements],
+            showNumericalPropsOnly: false,
         })
         logicWithProps.mount()
 

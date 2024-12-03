@@ -84,9 +84,9 @@
                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) "$window_id_2"
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
                         e.uuid AS uuid,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -103,27 +103,27 @@
                         if(step_2 = 1, "$session_id", null) as "$session_id_2",
                         if(step_2 = 1, "$window_id", null) as "$window_id_2"
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                    AND (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2, 3]
   ORDER BY aggregation_target
   LIMIT 100
@@ -136,7 +136,7 @@
   
   SELECT DISTINCT session_id
   FROM session_replay_events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     and session_id in ['s1']
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'
@@ -227,9 +227,9 @@
                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) "$window_id_2"
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
                         e.uuid AS uuid,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -246,27 +246,27 @@
                         if(step_2 = 1, "$session_id", null) as "$session_id_2",
                         if(step_2 = 1, "$window_id", null) as "$window_id_2"
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                    AND (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [2, 3]
   ORDER BY aggregation_target
   LIMIT 100
@@ -279,7 +279,7 @@
   
   SELECT DISTINCT session_id
   FROM session_replay_events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     and session_id in ['s2']
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'
@@ -370,9 +370,9 @@
                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) "$window_id_2"
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
                         e.uuid AS uuid,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -389,27 +389,27 @@
                         if(step_2 = 1, "$session_id", null) as "$session_id_2",
                         if(step_2 = 1, "$window_id", null) as "$window_id_2"
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                    AND (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps = 2
   ORDER BY aggregation_target
   LIMIT 100
@@ -422,7 +422,7 @@
   
   SELECT DISTINCT session_id
   FROM session_replay_events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     and session_id in ['s2']
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'

@@ -17,7 +17,6 @@
         "typescript": ">=4.0.0"
     },
     "peerDependencies": {
-        "antd": "*",
         "kea": "*",
         "kea-router": "*",
         "react": "*",

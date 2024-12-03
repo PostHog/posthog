@@ -2,8 +2,8 @@ import { IconLock } from '@posthog/icons'
 import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { CodeEditor } from 'lib/components/CodeEditors'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { AvailableFeature, SurveyQuestionDescriptionContentType } from '~/types'
 
@@ -26,10 +26,8 @@ export function PresentationTypeCard({
 }): JSX.Element {
     return (
         <div
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ height: 180, width: 200 }}
             className={clsx(
-                'border rounded relative px-4 py-2 overflow-hidden',
+                'border rounded relative px-4 py-2 overflow-hidden h-[180px] w-[200px]',
                 active ? 'border-primary' : 'border-border'
             )}
         >

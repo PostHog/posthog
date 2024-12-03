@@ -60,7 +60,7 @@ describe('trendsDataLogic', () => {
                 await expectLogic(logic, () => {
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
-                    indexedResults: [{ ...trendResult.result[0], id: 0, seriesIndex: 0 }],
+                    indexedResults: [{ ...trendResult.result[0], id: 0, seriesIndex: 0, colorIndex: 0 }],
                 })
             })
 

@@ -1,7 +1,7 @@
 from typing import Literal
 
 from rest_framework import request, response, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
 
@@ -184,4 +184,4 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 
 class LegacyElementViewSet(ElementViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "team_id"

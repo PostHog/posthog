@@ -2,7 +2,19 @@ from posthog.settings.base_variables import TEST
 from posthog.settings.utils import get_from_env
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
-CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 5, type_cast=int)
+
+# Schedules to recalculate cohorts. Follows crontab syntax.
+CALCULATE_COHORTS_DAY_SCHEDULE = get_from_env(
+    "CALCULATE_COHORTS_DAY_SCHEDULE",
+    "*/2 6-17 * * *",
+)
+CALCULATE_X_PARALLEL_COHORTS_DURING_DAY = get_from_env("CALCULATE_X_PARALLEL_COHORTS_DURING_DAY", 5, type_cast=int)
+
+CALCULATE_COHORTS_NIGHT_SCHEDULE = get_from_env(
+    "CALCULATE_COHORTS_NIGHT_SCHEDULE",
+    "* 0-5,18-23 * * *",
+)
+CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT = get_from_env("CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT", 5, type_cast=int)
 
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 

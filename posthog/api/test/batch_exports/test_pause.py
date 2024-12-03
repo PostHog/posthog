@@ -397,8 +397,8 @@ def test_unpause_can_trigger_a_backfill(client: HttpClient):
 
         data = get_batch_export_ok(client, team.pk, batch_export_id)
         assert batch_export["last_updated_at"] < data["last_updated_at"]
-        start_at = dt.datetime.strptime(data["last_paused_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=dt.timezone.utc)
-        end_at = dt.datetime.strptime(data["last_updated_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=dt.timezone.utc)
+        start_at = dt.datetime.strptime(data["last_paused_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=dt.UTC)
+        end_at = dt.datetime.strptime(data["last_updated_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=dt.UTC)
         mock_backfill.assert_called_once_with(
             ANY,
             batch_export["id"],

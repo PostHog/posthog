@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 from typing import Any
 
@@ -23,7 +23,7 @@ def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudie
     encoded_jwt = jwt.encode(
         {
             **payload,
-            "exp": datetime.now(tz=timezone.utc) + expiry_delta,
+            "exp": datetime.now(tz=UTC) + expiry_delta,
             "aud": audience.value,
         },
         settings.SECRET_KEY,

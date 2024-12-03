@@ -10,13 +10,12 @@ export function WelcomeLogo({ view }: { view?: string }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
 
     return (
-        <Link to={`https://posthog.com?${UTM_TAGS}`}>
-            <div className="header-logo">
-                <img
-                    src={preflight?.demo ? demoLogo : preflight?.cloud ? cloudLogo : defaultLogo}
-                    alt={`PostHog${preflight?.cloud ? ' Cloud' : ''}`}
-                />
-            </div>
+        <Link to={`https://posthog.com?${UTM_TAGS}`} className="flex flex-col items-center mb-8">
+            <img
+                src={preflight?.demo ? demoLogo : preflight?.cloud ? cloudLogo : defaultLogo}
+                alt={`PostHog${preflight?.cloud ? ' Cloud' : ''}`}
+                className="h-6"
+            />
         </Link>
     )
 }

@@ -63,11 +63,7 @@ export function isLifecycleFilter(filters?: Partial<FilterType>): filters is Par
 export function isPathsFilter(filters?: Partial<FilterType>): filters is Partial<PathsFilterType> {
     return filters?.insight === InsightType.PATHS
 }
-export function isFilterWithHiddenLegendKeys(
-    filters: Partial<FilterType>
-): filters is Partial<TrendsFilterType> | Partial<StickinessFilterType> | Partial<FunnelsFilterType> {
-    return isTrendsFilter(filters) || isFunnelsFilter(filters) || isStickinessFilter(filters)
-}
+
 export function isFilterWithDisplay(
     filters: Partial<FilterType>
 ): filters is Partial<TrendsFilterType> | Partial<StickinessFilterType> {

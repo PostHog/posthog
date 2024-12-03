@@ -5,15 +5,19 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import React, { useState } from 'react'
 
 interface EventSelectProps {
-    onChange: (names: string[]) => void
+    onItemChange?: (values: any[]) => void
+    onChange?: (names: string[]) => void
     selectedEvents: string[]
+    selectedItems?: any[]
     addElement: JSX.Element
     filterGroupTypes?: TaxonomicFilterGroupType[]
 }
 
 export const EventSelect = ({
+    onItemChange,
     onChange,
     selectedEvents,
+    selectedItems,
     addElement,
     filterGroupTypes,
 }: EventSelectProps): JSX.Element => {
@@ -21,11 +25,24 @@ export const EventSelect = ({
     const eventSelectFilterGroupTypes = filterGroupTypes || [TaxonomicFilterGroupType.Events]
 
     const handleChange = (name: string): void => {
-        onChange(Array.from(new Set(selectedEvents.concat([name]))))
+        if (onChange) {
+            onChange(Array.from(new Set(selectedEvents.concat([name]))))
+        }
+    }
+
+    const handleItemChange = (item: any): void => {
+        if (selectedItems && onItemChange) {
+            onItemChange(Array.from(new Set(selectedItems?.concat([item]))))
+        }
     }
 
     const handleRemove = (name: string): void => {
-        onChange(selectedEvents.filter((p) => p !== name))
+        if (onChange) {
+            onChange(selectedEvents.filter((p) => p !== name))
+        }
+        if (onItemChange && selectedItems) {
+            onItemChange(selectedItems?.filter((p) => p.name !== name))
+        }
     }
 
     // Add in the toggle popover logic for the passed in element
@@ -44,7 +61,8 @@ export const EventSelect = ({
                 onClickOutside={() => setOpen(false)}
                 overlay={
                     <TaxonomicFilter
-                        onChange={(_, value) => {
+                        onChange={(_, value, item) => {
+                            handleItemChange(item)
                             handleChange(value as string)
                             setOpen(false)
                         }}

@@ -2,7 +2,7 @@ import { Redis } from 'ioredis'
 
 import { OverflowManager } from '../../../../../src/main/ingestion-queues/session-recording/services/overflow-manager'
 import { Hub } from '../../../../../src/types'
-import { createHub } from '../../../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../../../src/utils/db/hub'
 
 jest.mock('../../../../../src/utils/status')
 jest.mock('../../../../../src/kafka/producer')
@@ -11,12 +11,11 @@ const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
 
 describe('overflow manager', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
     let redis: Redis
     let overflowManager: OverflowManager
 
     beforeAll(async () => {
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
         redis = await hub.redisPool.acquire()
     })
     beforeEach(async () => {
@@ -27,7 +26,7 @@ describe('overflow manager', () => {
     afterAll(async () => {
         await redis.flushdb()
         await hub.redisPool.release(redis)
-        await closeHub?.()
+        await closeHub(hub)
     })
 
     test('it does not trigger if several keys are under threshold', async () => {

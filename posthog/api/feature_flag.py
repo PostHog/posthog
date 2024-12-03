@@ -4,6 +4,8 @@ from datetime import datetime
 
 from django.db.models import QuerySet, Q, deletion
 from django.conf import settings
+from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 from rest_framework import (
     exceptions,
     request,
@@ -11,13 +13,16 @@ from rest_framework import (
     status,
     viewsets,
 )
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
 from posthog.api.cohort import CohortSerializer
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -65,6 +70,8 @@ DATABASE_FOR_LOCAL_EVALUATION = (
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
+MAX_PROPERTY_VALUES = 1000
+
 
 class FeatureFlagThrottle(BurstRateThrottle):
     # Throttle class that's scoped just to the local evaluation endpoint.
@@ -83,7 +90,9 @@ class CanEditFeatureFlag(BasePermission):
             return can_user_edit_feature_flag(request, feature_flag)
 
 
-class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
+class FeatureFlagSerializer(
+    TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.HyperlinkedModelSerializer
+):
     created_by = UserBasicSerializer(read_only=True)
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
@@ -110,6 +119,14 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     )
     can_edit = serializers.SerializerMethodField()
 
+    CREATION_CONTEXT_CHOICES = ("feature_flags", "experiments", "surveys", "early_access_features", "web_experiments")
+    creation_context = serializers.ChoiceField(
+        choices=CREATION_CONTEXT_CHOICES,
+        write_only=True,
+        required=False,
+        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
+    )
+
     class Meta:
         model = FeatureFlag
         fields = [
@@ -134,11 +151,16 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "usage_dashboard",
             "analytics_dashboards",
             "has_enriched_analytics",
+            "user_access_level",
+            "creation_context",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         # TODO: make sure this isn't n+1
-        return can_user_edit_feature_flag(self.context["request"], feature_flag)
+        return (
+            can_user_edit_feature_flag(self.context["request"], feature_flag)
+            and self.get_user_access_level(feature_flag) == "editor"
+        )
 
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
@@ -173,7 +195,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             exclude_kwargs = {"pk": cast(FeatureFlag, self.instance).pk}
 
         if (
-            FeatureFlag.objects.filter(key=value, team_id=self.context["team_id"], deleted=False)
+            FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"], deleted=False)
             .exclude(**exclude_kwargs)
             .exists()
         ):
@@ -222,6 +244,16 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
             for property in condition.get("properties", []):
                 prop = Property(**property)
+                if isinstance(prop.value, list):
+                    upper_limit = MAX_PROPERTY_VALUES
+                    if settings.TEST:
+                        upper_limit = 10
+
+                    if len(prop.value) > upper_limit:
+                        raise serializers.ValidationError(
+                            f"Property group expressions of type {prop.key} cannot contain more than {upper_limit} values."
+                        )
+
                 if prop.type == "cohort":
                     try:
                         initial_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
@@ -246,10 +278,17 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                             detail=f"Invalid date value: {prop.value}", code="invalid_date"
                         )
 
-                # make sure regex and icontains properties have string values
-                if prop.operator in ["regex", "icontains", "not_regex", "not_icontains"] and not isinstance(
-                    prop.value, str
-                ):
+                # make sure regex, icontains, gte, lte, lt, and gt properties have string values
+                if prop.operator in [
+                    "regex",
+                    "icontains",
+                    "not_regex",
+                    "not_icontains",
+                    "gte",
+                    "lte",
+                    "gt",
+                    "lt",
+                ] and not isinstance(prop.value, str):
                     raise serializers.ValidationError(
                         detail=f"Invalid value for operator {prop.operator}: {prop.value}", code="invalid_value"
                     )
@@ -258,6 +297,17 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         if not isinstance(payloads, dict):
             raise serializers.ValidationError("Payloads must be passed as a dictionary")
+
+        for value in payloads.values():
+            try:
+                if isinstance(value, str):
+                    json_value = json.loads(value)
+                else:
+                    json_value = value
+                json.dumps(json_value)
+
+            except json.JSONDecodeError:
+                raise serializers.ValidationError("Payload value is not valid JSON")
 
         if filters.get("multivariate"):
             if not all(key in variants for key in payloads):
@@ -284,6 +334,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
+        creation_context = validated_data.pop(
+            "creation_context", "feature_flags"
+        )  # default to "feature_flags" if an alternative value is not provided
 
         self._update_filters(validated_data)
 
@@ -314,7 +367,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         _create_usage_dashboard(instance, request.user)
 
-        report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
+        analytics_metadata = instance.get_analytics_metadata()
+        analytics_metadata["creation_context"] = creation_context
+        report_user_action(request.user, "feature flag created", analytics_metadata)
 
         return instance
 
@@ -388,6 +443,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
 
 class FeatureFlagViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
@@ -405,6 +461,33 @@ class FeatureFlagViewSet(
     authentication_classes = [
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
     ]
+
+    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
+        filters = request.GET.dict()
+
+        for key in filters:
+            if key == "active":
+                queryset = queryset.filter(active=filters[key] == "true")
+            elif key == "created_by_id":
+                queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
+            elif key == "search":
+                queryset = queryset.filter(
+                    Q(key__icontains=request.GET["search"]) | Q(name__icontains=request.GET["search"])
+                )
+            elif key == "type":
+                type = request.GET["type"]
+                if type == "boolean":
+                    queryset = queryset.filter(
+                        Q(filters__multivariate__variants__isnull=True) | Q(filters__multivariate__variants=[])
+                    )
+                elif type == "multivariant":
+                    queryset = queryset.filter(
+                        Q(filters__multivariate__variants__isnull=False) & ~Q(filters__multivariate__variants=[])
+                    )
+                elif type == "experiment":
+                    queryset = queryset.filter(~Q(experiment__isnull=True))
+
+        return queryset
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
@@ -426,8 +509,49 @@ class FeatureFlagViewSet(
                 Q(id__in=survey_internal_targeting_flags)
             )
 
-        return queryset.select_related("created_by").order_by("-created_at")
+            # add additional filters provided by the client
+            queryset = self._filter_request(self.request, queryset)
 
+        order = self.request.GET.get("order", None)
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("-created_at")
+
+        return queryset.select_related("created_by")
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "active",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true", "false"],
+            ),
+            OpenApiParameter(
+                "created_by_id",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="The User ID which initially created the feature flag.",
+            ),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Search by feature flag key or name. Case insensitive.",
+            ),
+            OpenApiParameter(
+                "type",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["boolean", "multivariant", "experiment"],
+            ),
+        ]
+    )
     def list(self, request, *args, **kwargs):
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             # Add request for analytics only if request coming with personal API key authentication
@@ -529,8 +653,8 @@ class FeatureFlagViewSet(
         methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle], required_scopes=["feature_flag:read"]
     )
     def local_evaluation(self, request: request.Request, **kwargs):
-        feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
-            team_id=self.team_id, deleted=False, active=True
+        feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
+            team__project_id=self.project_id, deleted=False, active=True
         )
 
         should_send_cohorts = "send_cohorts" in request.GET
@@ -541,7 +665,7 @@ class FeatureFlagViewSet(
         if should_send_cohorts:
             seen_cohorts_cache = {
                 cohort.pk: cohort
-                for cohort in Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
+                for cohort in Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
                     team_id=self.team_id, deleted=False
                 )
             }
@@ -584,7 +708,7 @@ class FeatureFlagViewSet(
                             cohort = seen_cohorts_cache[id]
                         else:
                             cohort = (
-                                Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION)
+                                Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
                                 .filter(id=id, team_id=self.team_id, deleted=False)
                                 .first()
                             )
@@ -604,7 +728,7 @@ class FeatureFlagViewSet(
                 ],
                 "group_type_mapping": {
                     str(row.group_type_index): row.group_type
-                    for row in GroupTypeMapping.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
+                    for row in GroupTypeMapping.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
                         team_id=self.team_id
                     )
                 },
@@ -751,4 +875,4 @@ class FeatureFlagViewSet(
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"

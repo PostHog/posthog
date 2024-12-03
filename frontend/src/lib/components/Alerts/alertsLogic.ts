@@ -1,49 +1,51 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { afterMount, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { getInsightId } from 'scenes/insights/utils'
 
-import { AlertType, InsightShortId } from '~/types'
+import { AlertState } from '~/queries/schema'
 
+import { AlertLogicProps } from './alertLogic'
 import type { alertsLogicType } from './alertsLogicType'
+import { AlertType } from './types'
 
-export interface AlertsLogicProps {
-    insightShortId: InsightShortId
-}
+export interface AlertsLogicProps extends AlertLogicProps {}
 
 export const alertsLogic = kea<alertsLogicType>([
     path(['lib', 'components', 'Alerts', 'alertsLogic']),
-    props({} as AlertsLogicProps),
-    key(({ insightShortId }) => `insight-${insightShortId}`),
-    actions({
-        deleteAlert: (id: number) => ({ id }),
-    }),
 
-    loaders(({ props }) => ({
+    loaders({
         alerts: {
             __default: [] as AlertType[],
             loadAlerts: async () => {
-                const insightId = await getInsightId(props.insightShortId)
-                if (!insightId) {
-                    return []
-                }
-                const response = await api.alerts.list(insightId)
+                const response = await api.alerts.list()
                 return response.results
             },
         },
-    })),
-
-    reducers({
-        alerts: {
-            deleteAlert: (state, { id }) => state.filter((a) => a.id !== id),
-        },
     }),
 
-    listeners({
-        deleteAlert: async ({ id }) => {
-            await api.alerts.delete(id)
-        },
+    selectors({
+        alertsSortedByState: [
+            (s) => [s.alerts],
+            (alerts: AlertType[]): AlertType[] => alerts.sort((a, b) => alertComparatorKey(a) - alertComparatorKey(b)),
+        ],
     }),
 
     afterMount(({ actions }) => actions.loadAlerts()),
 ])
+
+const alertComparatorKey = (alert: AlertType): number => {
+    if (!alert.enabled) {
+        return 100
+    }
+
+    switch (alert.state) {
+        case AlertState.FIRING:
+            return 1
+        case AlertState.ERRORED:
+            return 2
+        case AlertState.SNOOZED:
+            return 3
+        case AlertState.NOT_FIRING:
+            return 4
+    }
+}

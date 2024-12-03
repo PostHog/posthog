@@ -1,5 +1,4 @@
 import csv
-from posthog.clickhouse.client.connection import Workload
 
 from django.db import DatabaseError
 from loginas.utils import is_impersonated_session
@@ -26,7 +25,7 @@ from django.db.models import QuerySet, Prefetch, prefetch_related_objects, Outer
 from django.db.models.expressions import F
 from django.utils import timezone
 from rest_framework import serializers, viewsets, request, status
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -67,7 +66,7 @@ from posthog.models.person.sql import (
 )
 from posthog.queries.actor_base_query import (
     ActorBaseQuery,
-    get_people,
+    get_serialized_people,
 )
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
@@ -75,7 +74,7 @@ from posthog.queries.stickiness import StickinessActors
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.util import get_earliest_timestamp
-from posthog.schema import ActorsQuery
+from posthog.schema import ActorsQuery, HogQLQuery
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     insert_cohort_from_feature_flag,
@@ -181,9 +180,12 @@ class CohortSerializer(serializers.ModelSerializer):
             return None
         if not isinstance(query, dict):
             raise ValidationError("Query must be a dictionary.")
-        if query.get("kind") != "ActorsQuery":
-            raise ValidationError(f"Query must be a ActorsQuery. Got: {query.get('kind')}")
-        ActorsQuery.model_validate(query)
+        if query.get("kind") == "ActorsQuery":
+            ActorsQuery.model_validate(query)
+        elif query.get("kind") == "HogQLQuery":
+            HogQLQuery.model_validate(query)
+        else:
+            raise ValidationError(f"Query must be an ActorsQuery or HogQLQuery. Got: {query.get('kind')}")
         return query
 
     def validate_filters(self, request_filters: dict):
@@ -268,6 +270,8 @@ class CohortSerializer(serializers.ModelSerializer):
                 # You can't update a static cohort using the trend/stickiness thing
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
+                else:
+                    update_cohort(cohort, initiating_user=request.user)
             else:
                 update_cohort(cohort, initiating_user=request.user)
 
@@ -354,10 +358,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         raw_result = sync_execute(
             query,
             {**params, **filter.hogql_context.values},
-            workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
+            # workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
         )
         actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team, actor_ids, distinct_id_limit=10)
+        serialized_actors = get_serialized_people(team, actor_ids, distinct_id_limit=10)
 
         _should_paginate = len(actor_ids) >= filter.limit
 
@@ -471,7 +475,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
 
 class LegacyCohortViewSet(CohortViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"
 
 
 def will_create_loops(cohort: Cohort) -> bool:
@@ -605,13 +609,15 @@ def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: dict[
         cohort.is_calculating = False
         cohort.last_calculation = timezone.now()
         cohort.errors_calculating = 0
-        cohort.save(update_fields=["errors_calculating", "last_calculation", "is_calculating"])
+        cohort.last_error_at = None
+        cohort.save(update_fields=["errors_calculating", "last_calculation", "is_calculating", "last_error_at"])
     except Exception as err:
         if settings.DEBUG:
-            raise err
+            raise
         cohort.is_calculating = False
         cohort.errors_calculating = F("errors_calculating") + 1
-        cohort.save(update_fields=["errors_calculating", "is_calculating"])
+        cohort.last_error_at = timezone.now()
+        cohort.save(update_fields=["errors_calculating", "is_calculating", "last_error_at"])
         capture_exception(err)
 
 
@@ -733,7 +739,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
 
     except Exception as err:
         if settings.DEBUG or settings.TEST:
-            raise err
+            raise
         capture_exception(err)
 
 

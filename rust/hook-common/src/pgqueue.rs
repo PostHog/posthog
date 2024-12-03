@@ -34,6 +34,8 @@ pub enum DatabaseError {
     ConnectionError { error: sqlx::Error },
     #[error("{command} query failed with: {error}")]
     QueryError { command: String, error: sqlx::Error },
+    #[error("could not serialize jsonb field: {error}")]
+    SerializationError { error: serde_json::Error },
     #[error("transaction {command} failed with: {error}")]
     TransactionError { command: String, error: sqlx::Error },
     #[error("transaction was already closed")]
@@ -629,7 +631,6 @@ RETURNING
         &self,
         job: NewJob<J, M>,
     ) -> PgQueueResult<()> {
-        // TODO: Escaping. I think sqlx doesn't support identifiers.
         let base_query = r#"
 INSERT INTO job_queue
     (attempt, created_at, scheduled_at, max_attempts, metadata, parameters, queue, status, target)

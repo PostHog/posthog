@@ -9,6 +9,7 @@ from .mapping import (
 )
 from .cohort import cohort
 from .sparkline import sparkline
+from .recording_button import recording_button
 
 __all__ = [
     "find_hogql_function",
@@ -20,4 +21,5 @@ __all__ = [
     "FIRST_ARG_DATETIME_FUNCTIONS",
     "cohort",
     "sparkline",
+    "recording_button",
 ]

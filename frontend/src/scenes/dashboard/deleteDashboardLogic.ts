@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -19,7 +19,6 @@ const defaultFormValues: DeleteDashboardForm = {
 
 export const deleteDashboardLogic = kea<deleteDashboardLogicType>([
     path(['scenes', 'dashboard', 'deleteDashboardLogic']),
-    connect(dashboardsModel),
     actions({
         showDeleteDashboardModal: (id: number) => ({ id }),
         hideDeleteDashboardModal: true,

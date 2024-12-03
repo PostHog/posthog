@@ -15,7 +15,7 @@ export interface StatusBlueprint {
 
 export class Status implements StatusBlueprint {
     mode?: string
-    logger: pino.Logger
+    private logger?: pino.Logger
     prompt: string
     transport: any
 
@@ -59,11 +59,23 @@ export class Status implements StatusBlueprint {
 
     close() {
         this.transport?.end()
+        this.logger = undefined
     }
 
     buildMethod(type: keyof StatusBlueprint): StatusMethod {
         return (icon: string, message: string, extra: object) => {
             const logMessage = `[${this.prompt}] ${icon} ${message}`
+
+            if (!this.logger) {
+                if (isProdEnv()) {
+                    // This can throw on tests if the logger is closed. We don't really want tests to be bothered with this.
+                    throw new Error(`Logger has been closed! Cannot log: ${logMessage}`)
+                }
+                console.log(
+                    `Logger has been closed! Cannot log: ${logMessage}. Logging to console instead due to non-prod env.`
+                )
+                return
+            }
             if (extra instanceof Object) {
                 this.logger[type]({ ...extra, msg: logMessage })
             } else {

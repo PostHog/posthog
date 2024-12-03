@@ -22,7 +22,7 @@ export const actionsModel = kea<actionsModelType>([
     connect({
         values: [teamLogic, ['currentTeam']],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         actions: {
             __default: [] as ActionType[],
             loadActions: async () => {
@@ -30,6 +30,22 @@ export const actionsModel = kea<actionsModelType>([
                 return response.results ?? []
             },
             updateAction: (action: ActionType) => (values.actions || []).map((a) => (action.id === a.id ? action : a)),
+        },
+        pin: {
+            pinAction: async (action: ActionType) => {
+                const response = await api.actions.update(action.id, {
+                    name: action.name,
+                    pinned_at: new Date().toISOString(),
+                })
+                actions.updateAction(response)
+            },
+            unpinAction: async (action: ActionType) => {
+                const response = await api.actions.update(action.id, {
+                    name: action.name,
+                    pinned_at: null,
+                })
+                actions.updateAction(response)
+            },
         },
     })),
     selectors(({ selectors }) => ({
@@ -50,6 +66,12 @@ export const actionsModel = kea<actionsModelType>([
             (s) => [s.actions],
             (actions): Partial<Record<string | number, ActionType>> =>
                 Object.fromEntries(actions.map((action) => [action.id, action])),
+        ],
+        actionsSorted: [
+            (s) => [s.actions],
+            (actions: ActionType[]): ActionType[] => {
+                return actions.sort((a, b) => (b.pinned_at ? 1 : 0) - (a.pinned_at ? 1 : 0))
+            },
         ],
     })),
     events(({ values, actions }) => ({

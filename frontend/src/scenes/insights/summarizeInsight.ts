@@ -17,7 +17,7 @@ import { cohortsModelType } from '~/models/cohortsModelType'
 import { groupsModel } from '~/models/groupsModel'
 import { groupsModelType } from '~/models/groupsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { BreakdownFilter, InsightQueryNode, Node } from '~/queries/schema'
+import { Breakdown, BreakdownFilter, InsightQueryNode, MultipleBreakdownType, Node } from '~/queries/schema'
 import {
     isDataTableNode,
     isEventsQuery,
@@ -29,45 +29,71 @@ import {
     isPersonsNode,
     isRetentionQuery,
     isStickinessQuery,
-    isTimeToSeeDataSessionsNode,
-    isTimeToSeeDataSessionsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
+import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
+
+function summarizeSinglularBreakdown(
+    breakdown: BreakdownKeyType | undefined,
+    breakdownType: BreakdownType | MultipleBreakdownType | null | undefined,
+    groupTypeIndex: number | null | undefined,
+    context: SummaryContext
+): string | null {
+    if (!breakdown) {
+        return null
+    }
+
+    const noun = breakdownType !== 'group' ? breakdownType : context.aggregationLabel(groupTypeIndex, true).singular
+    const propertyLabel =
+        typeof breakdown === 'string' &&
+        breakdownType &&
+        breakdownType in PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
+            ? getCoreFilterDefinition(breakdown, PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdownType])
+                  ?.label || breakdown
+            : breakdown
+    return `${noun}'s ${propertyLabel}`
+}
+
+function summarizeMultipleBreakdown(
+    filters: Partial<FilterType> | BreakdownFilter,
+    context: SummaryContext
+): string | null {
+    const { breakdowns } = filters
+
+    if (breakdowns && breakdowns.length > 0) {
+        return (breakdowns as Breakdown[])
+            .map((breakdown) =>
+                summarizeSinglularBreakdown(breakdown.property, breakdown.type, breakdown.group_type_index, context)
+            )
+            .filter((label): label is string => !!label)
+            .join(', ')
+    }
+
+    return null
+}
 
 function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, context: SummaryContext): string | null {
-    const { breakdown_type, breakdown, breakdown_group_type_index } = filters
-    if (breakdown) {
-        if (breakdown_type === 'cohort') {
-            const cohortIds = breakdown as (number | string)[]
-            return `cohorts: ${cohortIds
-                .map(
-                    (cohortId) =>
-                        cohortId &&
-                        (cohortId === 'all'
-                            ? 'all users'
-                            : cohortId in context.cohortsById
-                            ? context.cohortsById[cohortId]?.name
-                            : `ID ${cohortId}`)
-                )
-                .join(', ')}`
-        }
-        const noun =
-            breakdown_type !== 'group'
-                ? breakdown_type
-                : context.aggregationLabel(breakdown_group_type_index, true).singular
-        const propertyLabel =
-            typeof breakdown === 'string' &&
-            breakdown_type &&
-            breakdown_type in PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
-                ? getCoreFilterDefinition(
-                      breakdown,
-                      PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdown_type]
-                  )?.label || breakdown
-                : breakdown
-        return `${noun}'s ${propertyLabel}`
+    const { breakdown, breakdown_type, breakdown_group_type_index } = filters
+
+    if (breakdown && breakdown_type === 'cohort') {
+        const cohortIds = breakdown as (number | string)[]
+        return `cohorts: ${cohortIds
+            .map(
+                (cohortId) =>
+                    cohortId &&
+                    (cohortId === 'all'
+                        ? 'all users'
+                        : cohortId in context.cohortsById
+                        ? context.cohortsById[cohortId]?.name
+                        : `ID ${cohortId}`)
+            )
+            .join(', ')}`
     }
-    return null
+
+    return (
+        summarizeMultipleBreakdown(filters, context) ||
+        summarizeSinglularBreakdown(breakdown, breakdown_type, breakdown_group_type_index, context)
+    )
 }
 
 export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext): string {
@@ -106,7 +132,10 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             })
             .join(' & ')
 
-        if (query.breakdownFilter?.breakdown_type) {
+        if (
+            query.breakdownFilter?.breakdown_type ||
+            (query.breakdownFilter?.breakdowns && query.breakdownFilter.breakdowns.length > 0)
+        ) {
             summary += `${query.series.length > 1 ? ',' : ''} by ${summarizeBreakdown(query.breakdownFilter, context)}`
         }
         if (query.trendsFilter?.formula) {
@@ -185,12 +214,6 @@ function summarizeQuery(query: Node): string {
         return 'SQL query'
     }
 
-    if (isTimeToSeeDataSessionsNode(query)) {
-        return `Time to see data in ${
-            query.source.sessionId ? `session ${query.source.sessionId}` : 'the current session'
-        }`
-    }
-
     if (isDataTableNode(query)) {
         if (isHogQLQuery(query.source)) {
             return summarizeQuery(query.source)
@@ -205,9 +228,6 @@ function summarizeQuery(query: Node): string {
         } else if (isPersonsNode(query.source)) {
             selected = []
             source = 'persons'
-        } else if (isTimeToSeeDataSessionsQuery(query.source)) {
-            selected = ['sessions']
-            source = 'time to see data stats'
         }
 
         if (query.columns) {
