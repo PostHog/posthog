@@ -285,11 +285,11 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
 
 
-def get_static_cohort_size(cohort: Cohort, *, team_id: int) -> Optional[int]:
+def get_static_cohort_size(*, cohort_id: int, team_id: int) -> Optional[int]:
     count_result = sync_execute(
         GET_STATIC_COHORT_SIZE_SQL,
         {
-            "cohort_id": cohort.pk,
+            "cohort_id": cohort_id,
             "team_id": team_id,
         },
     )

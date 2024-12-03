@@ -158,7 +158,7 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
     try:
         insert_cohort_query_actors_into_ch(cohort, team=team)
         insert_cohort_people_into_pg(cohort, team_id=team_id)
-        cohort.count = get_static_cohort_size(cohort, team_id=team_id)
+        cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=team_id)
         cohort.errors_calculating = 0
         cohort.last_calculation = timezone.now()
     except:

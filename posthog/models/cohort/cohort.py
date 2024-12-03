@@ -302,7 +302,7 @@ class Cohort(models.Model):
                 )
                 cursor.execute(query, params)
 
-            count = get_static_cohort_size(self, team_id=team_id)
+            count = get_static_cohort_size(cohort_id=self.id, team_id=team_id)
             self.count = count
 
             self.is_calculating = False
@@ -356,7 +356,7 @@ class Cohort(models.Model):
                 )
                 cursor.execute(query, params)
 
-            count = get_static_cohort_size(self, team_id=team_id)
+            count = get_static_cohort_size(cohort_id=self.id, team_id=team_id)
             self.count = count
 
             self.is_calculating = False
