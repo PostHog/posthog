@@ -612,7 +612,7 @@ describe('Hog Executor', () => {
                 'I AM FIBONACCI',
                 'Function exceeded maximum log entries. No more logs will be collected. Event: uuid',
                 expect.stringContaining(
-                    'Error executing function: HogVMException: Execution timed out after 0.1 seconds. Performed'
+                    'Error executing function on event uuid: HogVMException: Execution timed out after 0.1 seconds. Performed'
                 ),
             ])
         })
