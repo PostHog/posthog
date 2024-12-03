@@ -1,7 +1,7 @@
 import { connect, kea, path, props } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { featureManagementDetailLogicType } from './featureManagementDetailLogicType'
+import type { featureManagementDetailLogicType } from './featureManagementDetailLogicType'
 import { featureManagementLogic } from './featureManagementLogic'
 
 export const featureManagementDetailLogic = kea<featureManagementDetailLogicType>([
