@@ -3,15 +3,13 @@ from posthog.kafka_client.topics import KAFKA_PERSON_DISTINCT_ID
 from posthog.models.person.sql import (
     INSERT_PERSON_DISTINCT_ID2,
 )
-from posthog.models.error_tracking import (
-    ErrorTrackingIssueFingerprint,
-)
+from posthog.models.error_tracking import ErrorTrackingIssueFingerprintV2
 from django.db import transaction
 
 
 def update_error_tracking_issue_fingerprint(team_id: str, issue_id: str, fingerprint: list[str]) -> None:
     with transaction.atomic():
-        issue_fingerprint = ErrorTrackingIssueFingerprint.objects.select_for_update().get(
+        issue_fingerprint = ErrorTrackingIssueFingerprintV2.objects.select_for_update().get(
             team_id=team_id, fingerprint=fingerprint
         )
         issue_fingerprint.issue_id = issue_id
