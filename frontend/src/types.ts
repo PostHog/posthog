@@ -688,7 +688,6 @@ export enum ReplayTabs {
     Templates = 'templates',
     Home = 'home',
     Playlists = 'playlists',
-    Errors = 'errors',
 }
 
 export enum ExperimentsTabs {
@@ -4053,6 +4052,10 @@ export interface DataWarehouseViewLink {
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null
+    configuration?: {
+        experiments_optimized?: boolean
+        experiments_timestamp_key?: string | null
+    }
 }
 
 export enum DataWarehouseSettingsTab {
@@ -4455,6 +4458,7 @@ export interface SourceFieldSwitchGroupConfig {
     label: string
     default: string | number | boolean
     fields: SourceFieldConfig[]
+    caption?: string
 }
 
 export interface SourceFieldFileUploadConfig {
@@ -4587,7 +4591,16 @@ export interface HogFunctionFiltersType {
     bytecode_error?: string
 }
 
-export type HogFunctionTypeType = 'destination' | 'email' | 'sms' | 'push' | 'activity' | 'alert' | 'broadcast'
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'site_destination'
+    | 'site_app'
+    | 'email'
+    | 'sms'
+    | 'push'
+    | 'activity'
+    | 'alert'
+    | 'broadcast'
 
 export type HogFunctionType = {
     id: string
@@ -4609,7 +4622,7 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated'
+export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated' | 'client-side'
 export type HogFunctionSubTemplateIdType = 'early_access_feature_enrollment' | 'survey_response'
 
 export type HogFunctionConfigurationType = Omit<

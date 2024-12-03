@@ -198,7 +198,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
                     }
-
                     try {
                         const response = await concurrencyController.run({
                             debugTag: query.kind,

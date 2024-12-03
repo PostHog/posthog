@@ -20,7 +20,7 @@ from .mailjet.template_mailjet import (
 from .zapier.template_zapier import template as zapier
 from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
 from .avo.template_avo import template as avo, TemplateAvoMigrator
-from .loops.template_loops import template as loops, TemplateLoopsMigrator
+from .loops.template_loops import template as loops, template_send_event as loops_send_event, TemplateLoopsMigrator
 from .rudderstack.template_rudderstack import template as rudderstack, TemplateRudderstackMigrator
 from .gleap.template_gleap import template as gleap
 from .google_pubsub.template_google_pubsub import template as google_pubsub, TemplateGooglePubSubMigrator
@@ -41,9 +41,11 @@ from .google_cloud_storage.template_google_cloud_storage import (
 from .airtable.template_airtable import template as airtable
 from .brevo.template_brevo import template as brevo
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
+from ._internal.template_blank import blank_site_destination
 
 HOG_FUNCTION_TEMPLATES = [
     _broadcast,
+    blank_site_destination,
     slack,
     webhook,
     activecampaign,
@@ -58,7 +60,7 @@ HOG_FUNCTION_TEMPLATES = [
     discord,
     engage,
     gleap,
-    google_ads,
+    # google_ads,
     google_cloud_storage,
     google_pubsub,
     hubspot,
@@ -69,6 +71,7 @@ HOG_FUNCTION_TEMPLATES = [
     klaviyo_user,
     knock,
     loops,
+    loops_send_event,
     mailchimp,
     mailgun,
     mailjet_create_contact,

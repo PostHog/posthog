@@ -6,17 +6,17 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingGroup } from '~/queries/schema'
-import { Breadcrumb } from '~/types'
+import { ErrorTrackingIssue } from '~/queries/schema'
+import { Breadcrumb, EventType } from '~/types'
 
-import type { errorTrackingGroupSceneLogicType } from './errorTrackingGroupSceneLogicType'
+import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
-import { errorTrackingGroupEventsQuery, errorTrackingGroupQuery } from './queries'
+import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
 
 export interface ErrorTrackingEvent {
     uuid: string
     timestamp: Dayjs
-    properties: Record<string, any>
+    properties: EventType['properties']
     person: {
         distinct_id: string
         uuid?: string
@@ -25,35 +25,35 @@ export interface ErrorTrackingEvent {
     }
 }
 
-export interface ErrorTrackingGroupSceneLogicProps {
-    fingerprint: ErrorTrackingGroup['fingerprint']
+export interface ErrorTrackingIssueSceneLogicProps {
+    id: ErrorTrackingIssue['id']
 }
 
-export enum ErrorGroupTab {
+export enum IssueTab {
     Overview = 'overview',
     Breakdowns = 'breakdowns',
 }
 
-export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType>([
-    path((key) => ['scenes', 'error-tracking', 'errorTrackingGroupSceneLogic', key]),
-    props({} as ErrorTrackingGroupSceneLogicProps),
-    key((props) => JSON.stringify(props.fingerprint)),
+export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType>([
+    path((key) => ['scenes', 'error-tracking', 'errorTrackingIssueSceneLogic', key]),
+    props({} as ErrorTrackingIssueSceneLogicProps),
+    key((props) => props.id),
 
     connect({
         values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'hasGroupActions']],
     }),
 
     actions({
-        setErrorGroupTab: (tab: ErrorGroupTab) => ({ tab }),
+        setTab: (tab: IssueTab) => ({ tab }),
         setActiveEventUUID: (uuid: ErrorTrackingEvent['uuid']) => ({ uuid }),
-        updateGroup: (group: Partial<Pick<ErrorTrackingGroup, 'assignee' | 'status'>>) => ({ group }),
+        updateIssue: (issue: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>) => ({ issue }),
     }),
 
     reducers(() => ({
-        errorGroupTab: [
-            ErrorGroupTab.Overview as ErrorGroupTab,
+        tab: [
+            IssueTab.Overview as IssueTab,
             {
-                setErrorGroupTab: (_, { tab }) => tab,
+                setTab: (_, { tab }) => tab,
             },
         ],
         activeEventUUID: [
@@ -65,13 +65,13 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
     })),
 
     loaders(({ props, values }) => ({
-        group: [
-            null as ErrorTrackingGroup | null,
+        issue: [
+            null as ErrorTrackingIssue | null,
             {
-                loadGroup: async () => {
+                loadIssue: async () => {
                     const response = await api.query(
-                        errorTrackingGroupQuery({
-                            fingerprint: props.fingerprint,
+                        errorTrackingIssueQuery({
+                            issueId: props.id,
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
                             filterGroup: values.filterGroup,
@@ -81,13 +81,13 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                         true
                     )
 
-                    // ErrorTrackingQuery returns a list of groups
-                    // when a fingerprint is supplied there will only be a single group
+                    // ErrorTrackingQuery returns a list of issues
+                    // when a fingerprint is supplied there will only be a single issue
                     return response.results[0]
                 },
-                updateGroup: async ({ group }) => {
-                    const response = await api.errorTracking.updateIssue(props.fingerprint, group)
-                    return { ...values.group, ...response }
+                updateIssue: async ({ issue }) => {
+                    const response = await api.errorTracking.updateIssue(props.id, issue)
+                    return { ...values.issue, ...response }
                 },
             },
         ],
@@ -96,9 +96,9 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
             {
                 loadEvents: async () => {
                     const response = await api.query(
-                        errorTrackingGroupEventsQuery({
+                        errorTrackingIssueEventsQuery({
                             select: ['uuid', 'properties', 'timestamp', 'person'],
-                            fingerprints: values.combinedFingerprints,
+                            issueId: props.id,
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
                             filterGroup: values.filterGroup,
@@ -120,7 +120,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
     })),
 
     listeners(({ values, actions }) => ({
-        loadGroupSuccess: () => {
+        loadIssueSuccess: () => {
             actions.loadEvents()
         },
         loadEventsSuccess: () => {
@@ -132,9 +132,9 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
 
     selectors({
         breadcrumbs: [
-            (s) => [s.group],
-            (group): Breadcrumb[] => {
-                const exceptionType = group?.exception_type || 'Unknown Type'
+            (s) => [s.issue],
+            (issue): Breadcrumb[] => {
+                const exceptionType = issue?.name || 'Unknown Type'
                 return [
                     {
                         key: Scene.ErrorTracking,
@@ -142,26 +142,20 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                         path: urls.errorTracking(),
                     },
                     {
-                        key: [Scene.ErrorTrackingGroup, exceptionType],
+                        key: [Scene.ErrorTrackingIssue, exceptionType],
                         name: exceptionType,
                     },
                 ]
             },
         ],
-
-        combinedFingerprints: [
-            (s) => [s.group],
-            (group): ErrorTrackingGroup['fingerprint'][] =>
-                group ? [group.fingerprint, ...group.merged_fingerprints] : [],
-        ],
     }),
 
     actionToUrl(({ values }) => ({
-        setErrorGroupTab: () => {
+        setTab: () => {
             const searchParams = router.values.searchParams
 
-            if (values.errorGroupTab != ErrorGroupTab.Overview) {
-                searchParams['tab'] = values.errorGroupTab
+            if (values.tab != IssueTab.Overview) {
+                searchParams['tab'] = values.tab
             }
 
             return [router.values.location.pathname, searchParams]
@@ -169,9 +163,9 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
     })),
 
     urlToAction(({ actions }) => ({
-        [urls.errorTrackingGroup('*')]: (_, searchParams) => {
+        [urls.errorTrackingIssue('*')]: (_, searchParams) => {
             if (searchParams.tab) {
-                actions.setErrorGroupTab(searchParams.tab)
+                actions.setTab(searchParams.tab)
             }
         },
     })),

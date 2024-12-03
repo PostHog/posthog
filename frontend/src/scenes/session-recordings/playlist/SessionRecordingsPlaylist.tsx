@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
@@ -46,6 +47,8 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
 
     const pinnedDescription = isTestingSaved ? 'Saved' : 'Pinned'
+
+    const { playlistOpen } = useValues(playerSettingsLogic)
 
     const notebookNode = useNotebookNode()
 
@@ -92,6 +95,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                     <RecordingsUniversalFilters filters={filters} setFilters={setFilters} className="border" />
                 )}
                 <Playlist
+                    isCollapsed={!playlistOpen}
                     data-attr="session-recordings-playlist"
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
                     title="Results"

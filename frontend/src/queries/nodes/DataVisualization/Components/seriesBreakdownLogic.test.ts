@@ -3,7 +3,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { DataVisualizationNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, ItemMode } from '~/types'
 
 import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
 import { dataVisualizationLogic, DataVisualizationLogicProps } from '../dataVisualizationLogic'
@@ -63,10 +63,8 @@ const dummyDataVisualizationLogicProps: DataVisualizationLogicProps = {
     setQuery: (query) => {
         globalQuery = query
     },
-    insightLogicProps: {
-        cachedInsight: null,
-        dashboardItemId: 'new-test-SQL',
-    },
+    insightMode: ItemMode.View,
+    dataNodeCollectionId: 'new-test-SQL',
 }
 
 describe('seriesBreakdownLogic', () => {
