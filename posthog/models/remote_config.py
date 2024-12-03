@@ -68,10 +68,10 @@ class RemoteConfig(UUIDModel):
         # NOTE: Let's try and keep this tidy! Follow the styling of the values already here...
         config = {
             "token": team.api_token,
-            "supported_compression": ["gzip", "gzip-js"],
-            "has_feature_flags": FeatureFlag.objects.filter(team=team, active=True, deleted=False).count() > 0,
-            "capture_dead_clicks": bool(team.capture_dead_clicks),
-            "capture_performance": (
+            "supportedCompression": ["gzip", "gzip-js"],
+            "hasFeatureFlags": FeatureFlag.objects.filter(team=team, active=True, deleted=False).count() > 0,
+            "captureDeadClicks": bool(team.capture_dead_clicks),
+            "capturePerformance": (
                 {
                     "network_timing": bool(team.capture_performance_opt_in),
                     "web_vitals": bool(team.autocapture_web_vitals_opt_in),
@@ -81,7 +81,7 @@ class RemoteConfig(UUIDModel):
                 else False
             ),
             "autocapture_opt_out": bool(team.autocapture_opt_out),
-            "autocapture_exceptions": (
+            "autocaptureExceptions": (
                 {
                     "endpoint": "/e/",
                 }
@@ -92,7 +92,7 @@ class RemoteConfig(UUIDModel):
         }
 
         if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
-            config["elements_chain_as_string"] = True
+            config["elementsChainAsString"] = True
 
         # MARK: Session Recording
         session_recording_config_response: bool | dict = False
@@ -136,7 +136,7 @@ class RemoteConfig(UUIDModel):
                         "canvasQuality": "0.4" if record_canvas else None,
                     }
                 )
-        config["session_recording"] = session_recording_config_response
+        config["sessionRecording"] = session_recording_config_response
 
         # MARK: Quota limiting
         if settings.EE_AVAILABLE:
@@ -151,8 +151,8 @@ class RemoteConfig(UUIDModel):
             )
 
             if team.api_token in limited_tokens_recordings:
-                config["quota_limited"] = ["recordings"]
-                config["session_recording"] = False
+                config["quotaLimited"] = ["recordings"]
+                config["sessionRecording"] = False
 
         config["surveys"] = True if team.surveys_opt_in else False
         config["heatmaps"] = True if team.heatmaps_opt_in else False
@@ -160,7 +160,7 @@ class RemoteConfig(UUIDModel):
             default_identified_only = team.pk >= int(settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN)
         except Exception:
             default_identified_only = False
-        config["default_identified_only"] = bool(default_identified_only)
+        config["defaultIdentifiedOnly"] = bool(default_identified_only)
 
         # MARK: Site apps - we want to eventually inline the JS but that will come later
         site_apps = []
@@ -171,7 +171,7 @@ class RemoteConfig(UUIDModel):
             except Exception:
                 pass
 
-        config["site_apps"] = site_apps
+        config["siteApps"] = site_apps
 
         return config
 
