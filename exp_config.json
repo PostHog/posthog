@@ -1,0 +1,28 @@
+2024-12-10 08:00:23 [warning  ] ['️Environment variable DEBUG is set - PostHog is running in DEVELOPMENT MODE!', 'Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!']
+{
+  "number_of_users": 1000,
+  "start_timestamp": "2024-12-03T07:00:27.324725",
+  "end_timestamp": "2024-12-10T07:00:27.324728",
+  "variants": {
+    "control": {
+      "weight": 0.5,
+      "actions": [
+        {
+          "event": "$pageview",
+          "count": 1,
+          "probability": 0.75
+        }
+      ]
+    },
+    "test": {
+      "weight": 0.5,
+      "actions": [
+        {
+          "event": "$pageview",
+          "count": 1,
+          "probability": 1.0
+        }
+      ]
+    }
+  }
+}

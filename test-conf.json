@@ -1,0 +1,27 @@
+{
+  "number_of_users": 1000,
+  "start_timestamp": "2024-12-03T07:48:08.013008",
+  "end_timestamp": "2024-12-10T07:48:08.013014",
+  "variants": {
+    "control": {
+      "weight": 0.5,
+      "actions": [
+        {
+          "event": "$pageview",
+          "count": 1,
+          "probability": 0.75
+        }
+      ]
+    },
+    "test": {
+      "weight": 0.5,
+      "actions": [
+        {
+          "event": "$pageview",
+          "count": 1,
+          "probability": 1.0
+        }
+      ]
+    }
+  }
+}
