@@ -487,7 +487,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        results = get_person_ids_by_cohort_id(self.team_id, cohort.id)
+        results = get_person_ids_by_cohort_id(self.team.pk, cohort.id)
         self.assertEqual(len(results), 2)
         self.assertIn(str(user1.uuid), results)
         self.assertIn(str(user3.uuid), results)
@@ -503,7 +503,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         cohort.insert_users_by_list(["1", "123"])
         cohort = Cohort.objects.get()
-        results = get_person_ids_by_cohort_id(self.team_id, cohort.id)
+        results = get_person_ids_by_cohort_id(self.team.pk, cohort.id)
         self.assertEqual(len(results), 2)
         self.assertEqual(cohort.is_calculating, False)
 
@@ -518,12 +518,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         #  If we accidentally call calculate_people it shouldn't erase people
         cohort.calculate_people_ch(pending_version=0)
-        results = get_person_ids_by_cohort_id(self.team_id, cohort.id)
+        results = get_person_ids_by_cohort_id(self.team.pk, cohort.id)
         self.assertEqual(len(results), 3)
 
         # if we add people again, don't increase the number of people in cohort
         cohort.insert_users_by_list(["123"])
-        results = get_person_ids_by_cohort_id(self.team_id, cohort.id)
+        results = get_person_ids_by_cohort_id(self.team.pk, cohort.id)
         self.assertEqual(len(results), 3)
 
     @snapshot_clickhouse_insert_cohortpeople_queries
@@ -854,7 +854,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            sql, _ = format_filter_query(cohort, 0, HogQLContext(team_id=self.team.pk), team=self.team)
+            sql, _ = format_filter_query(cohort, 0, HogQLContext(team_id=self.team.pk))
             self.assertQueryMatchesSnapshot(sql)
 
     def test_cohortpeople_with_valid_other_cohort_filter(self):

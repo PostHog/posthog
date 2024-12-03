@@ -370,7 +370,7 @@ def _recalculate_cohortpeople_for_team(
 
 def clear_stale_cohortpeople(cohort: Cohort, before_version: int) -> None:
     if cohort.version and cohort.version > 0:
-        relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("pk", flat=True)
+        relevant_team_ids = list(Team.objects.filter(project_id=cohort.team.project_id).values_list("pk", flat=True))
         stale_count_result = sync_execute(
             STALE_COHORTPEOPLE,
             {
