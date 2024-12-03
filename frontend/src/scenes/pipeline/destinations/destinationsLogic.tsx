@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -38,8 +39,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
     connect({
         values: [
-            teamLogic,
-            ['currentTeamId'],
+            projectLogic,
+            ['currentProjectId'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             pipelineAccessLogic,
@@ -76,7 +77,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<number, PluginConfigTypeNew> = {}
                     const results = await api.loadPaginatedResults<PluginConfigTypeNew>(
-                        `api/projects/${values.currentTeamId}/pipeline_destination_configs`
+                        `api/projects/${values.currentProjectId}/pipeline_destination_configs`
                     )
 
                     for (const pluginConfig of results) {
@@ -133,7 +134,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {
                 loadBatchExports: async () => {
                     const results = await api.loadPaginatedResults<BatchExportConfiguration>(
-                        `api/projects/${values.currentTeamId}/batch_exports`
+                        `api/projects/${values.currentProjectId}/batch_exports`
                     )
                     return Object.fromEntries(results.map((batchExport) => [batchExport.id, batchExport]))
                 },
@@ -175,7 +176,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     }
 
                     await deleteWithUndo({
-                        endpoint: `projects/${teamLogic.values.currentTeamId}/hog_functions`,
+                        endpoint: `projects/${values.currentProjectId}/hog_functions`,
                         object: {
                             id: destination.hog_function.id,
                             name: destination.name,
