@@ -390,7 +390,7 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
                                     {supportsTemplating && (
                                         <LemonButton
                                             size="xsmall"
-                                            to="https://posthog.com/docs/cdp/destinations#input-formatting"
+                                            to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload"
                                             sideIcon={<IconInfo />}
                                             noPadding
                                             className=" opacity-0 group-hover:opacity-100 p-1 transition-opacity"
