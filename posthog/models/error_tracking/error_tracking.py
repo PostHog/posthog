@@ -24,21 +24,35 @@ class ErrorTrackingIssue(UUIDModel):
     description = models.TextField(null=True, blank=True)
 
     def merge(self, issue_ids: list[str]) -> None:
+        override_inserts: list[tuple[str, int, str]] = []
+
         with transaction.atomic():
             for issue_id in issue_ids:
-                fingerprints = resolve_fingerprints_for_issue(team_id=self.team.pk, issue=issue_id)
+                fingerprints = resolve_fingerprints_for_issue(team_id=self.team.pk, issue_id=issue_id)
 
                 for fingerprint in fingerprints:
-                    update_error_tracking_issue_fingerprint(
-                        team_id=self.team.pk, issue=self.id, fingerprint=fingerprint
+                    override_inserts.append(
+                        update_error_tracking_issue_fingerprint(
+                            team_id=self.team.pk, issue_id=self.id, fingerprint=fingerprint
+                        )
                     )
 
-            ErrorTrackingIssue.objects.filter(team=self.team, issue_id__in=issue_ids).delete()
+            ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
+
+        update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, override_inserts=override_inserts)
 
     def split(self, fingerprints: list[str]) -> None:
+        override_inserts: list[tuple[str, int, str]] = []
+
         for fingerprint in fingerprints:
-            new_issue, _ = ErrorTrackingIssue.objects.get_or_create(fingerprint=fingerprint, team=self.team)
-            update_error_tracking_issue_fingerprint(team_id=self.team.pk, issue=new_issue.id, fingerprint=fingerprint)
+            new_issue = ErrorTrackingIssue.objects.create(team=self.team)
+            override_inserts.append(
+                update_error_tracking_issue_fingerprint(
+                    team_id=self.team.pk, issue_id=new_issue.id, fingerprint=fingerprint
+                )
+            )
+
+        update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, override_inserts=override_inserts)
 
 
 class ErrorTrackingIssueAssignment(UUIDModel):
@@ -149,10 +163,12 @@ class ErrorTrackingIssueFingerprint(models.Model):
 
 def resolve_fingerprints_for_issue(team_id: str, issue_id: str) -> list[str]:
     override_records = ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=issue_id)
-    [r["fingerprint"] for r in override_records]
+    return [r.fingerprint for r in override_records]
 
 
-def update_error_tracking_issue_fingerprint(team_id: str, issue_id: str, fingerprint: list[str]) -> None:
+def update_error_tracking_issue_fingerprint(
+    team_id: str, issue_id: str, fingerprint: list[str]
+) -> tuple[str, int, str]:
     issue_fingerprint = ErrorTrackingIssueFingerprintV2.objects.select_for_update().get(
         team_id=team_id, fingerprint=fingerprint
     )
@@ -160,16 +176,17 @@ def update_error_tracking_issue_fingerprint(team_id: str, issue_id: str, fingerp
     issue_fingerprint.version = (issue_fingerprint.version or 0) + 1
     issue_fingerprint.save(update_fields=["version", "issue_id"])
 
-    create_error_tracking_issue_fingerprint(
-        team_id=team_id,
-        fingerprint=fingerprint,
-        issue_id=issue_id,
-        is_deleted=False,
-        version=issue_fingerprint.version,
-    )
+    return (fingerprint, issue_fingerprint.version, issue_id)
 
 
-def create_error_tracking_issue_fingerprint(
+def update_error_tracking_issue_fingerprint_overrides(team_id: str, override_inserts: tuple[str, int, str]) -> None:
+    for fingerprint, version, issue_id in override_inserts:
+        override_error_tracking_issue_fingerprint(
+            team_id=team_id, fingerprint=fingerprint, issue_id=issue_id, version=version
+        )
+
+
+def override_error_tracking_issue_fingerprint(
     team_id: int,
     fingerprint: str,
     issue_id: str,
