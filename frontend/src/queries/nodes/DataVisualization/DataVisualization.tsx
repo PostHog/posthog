@@ -112,7 +112,11 @@ export function DataTableVisualization({
                 <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
                     <BindLogic
                         logic={variablesLogic}
-                        props={{ key: dataVisualizationLogicProps.key, readOnly: readOnly ?? false }}
+                        props={{
+                            key: dataVisualizationLogicProps.key,
+                            readOnly: readOnly ?? false,
+                            dashboardId: insightProps.dashboardId,
+                        }}
                     >
                         <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
                             <InternalDataTableVisualization
