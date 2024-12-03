@@ -15,13 +15,21 @@ import {
     DataVisualizationLogicProps,
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema'
 import { ItemMode } from '~/types'
 
+import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../external/dataWarehouseExternalSceneLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
+
+const dataNodeKey = insightVizDataNodeKey({
+    dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
+    cachedInsight: null,
+    doNotLoad: true,
+})
 
 export function QueryWindow(): JSX.Element {
     const [querySource, localSetQuerySource] = useState({
@@ -32,13 +40,11 @@ export function QueryWindow(): JSX.Element {
         },
     } as DataVisualizationNode)
 
-    const vizKey = `SQLEditorScene`
-
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
-        key: vizKey,
+        key: dataNodeKey,
         query: querySource,
         dashboardId: undefined,
-        dataNodeCollectionId: vizKey,
+        dataNodeCollectionId: dataNodeKey,
         insightMode: ItemMode.Edit,
         loadPriority: undefined,
         cachedResults: undefined,
@@ -48,10 +54,10 @@ export function QueryWindow(): JSX.Element {
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: querySource.source,
-        key: vizKey,
+        key: dataNodeKey,
         cachedResults: undefined,
         loadPriority: undefined,
-        dataNodeCollectionId: vizKey,
+        dataNodeCollectionId: dataNodeKey,
         variablesOverride: undefined,
     }
 
@@ -94,29 +100,20 @@ function InternalQueryWindow({ setQuery, query }: InternalQueryWindowProps): JSX
         monaco,
         editor,
         sourceQuery: query,
-        onRunQuery: (queryInput) => {
+        onRunQuery: (query) => {
             setQuery({
-                ...query,
-                source: { ...query.source, query: queryInput },
-            })
+                kind: NodeKind.DataVisualizationNode,
+                source: query,
+            } as DataVisualizationNode)
         },
         onQueryInputChange: (queryInput) => {
             setEditorQuery(queryInput)
         },
     })
 
-    const {
-        allTabs,
-        activeModelUri,
-        queryInput,
-        activeQuery,
-        activeTabKey,
-        hasErrors,
-        error,
-        isValidView,
-        editingView,
-    } = useValues(logic)
-    const { selectTab, deleteTab, createTab, setQueryInput, runQuery, saveAsView } = useActions(logic)
+    const { allTabs, activeModelUri, queryInput, activeQuery, hasErrors, error, isValidView, editingView } =
+        useValues(logic)
+    const { selectTab, deleteTab, createTab, setQueryInput, runQuery, saveAsView, saveAsInsight } = useActions(logic)
 
     return (
         <div className="flex flex-1 flex-col h-full">
@@ -153,10 +150,11 @@ function InternalQueryWindow({ setQuery, query }: InternalQueryWindowProps): JSX
                 }}
             />
             <OutputPane
-                logicKey={activeTabKey}
                 query={activeQuery ?? ''}
                 onQueryInputChange={runQuery}
-                onSave={saveAsView}
+                onQueryChange={setQuery}
+                onSaveView={saveAsView}
+                onSaveInsight={saveAsInsight}
                 saveDisabledReason={
                     hasErrors ? error ?? 'Query has errors' : !isValidView ? 'Some fields may need an alias' : ''
                 }

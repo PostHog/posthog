@@ -1,10 +1,13 @@
 import { Monaco } from '@monaco-editor/react'
 import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ModelMarker } from 'lib/monaco/codeEditorLogic'
 import { editor, MarkerSeverity, Uri } from 'monaco-editor'
+import { insightsApi } from 'scenes/insights/utils/api'
+import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { HogQLMetadataResponse, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
@@ -17,9 +20,9 @@ export interface MultitabEditorLogicProps {
     key: string
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
-    onRunQuery?: (query: string) => void
+    onRunQuery?: (query: HogQLQuery) => void
     onQueryInputChange?: (query: string) => void
-    sourceQuery: DataVisualizationNode
+    sourceQuery?: DataVisualizationNode
 }
 
 export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
@@ -56,6 +59,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         saveAsView: true,
         saveAsViewSubmit: (name: string) => ({ name }),
         setMetadata: (query: string, metadata: HogQLMetadataResponse) => ({ query, metadata }),
+        saveAsInsight: true,
+        saveAsInsightSubmit: (name: string) => ({ name }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -290,21 +295,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
         },
         runQuery: ({ queryOverride }) => {
-            if (!queryOverride) {
-                props.onRunQuery?.(values.queryInput)
-            }
+            const query = queryOverride || values.queryInput
 
-            if (values.activeQuery === queryOverride || values.activeQuery === values.queryInput) {
-                dataNodeLogic({
-                    key: values.activeTabKey,
-                    query: {
-                        kind: NodeKind.HogQLQuery,
-                        query: queryOverride || values.queryInput,
-                    },
-                    alwaysRefresh: true,
-                }).actions.loadData(true)
-            }
-            actions.setActiveQuery(queryOverride || values.queryInput)
+            actions.setActiveQuery(query)
+            props.sourceQuery &&
+                props.onRunQuery?.({
+                    ...props.sourceQuery.source,
+                    query,
+                })
         },
         saveAsView: async () => {
             LemonDialog.openForm({
@@ -341,6 +339,32 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const types = logic.values.response?.types ?? []
 
             await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query, types })
+        },
+        saveAsInsight: async () => {
+            LemonDialog.openForm({
+                title: 'Save as new insight',
+                initialValues: {
+                    name: '',
+                },
+                content: (
+                    <LemonField name="name">
+                        <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
+                    </LemonField>
+                ),
+                errors: {
+                    name: (name) => (!name ? 'You must enter a name' : undefined),
+                },
+                onSubmit: async ({ name }) => actions.saveAsInsightSubmit(name),
+            })
+        },
+        saveAsInsightSubmit: async ({ name }) => {
+            const insight = await insightsApi.create({
+                name,
+                query: props.sourceQuery,
+                saved: true,
+            })
+
+            router.actions.push(urls.insightView(insight.short_id))
         },
         deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
             const tabToRemove = values.allTabs.find((tab) => tab.view?.id === viewId)
