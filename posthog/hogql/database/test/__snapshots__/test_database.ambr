@@ -870,6 +870,20 @@
                   "table": null,
                   "type": "field_traverser"
               },
+              "poe": {
+                  "chain": null,
+                  "fields": [
+                      "id",
+                      "created_at",
+                      "properties"
+                  ],
+                  "hogql_value": "poe",
+                  "id": null,
+                  "name": "poe",
+                  "schema_valid": true,
+                  "table": "session_replay_events",
+                  "type": "virtual_table"
+              },
               "pdi": {
                   "chain": null,
                   "fields": [
@@ -2417,6 +2431,20 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "field_traverser"
+              },
+              "poe": {
+                  "chain": null,
+                  "fields": [
+                      "id",
+                      "created_at",
+                      "properties"
+                  ],
+                  "hogql_value": "poe",
+                  "id": null,
+                  "name": "poe",
+                  "schema_valid": true,
+                  "table": "session_replay_events",
+                  "type": "virtual_table"
               },
               "pdi": {
                   "chain": null,
