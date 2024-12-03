@@ -15,7 +15,7 @@ class TestErrorTracking(BaseTest):
         assert issue.status == "active"
         assert issue.name is None
 
-    def test_merging(self):
+    def test_basic_merge(self):
         issue_one = self.create_issue(["fingerprint_one"])
         issue_two = self.create_issue(["fingerprint_two"])
 
@@ -30,7 +30,7 @@ class TestErrorTracking(BaseTest):
         # deletes issue one
         assert ErrorTrackingIssue.objects.count() == 1
 
-    def test_merging_middle(self):
+    def test_merge_multiple_times(self):
         issue_one = self.create_issue(["fingerprint_one"])
         issue_two = self.create_issue(["fingerprint_two"])
         issue_three = self.create_issue(["fingerprint_three"])
@@ -40,15 +40,16 @@ class TestErrorTracking(BaseTest):
 
         # only the third issue remains
         assert ErrorTrackingIssue.objects.count() == 1
+        # all fingerprints point to the third issue
         assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_three.id).count() == 3
 
-        # bumps both versions
+        # bumps versions of the merged issues correct number of times
         override = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one").first()
         assert override.version == 2
         override = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two").first()
         assert override.version == 1
 
-    def test_merging_multiple(self):
+    def test_merging_multiple_issues_at_once(self):
         issue_one = self.create_issue(["fingerprint_one"])
         issue_two = self.create_issue(["fingerprint_two"])
         issue_three = self.create_issue(["fingerprint_three"])
@@ -57,7 +58,7 @@ class TestErrorTracking(BaseTest):
 
         assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_three.id).count() == 3
 
-    def test_split(self):
+    def test_splitting_fingerprints(self):
         issue = self.create_issue(["fingerprint_one", "fingerprint_two", "fingerprint_three"])
 
         issue.split(fingerprints=["fingerprint_one", "fingerprint_two"])
