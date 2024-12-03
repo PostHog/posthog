@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from celery import shared_task
 from django.db import models
 
+from posthog.models.experiment import Experiment
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
@@ -74,12 +75,20 @@ class ProductIntent(UUIDModel):
 
         return False
 
+    def has_activated_experiments(self) -> bool:
+        # if the team has launched any experiments after the intent was updated, return True
+        return Experiment.objects.filter(team=self.team, start_date__gte=self.updated_at).exists()
+
     def check_and_update_activation(self) -> None:
-        if self.product_type == "data_warehouse":
-            if self.has_activated_data_warehouse():
-                self.activated_at = datetime.now(tz=UTC)
-                self.save()
-                self.report_activation("data_warehouse")
+        activation_checks = {
+            "data_warehouse": self.has_activated_data_warehouse,
+            "experiments": self.has_activated_experiments,
+        }
+
+        if self.product_type in activation_checks and activation_checks[self.product_type]():
+            self.activated_at = datetime.now(tz=UTC)
+            self.save()
+            self.report_activation(self.product_type)
 
     def report_activation(self, product_key: str) -> None:
         from posthog.event_usage import report_team_action
