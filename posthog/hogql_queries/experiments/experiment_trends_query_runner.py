@@ -3,9 +3,6 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.models import LazyJoin
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.hogql_queries.experiments.trends_statistics import (
     are_results_significant,
@@ -37,7 +34,7 @@ from posthog.schema import (
     TrendsQuery,
     TrendsQueryResponse,
 )
-from typing import Any, Optional, cast
+from typing import Any, Optional
 import threading
 
 
@@ -255,86 +252,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         def run(query_runner: TrendsQueryRunner, result_key: str, is_parallel: bool):
             try:
-                # Create a new database instance where we can attach our
-                # custom join to the events table. It will be passed through
-                # and used by the query runner.
-                database = create_hogql_database(team_id=self.team.pk)
-                if self._is_data_warehouse_query(query_runner.query):
-                    series_node = cast(DataWarehouseNode, query_runner.query.series[0])
-                    table = database.get_table(series_node.table_name)
-                    table.fields["events"] = LazyJoin(
-                        from_field=[series_node.distinct_id_field],
-                        join_table=database.get_table("events"),
-                        join_function=lambda join_to_add, context, node: (
-                            ast.JoinExpr(
-                                table=ast.SelectQuery(
-                                    select=[
-                                        ast.Alias(alias=name, expr=ast.Field(chain=["events", *chain]))
-                                        for name, chain in {
-                                            **join_to_add.fields_accessed,
-                                            "timestamp": ["timestamp"],
-                                            "distinct_id": ["distinct_id"],
-                                            "properties": ["properties"],
-                                        }.items()
-                                    ],
-                                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                                ),
-                                # ASOF JOIN finds the most recent matching event that occurred at or before each data warehouse timestamp.
-                                #
-                                # Why this matters:
-                                # When a user performs an action (recorded in data warehouse), we want to know which
-                                # experiment variant they were assigned at that moment. The most recent $feature_flag_called
-                                # event before their action represents their active variant assignment.
-                                #
-                                # Example:
-                                #   Data Warehouse: timestamp=2024-01-03 12:00, distinct_id=user1
-                                #   Events:
-                                #     2024-01-02: (user1, variant='control')   <- This event will be joined
-                                #     2024-01-03: (user1, variant='test')      <- Ignored (occurs after data warehouse timestamp)
-                                #
-                                # This ensures we capture the correct causal relationship: which experiment variant
-                                # was the user assigned to when they performed the action?
-                                join_type="ASOF LEFT JOIN",
-                                alias=join_to_add.to_table,
-                                constraint=ast.JoinConstraint(
-                                    expr=ast.And(
-                                        exprs=[
-                                            ast.CompareOperation(
-                                                left=ast.Field(chain=[join_to_add.to_table, "event"]),
-                                                op=ast.CompareOperationOp.Eq,
-                                                right=ast.Constant(value="$feature_flag_called"),
-                                            ),
-                                            ast.CompareOperation(
-                                                left=ast.Field(
-                                                    chain=[
-                                                        join_to_add.from_table,
-                                                        series_node.distinct_id_field,
-                                                    ]
-                                                ),
-                                                op=ast.CompareOperationOp.Eq,
-                                                right=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
-                                            ),
-                                            ast.CompareOperation(
-                                                left=ast.Field(
-                                                    chain=[
-                                                        join_to_add.from_table,
-                                                        series_node.timestamp_field,
-                                                    ]
-                                                ),
-                                                op=ast.CompareOperationOp.GtEq,
-                                                right=ast.Field(chain=[join_to_add.to_table, "timestamp"]),
-                                            ),
-                                        ]
-                                    ),
-                                    constraint_type="ON",
-                                ),
-                            )
-                        ),
-                    )
-
-                context = HogQLContext(team_id=self.team.pk, database=database)
-
-                result = query_runner.calculate(context=context)
+                result = query_runner.calculate()
                 shared_results[result_key] = result
             except Exception as e:
                 errors.append(e)
