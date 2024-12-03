@@ -16,6 +16,7 @@ import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries
 import { DataWarehouseSavedQuery, PipelineTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { viewLinkLogic } from '../viewLinkLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import type { editorSidebarLogicType } from './editorSidebarLogicType'
 import { multitabEditorLogic } from './multitabEditorLogic'
