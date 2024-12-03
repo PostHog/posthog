@@ -117,7 +117,7 @@ class RemoteConfig(UUIDModel):
                 "endpoint": "/s/",
                 "consoleLogRecordingEnabled": True if team.capture_console_log_opt_in else False,
                 "recorderVersion": "v2",
-                "sampleRate": sample_rate,
+                "sampleRate": str(sample_rate) if sample_rate else None,
                 "minimumDurationMilliseconds": team.session_recording_minimum_duration_milliseconds or None,
                 "linkedFlag": linked_flag,
                 "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,

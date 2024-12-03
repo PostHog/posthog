@@ -1,3 +1,4 @@
+from decimal import Decimal
 from inline_snapshot import snapshot
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
@@ -101,6 +102,13 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.team.save()
         self.remote_config.refresh_from_db()
         assert self.remote_config.config["autocapture_exceptions"] == {"endpoint": "/e/"}
+
+    def test_session_recording_sample_rate(self):
+        self.team.session_recording_opt_in = True
+        self.team.session_recording_sample_rate = Decimal("0.5")
+        self.team.save()
+        self.remote_config.refresh_from_db()
+        assert self.remote_config.config["session_recording"]["sampleRate"] == "0.50"
 
 
 class TestRemoteConfigSync(_RemoteConfigBase):
