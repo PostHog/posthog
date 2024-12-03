@@ -1,10 +1,14 @@
-# class TestErrorTracking(BaseTest):
-#     def test_defaults(self):
-#         group = ErrorTrackingGroup.objects.create(status="active", team=self.team, fingerprint=["a_fingerprint"])
+from posthog.test.base import BaseTest
+from posthog.models.error_tracking import ErrorTrackingIssue
 
-#         assert group.fingerprint == ["a_fingerprint"]
-#         assert group.merged_fingerprints == []
-#         assert group.assignee is None
+
+class TestErrorTracking(BaseTest):
+    def test_defaults(self):
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+
+        assert issue.status == "active"
+        assert issue.name is None
+
 
 #     def test_filtering(self):
 #         ErrorTrackingGroup.objects.bulk_create(
