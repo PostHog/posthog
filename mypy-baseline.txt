@@ -411,7 +411,6 @@ posthog/api/survey.py:0: error: Incompatible types in assignment (expression has
 posthog/api/survey.py:0: error: Item "list[_ErrorFullDetails]" of "_FullDetailDict | list[_ErrorFullDetails] | dict[str, _ErrorFullDetails]" has no attribute "get"  [union-attr]
 posthog/api/survey.py:0: error: Item "object" of "object | Any" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/hogql_queries/web_analytics/web_overview.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
-posthog/hogql_queries/web_analytics/top_clicks.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/api/user.py:0: error: Module has no attribute "utc"  [attr-defined]
 posthog/api/user.py:0: error: Module has no attribute "utc"  [attr-defined]
 posthog/api/user.py:0: error: "User" has no attribute "social_auth"  [attr-defined]

@@ -18,7 +18,6 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     EventPropertyFilter,
-    WebTopClicksQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
     PersonPropertyFilter,
@@ -29,9 +28,7 @@ from posthog.schema import (
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
-WebQueryNode = Union[
-    WebOverviewQuery, WebTopClicksQuery, WebStatsTableQuery, WebGoalsQuery, WebExternalClicksTableQuery
-]
+WebQueryNode = Union[WebOverviewQuery, WebStatsTableQuery, WebGoalsQuery, WebExternalClicksTableQuery]
 
 
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
@@ -59,6 +56,35 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         self,
     ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
+
+    def period_aggregate(self, function_name, column_name, start, end, alias=None, params=None):
+        expr = ast.Call(
+            name=function_name + "If",
+            params=params,
+            args=[
+                ast.Field(chain=[column_name]),
+                ast.Call(
+                    name="and",
+                    args=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.GtEq,
+                            left=ast.Field(chain=["start_timestamp"]),
+                            right=start,
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Lt,
+                            left=ast.Field(chain=["start_timestamp"]),
+                            right=end,
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        if alias is not None:
+            return ast.Alias(alias=alias, expr=expr)
+
+        return expr
 
     def session_where(self, include_previous_period: Optional[bool] = None):
         properties = [
