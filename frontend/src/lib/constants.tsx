@@ -223,7 +223,6 @@ export const FEATURE_FLAGS = {
     MESSAGING: 'messaging', // owner @mariusandra #team-cdp
     SESSION_REPLAY_URL_BLOCKLIST: 'session-replay-url-blocklist', // owner: @richard-better #team-replay
     BILLING_TRIAL_FLOW: 'billing-trial-flow', // owner: @zach
-    DEAD_CLICKS_AUTOCAPTURE: 'dead-clicks-autocapture', // owner: @pauldambra #team-replay
     EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
     AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: @pauldambra
     CUSTOM_CHANNEL_TYPE_RULES: 'custom-channel-type-rules', // owner: @robbie-c #team-web-analytics
