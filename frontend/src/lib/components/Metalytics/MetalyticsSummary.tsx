@@ -13,7 +13,7 @@ export function MetalyticsSummary(): JSX.Element | null {
     const safeViewCount = viewCount ?? 0
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
-    if (!instanceId) {
+    if (!instanceId || viewCountLoading) {
         return null
     }
 

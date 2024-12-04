@@ -38,7 +38,6 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                             name: member.user.first_name,
                             title: member.user.email,
                         }))}
-                        tooltip="Recent viewers"
                         limit={3}
                     />
                 </div>

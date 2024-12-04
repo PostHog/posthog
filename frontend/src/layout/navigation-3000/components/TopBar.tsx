@@ -11,7 +11,6 @@ import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useLayoutEffect, useState } from 'react'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -28,7 +27,6 @@ export function TopBar(): JSX.Element | null {
     const { showNavOnMobile } = useActions(navigation3000Logic)
     const { breadcrumbs, renameState } = useValues(breadcrumbsLogic)
     const { setActionsContainer } = useActions(breadcrumbsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const [compactionRate, setCompactionRate] = useState(0)
 
