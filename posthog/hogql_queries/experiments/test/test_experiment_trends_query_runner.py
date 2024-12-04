@@ -17,7 +17,7 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
     XDIST_SUFFIX,
 )
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from freezegun import freeze_time
 from typing import cast
 from django.utils import timezone
@@ -135,12 +135,20 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 datetime(2023, 1, 7),
             ]
         )
-        distinct_id = pa.array(["user_control_0", "user_test_1", "user_test_2", "user_test_3", "user_extra"])
+        email = pa.array(
+            [
+                "user_control_0@example.com",
+                "user_test_1@example.com",
+                "user_test_2@example.com",
+                "user_test_3@example.com",
+                "user_extra@example.com",
+            ]
+        )
         amount = pa.array([100, 50, 75, 80, 90])
-        names = ["id", "dw_timestamp", "dw_distinct_id", "amount"]
+        names = ["id", "dw_timestamp", "dw_email", "amount"]
 
         pq.write_to_dataset(
-            pa.Table.from_arrays([id, timestamp, distinct_id, amount], names=names),
+            pa.Table.from_arrays([id, timestamp, email, amount], names=names),
             path_to_s3_object,
             filesystem=fs,
             use_dictionary=True,
@@ -164,7 +172,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             columns={
                 "id": "String",
                 "dw_timestamp": "DateTime64(3, 'UTC')",
-                "dw_distinct_id": "String",
+                "dw_email": "String",
                 "amount": "Int64",
             },
             credential=credential,
@@ -173,7 +181,16 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         DataWarehouseJoin.objects.create(
             team=self.team,
             source_table_name=table_name,
-            source_table_key="dw_distinct_id",
+            source_table_key="dw_email",
+            joining_table_name="persons",
+            joining_table_key="properties.email",
+            field_name="persons",
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="id",
             joining_table_name="events",
             joining_table_key="distinct_id",
             field_name="events",
@@ -504,7 +521,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[
                 DataWarehouseNode(
                     id=table_name,
-                    distinct_id_field="dw_distinct_id",
+                    distinct_id_field="persons.id",
                     id_field="id",
                     table_name=table_name,
                     timestamp_field="dw_timestamp",
@@ -532,6 +549,11 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     distinct_id=f"user_{variant}_{i}",
                     properties={feature_flag_property: variant},
                     timestamp=datetime(2023, 1, i + 1),
+                )
+                _create_person(
+                    team=self.team,
+                    distinct_ids=[f"user_{variant}_{i}"],
+                    properties={"email": f"user_{variant}_{i}@example.com"},
                 )
 
         # "user_test_3" first exposure (feature_flag_property="control") is on 2023-01-03
