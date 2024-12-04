@@ -4,38 +4,12 @@ import { DateTime } from 'luxon'
 import * as siphashDouble from 'siphash/lib/siphash-double'
 import { getDomain } from 'tldts'
 
+import { DB } from '../../../utils/db/db'
 import { UUID7 } from '../../../utils/utils'
 import { EventPipelineRunner } from './runner'
 
 const TIMEZONE_FALLBACK = 'UTC'
 const SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID = '$sentinel_cookieless_server_hash'
-
-export function getSaltForDay(timestamp: number, timezone: string | undefined): string {
-    // get the day based on the timezone
-    const datetime = new Date(timestamp)
-    // use the esperanto locale code to get the day of this timestamp in the timezone in YYYY-MM-DD format
-    const day = datetime.toLocaleDateString('eo', { timeZone: timezone || TIMEZONE_FALLBACK })
-    const dayParts = day.split('-')
-
-    // lookup the salt for this day
-    // TODO
-    return dayParts[0] + dayParts[1] + dayParts[2] + '00000000'
-}
-
-export function doHash(
-    timestamp: number,
-    timezone: string | undefined,
-    teamId: number,
-    ip: string,
-    host: string,
-    userAgent: string
-) {
-    const salt = getSaltForDay(timestamp, timezone)
-    const key = siphashDouble.string16_to_key(salt)
-    const rootDomain = getDomain(host) || host
-    // use the 128-bit version of siphash to get the result, with a stripe-style prefix so we can see what these ids are when debugging
-    return 'cklsh_' + siphashDouble.hash_hex(key, `${teamId.toString()}-${ip}-${rootDomain}-${userAgent}`)
-}
 
 export async function cookielessServerHashStep(
     runner: EventPipelineRunner,
@@ -73,19 +47,13 @@ export async function cookielessServerHashStep(
         return [undefined]
     }
 
-    // drop events that don't have the necessary properties
-    const userAgent = event.properties['$raw_user_agent']
-    const ip = event.properties['$ip']
-    const host = event.properties['$host']
-    const timezone = event.properties['$timezone']
-    const timestampMs = DateTime.fromISO(timestamp).toMillis()
-    const teamId = event.team_id
+    const { userAgent, ip, host, timezone, timestampMs, teamId } = getProperties(event, timestamp)
     if (!userAgent || !ip || !host) {
         // TODO log
         return [undefined]
     }
 
-    const hashValue = doHash(timestampMs, timezone, teamId, ip, host, userAgent)
+    const hashValue = doHash(runner.hub.db, timestampMs, timezone, teamId, ip, host, userAgent)
     event.properties['$device_id'] = hashValue
 
     // TRICKY: if a user were to log in and out, to avoid collisions, we would want a different hash value, so we store the set of identify event uuids for identifies
@@ -139,4 +107,75 @@ export async function cookielessServerHashStep(
     event.properties['$session_id'] = sessionInfo.s
 
     return [event]
+}
+
+function getProperties(
+    event: PluginEvent,
+    timestamp: string
+): {
+    userAgent: string | undefined
+    ip: string | undefined
+    host: string | undefined
+    timezone: string | undefined
+    timestampMs: number
+    teamId: number
+} {
+    const userAgent = event.properties?.['$raw_user_agent']
+    const ip = event.properties?.['$ip']
+    const host = event.properties?.['$host']
+    const timezone = event.properties?.['$timezone']
+    const timestampMs = DateTime.fromISO(timestamp).toMillis()
+    const teamId = event.team_id
+
+    return { userAgent, ip, host, timezone, timestampMs, teamId }
+}
+
+const localSaltMap: Record<string, string> = {}
+
+export async function getSaltForDay(db: DB, timestamp: number, timeZone: string | undefined): string {
+    // get the day based on the timezone
+    const parts = new Intl.DateTimeFormat('en', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(new Date(timestamp))
+    const year = parts.find((part) => part.type === 'year')?.value
+    const month = parts.find((part) => part.type === 'month')?.value
+    const day = parts.find((part) => part.type === 'day')?.value
+    const yyyymmdd = `${year}-${month}-${day}`
+
+    if (localSaltMap[yyyymmdd]) {
+        return localSaltMap[yyyymmdd]
+    }
+
+    // try to get it from redis instead
+    const salt = await db.redisGet<string | null>(`cookieless_salt:${yyyymmdd}`, null, 'cookielessServerHashStep')
+    if (salt) {
+        localSaltMap[yyyymmdd] = salt
+        return salt
+    }
+
+    // generate a new one
+    const newSaltParts = []
+
+    // lookup the salt for this day
+    // TODO
+    return dayParts[0] + dayParts[1] + dayParts[2] + '00000000'
+}
+
+export function doHash(
+    db: DB,
+    timestamp: number,
+    timezone: string | undefined,
+    teamId: number,
+    ip: string,
+    host: string,
+    userAgent: string
+) {
+    const salt = getSaltForDay(db, timestamp, timezone)
+    const key = siphashDouble.string16_to_key(salt)
+    const rootDomain = getDomain(host) || host
+    // use the 128-bit version of siphash to get the result, with a stripe-style prefix, so we can see what these ids are when debugging
+    return 'cklsh_' + siphashDouble.hash_hex(key, `${teamId.toString()}-${ip}-${rootDomain}-${userAgent}`)
 }
