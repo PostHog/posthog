@@ -37,7 +37,7 @@ from posthog.schema import (
 )
 from posthog.types import EntityNode, ExclusionEntityNode
 
-JOIN_ALGOS = "direct,parallel_hash,hash,full_sorting_merge"
+JOIN_ALGOS = "auto"
 
 
 class FunnelBase(ABC):
