@@ -36,7 +36,7 @@ import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
-export interface Fuse extends FuseClass<Destination> {}
+export interface Fuse extends FuseClass<Destination | SiteApp> {}
 
 export interface PipelineDestinationsLogicProps {
     types: HogFunctionTypeType[]
@@ -61,9 +61,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
     })),
     actions({
-        toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
+        toggleNode: (destination: Destination | SiteApp, enabled: boolean) => ({ destination, enabled }),
         toggleNodeHogFunction: (destination: FunctionDestination, enabled: boolean) => ({ destination, enabled }),
-        deleteNode: (destination: Destination) => ({ destination }),
+        deleteNode: (destination: Destination | SiteApp) => ({ destination }),
         deleteNodeBatchExport: (destination: BatchExportDestination) => ({ destination }),
         deleteNodeHogFunction: (destination: FunctionDestination) => ({ destination }),
         deleteNodeWebhook: (destination: WebhookDestination) => ({ destination }),
@@ -320,7 +320,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         deleteNode: ({ destination }) => {
             switch (destination.backend) {
                 case PipelineBackend.Plugin:
-                    actions.deleteNodeWebhook(destination)
+                    actions.deleteNodeWebhook(destination as WebhookDestination)
                     break
                 case PipelineBackend.BatchExport:
                     actions.deleteNodeBatchExport(destination)

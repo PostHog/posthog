@@ -14,24 +14,24 @@ import { SiteApp } from './types'
 import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export interface FrontendAppsProps {
-    noHeader?: boolean
+    asLegacyList?: boolean
 }
 
-export function FrontendApps({ noHeader }: FrontendAppsProps): JSX.Element {
+export function FrontendApps({ asLegacyList }: FrontendAppsProps): JSX.Element {
     const { loading, frontendApps } = useValues(frontendAppsLogic)
     const { toggleEnabled, loadPluginConfigs } = useActions(frontendAppsLogic)
 
-    const shouldShowEmptyState = frontendApps.length === 0 && !loading
+    const shouldShowEmptyState = frontendApps.length === 0 && !loading && !asLegacyList
 
     return (
         <>
-            {!noHeader && (
+            {!asLegacyList && (
                 <PageHeader
                     caption="Extend your web app with custom functionality."
                     buttons={<NewButton stage={PipelineStage.SiteApp} />}
                 />
             )}
-            {!noHeader && (
+            {!asLegacyList && (
                 <ProductIntroduction
                     productName="Site apps"
                     thingName="site app"
@@ -44,6 +44,12 @@ export function FrontendApps({ noHeader }: FrontendAppsProps): JSX.Element {
             )}
             {!shouldShowEmptyState && (
                 <>
+                    {!loading && asLegacyList && (
+                        <>
+                            <h2 className="mt-4">Legacy Site apps</h2>
+                            <p>These site apps are using an older system and should eventually be migrated over.</p>
+                        </>
+                    )}
                     <LemonTable
                         dataSource={frontendApps}
                         size="small"

@@ -18,7 +18,7 @@ import { HogFunctionStatusIndicator } from '../hogfunctions/HogFunctionStatusInd
 import { AppMetricSparkLineV2 } from '../metrics/AppMetricsV2Sparkline'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
-import { Destination, PipelineBackend } from '../types'
+import { Destination, PipelineBackend, SiteApp } from '../types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
 import { DestinationsFilters } from './DestinationsFilters'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
@@ -75,7 +75,7 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
             </h2>
             <DestinationOptionsTable types={types} />
             {/* Old site-apps until we migrate everyone onto the new ones */}
-            {types.includes('site_app') ? <FrontendApps noHeader /> : null}
+            {types.includes('site_app') ? <FrontendApps asLegacyList /> : null}
         </>
     )
 }
@@ -166,9 +166,9 @@ export function DestinationsTable({
                                   title: 'Frequency',
                                   key: 'interval',
                                   render: function RenderFrequency(_, destination) {
-                                      return destination.interval
+                                      return 'interval' in destination ? destination.interval : null
                                   },
-                              } as LemonTableColumn<Destination, any>,
+                              } as LemonTableColumn<Destination | SiteApp, any>,
                           ]
                         : []),
                     ...(showFrequencyHistory
@@ -192,10 +192,10 @@ export function DestinationsTable({
                                           </Link>
                                       )
                                   },
-                              } as LemonTableColumn<Destination, any>,
+                              } as LemonTableColumn<Destination | SiteApp, any>,
                           ]
                         : []),
-                    updatedAtColumn() as LemonTableColumn<Destination, any>,
+                    updatedAtColumn() as LemonTableColumn<Destination | SiteApp, any>,
                     {
                         title: 'Status',
                         key: 'enabled',
