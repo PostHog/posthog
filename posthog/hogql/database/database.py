@@ -47,7 +47,7 @@ from posthog.hogql.database.schema.person_distinct_id_overrides import (
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
-    join_with_person_distinct_id_overrides_table,
+    join_with_error_tracking_issue_fingerprint_overrides_table,
 )
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
@@ -221,6 +221,27 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
     )
 
 
+def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: Database) -> None:
+    database.events.fields["event_issue_id"] = ExpressionField(
+        name="event_issue_id",
+        # convert to UUID to match type of `issue_id` on overrides table
+        expr=parse_expr("toUUID(properties.$exception_issue_id)"),
+    )
+    database.events.fields["exception_issue_override"] = LazyJoin(
+        from_field=["fingerprint"],
+        join_table=ErrorTrackingIssueFingerprintOverridesTable(),
+        join_function=join_with_error_tracking_issue_fingerprint_overrides_table,
+    )
+    database.events.fields["issue_id"] = ExpressionField(
+        name="issue_id",
+        expr=parse_expr(
+            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.fingerprint`` is not Nullable
+            "if(not(empty(exception_issue_override.issue_id)), exception_issue_override.issue_id, event_issue_id)",
+            start=None,
+        ),
+    )
+
+
 def create_hogql_database(
     team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
 ) -> Database:
@@ -236,6 +257,8 @@ def create_hogql_database(
     team = team_arg or Team.objects.get(pk=team_id)
     modifiers = create_default_modifiers_for_team(team, modifiers)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+
+    _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
 
     if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
         # no change

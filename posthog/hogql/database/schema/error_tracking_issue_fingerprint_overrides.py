@@ -8,40 +8,18 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     StringDatabaseField,
     BooleanDatabaseField,
-    LazyJoin,
     LazyTable,
     FieldOrTable,
     LazyTableToAdd,
     LazyJoinToAdd,
 )
-from posthog.hogql.database.schema.persons import join_with_persons_table
 from posthog.hogql.errors import ResolutionError
 
 ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_FIELDS = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "fingerprint": StringDatabaseField(name="fingerprint"),
     "issue_id": StringDatabaseField(name="issue_id"),
-    "issue": LazyJoin(
-        from_field=["issue_id"],
-        join_table="errortrackingissue",
-        join_function=join_with_persons_table,
-    ),
 }
-
-
-def select_from_error_tracking_issue_fingerprint_overrides_table(requested_fields: dict[str, list[str | int]]):
-    # Always include "issue_id", as it's the key we use to make further joins, and it'd be great if it's available
-    if "issue_id" not in requested_fields:
-        requested_fields = {**requested_fields, "issue_id": ["issue_id"]}
-    select = argmax_select(
-        table_name="raw_error_tracking_issue_fingerprint_overrides",
-        select_fields=requested_fields,
-        group_fields=["fingerprint"],
-        argmax_field="version",
-        deleted_field="is_deleted",
-    )
-    select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
-    return select
 
 
 def join_with_error_tracking_issue_fingerprint_overrides_table(
@@ -61,12 +39,27 @@ def join_with_error_tracking_issue_fingerprint_overrides_table(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[join_to_add.from_table, "fingerprint"]),
+            left=ast.Field(chain=[join_to_add.from_table, "properties", "$exception_fingerprint"]),
             right=ast.Field(chain=[join_to_add.to_table, "fingerprint"]),
         ),
         constraint_type="ON",
     )
     return join_expr
+
+
+def select_from_error_tracking_issue_fingerprint_overrides_table(requested_fields: dict[str, list[str | int]]):
+    # Always include "issue_id", as it's the key we use to make further joins, and it'd be great if it's available
+    if "issue_id" not in requested_fields:
+        requested_fields = {**requested_fields, "issue_id": ["issue_id"]}
+    select = argmax_select(
+        table_name="raw_error_tracking_issue_fingerprint_overrides",
+        select_fields=requested_fields,
+        group_fields=["fingerprint"],
+        argmax_field="version",
+        deleted_field="is_deleted",
+    )
+    select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+    return select
 
 
 class RawErrorTrackingIssueFingerprintOverridesTable(Table):
@@ -77,7 +70,7 @@ class RawErrorTrackingIssueFingerprintOverridesTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "raw_error_tracking_issue_fingerprint_overrides"
+        return "error_tracking_issue_fingerprint_overrides"
 
     def to_printed_hogql(self):
         return "raw_error_tracking_issue_fingerprint_overrides"
