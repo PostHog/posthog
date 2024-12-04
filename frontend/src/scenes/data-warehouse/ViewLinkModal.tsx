@@ -121,6 +121,7 @@ export function ViewLinkForm(): JSX.Element {
                                 />
                                 {sourceIsUsingHogQLExpression && (
                                     <HogQLDropdown
+                                        className="mt-2"
                                         hogQLValue={selectedSourceKey ?? ''}
                                         onHogQLValueChange={selectSourceKey}
                                         tableName={selectedSourceTableName ?? ''}
@@ -146,6 +147,7 @@ export function ViewLinkForm(): JSX.Element {
                                 />
                                 {joiningIsUsingHogQLExpression && (
                                     <HogQLDropdown
+                                        className="mt-2"
                                         hogQLValue={selectedJoiningKey ?? ''}
                                         onHogQLValueChange={selectJoiningKey}
                                         tableName={selectedJoiningTableName ?? ''}

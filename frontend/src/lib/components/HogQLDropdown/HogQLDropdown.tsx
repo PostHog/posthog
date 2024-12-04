@@ -1,4 +1,5 @@
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useState } from 'react'
 
 import { NodeKind } from '~/queries/schema'
@@ -9,15 +10,17 @@ export const HogQLDropdown = ({
     hogQLValue,
     onHogQLValueChange,
     tableName,
+    className = '',
 }: {
     hogQLValue: string
     tableName: string
+    className?: string
     onHogQLValueChange: (hogQLValue: string) => void
 }): JSX.Element => {
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
 
     return (
-        <div className="flex-auto overflow-hidden mt-2">
+        <div className={clsx('flex-auto overflow-hidden', className)}>
             <LemonDropdown
                 visible={isHogQLDropdownVisible}
                 closeOnClickInside={false}
