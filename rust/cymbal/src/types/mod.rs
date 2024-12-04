@@ -49,7 +49,10 @@ pub struct Exception {
 pub struct RawErrProps {
     #[serde(rename = "$exception_list")]
     pub exception_list: Vec<Exception>,
-    #[serde(rename = "$exception_fingerprint")]
+    #[serde(
+        rename = "$exception_fingerprint",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub fingerprint: Option<String>, // Clients can send us fingerprints, which we'll use if present
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
