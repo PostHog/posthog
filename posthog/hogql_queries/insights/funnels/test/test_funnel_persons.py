@@ -716,7 +716,7 @@ class BaseTestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
 
         results = get_actors(filters, self.team, funnel_step=1)
-        self.assertCountEqual([results[0][0]], [person1.uuid])
+        self.assertCountEqual([results[0][0]["id"]], [person1.uuid])
 
         filters = {
             "insight": INSIGHT_FUNNELS,
@@ -791,7 +791,7 @@ class BaseTestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors(filters, self.team, funnel_step=1)
         self.assertEqual(len(results), 1)
-        self.assertCountEqual(set(results[0][1]["distinct_ids"]), {"person1", "anon1"})
+        self.assertCountEqual(set(results[0][0]["distinct_ids"]), {"person1", "anon1"})
 
         filters = {
             "insight": INSIGHT_FUNNELS,
@@ -809,8 +809,9 @@ class BaseTestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors(filters, self.team, funnel_step=1)
         self.assertEqual(len(results), 2)
-        self.assertCountEqual(set(results[0][1]["distinct_ids"]), {"person1", "anon1"})
-        self.assertCountEqual(set(results[1][1]["distinct_ids"]), {"person2", "anon2"})
+        results.sort(key=lambda x: x[0]["id"])
+        self.assertCountEqual(set(results[0][0]["distinct_ids"]), {"person1", "anon1"})
+        self.assertCountEqual(set(results[1][0]["distinct_ids"]), {"person2", "anon2"})
 
 
 class TestFunnelPersons(BaseTestFunnelPersons):
