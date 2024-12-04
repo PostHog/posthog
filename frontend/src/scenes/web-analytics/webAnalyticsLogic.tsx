@@ -216,6 +216,9 @@ const getDashboardItemId = (section: TileId, tab: string | undefined, isModal?: 
     // pretend to be a new-AdHoc to get the correct behaviour elsewhere
     return `new-AdHoc.web-analytics.${section}.${tab || 'default'}.${isModal ? 'modal' : 'default'}`
 }
+
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
     connect(() => ({
@@ -280,7 +283,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     reducers({
         webAnalyticsFilters: [
             initialWebAnalyticsFilter,
-            { persist: true },
+            persistConfig,
             {
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
                 togglePropertyFilter: (oldPropertyFilters, { key, value, type }): WebAnalyticsPropertyFilters => {
@@ -352,7 +355,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _graphsTab: [
             null as string | null,
-            { persist: true },
+            persistConfig,
             {
                 setGraphsTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.graphsTab || oldTab,
@@ -360,7 +363,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _sourceTab: [
             null as string | null,
-            { persist: true },
+            persistConfig,
             {
                 setSourceTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.sourceTab || oldTab,
@@ -368,7 +371,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _deviceTab: [
             null as string | null,
-            { persist: true },
+            persistConfig,
             {
                 setDeviceTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.deviceTab || oldTab,
@@ -376,7 +379,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _pathTab: [
             null as string | null,
-            { persist: true },
+            persistConfig,
             {
                 setPathTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.pathTab || oldTab,
@@ -384,7 +387,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _geographyTab: [
             null as string | null,
-            { persist: true },
+            persistConfig,
             {
                 setGeographyTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
@@ -392,7 +395,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         isPathCleaningEnabled: [
             null as boolean | null,
-            { persist: true },
+            persistConfig,
             {
                 setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
             },
@@ -413,7 +416,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 dateTo: initialDateTo,
                 interval: initialInterval,
             },
-            { persist: true },
+            persistConfig,
             {
                 setDates: (_, { dateTo, dateFrom }) => ({
                     dateTo,
@@ -443,21 +446,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         shouldFilterTestAccounts: [
             false as boolean,
-            { persist: true },
+            persistConfig,
             {
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
             },
         ],
         shouldStripQueryParams: [
             false as boolean,
-            { persist: true },
+            persistConfig,
             {
                 setShouldStripQueryParams: (_, { shouldStripQueryParams }) => shouldStripQueryParams,
             },
         ],
         conversionGoal: [
             null as WebAnalyticsConversionGoal | null,
-            { persist: true },
+            persistConfig,
             {
                 setConversionGoal: (_, { conversionGoal }) => conversionGoal,
             },

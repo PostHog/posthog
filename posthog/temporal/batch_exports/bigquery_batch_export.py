@@ -454,7 +454,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
         full_range = (data_interval_start, data_interval_end)
 
-        queue = RecordBatchQueue()
+        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer(clickhouse_client=client)
         producer_task = producer.start(
             queue=queue,
