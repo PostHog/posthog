@@ -575,9 +575,7 @@ export class HogExecutor {
         return values
     }
 
-    private enrichFetchRequest(
-        request: HogFunctionQueueParametersFetchRequest
-    ): HogFunctionQueueParametersFetchRequest {
+    public enrichFetchRequest(request: HogFunctionQueueParametersFetchRequest): HogFunctionQueueParametersFetchRequest {
         // TRICKY: Some 3rd parties require developer tokens to be passed in the headers
         // We don't want to expose these to the user so we add them here out of the custom code loop
 
@@ -585,6 +583,14 @@ export class HogExecutor {
 
         if (request.url.startsWith('https://googleads.googleapis.com/') && !request.headers['developer-token']) {
             request.headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
+        }
+
+        return request
+    }
+
+    public redactFetchRequest(request: HogFunctionQueueParametersFetchRequest): HogFunctionQueueParametersFetchRequest {
+        if (request.headers && request.headers['developer-token'] === this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN) {
+            delete request.headers['developer-token']
         }
 
         return request
