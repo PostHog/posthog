@@ -1,3 +1,4 @@
+import { Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useValues } from 'kea'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
@@ -24,23 +25,41 @@ export function SidePanelActivityMetalytics(): JSX.Element {
 
     return (
         <div className="space-y-4 ">
-            <div className="flex gap-4">
-                <div className="flex-1 p-4 border rounded bg-bg-light">
-                    <div className="text-sm text-muted">Number Of Sessions</div>
-                    <div className="text-2xl font-semibold">{viewCount ?? 0}</div>
-                </div>
+            <div className="flex flex-wrap gap-4">
+                <Tooltip
+                    title="The total number of times this scene has been viewed by members of your organization."
+                    placement="top"
+                >
+                    <div className="flex-1 p-4 border rounded bg-bg-light min-w-40">
+                        <div className="text-sm text-muted text-semibold">View count</div>
+                        <div className="text-2xl font-semibold">{viewCount?.views ?? 0}</div>
+                    </div>
+                </Tooltip>
 
-                <div className="flex-1 p-4 border rounded bg-bg-light">
-                    <div className="mb-2 text-sm text-muted">Recent Viewers (30 days)</div>
-                    <ProfileBubbles
-                        people={recentUserMembers.map((member) => ({
-                            email: member.user.email,
-                            name: member.user.first_name,
-                            title: member.user.email,
-                        }))}
-                        limit={3}
-                    />
-                </div>
+                <Tooltip
+                    title="The total number of unique organization members who have viewed this scene."
+                    placement="top"
+                >
+                    <div className="flex-1 p-4 border rounded bg-bg-light min-w-40">
+                        <div className="text-sm text-muted text-semibold">Viewer count</div>
+                        <div className="text-2xl font-semibold">{viewCount?.users ?? 0}</div>
+                    </div>
+                </Tooltip>
+
+                <Tooltip title="The most recent 30 users who have viewed this scene." placement="top">
+                    <div className="flex-1 p-4 border rounded bg-bg-light min-w-40">
+                        <div className="text-sm text-muted text-semibold">Recent viewers (30 days)</div>
+                        <ProfileBubbles
+                            className="mt-2"
+                            people={recentUserMembers.map((member) => ({
+                                email: member.user.email,
+                                name: member.user.first_name,
+                                title: member.user.email,
+                            }))}
+                            limit={3}
+                        />
+                    </div>
+                </Tooltip>
             </div>
 
             {/* This looks odd but is a weirdness of the Query component it needs to be bound in an insight logic */}

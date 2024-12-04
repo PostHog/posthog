@@ -10,7 +10,8 @@ import { metalyticsLogic } from './metalyticsLogic'
 
 export function MetalyticsSummary(): JSX.Element | null {
     const { instanceId, viewCount, viewCountLoading } = useValues(metalyticsLogic)
-    const safeViewCount = viewCount ?? 0
+    const safeViewCount = viewCount?.views ?? 0
+    const safeUniqueUsers = viewCount?.users ?? 0
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
     if (!instanceId || viewCountLoading) {
@@ -24,7 +25,7 @@ export function MetalyticsSummary(): JSX.Element | null {
                 icon={<IconPulse />}
                 size="small"
                 onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
-                tooltip="Click to see more usage data for this tool"
+                tooltip={`${safeUniqueUsers} PostHog members have viewed this a total of ${safeViewCount} times. Click to see more.`}
             />
         </IconWithCount>
     )

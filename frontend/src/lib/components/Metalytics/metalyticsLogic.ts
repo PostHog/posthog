@@ -18,22 +18,24 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
 
     loaders(({ values }) => ({
         viewCount: [
-            null as number | null,
+            null as { views: number; users: number } | null,
             {
                 loadViewCount: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT sum(count) as count
+                        query: hogql`SELECT SUM(count) AS count, COUNT(DISTINCT app_source_id) AS unique_users
                             FROM app_metrics
                             WHERE app_source = 'metalytics'
                             AND instance_id = ${values.instanceId}`,
                     }
 
                     // NOTE: I think this gets cached heavily - how to correctly invalidate?
-
                     const response = await api.query(query)
-                    const result = response.results as number[]
-                    return result[0]
+                    const result = response.results as number[][]
+                    return {
+                        views: result[0][0],
+                        users: result[0][1],
+                    }
                 },
             },
         ],
