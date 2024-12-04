@@ -17,9 +17,9 @@ import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
+import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
@@ -125,8 +125,8 @@ export const experimentLogic = kea<experimentLogicType>([
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
         values: [
-            teamLogic,
-            ['currentTeamId'],
+            projectLogic,
+            ['currentProjectId'],
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
             sceneLogic,
@@ -162,6 +162,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentVariantScreenshotUploaded',
                 'reportExperimentResultsLoadingTimeout',
                 'reportExperimentReleaseConditionsViewed',
+                'reportExperimentHoldoutAssigned',
             ],
         ],
     })),
@@ -231,7 +232,7 @@ export const experimentLogic = kea<experimentLogicType>([
             funnelWindowIntervalUnit,
             aggregation_group_type_index,
             funnelAggregateByHogQL,
-            isSecondary = false,
+            isSecondary,
         }: {
             metricIdx: number
             name?: string
@@ -495,7 +496,7 @@ export const experimentLogic = kea<experimentLogicType>([
             try {
                 if (isUpdate) {
                     response = await api.update(
-                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
+                        `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                         {
                             ...values.experiment,
                             parameters: {
@@ -523,7 +524,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
                 } else {
-                    response = await api.create(`api/projects/${values.currentTeamId}/experiments`, {
+                    response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
                         parameters: {
                             ...values.experiment?.parameters,
@@ -562,6 +563,9 @@ export const experimentLogic = kea<experimentLogicType>([
 
             if (experiment?.start_date) {
                 actions.loadExperimentResults()
+                if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS]) {
+                    actions.loadMetricResults()
+                }
                 actions.loadSecondaryMetricResults()
             }
         },
@@ -652,7 +656,8 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperiment: async ({ experiment }) => {
             const experimentEntitiesChanged =
                 (experiment.filters?.events && experiment.filters.events.length > 0) ||
-                (experiment.filters?.actions && experiment.filters.actions.length > 0)
+                (experiment.filters?.actions && experiment.filters.actions.length > 0) ||
+                (experiment.filters?.data_warehouse && experiment.filters.data_warehouse.length > 0)
 
             if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
                 return
@@ -667,7 +672,9 @@ export const experimentLogic = kea<experimentLogicType>([
 
             if (name === 'filters') {
                 const experimentEntitiesChanged =
-                    (value?.events && value.events.length > 0) || (value?.actions && value.actions.length > 0)
+                    (value?.events && value.events.length > 0) ||
+                    (value?.actions && value.actions.length > 0) ||
+                    (value?.data_warehouse && value.data_warehouse.length > 0)
 
                 if (!value || Object.keys(value).length === 0) {
                     return
@@ -685,7 +692,8 @@ export const experimentLogic = kea<experimentLogicType>([
 
             const experimentEntitiesChanged =
                 (experiment.filters?.events && experiment.filters.events.length > 0) ||
-                (experiment.filters?.actions && experiment.filters.actions.length > 0)
+                (experiment.filters?.actions && experiment.filters.actions.length > 0) ||
+                (experiment.filters?.data_warehouse && experiment.filters.data_warehouse.length > 0)
 
             if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
                 return
@@ -699,16 +707,17 @@ export const experimentLogic = kea<experimentLogicType>([
             const experiment = values.experiment
             const experimentEntitiesChanged =
                 (experiment.filters?.events && experiment.filters.events.length > 0) ||
-                (experiment.filters?.actions && experiment.filters.actions.length > 0)
+                (experiment.filters?.actions && experiment.filters.actions.length > 0) ||
+                (experiment.filters?.data_warehouse && experiment.filters.data_warehouse.length > 0)
 
             if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
                 return
             }
 
             if (experimentEntitiesChanged) {
-                const url = `/api/projects/${values.currentTeamId}/experiments/requires_flag_implementation?${toParams(
-                    experiment.filters || {}
-                )}`
+                const url = `/api/projects/${
+                    values.currentProjectId
+                }/experiments/requires_flag_implementation?${toParams(experiment.filters || {})}`
                 await breakpoint(100)
 
                 try {
@@ -752,7 +761,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     ...values.experiment.parameters,
                     variant_screenshot_media_ids: variantPreviewMediaIds,
                 }
-                await api.update(`api/projects/${values.currentTeamId}/experiments/${values.experimentId}`, {
+                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                     parameters: updatedParameters,
                 })
                 actions.setExperiment({
@@ -769,7 +778,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (props.experimentId && props.experimentId !== 'new') {
                     try {
                         const response = await api.get(
-                            `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`
+                            `api/projects/${values.currentProjectId}/experiments/${props.experimentId}`
                         )
                         return response as Experiment
                     } catch (error: any) {
@@ -784,7 +793,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
             updateExperiment: async (update: Partial<Experiment>) => {
                 const response: Experiment = await api.update(
-                    `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     update
                 )
                 return response
@@ -824,7 +833,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                         const refreshParam = refresh ? '?refresh=true' : ''
                         const response: ExperimentResults = await api.get(
-                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results${refreshParam}`
+                            `api/projects/${values.currentProjectId}/experiments/${values.experimentId}/results${refreshParam}`
                         )
                         return {
                             ...response.result,
@@ -844,6 +853,34 @@ export const experimentLogic = kea<experimentLogicType>([
                         }
                         return null
                     }
+                },
+            },
+        ],
+        metricResults: [
+            null as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[] | null,
+            {
+                loadMetricResults: async (
+                    refresh?: boolean
+                ): Promise<(CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[] | null> => {
+                    return (await Promise.all(
+                        values.experiment?.metrics.map(async (metric) => {
+                            try {
+                                // Queries are shareable, so we need to set the experiment_id for the backend to correctly associate the query with the experiment
+                                const queryWithExperimentId = {
+                                    ...metric,
+                                    experiment_id: values.experimentId,
+                                }
+                                const response = await performQuery(queryWithExperimentId, undefined, refresh)
+
+                                return {
+                                    ...response,
+                                    fakeInsightId: Math.random().toString(36).substring(2, 15),
+                                }
+                            } catch (error) {
+                                return {}
+                            }
+                        })
+                    )) as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
                 },
             },
         ],
@@ -870,7 +907,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                         experiment_id: values.experimentId,
                                     }
                                     const response: ExperimentResults = await api.create(
-                                        `api/projects/${values.currentTeamId}/query`,
+                                        `api/projects/${values.currentProjectId}/query`,
                                         { query: queryWithExperimentId, refresh: 'lazy_async' }
                                     )
 
@@ -892,7 +929,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         (values.experiment?.secondary_metrics || []).map(async (_, index) => {
                             try {
                                 const secResults = await api.get(
-                                    `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/secondary_results?id=${index}${refreshParam}`
+                                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}/secondary_results?id=${index}${refreshParam}`
                                 )
                                 // :TRICKY: Maintain backwards compatibility for cached responses, remove after cache period has expired
                                 if (secResults && secResults.result && !secResults.result.hasOwnProperty('result')) {
@@ -939,7 +976,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     const newFilters = transformFiltersForWinningVariant(currentFlagFilters, selectedVariantKey)
 
                     await api.update(
-                        `api/projects/${values.currentTeamId}/feature_flags/${values.experiment.feature_flag?.id}`,
+                        `api/projects/${values.currentProjectId}/feature_flags/${values.experiment.feature_flag?.id}`,
                         { filters: newFilters }
                     )
 
@@ -1045,7 +1082,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (!filters) {
                         return undefined
                     }
-                    entities = [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
+                    entities = [
+                        ...(filters?.events || []),
+                        ...(filters?.actions || []),
+                        ...(filters?.data_warehouse || []),
+                    ] as ActionFilterType[]
                 }
 
                 // Find out if we're using count per actor math aggregates averages per user

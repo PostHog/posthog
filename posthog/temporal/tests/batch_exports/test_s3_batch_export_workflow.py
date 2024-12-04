@@ -28,7 +28,7 @@ from posthog.temporal.batch_exports.batch_exports import (
 )
 from posthog.temporal.batch_exports.s3_batch_export import (
     FILE_FORMAT_EXTENSIONS,
-    HeartbeatDetails,
+    S3HeartbeatDetails,
     IntermittentUploadPartTimeoutError,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
@@ -517,7 +517,7 @@ async def s3_batch_export(
     await adelete_batch_export(batch_export, temporal_client)
 
 
-@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+@pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
@@ -1010,6 +1010,12 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     )
 
 
+class RetryableTestException(Exception):
+    """An exception to be raised during tests"""
+
+    pass
+
+
 async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch_export, interval):
     """Test S3BatchExport Workflow can handle errors from executing the insert into S3 activity.
 
@@ -1028,7 +1034,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
 
     @activity.defn(name="insert_into_s3_activity")
     async def insert_into_s3_activity_mocked(_: S3InsertInputs) -> str:
-        raise ValueError("A useful error message")
+        raise RetryableTestException("A useful error message")
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -1056,7 +1062,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
 
     run = runs[0]
     assert run.status == "FailedRetryable"
-    assert run.latest_error == "ValueError: A useful error message"
+    assert run.latest_error == "RetryableTestException: A useful error message"
     assert run.records_completed is None
 
 
@@ -1387,14 +1393,14 @@ async def test_insert_into_s3_activity_heartbeats(
             inserted_at=part_inserted_at,
         )
 
-    heartbeat_details = []
+    heartbeat_details: list[S3HeartbeatDetails] = []
 
     def track_hearbeat_details(*details):
         """Record heartbeat details received."""
         nonlocal heartbeat_details
 
-        details = HeartbeatDetails.from_activity_details(details)
-        heartbeat_details.append(details)
+        s3_details = S3HeartbeatDetails.from_activity_details(details)
+        heartbeat_details.append(s3_details)
 
     activity_environment.on_heartbeat = track_hearbeat_details
 
@@ -1415,11 +1421,13 @@ async def test_insert_into_s3_activity_heartbeats(
 
     assert len(heartbeat_details) > 0
 
-    for detail in heartbeat_details:
-        last_uploaded_part_dt = dt.datetime.fromisoformat(detail.last_uploaded_part_timestamp)
-        assert last_uploaded_part_dt == data_interval_end - s3_batch_export.interval_time_delta / len(
-            detail.upload_state.parts
-        )
+    detail = heartbeat_details[-1]
+
+    assert detail.upload_state is not None
+    assert len(detail.upload_state.parts) == 3
+    assert len(detail.done_ranges) == 1
+
+    assert detail.done_ranges[0] == (data_interval_start, data_interval_end)
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,

@@ -109,12 +109,21 @@ export function LemonMenu({
                 setTimeout(() => itemsRef?.current?.[activeItemIndex]?.current?.scrollIntoView({ block: 'center' }), 0)
             }
         },
+        // no need to update this when itemsRef changes
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [onVisibilityChange, activeItemIndex]
     )
 
     return (
         <LemonDropdown
-            overlay={<LemonMenuOverlay items={items} tooltipPlacement={tooltipPlacement} itemsRef={itemsRef} />}
+            overlay={
+                <LemonMenuOverlay
+                    buttonSize={dropdownProps.buttonSize || 'small'}
+                    items={items}
+                    tooltipPlacement={tooltipPlacement}
+                    itemsRef={itemsRef}
+                />
+            }
             closeOnClickInside
             referenceRef={referenceRef}
             onVisibilityChange={_onVisibilityChange}
@@ -128,7 +137,7 @@ export interface LemonMenuOverlayProps {
     tooltipPlacement?: TooltipProps['placement']
     itemsRef?: React.RefObject<React.RefObject<HTMLButtonElement>[]>
     /** @default 'small' */
-    buttonSize?: 'small' | 'medium'
+    buttonSize?: 'xsmall' | 'small' | 'medium'
 }
 
 export function LemonMenuOverlay({
@@ -159,7 +168,7 @@ export function LemonMenuOverlay({
 
 interface LemonMenuSectionListProps {
     sections: LemonMenuSection[]
-    buttonSize: 'small' | 'medium'
+    buttonSize: 'xsmall' | 'small' | 'medium'
     tooltipPlacement: TooltipProps['placement'] | undefined
     itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
 }
@@ -208,7 +217,7 @@ export function LemonMenuSectionList({
 
 interface LemonMenuItemListProps {
     items: LemonMenuItem[]
-    buttonSize: 'small' | 'medium'
+    buttonSize: 'xsmall' | 'small' | 'medium'
     tooltipPlacement: TooltipProps['placement'] | undefined
     itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
     itemIndexOffset?: number
@@ -241,7 +250,7 @@ export function LemonMenuItemList({
 
 interface LemonMenuItemButtonProps {
     item: LemonMenuItem
-    size: 'small' | 'medium'
+    size: 'xsmall' | 'small' | 'medium'
     tooltipPlacement: TooltipProps['placement'] | undefined
 }
 
@@ -280,8 +289,8 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     items={items}
                     tooltipPlacement={tooltipPlacement}
                     placement={placement || 'right-start'}
-                    closeOnClickInside={custom ? false : true}
-                    closeParentPopoverOnClickInside={custom ? false : true}
+                    closeOnClickInside={!custom}
+                    closeParentPopoverOnClickInside={!custom}
                 >
                     {button}
                 </LemonMenu>

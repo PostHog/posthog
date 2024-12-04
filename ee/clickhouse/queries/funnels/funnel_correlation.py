@@ -305,7 +305,7 @@ class FunnelCorrelation:
                     {event_join_query}
                     AND event.event IN %(event_names)s
             )
-            GROUP BY name
+            GROUP BY name, prop
             -- Discard high cardinality / low hits properties
             -- This removes the long tail of random properties with empty, null, or very small values
             HAVING (success_count + failure_count) > 2

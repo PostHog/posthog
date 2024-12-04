@@ -1,5 +1,5 @@
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
-import { ChannelType } from 'scenes/settings/environment/ChannelType'
+import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
@@ -136,7 +136,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'dead-clicks-autocapture',
                 title: 'Dead clicks autocapture',
                 component: <DeadClicksAutocaptureSettings />,
-                flag: 'DEAD_CLICKS_AUTOCAPTURE',
             },
         ],
     },
@@ -215,8 +214,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'channel-type',
-                title: 'Channel type',
-                component: <ChannelType />,
+                title: 'Custom channel type',
+                component: <CustomChannelTypes />,
             },
         ],
         flag: 'CUSTOM_CHANNEL_TYPE_RULES',

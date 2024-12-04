@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Executor;
@@ -44,7 +44,7 @@ impl ErrorTrackingStackFrame {
         E: Executor<'c, Database = sqlx::Postgres>,
     {
         let context = if let Some(context) = &self.context {
-            Some(serde_json::to_string(context)?)
+            Some(serde_json::to_value(context)?)
         } else {
             None
         };
@@ -66,7 +66,7 @@ impl ErrorTrackingStackFrame {
             serde_json::to_value(&self.contents)?,
             self.resolved,
             Uuid::now_v7(),
-            context
+            context,
         ).execute(e).await?;
         Ok(())
     }
@@ -75,6 +75,7 @@ impl ErrorTrackingStackFrame {
         e: E,
         team_id: i32,
         raw_id: &str,
+        result_ttl: Duration,
     ) -> Result<Option<Self>, UnhandledError>
     where
         E: Executor<'c, Database = sqlx::Postgres>,
@@ -86,7 +87,7 @@ impl ErrorTrackingStackFrame {
             symbol_set_id: Option<Uuid>,
             contents: Value,
             resolved: bool,
-            context: Option<String>,
+            context: Option<Value>,
         }
         let res = sqlx::query_as!(
             Returned,
@@ -105,14 +106,20 @@ impl ErrorTrackingStackFrame {
             return Ok(None);
         };
 
+        // If frame results are older than an hour or so, we discard them (and overwrite them)
+        if found.created_at < Utc::now() - result_ttl {
+            return Ok(None);
+        }
+
         // We don't serialise frame contexts on the Frame itself, but save it on the frame record,
         // and so when we load a frame record we need to patch back up the context onto the frame,
         // since we dropped it when we serialised the frame during saving.
         let mut frame: Frame = serde_json::from_value(found.contents)?;
-        let context = if let Some(context) = found.context.as_ref() {
+
+        let context = if let Some(context) = found.context {
             // We serialise the frame context as a json string, but it's a structure we have to manually
             // deserialise back into the frame.
-            Some(serde_json::from_str(context)?)
+            serde_json::from_value(context)?
         } else {
             None
         };

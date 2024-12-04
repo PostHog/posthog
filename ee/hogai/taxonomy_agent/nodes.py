@@ -27,6 +27,7 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_MALFORMED_JSON_PROMPT,
     REACT_MISSING_ACTION_CORRECTION_PROMPT,
     REACT_MISSING_ACTION_PROMPT,
+    REACT_PROPERTY_FILTERS_PROMPT,
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     REACT_SCRATCHPAD_PROMPT,
     REACT_USER_PROMPT,
@@ -77,6 +78,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     {
                         "react_format": self._get_react_format_prompt(toolkit),
                         "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
+                        "react_property_filters": self._get_react_property_filters_prompt(),
                         "product_description": self._team.project.product_description,
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
@@ -127,6 +129,14 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 tools=toolkit.render_text_description(),
                 tool_names=", ".join([t["name"] for t in toolkit.tools]),
             )[0]
+            .content,
+        )
+
+    def _get_react_property_filters_prompt(self) -> str:
+        return cast(
+            str,
+            ChatPromptTemplate.from_template(REACT_PROPERTY_FILTERS_PROMPT, template_format="mustache")
+            .format_messages(groups=self._team_group_types)[0]
             .content,
         )
 

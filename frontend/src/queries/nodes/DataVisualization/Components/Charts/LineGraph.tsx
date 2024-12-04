@@ -348,7 +348,9 @@ export const LineGraph = (): JSX.Element => {
                                             },
                                         ]}
                                         uppercaseHeader={false}
-                                        rowRibbonColor={(_datum, index) => getSeriesColor(index)}
+                                        rowRibbonColor={(_datum, index) =>
+                                            ySeriesData[index]?.settings?.display?.color ?? getSeriesColor(index)
+                                        }
                                         showHeader
                                     />
                                 </div>

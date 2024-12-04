@@ -33,5 +33,19 @@ export const alertsLogic = kea<alertsLogicType>([
     afterMount(({ actions }) => actions.loadAlerts()),
 ])
 
-const alertComparatorKey = (alert: AlertType): number =>
-    !alert.enabled ? 3 : alert.state === AlertState.NOT_FIRING ? 2 : 1
+const alertComparatorKey = (alert: AlertType): number => {
+    if (!alert.enabled) {
+        return 100
+    }
+
+    switch (alert.state) {
+        case AlertState.FIRING:
+            return 1
+        case AlertState.ERRORED:
+            return 2
+        case AlertState.SNOOZED:
+            return 3
+        case AlertState.NOT_FIRING:
+            return 4
+    }
+}

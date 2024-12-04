@@ -1,8 +1,5 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
-import api from 'lib/api'
 
 import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema'
 
@@ -29,28 +26,22 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     }),
 
     actions({
-        setOrder: (order: ErrorTrackingQuery['order']) => ({ order }),
-        setIsConfigurationModalOpen: (open: boolean) => ({ open }),
-        setSelectedRowIndexes: (ids: number[]) => ({ ids }),
+        setOrderBy: (orderBy: ErrorTrackingQuery['orderBy']) => ({ orderBy }),
+        setSelectedIssueIds: (ids: string[]) => ({ ids }),
     }),
+
     reducers({
-        order: [
-            'last_seen' as ErrorTrackingQuery['order'],
+        orderBy: [
+            'last_seen' as ErrorTrackingQuery['orderBy'],
             { persist: true },
             {
-                setOrder: (_, { order }) => order,
+                setOrderBy: (_, { orderBy }) => orderBy,
             },
         ],
-        isConfigurationModalOpen: [
-            false as boolean,
+        selectedIssueIds: [
+            [] as string[],
             {
-                setIsConfigurationModalOpen: (_, { open }) => open,
-            },
-        ],
-        selectedRowIndexes: [
-            [] as number[],
-            {
-                setSelectedRowIndexes: (_, { ids }) => ids,
+                setSelectedIssueIds: (_, { ids }) => ids,
             },
         ],
     }),
@@ -58,7 +49,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     selectors({
         query: [
             (s) => [
-                s.order,
+                s.orderBy,
                 s.dateRange,
                 s.assignee,
                 s.filterTestAccounts,
@@ -68,7 +59,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.hasGroupActions,
             ],
             (
-                order,
+                orderBy,
                 dateRange,
                 assignee,
                 filterTestAccounts,
@@ -78,7 +69,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 hasGroupActions
             ): DataTableNode =>
                 errorTrackingQuery({
-                    order,
+                    orderBy,
                     dateRange,
                     assignee,
                     filterTestAccounts,
@@ -93,22 +84,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     }),
 
     subscriptions(({ actions }) => ({
-        query: () => actions.setSelectedRowIndexes([]),
-    })),
-
-    forms(({ actions }) => ({
-        uploadSourceMap: {
-            defaults: { files: [] } as { files: File[] },
-            submit: async ({ files }) => {
-                if (files.length > 0) {
-                    const formData = new FormData()
-                    const file = files[0]
-                    formData.append('source_map', file)
-                    await api.errorTracking.uploadSourceMaps(formData)
-                    actions.setIsConfigurationModalOpen(false)
-                    lemonToast.success('Source map uploaded')
-                }
-            },
-        },
+        query: () => actions.setSelectedIssueIds([]),
     })),
 ])

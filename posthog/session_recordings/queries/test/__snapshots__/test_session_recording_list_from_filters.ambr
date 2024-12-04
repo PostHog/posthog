@@ -35,7 +35,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_action_filter.1
@@ -74,7 +75,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_action_filter.2
@@ -113,7 +115,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_action_filter.3
@@ -152,7 +155,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_all_filters_at_once
@@ -200,7 +204,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_any_event_filter_with_properties
@@ -239,7 +244,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_any_event_filter_with_properties.1
@@ -278,7 +284,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_any_event_filter_with_properties.2
@@ -317,7 +324,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_any_event_filter_with_properties_materialized
@@ -356,7 +364,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_any_event_filter_with_properties_materialized.1
@@ -395,7 +404,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_any_event_filter_with_properties_materialized.2
@@ -434,7 +444,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query
@@ -468,7 +479,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions
@@ -502,7 +514,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions.1
@@ -536,7 +549,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions.2
@@ -570,7 +584,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering
@@ -604,7 +619,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering.1
@@ -638,7 +654,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering.2
@@ -672,7 +689,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_paging
@@ -706,7 +724,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_paging.1
@@ -740,7 +759,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_paging.2
@@ -774,7 +794,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter
@@ -808,7 +829,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter.1
@@ -842,7 +864,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl
@@ -876,7 +899,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl.1
@@ -910,7 +934,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl.2
@@ -944,7 +969,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_to_filter
@@ -978,7 +1004,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_to_filter.1
@@ -1012,7 +1039,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_duration_filter
@@ -1046,7 +1074,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_duration_filter.1
@@ -1080,7 +1109,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter
@@ -1119,7 +1149,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter.1
@@ -1158,7 +1189,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_has_ttl_applied_too
@@ -1197,7 +1229,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_has_ttl_applied_too.1
@@ -1231,7 +1264,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_active_sessions
@@ -1270,7 +1304,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_active_sessions.1
@@ -1309,7 +1344,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_group_filter
@@ -1353,7 +1389,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_group_filter.1
@@ -1397,7 +1434,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_group_filter.2
@@ -1441,7 +1479,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_event_properties_test_accounts_excluded
@@ -1480,7 +1519,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_event_properties_test_accounts_excluded.1
@@ -1534,7 +1574,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_event_properties_test_accounts_excluded.2
@@ -1588,7 +1629,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized
@@ -1627,7 +1669,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.1
@@ -1681,7 +1724,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.2
@@ -1735,7 +1779,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_person_properties
@@ -1789,7 +1834,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_person_properties.1
@@ -1843,7 +1889,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties
@@ -1882,7 +1929,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties.1
@@ -1921,7 +1969,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties_materialized
@@ -1960,7 +2009,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties_materialized.1
@@ -1999,7 +2049,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_matching_on_session_id
@@ -2038,7 +2089,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_matching_on_session_id.1
@@ -2077,7 +2129,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties
@@ -2116,7 +2169,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.1
@@ -2155,7 +2209,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.2
@@ -2194,7 +2249,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.3
@@ -2233,7 +2289,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized
@@ -2272,7 +2329,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.1
@@ -2311,7 +2369,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.2
@@ -2350,7 +2409,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.3
@@ -2389,7 +2449,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_test_accounts_excluded
@@ -2443,7 +2504,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_test_accounts_excluded.1
@@ -2482,7 +2544,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_test_accounts_excluded_materialized
@@ -2536,7 +2599,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_test_accounts_excluded_materialized.1
@@ -2575,7 +2639,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_two_events_and_multiple_teams
@@ -2614,10 +2679,11 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
-# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text_0__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id),
@@ -2640,10 +2706,10 @@
   WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message, log_entries.log_source AS log_source
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(or(or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.level, 'error'), 0)), ifNull(equals(console_logs_log_entries.message, 'message 4'), 0)), ifNull(equals(console_logs_log_entries.log_source, 'session_replay'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE or(or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.level, 'error'), 0)), ifNull(ilike(console_logs_log_entries.message, '%message 4%'), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2654,10 +2720,11 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
-# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.1
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text_1__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id),
@@ -2680,10 +2747,10 @@
   WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message, log_entries.log_source AS log_source
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(and(or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.level, 'error'), 0)), ifNull(ilike(console_logs_log_entries.message, '%message 5%'), 0)), ifNull(equals(console_logs_log_entries.log_source, 'session_replay'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.level, 'error'), 0)), ifNull(ilike(console_logs_log_entries.message, '%message 5%'), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2694,10 +2761,11 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
-# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.2
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text_2__key_level_value_info_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id),
@@ -2720,10 +2788,10 @@
   WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message, log_entries.log_source AS log_source
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ifNull(ilike(console_logs_log_entries.message, '%message 5%'), 0)), ifNull(equals(console_logs_log_entries.log_source, 'session_replay'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ifNull(ilike(console_logs_log_entries.message, '%message 5%'), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2734,7 +2802,131 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text_0__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                             FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
+                                                                                                                                                                                                                                                                                                                                                                                                                                FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE or(or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.level, 'error'), 0)), ifNull(ilike(console_logs_log_entries.message, '%message 4%'), 0)))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text_1__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                             FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
+                                                                                                                                                                                                                                                                                                                                                                                                                                FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.level, 'error'), 0)), ifNull(ilike(console_logs_log_entries.message, '%message 5%'), 0)))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text_2__key_level_value_info_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                             FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
+                                                                                                                                                                                                                                                                                                                                                                                                                                FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ifNull(ilike(console_logs_log_entries.message, '%message 5%'), 0)))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_snapshot_source
@@ -2768,7 +2960,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_snapshot_source.1
@@ -2802,7 +2995,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_errors
@@ -2828,10 +3022,10 @@
   WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.log_source AS log_source
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(ifNull(equals(console_logs_log_entries.level, 'error'), 0), ifNull(equals(console_logs_log_entries.log_source, 'session_replay'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE ifNull(equals(console_logs_log_entries.level, 'error'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2842,7 +3036,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_errors.1
@@ -2868,10 +3063,10 @@
   WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.log_source AS log_source
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ifNull(equals(console_logs_log_entries.log_source, 'session_replay'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2882,7 +3077,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_logs
@@ -2908,10 +3104,10 @@
   WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.log_source AS log_source
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ifNull(equals(console_logs_log_entries.log_source, 'session_replay'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2922,7 +3118,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_logs.1
@@ -2948,10 +3145,10 @@
   WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.log_source AS log_source
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.log_source, 'session_replay'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE ifNull(equals(console_logs_log_entries.level, 'warn'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2962,7 +3159,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_warns
@@ -2988,10 +3186,10 @@
   WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.log_source AS log_source
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.log_source, 'session_replay'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE ifNull(equals(console_logs_log_entries.level, 'warn'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -3002,7 +3200,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_warns.1
@@ -3028,10 +3227,10 @@
   WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.log_source AS log_source
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ifNull(equals(console_logs_log_entries.log_source, 'session_replay'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -3042,7 +3241,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_mixed_console_counts
@@ -3068,10 +3268,10 @@
   WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.log_source AS log_source
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.level, 'error'), 0)), ifNull(equals(console_logs_log_entries.log_source, 'session_replay'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.level, 'error'), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -3082,7 +3282,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_mixed_console_counts.1
@@ -3108,10 +3309,10 @@
   WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.log_source AS log_source
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ifNull(equals(console_logs_log_entries.log_source, 'session_replay'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -3122,7 +3323,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_on_session_ids
@@ -3161,7 +3363,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_on_session_ids.1
@@ -3200,7 +3403,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_cohort_properties
@@ -3268,7 +3472,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_events_and_cohorts
@@ -3341,7 +3546,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_events_and_cohorts.3
@@ -3394,7 +3600,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_person_properties_exact
@@ -3448,7 +3655,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_person_properties_not_contains
@@ -3502,7 +3710,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_static_and_dynamic_cohort_properties
@@ -3599,7 +3808,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_static_and_dynamic_cohort_properties.6
@@ -3647,7 +3857,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_static_and_dynamic_cohort_properties.7
@@ -3701,7 +3912,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_multiple_event_filters
@@ -3740,7 +3952,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_multiple_event_filters.1
@@ -3779,7 +3992,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_multiple_event_filters.2
@@ -3818,7 +4032,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_multiple_event_filters.3
@@ -3857,7 +4072,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_multiple_event_filters.4
@@ -3896,7 +4112,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_multiple_event_filters.5
@@ -3935,7 +4152,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_event_filters
@@ -3974,7 +4192,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_event_filters.1
@@ -4013,10 +4232,11 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
-# name: TestSessionRecordingsListFromFilters.test_operand_or_filters
+# name: TestSessionRecordingsListFromFilters.test_operand_or_filters_0__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id),
@@ -4039,10 +4259,10 @@
   WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message, log_entries.log_source AS log_source
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(and(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)), ifNull(equals(console_logs_log_entries.log_source, 'session_replay'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -4053,10 +4273,11 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
-# name: TestSessionRecordingsListFromFilters.test_operand_or_filters.1
+# name: TestSessionRecordingsListFromFilters.test_operand_or_filters_1__key_level_value_info_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id),
@@ -4079,10 +4300,10 @@
   WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message, log_entries.log_source AS log_source
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)), ifNull(equals(console_logs_log_entries.log_source, 'session_replay'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -4093,7 +4314,336 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_operand_or_filters_2__key_level_value_warn_operator_exact_type_log_entry_
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                             FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
+                                                                                                                                                                                                                                                                                                                                                                                                                                FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE ifNull(equals(console_logs_log_entries.level, 'warn'), 0))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_operand_or_filters_3__key_message_value_random_operator_exact_type_log_entry_
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                             FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.message AS message
+                                                                                                                                                                                                                                                                                                                                                                                                                                FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE ifNull(equals(console_logs_log_entries.message, 'random'), 0))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_operand_or_filters_4__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                             FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
+                                                                                                                                                                                                                                                                                                                                                                                                                                FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_operand_or_filters_0__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                             FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
+                                                                                                                                                                                                                                                                                                                                                                                                                                FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_operand_or_filters_1__key_level_value_info_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                             FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
+                                                                                                                                                                                                                                                                                                                                                                                                                                FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_operand_or_filters_2__key_level_value_warn_operator_exact_type_log_entry_
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                             FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
+                                                                                                                                                                                                                                                                                                                                                                                                                                FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE ifNull(equals(console_logs_log_entries.level, 'warn'), 0))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_operand_or_filters_3__key_message_value_random_operator_exact_type_log_entry_
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                             FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.message AS message
+                                                                                                                                                                                                                                                                                                                                                                                                                                FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE ifNull(equals(console_logs_log_entries.message, 'random'), 0))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_operand_or_filters_4__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                             FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
+                                                                                                                                                                                                                                                                                                                                                                                                                                FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_mandatory_filters
@@ -4141,7 +4691,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_mandatory_filters.1
@@ -4189,7 +4740,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_mandatory_filters.2
@@ -4228,7 +4780,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_mandatory_filters.3
@@ -4267,7 +4820,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_person_filters
@@ -4321,7 +4875,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_operand_or_person_filters.1
@@ -4375,7 +4930,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_ordering
@@ -4409,7 +4965,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_ordering.1
@@ -4443,7 +5000,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_person_id_filter
@@ -4486,7 +5044,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_sessions_with_current_data
@@ -4520,7 +5079,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_host_property_test_account_filter
@@ -4559,7 +5119,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_host_property_test_account_filter.1
@@ -4598,7 +5159,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_host_property_test_account_filter_materialized
@@ -4637,7 +5199,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_host_property_test_account_filter_materialized.1
@@ -4676,7 +5239,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter
@@ -4715,7 +5279,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter.1
@@ -4754,7 +5319,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter_allowing_denormalized_props
@@ -4793,7 +5359,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter_allowing_denormalized_props.1
@@ -4832,7 +5399,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized
@@ -4871,7 +5439,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized.1
@@ -4910,7 +5479,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter_materialized
@@ -4949,7 +5519,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_event_property_test_account_filter_materialized.1
@@ -4988,7 +5559,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter
@@ -5027,7 +5599,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter.1
@@ -5066,7 +5639,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter_materialized
@@ -5105,7 +5679,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter_materialized.1
@@ -5144,7 +5719,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter
@@ -5183,7 +5759,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter.1
@@ -5237,7 +5814,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter_materialized
@@ -5276,7 +5854,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter_materialized.1
@@ -5330,7 +5909,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter
@@ -5369,7 +5949,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter.1
@@ -5423,7 +6004,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter_materialized
@@ -5462,7 +6044,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter_materialized.1
@@ -5516,6 +6099,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0
   '''
 # ---

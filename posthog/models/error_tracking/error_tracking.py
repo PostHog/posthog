@@ -56,6 +56,7 @@ class ErrorTrackingSymbolSet(UUIDModel):
     # If we failed to resolve this symbol set, we store the reason here, so
     # we can return the language-relevant error in the future.
     failure_reason = models.TextField(null=True, blank=True)
+    content_hash = models.TextField(null=True, blank=False)
 
     class Meta:
         indexes = [
@@ -76,7 +77,7 @@ class ErrorTrackingStackFrame(UUIDModel):
     contents = models.JSONField(null=False, blank=False)
     resolved = models.BooleanField(null=False, blank=False)
     # The context around the frame, +/- a few lines, if we can get it
-    context = models.TextField(null=True, blank=True)
+    context = models.JSONField(null=True, blank=True)
 
     class Meta:
         indexes = [

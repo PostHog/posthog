@@ -30,7 +30,7 @@ from .early_access_feature import EarlyAccessFeature
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .error_tracking import ErrorTrackingGroup
+from .error_tracking import ErrorTrackingIssue, ErrorTrackingStackFrame, ErrorTrackingSymbolSet
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
@@ -101,7 +101,9 @@ __all__ = [
     "Element",
     "ElementGroup",
     "Entity",
-    "ErrorTrackingGroup",
+    "ErrorTrackingIssue",
+    "ErrorTrackingStackFrame",
+    "ErrorTrackingSymbolSet",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -119,6 +121,7 @@ __all__ = [
     "InsightViewed",
     "InstanceSetting",
     "Integration",
+    "InviteExpiredException",
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",

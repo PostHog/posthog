@@ -5,7 +5,7 @@ import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
-import { FEATURE_FLAGS, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -14,17 +14,14 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 
 import { experimentLogic } from './experimentLogic'
-import { ExperimentsDisabledBanner } from './Experiments'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, featureFlags, groupTypes, aggregationLabel, dynamicFeatureFlagKey } = useValues(experimentLogic)
+    const { experiment, groupTypes, aggregationLabel, dynamicFeatureFlagKey } = useValues(experimentLogic)
     const { addExperimentGroup, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
         useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
 
-    return featureFlags[FEATURE_FLAGS.EXPERIMENTS_MIGRATION_DISABLE_UI] ? (
-        <ExperimentsDisabledBanner />
-    ) : (
+    return (
         <div>
             <div className="space-y-8">
                 <div className="space-y-6 max-w-120">
@@ -224,14 +221,12 @@ const ExperimentFormFields = (): JSX.Element => {
                         </div>
                     </div>
                 </div>
-                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS] && (
-                    <div>
-                        <h3>Holdout group</h3>
-                        <div className="text-xs text-muted">Exclude a stable group of users from the experiment.</div>
-                        <LemonDivider />
-                        <HoldoutSelector />
-                    </div>
-                )}
+                <div>
+                    <h3>Holdout group</h3>
+                    <div className="text-xs text-muted">Exclude a stable group of users from the experiment.</div>
+                    <LemonDivider />
+                    <HoldoutSelector />
+                </div>
             </div>
             <LemonButton
                 className="mt-2"
