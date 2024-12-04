@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import * as siphashDouble from 'siphash/lib/siphash-double'
 import { getDomain } from 'tldts'
 
+import { ConcurrencyController } from '../../../utils/concurrencyController'
 import { DB } from '../../../utils/db/db'
 import { UUID7 } from '../../../utils/utils'
 import { EventPipelineRunner } from './runner'
@@ -53,7 +54,7 @@ export async function cookielessServerHashStep(
         return [undefined]
     }
 
-    const hashValue = doHash(runner.hub.db, timestampMs, timezone, teamId, ip, host, userAgent)
+    const hashValue = await doHash(runner.hub.db, timestampMs, timezone, teamId, ip, host, userAgent)
     event.properties['$device_id'] = hashValue
 
     // TRICKY: if a user were to log in and out, to avoid collisions, we would want a different hash value, so we store the set of identify event uuids for identifies
@@ -123,16 +124,17 @@ function getProperties(
     const userAgent = event.properties?.['$raw_user_agent']
     const ip = event.properties?.['$ip']
     const host = event.properties?.['$host']
-    const timezone = event.properties?.['$timezone']
+    const timezone = event.properties?.['$timezone'] || TIMEZONE_FALLBACK
     const timestampMs = DateTime.fromISO(timestamp).toMillis()
     const teamId = event.team_id
 
     return { userAgent, ip, host, timezone, timestampMs, teamId }
 }
 
-const localSaltMap: Record<string, string> = {}
+const localSaltMap: Record<string, Uint32Array> = {}
+const mutex = new ConcurrencyController(1)
 
-export async function getSaltForDay(db: DB, timestamp: number, timeZone: string | undefined): string {
+export async function getSaltForDay(db: DB, timestamp: number, timeZone: string): Promise<Uint32Array> {
     // get the day based on the timezone
     const parts = new Intl.DateTimeFormat('en', {
         timeZone,
@@ -145,37 +147,83 @@ export async function getSaltForDay(db: DB, timestamp: number, timeZone: string 
     const day = parts.find((part) => part.type === 'day')?.value
     const yyyymmdd = `${year}-${month}-${day}`
 
+    // see if we have it locally
     if (localSaltMap[yyyymmdd]) {
         return localSaltMap[yyyymmdd]
     }
 
-    // try to get it from redis instead
-    const salt = await db.redisGet<string | null>(`cookieless_salt:${yyyymmdd}`, null, 'cookielessServerHashStep')
-    if (salt) {
-        localSaltMap[yyyymmdd] = salt
-        return salt
-    }
+    // get the salt for the day from redis, but only do this once for this node process
+    return mutex.run({
+        fn: async (): Promise<Uint32Array> => {
+            // check if we got the salt while waiting for the mutex
+            if (localSaltMap[yyyymmdd]) {
+                return localSaltMap[yyyymmdd]
+            }
 
-    // generate a new one
-    const newSaltParts = []
+            // try to get it from redis instead
+            const saltBase64 = await db.redisGet<string | null>(
+                `cookieless_salt:${yyyymmdd}`,
+                null,
+                'cookielessServerHashStep'
+            )
+            if (saltBase64) {
+                const salt = base64StringToUint32Array(saltBase64)
+                localSaltMap[yyyymmdd] = salt
+                return salt
+            }
 
-    // lookup the salt for this day
-    // TODO
-    return dayParts[0] + dayParts[1] + dayParts[2] + '00000000'
+            // try to write a new one to redis, but don't overwrite
+            const newSaltParts = createRandomUint32x4()
+            const setResult = await db.redisSetNK(
+                `cookieless_salt:${yyyymmdd}`,
+                uint32ArrayToBase64String(newSaltParts),
+                'cookielessServerHashStep',
+                60 * 60 * 24 * 3
+            )
+            if (setResult === 'OK') {
+                localSaltMap[yyyymmdd] = newSaltParts
+                return newSaltParts
+            }
+
+            // if we couldn't write, it means that it exists in redis already
+            const saltBase64Retry = await db.redisGet<string | null>(
+                `cookieless_salt:${yyyymmdd}`,
+                null,
+                'cookielessServerHashStep'
+            )
+            if (!saltBase64Retry) {
+                throw new Error('Failed to get salt from redis')
+            }
+            return base64StringToUint32Array(saltBase64Retry)
+        },
+        priority: timestamp,
+    })
 }
 
-export function doHash(
+export function base64StringToUint32Array(base64: string): Uint32Array {
+    return new Uint32Array(Buffer.from(base64, 'base64').buffer)
+}
+export function uint32ArrayToBase64String(uint32Array: Uint32Array): string {
+    return Buffer.from(uint32Array.buffer).toString('base64')
+}
+
+export function createRandomUint32x4(): Uint32Array {
+    const randomArray = new Uint32Array(4)
+    crypto.getRandomValues(randomArray)
+    return randomArray
+}
+
+export async function doHash(
     db: DB,
     timestamp: number,
-    timezone: string | undefined,
+    timezone: string,
     teamId: number,
     ip: string,
     host: string,
     userAgent: string
 ) {
-    const salt = getSaltForDay(db, timestamp, timezone)
-    const key = siphashDouble.string16_to_key(salt)
+    const salt = await getSaltForDay(db, timestamp, timezone)
     const rootDomain = getDomain(host) || host
     // use the 128-bit version of siphash to get the result, with a stripe-style prefix, so we can see what these ids are when debugging
-    return 'cklsh_' + siphashDouble.hash_hex(key, `${teamId.toString()}-${ip}-${rootDomain}-${userAgent}`)
+    return 'cklsh_' + siphashDouble.hash_hex(salt, `${teamId.toString()}-${ip}-${rootDomain}-${userAgent}`)
 }

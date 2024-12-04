@@ -254,6 +254,32 @@ export class DB {
         })
     }
 
+    public redisSetNK(
+        key: string,
+        value: unknown,
+        tag: string,
+        ttlSeconds?: number,
+        options: CacheOptions = {}
+    ): Promise<'OK' | null> {
+        const { jsonSerialize = true } = options
+
+        return instrumentQuery('query.redisSetNK', tag, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key (NK)', { key })
+            try {
+                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
+                if (ttlSeconds) {
+                    return await client.set(key, serializedValue, 'EX', ttlSeconds, 'NK')
+                } else {
+                    return await client.set(key, serializedValue)
+                }
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
     public redisSetMulti(kv: Array<[string, unknown]>, ttlSeconds?: number, options: CacheOptions = {}): Promise<void> {
         const { jsonSerialize = true } = options
 
