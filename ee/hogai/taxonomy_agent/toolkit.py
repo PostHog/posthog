@@ -55,6 +55,7 @@ class SingleArgumentTaxonomyAgentTool(BaseModel):
         "retrieve_event_properties",
         "final_answer",
         "handle_incorrect_response",
+        "ask_human_for_help",
     ]
     arguments: str
 
@@ -143,6 +144,16 @@ class TaxonomyAgentToolkit(ABC):
                     Args:
                         entity: The type of the entity that you want to retrieve properties for.
                         property_name: The name of the property that you want to retrieve values for.
+                """,
+            },
+            {
+                "name": "ask_human_for_help",
+                "signature": "(question: str)",
+                "description": """
+                    When you aren't able to determine the taxonomy to answer the user's question, use this tool to ask a human for help.
+
+                    Args:
+                        question: The question you want to ask.
                 """,
             },
         ]

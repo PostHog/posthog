@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage as LangchainAssistantMessage, Base
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
+from langgraph.errors import NodeInterrupt
 from pydantic import ValidationError
 
 from ee.hogai.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
@@ -232,7 +233,7 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
     ) -> AssistantState:
         intermediate_steps = state.get("intermediate_steps") or []
-        action, _ = intermediate_steps[-1]
+        action, observation = intermediate_steps[-1]
 
         try:
             input = TaxonomyAgentTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
@@ -250,6 +251,13 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
                 "plan": input.arguments,
                 "intermediate_steps": None,
             }
+        if input.name == "ask_human_for_help":
+            # The agent has requested help, so we interrupt the graph.
+            if not observation:
+                raise NodeInterrupt(input.arguments)
+
+            # Feedback was provided.
+            return {"intermediate_steps": [*intermediate_steps[:-1], (action, observation)]}
 
         output = ""
         if input.name == "retrieve_event_properties":

@@ -1,9 +1,10 @@
 from collections.abc import AsyncGenerator, Generator, Iterator
-from functools import partial
+from functools import cached_property, partial
 from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union
 
 from asgiref.sync import sync_to_async
 from langchain_core.messages import AIMessageChunk
+from langchain_core.runnables.config import RunnableConfig
 from langfuse.callback import CallbackHandler
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
@@ -17,7 +18,7 @@ from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
 )
-from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation
+from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation, ReplaceMessages
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.schema import (
@@ -110,11 +111,10 @@ class Assistant:
                 break
 
     def _stream(self) -> Generator[str, None, None]:
-        callbacks = [langfuse_handler] if langfuse_handler else []
+        state = self._get_saved_state()
+        config = self._config
         generator: Iterator[Any] = self._graph.stream(
-            self._initial_state,
-            config={"recursion_limit": 24, "callbacks": callbacks},
-            stream_mode=["messages", "values", "updates", "debug"],
+            state, config=config, stream_mode=["messages", "values", "updates", "debug"]
         )
 
         # Send a chunk to establish the connection avoiding the worker's timeout.
@@ -127,7 +127,13 @@ class Assistant:
                     if isinstance(message, VisualizationMessage):
                         last_viz_message = message
                     yield self._serialize_message(message)
-            self._report_conversation(last_viz_message)
+
+            # Check if the assistant has requested help.
+            state = self._graph.get_state(config)
+            if state.next:
+                yield self._serialize_message(AssistantMessage(content=state.tasks[0].interrupts[0].value, done=True))
+            else:
+                self._report_conversation(last_viz_message)
         except:
             # This is an unhandled error, so we just stop further generation at this point
             yield self._serialize_message(FailureMessage())
@@ -137,6 +143,32 @@ class Assistant:
     def _initial_state(self) -> AssistantState:
         messages = [message.root for message in self._conversation.messages]
         return {"messages": messages, "intermediate_steps": None, "plan": None}
+
+    @cached_property
+    def _config(self) -> RunnableConfig:
+        callbacks = [langfuse_handler] if langfuse_handler else []
+        config: RunnableConfig = {
+            "recursion_limit": 24,
+            "callbacks": callbacks,
+            "configurable": {"thread_id": self._conversation.session_id},
+        }
+        return config
+
+    def _get_saved_state(self):
+        config = self._config
+        saved_state = self._graph.get_state(config)
+        if saved_state.next:
+            intermediate_steps = saved_state.values.get("intermediate_steps", []).copy()
+            intermediate_steps[-1][1] = self._conversation.messages[-1].root.content
+            self._graph.update_state(
+                config,
+                {
+                    "messages": ReplaceMessages(message.root for message in self._conversation.messages[:-2]),
+                    "intermediate_steps": intermediate_steps,
+                },
+            )
+            return None
+        return self._initial_state
 
     def _node_to_reasoning_message(
         self, node_name: AssistantNodeName, input: AssistantState

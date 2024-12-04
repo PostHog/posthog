@@ -1,4 +1,3 @@
-import operator
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from enum import StrEnum
@@ -31,12 +30,24 @@ AssistantMessageUnion = Union[
 
 
 class Conversation(BaseModel):
-    messages: list[RootAssistantMessage] = Field(..., min_length=1, max_length=20)
+    messages: list[RootAssistantMessage] = Field(..., min_length=1, max_length=100)
     session_id: str
 
 
+class ReplaceMessages(list[AssistantMessageUnion]):
+    pass
+
+
+def add_messages(
+    left: Sequence[AssistantMessageUnion], right: Sequence[AssistantMessageUnion]
+) -> Sequence[AssistantMessageUnion]:
+    if isinstance(right, ReplaceMessages):
+        return list(right)
+    return left + right
+
+
 class AssistantState(TypedDict, total=False):
-    messages: Annotated[Sequence[AssistantMessageUnion], operator.add]
+    messages: Annotated[Sequence[AssistantMessageUnion], add_messages]
     intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]]
     plan: Optional[str]
 
