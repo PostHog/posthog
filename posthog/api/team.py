@@ -24,8 +24,6 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -38,14 +36,16 @@ from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
-    APIScopePermission,
     AccessControlPermission,
+    APIScopePermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     get_organization_from_view,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
@@ -615,29 +615,34 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             return response.Response({"error": "product_type is required"}, status=400)
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
-        if not created:
+
+        if created:
+            # For new intents, check activation immediately but skip reporting
+            was_already_activated = product_intent.check_and_update_activation(skip_reporting=True)
+
+            # Only report the action if they haven't already activated
+            if isinstance(user, User) and not was_already_activated:
+                report_user_action(
+                    user,
+                    "user showed product intent",
+                    {
+                        "product_key": product_type,
+                        "$set_once": {"first_onboarding_product_selected": product_type},
+                        "$current_url": current_url,
+                        "$session_id": session_id,
+                        "intent_context": request.data.get("intent_context"),
+                        "is_first_intent_for_product": created,
+                        "intent_created_at": product_intent.created_at,
+                        "intent_updated_at": product_intent.updated_at,
+                        "realm": get_instance_realm(),
+                    },
+                    team=team,
+                )
+        else:
             if not product_intent.activated_at:
                 product_intent.check_and_update_activation()
             product_intent.updated_at = datetime.now(tz=UTC)
             product_intent.save()
-
-        if isinstance(user, User) and not product_intent.activated_at:
-            report_user_action(
-                user,
-                "user showed product intent",
-                {
-                    "product_key": product_type,
-                    "$set_once": {"first_onboarding_product_selected": product_type},
-                    "$current_url": current_url,
-                    "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
-                    "is_first_intent_for_product": created,
-                    "intent_created_at": product_intent.created_at,
-                    "intent_updated_at": product_intent.updated_at,
-                    "realm": get_instance_realm(),
-                },
-                team=team,
-            )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
 

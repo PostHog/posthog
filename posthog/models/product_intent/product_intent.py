@@ -79,7 +79,7 @@ class ProductIntent(UUIDModel):
         # if the team has launched any experiments after the intent was updated, return True
         return Experiment.objects.filter(team=self.team, start_date__gte=self.updated_at).exists()
 
-    def check_and_update_activation(self) -> None:
+    def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         activation_checks = {
             "data_warehouse": self.has_activated_data_warehouse,
             "experiments": self.has_activated_experiments,
@@ -88,7 +88,10 @@ class ProductIntent(UUIDModel):
         if self.product_type in activation_checks and activation_checks[self.product_type]():
             self.activated_at = datetime.now(tz=UTC)
             self.save()
-            self.report_activation(self.product_type)
+            if not skip_reporting:
+                self.report_activation(self.product_type)
+            return True
+        return False
 
     def report_activation(self, product_key: str) -> None:
         from posthog.event_usage import report_team_action
