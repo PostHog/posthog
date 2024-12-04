@@ -53,7 +53,8 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -104,7 +105,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 1), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge') AS source
   INNER JOIN
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
@@ -187,7 +188,8 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -268,7 +270,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -343,7 +346,8 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -405,7 +409,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge') AS source
   INNER JOIN
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
@@ -477,7 +481,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 1), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge') AS source
   INNER JOIN
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
@@ -549,7 +553,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 2), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge') AS source
   INNER JOIN
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
@@ -629,7 +633,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -687,7 +692,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -760,7 +766,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 26 SETTINGS readonly=2,
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -840,7 +847,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 26 SETTINGS readonly=2,
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -913,7 +921,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 26 SETTINGS readonly=2,
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -994,7 +1003,8 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 26 SETTINGS readonly=2,
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1075,7 +1085,8 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 26 SETTINGS readonly=2,
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1163,7 +1174,8 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 26 SETTINGS readonly=2,
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1237,7 +1249,7 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
                                                                    and isNull(arrayFlatten(array('finance')))))
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge') AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -1320,7 +1332,7 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
                                                                    and isNull(arrayFlatten(array('finance')))))
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge') AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -1403,7 +1415,7 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
                                                                    and isNull(arrayFlatten(array('technology')))))
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge') AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -1486,7 +1498,7 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
                                                                    and isNull(arrayFlatten(array('technology')))))
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge') AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person

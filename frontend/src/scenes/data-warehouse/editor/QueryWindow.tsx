@@ -5,9 +5,9 @@ import type { editor as importedEditor } from 'monaco-editor'
 import { useState } from 'react'
 
 import { multitabEditorLogic } from './multitabEditorLogic'
+import { OutputPane } from './OutputPane'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
-import { ResultPane } from './ResultPane'
 
 export function QueryWindow(): JSX.Element {
     const [monacoAndEditor, setMonacoAndEditor] = useState(
@@ -68,7 +68,7 @@ export function QueryWindow(): JSX.Element {
                     },
                 }}
             />
-            <ResultPane
+            <OutputPane
                 logicKey={activeTabKey}
                 query={activeQuery ?? ''}
                 onQueryInputChange={runQuery}
