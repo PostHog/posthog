@@ -37,26 +37,22 @@ class TestRemoteConfig(_RemoteConfigBase):
                 "token": "phc_12345",
                 "surveys": False,
                 "heatmaps": False,
+                "siteApps": [],
                 "analytics": {"endpoint": "/i/v0/e/"},
-                "site_apps": [],
-                "has_feature_flags": False,
-                "session_recording": False,
+                "hasFeatureFlags": False,
+                "sessionRecording": False,
+                "captureDeadClicks": False,
+                "capturePerformance": {"web_vitals": False, "network_timing": True, "web_vitals_allowed_metrics": None},
                 "autocapture_opt_out": False,
-                "capture_dead_clicks": False,
-                "capture_performance": {
-                    "web_vitals": False,
-                    "network_timing": True,
-                    "web_vitals_allowed_metrics": None,
-                },
-                "supported_compression": ["gzip", "gzip-js"],
-                "autocapture_exceptions": False,
-                "default_identified_only": False,
-                "elements_chain_as_string": True,
+                "supportedCompression": ["gzip", "gzip-js"],
+                "autocaptureExceptions": False,
+                "defaultIdentifiedOnly": False,
+                "elementsChainAsString": True,
             }
         )
 
     def test_indicates_if_feature_flags_exist(self):
-        assert not self.remote_config.config["has_feature_flags"]
+        assert not self.remote_config.config["hasFeatureFlags"]
 
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -67,29 +63,29 @@ class TestRemoteConfig(_RemoteConfigBase):
             deleted=True,
         )
 
-        assert not self.remote_config.config["has_feature_flags"]
+        assert not self.remote_config.config["hasFeatureFlags"]
         flag.active = False
         flag.deleted = False
         flag.save()
         self.remote_config.refresh_from_db()
-        assert not self.remote_config.config["has_feature_flags"]
+        assert not self.remote_config.config["hasFeatureFlags"]
         flag.active = True
         flag.deleted = False
         flag.save()
         self.remote_config.refresh_from_db()
-        assert self.remote_config.config["has_feature_flags"]
+        assert self.remote_config.config["hasFeatureFlags"]
 
     def test_capture_dead_clicks_toggle(self):
         self.team.capture_dead_clicks = True
         self.team.save()
         self.remote_config.refresh_from_db()
-        assert self.remote_config.config["capture_dead_clicks"]
+        assert self.remote_config.config["captureDeadClicks"]
 
     def test_capture_performance_toggle(self):
         self.team.capture_performance_opt_in = True
         self.team.save()
         self.remote_config.refresh_from_db()
-        assert self.remote_config.config["capture_performance"]["network_timing"]
+        assert self.remote_config.config["capturePerformance"]["network_timing"]
 
     def test_autocapture_opt_out_toggle(self):
         self.team.autocapture_opt_out = True
@@ -101,14 +97,14 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.team.autocapture_exceptions_opt_in = True
         self.team.save()
         self.remote_config.refresh_from_db()
-        assert self.remote_config.config["autocapture_exceptions"] == {"endpoint": "/e/"}
+        assert self.remote_config.config["autocaptureExceptions"] == {"endpoint": "/e/"}
 
     def test_session_recording_sample_rate(self):
         self.team.session_recording_opt_in = True
         self.team.session_recording_sample_rate = Decimal("0.5")
         self.team.save()
         self.remote_config.refresh_from_db()
-        assert self.remote_config.config["session_recording"]["sampleRate"] == "0.50"
+        assert self.remote_config.config["sessionRecording"]["sampleRate"] == "0.50"
 
 
 class TestRemoteConfigSync(_RemoteConfigBase):
@@ -143,7 +139,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-            window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "analytics": {"endpoint": "/i/v0/e/"}, "site_apps": [], "has_feature_flags": false, "session_recording": false, "autocapture_opt_out": false, "capture_dead_clicks": false, "capture_performance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "supported_compression": ["gzip", "gzip-js"], "autocapture_exceptions": false, "default_identified_only": false, "elements_chain_as_string": true};
+            window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
             window._POSTHOG_SITE_APPS = [];
         })();\
 """
@@ -187,7 +183,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-            window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "analytics": {"endpoint": "/i/v0/e/"}, "site_apps": [], "has_feature_flags": false, "session_recording": false, "autocapture_opt_out": false, "capture_dead_clicks": false, "capture_performance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "supported_compression": ["gzip", "gzip-js"], "autocapture_exceptions": false, "default_identified_only": false, "elements_chain_as_string": true};
+            window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
             window._POSTHOG_SITE_APPS = [{ token: 'tokentoken', load: function(posthog) { (function () { return { inject: (data) => console.log('injected!', data)}; })().inject({ config:{}, posthog:posthog }) } },{ token: 'tokentoken', load: function(posthog) { (function () { return { inject: (data) => console.log('injected 2!', data)}; })().inject({ config:{}, posthog:posthog }) } },{ token: 'tokentoken', load: function(posthog) { (function () { return { inject: (data) => console.log('injected but disabled!', data)}; })().inject({ config:{}, posthog:posthog }) } }];
         })();\
 """
