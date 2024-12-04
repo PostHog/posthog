@@ -3,6 +3,7 @@ import './PlayerUpNext.scss'
 import { IconPlay } from '@posthog/icons'
 import clsx from 'clsx'
 import { BuiltLogic, useActions, useValues } from 'kea'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect, useRef, useState } from 'react'
 
@@ -21,6 +22,17 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
 
     const { nextSessionRecording } = useValues(playlistLogic)
     const { setSelectedRecordingId } = useActions(playlistLogic)
+
+    useKeyboardHotkeys({
+        n: {
+            action: () => {
+                if (nextSessionRecording?.id) {
+                    reportNextRecordingTriggered(false)
+                    setSelectedRecordingId(nextSessionRecording.id)
+                }
+            },
+        },
+    })
 
     const goToRecording = (automatic: boolean): void => {
         if (!nextSessionRecording?.id) {
@@ -56,14 +68,14 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
     }
 
     return (
-        <Tooltip title="Play the next recording (press enter)">
+        <Tooltip title="Play the next recording (press n)">
             <div className="PlayerUpNext text-xs">
                 <div
                     className={clsx('px-1 py-0.5 PlayerUpNextButton', animate && 'PlayerUpNextButton--animating')}
                     onClick={() => goToRecording(false)}
                 >
                     <div className="PlayerUpNextButtonBackground" />
-                    <div className="z-10 flex items-center gap-2">
+                    <div className="z-10 flex items-center gap-1">
                         <IconPlay className="text-lg" /> Play next
                     </div>
                 </div>

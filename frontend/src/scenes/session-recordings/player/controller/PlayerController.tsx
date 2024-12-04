@@ -195,8 +195,7 @@ function Maximise(): JSX.Element {
             size="xsmall"
             onClick={onChangeMaximise}
             tooltip={`${isMaximised ? 'Open' : 'Close'} other panels (M)`}
-            icon={isMaximised ? <IconCollapse45 /> : <IconExpand45 />}
-            className="text-2xl"
+            icon={isMaximised ? <IconCollapse45 className="text-lg" /> : <IconExpand45 className="text-lg" />}
         />
     )
 }

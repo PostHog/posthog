@@ -87,7 +87,7 @@ function SortedBy({
                     ],
                 },
             ]}
-            icon={<IconSort />}
+            icon={<IconSort className="text-lg" />}
             label={SortingKeyToLabel[filters.order || 'start_time']}
         />
     )
