@@ -344,7 +344,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     kind: NodeKind.ActorsQuery,
                     source: query,
                     select: selectFields,
-                    orderBy: orderBy || [''],
+                    orderBy: orderBy || [],
                     search: searchTerm,
                 }
             },

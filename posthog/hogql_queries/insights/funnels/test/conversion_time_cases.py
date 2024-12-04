@@ -17,7 +17,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
             person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
             _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
 
-            return [val["id"] for val in serialized_result]
+            return [val["id"]["id"] for val in serialized_result]
 
         def test_funnel_with_multiple_incomplete_tries(self):
             filters = {
