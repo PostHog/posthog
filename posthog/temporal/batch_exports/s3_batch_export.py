@@ -1,4 +1,5 @@
 import asyncio
+import collections.abc
 import contextlib
 import dataclasses
 import datetime as dt
@@ -6,7 +7,6 @@ import io
 import json
 import posixpath
 import typing
-import collections.abc
 
 import aioboto3
 import botocore.exceptions
@@ -34,6 +34,12 @@ from posthog.temporal.batch_exports.batch_exports import (
     start_batch_export_run,
     wait_for_delta_past_data_interval_end,
 )
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
+    HeartbeatParseError,
+    should_resume_from_activity_heartbeat,
+)
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
@@ -54,12 +60,6 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-from posthog.temporal.batch_exports.heartbeat import (
-    BatchExportRangeHeartbeatDetails,
-    DateRange,
-    HeartbeatParseError,
-    should_resume_from_activity_heartbeat,
-)
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:
@@ -675,7 +675,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
                     await writer.write_record_batch(record_batch)
 
-            details.complete_done_ranges(inputs.data_interval_end)
+            details.complete_done_ranges(inputs.data_interval_start, inputs.data_interval_end)
             heartbeater.set_from_heartbeat_details(details)
 
             records_completed = writer.records_total

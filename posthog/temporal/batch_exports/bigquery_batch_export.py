@@ -544,7 +544,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                 await raise_on_produce_task_failure(produce_task)
                 await logger.adebug("Successfully consumed all record batches")
 
-                details.complete_done_ranges(inputs.data_interval_end)
+                details.complete_done_ranges(inputs.data_interval_start, inputs.data_interval_end)
                 heartbeater.set_from_heartbeat_details(details)
 
                 records_total = functools.reduce(operator.add, (task.result() for task in flush_tasks))
