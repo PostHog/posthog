@@ -131,6 +131,7 @@ export type AnyDataNode =
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
+    | RecordingsQuery
 
 /**
  * @discriminator kind
@@ -324,6 +325,9 @@ export type RecordingOrder =
 
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
+    /**
+     * @default "-3d"
+     * */
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -332,9 +336,15 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     console_log_filters?: LogEntryPropertyFilter[]
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
     filter_test_accounts?: boolean
+    /**
+     * @default "AND"
+     * */
     operand?: FilterLogicalOperator
     session_ids?: string[]
     person_uuid?: string
+    /**
+     * @default "start_time"
+     * */
     order?: RecordingOrder
     limit?: integer
     offset?: integer
