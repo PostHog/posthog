@@ -54,9 +54,12 @@ export function countryCodeToFlag(countryCode: string): string {
  * This isn't needed often because the locales usually come in the nl-NL format (for dutch, for example)
  * but there are cases where we only see the first part in case the language isn't shared by more than
  * one country - such as the Netherlands.
+ *
+ * For most cases we can simply uppercase the language and that's the country code,
+ * but there are some exceptions listed inside `languageCodeToEmojiFlag`
  */
 export function languageCodeToFlag(languageCode: string): string {
-    return countryCodeToFlag(languageCodeToCountryCode[languageCode])
+    return languageCodeToEmojiFlag[languageCode] ?? countryCodeToFlag(languageCode.toLocaleUpperCase())
 }
 
 export const countryCodeToName: Record<string, string> = {
@@ -499,6 +502,9 @@ export const languageCodeToName: Record<string, string> = {
     za: 'Zhuang',
     zu: 'Zulu',
 
+    // Some browsers might use `zz` to imply an unknown locale
+    zz: 'Unknown',
+
     // Some browsers use one-long or three-long codes so we're adding here as fallback
     h: 'Croatian',
     chr: 'Cherokee',
@@ -510,7 +516,13 @@ export const languageCodeToName: Record<string, string> = {
 
 // This is only used as a fallback for some languages that don't usually
 // come in the locale-country format (such as nl-NL usually being presented simply as nl)
-// We'll fill this as we see fit based on the values seen in the wild
-const languageCodeToCountryCode: Record<string, string> = {
-    nl: 'NL',
+// but that can't simply be translated to a flag by capitalizing the locale
+const languageCodeToEmojiFlag: Record<string, string> = {
+    ar: '🇪🇬', // Arabic -> Egypt, tricky, there's no good representation for the "default Arab country", the Egyptian variant is the most commonly understood
+    af: '🇿🇦', // Afrikaans -> South Africa
+    ta: '🇮🇳', // Tamil -> India
+    eu: '🇪🇸', // Basque -> Spain, tricky, but there's no better flag than the Spanish one, we could move to custom SVGs if we wanted to solve this
+    cy: '🏴󠁧󠁢󠁷󠁬󠁳󠁿', // Welsh -> Wales
+    ne: '🇳🇵', // Nepali -> Nepal
+    zz: '🇺🇳', // Unknown Language -> UN flag?
 }
