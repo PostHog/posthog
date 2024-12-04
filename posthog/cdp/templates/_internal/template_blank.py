@@ -51,3 +51,27 @@ export function onEvent({ posthog, ...globals }) {
         },
     ],
 )
+
+blank_site_app: HogFunctionTemplate = HogFunctionTemplate(
+    status="client-side",
+    type="site_app",
+    id="template-blank-site-app",
+    name="New site app",
+    description="Run custom JavaScript on your website. Works only with posthog-js when opt_in_site_apps is set to true.",
+    icon_url="/static/hedgehog/builder-hog-03.png",
+    category=["Custom", "Analytics"],
+    hog="""
+export function onLoad({ inputs, posthog }) {
+    console.log(`Hello ${inputs.name} from your new Site App!`)
+}
+""".strip(),
+    inputs_schema=[
+        {
+            "key": "name",
+            "type": "string",
+            "label": "Name",
+            "description": "What's your name?",
+            "default": "Max",
+        },
+    ],
+)

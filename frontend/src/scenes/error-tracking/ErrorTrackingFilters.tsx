@@ -89,8 +89,8 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
 export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element => {
     const { dateRange, assignee, hasGroupActions } = useValues(errorTrackingLogic)
     const { setDateRange, setAssignee } = useActions(errorTrackingLogic)
-    const { order } = useValues(errorTrackingSceneLogic)
-    const { setOrder } = useActions(errorTrackingSceneLogic)
+    const { orderBy } = useValues(errorTrackingSceneLogic)
+    const { setOrderBy } = useActions(errorTrackingSceneLogic)
 
     return (
         <div className="flex justify-between">
@@ -110,9 +110,9 @@ export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element
                     <div className="flex items-center gap-1">
                         <span>Sort by:</span>
                         <LemonSelect
-                            onSelect={setOrder}
-                            onChange={setOrder}
-                            value={order}
+                            onSelect={setOrderBy}
+                            onChange={setOrderBy}
+                            value={orderBy}
                             options={[
                                 {
                                     value: 'last_seen',
