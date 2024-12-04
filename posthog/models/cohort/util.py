@@ -303,15 +303,18 @@ def get_static_cohort_size(*, cohort_id: int, team_id: int) -> Optional[int]:
 def recalculate_cohortpeople(
     cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int]
 ) -> Optional[int]:
-    # All environments where the cohort is present
+    """
+    Recalculate cohort people for all environments of the project.
+    NOTE: Currently this only returns the count for the team where the cohort was created. Instead it should return for all teams.
+    """
     relevant_teams = Team.objects.order_by("id").filter(project_id=cohort.team.project_id)
-    counts: list[int] = []
+    count_by_team_id: dict[int, int] = {}
     for team in relevant_teams:
         count_for_team = _recalculate_cohortpeople_for_team(
             cohort, pending_version, team, initiating_user_id=initiating_user_id
         )
-        counts.append(cast(int, count_for_team))
-    return counts[0]
+        count_by_team_id[team.id] = count_for_team or 0
+    return count_by_team_id[cohort.team_id]
 
 
 def _recalculate_cohortpeople_for_team(
