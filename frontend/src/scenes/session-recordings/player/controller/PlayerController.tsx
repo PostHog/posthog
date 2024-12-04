@@ -1,4 +1,4 @@
-import { IconCollapse45, IconExpand45, IconPause, IconPlay, IconSearch } from '@posthog/icons'
+import { IconClock, IconCollapse45, IconExpand45, IconPause, IconPlay, IconSearch } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -10,11 +10,13 @@ import {
     SettingsMenu,
     SettingsToggle,
 } from 'scenes/session-recordings/components/PanelSettings'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
@@ -117,12 +119,39 @@ function InspectDOM(): JSX.Element {
 }
 
 function PlayerBottomSettings(): JSX.Element {
+    const { timestampFormat } = useValues(playerSettingsLogic)
+    const { setTimestampFormat } = useActions(playerSettingsLogic)
+
     return (
-        <SettingsBar border="top">
-            <SkipInactivity />
-            <ShowMouseTail />
-            <SetPlaybackSpeed />
-            <InspectDOM />
+        <SettingsBar border="top" className="justify-between">
+            <div className="flex flex-row gap-0.5">
+                <SkipInactivity />
+                <ShowMouseTail />
+                <SetPlaybackSpeed />
+                <SettingsMenu
+                    highlightWhenActive={false}
+                    items={[
+                        {
+                            label: 'UTC',
+                            onClick: () => setTimestampFormat(TimestampFormat.UTC),
+                            active: timestampFormat === TimestampFormat.UTC,
+                        },
+                        {
+                            label: 'Device',
+                            onClick: () => setTimestampFormat(TimestampFormat.Device),
+                            active: timestampFormat === TimestampFormat.Device,
+                        },
+                        {
+                            label: 'Relative',
+                            onClick: () => setTimestampFormat(TimestampFormat.Relative),
+                            active: timestampFormat === TimestampFormat.Relative,
+                        },
+                    ]}
+                    icon={<IconClock />}
+                    label={TimestampFormatToLabel[timestampFormat]}
+                />
+                <InspectDOM />
+            </div>
         </SettingsBar>
     )
 }
@@ -173,24 +202,27 @@ function Maximise(): JSX.Element {
 }
 
 export function PlayerController(): JSX.Element {
+    const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
+
     return (
         <div className="bg-bg-light flex flex-col select-none">
             <Seekbar />
-            <div className="w-full flex flex-row gap-0.5 px-2 py-1 items-center">
-                <div className="flex flex-row flex-1 gap-2 justify-start">
+            <div className="w-full px-2 py-1 relative flex items-center justify-center">
+                <div className="absolute left-2">
                     <Timestamp />
-
-                    <div className="flex gap-0.5 items-center justify-center">
-                        <SeekSkip direction="backward" />
-                        <PlayPauseButton />
-                        <SeekSkip direction="forward" />
-                    </div>
                 </div>
-                <div className="flex justify-items-end">
+                <div className="flex gap-0.5 items-center justify-center">
+                    <SeekSkip direction="backward" />
+                    <PlayPauseButton />
+                    <SeekSkip direction="forward" />
+                </div>
+                <div className="absolute right-2 flex justify-end items-center">
+                    {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                     <Maximise />
                     <FullScreen />
                 </div>
             </div>
+
             <PlayerBottomSettings />
         </div>
     )
