@@ -53,7 +53,11 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]
-        context = HogQLContext(team_id=team_id, database=create_hogql_database(team_id=team_id))
+        database = self.context.get("database", None)
+        if not database:
+            database = create_hogql_database(team_id=team_id)
+
+        context = HogQLContext(team_id=team_id, database=database)
 
         fields = serialize_fields(view.hogql_definition().fields, context, view.name, table_type="external")
         return [
@@ -169,6 +173,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["database"] = create_hogql_database(team_id=self.team_id)
+        return context
 
     def safely_get_queryset(self, queryset):
         return queryset.prefetch_related("created_by").exclude(deleted=True).order_by(self.ordering)

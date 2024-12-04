@@ -4,18 +4,20 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { NewVariableModal } from './NewVariableModal'
 import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
 export const AddVariableButton = (): JSX.Element => {
+    const { showEditingUI } = useValues(dataVisualizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openNewVariableModal } = useActions(variableModalLogic)
 
     const { variables, variablesLoading } = useValues(variablesLogic)
     const { addVariable } = useActions(variablesLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
+    if (!featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES] || !showEditingUI) {
         return <></>
     }
 
