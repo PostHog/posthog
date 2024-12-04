@@ -19,7 +19,6 @@ from sentry_sdk import capture_exception
 
 from posthog import version_requirement
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
 from posthog.client import sync_execute
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import FlagRequestType
@@ -29,6 +28,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
+from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
@@ -461,10 +461,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
     # Check if $lib is materialized
-    lib_materialized_column = get_materialized_column_for_property("events", "properties", "$lib")
-    lib_expression = (
-        lib_materialized_column.name if lib_materialized_column is not None else "JSONExtractString(properties, '$lib')"
-    )
+    lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
     results = sync_execute(
         f"""
