@@ -1475,7 +1475,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
         )
 
-        # TODO: Check if conversion rate is accurate here, or if it should be a rational number
         assert [
             ["https://www.example.com/foo", (2, 0), (3, 0), (2, 0), (1, None)],
             ["https://www.example.com/bar", (2, 0), (0, 0), (0, 0), (0, None)],
@@ -1487,7 +1486,3 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
         ] == response.columns
-
-        # TODO: Guarantee this matches above
-        # conversion_rate = results[3]
-        # self.assertAlmostEqual(conversion_rate.value, 100 * 2 / 3)

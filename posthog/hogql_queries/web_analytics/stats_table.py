@@ -76,6 +76,19 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                         self._period_comparison_tuple(
                             "conversion_person_id", "context.columns.unique_conversions", "uniq"
                         ),
+                        ast.Alias(
+                            alias="context.columns.conversion_rate",
+                            expr=ast.Tuple(
+                                exprs=[
+                                    parse_expr(
+                                        "if(`context.columns.visitors`.1 = 0, NULL, `context.columns.unique_conversions`.1 / `context.columns.visitors`.1)"
+                                    ),
+                                    parse_expr(
+                                        "if(`context.columns.visitors`.2 = 0, NULL, `context.columns.unique_conversions`.2 / `context.columns.visitors`.2)"
+                                    ),
+                                ]
+                            ),
+                        ),
                     ]
                 )
             else:
@@ -484,7 +497,6 @@ GROUP BY session_id, breakdown_value
     def _date_from_previous_period(self) -> ast.Expr:
         return self.query_date_range.previous_period_date_from_as_hogql()
 
-    # TODO: Calculate conversion rate
     def calculate(self):
         query = self.to_query()
         response = self.paginator.execute_hogql_query(
@@ -525,23 +537,6 @@ GROUP BY session_id, breakdown_value
                 if response.columns is not None
                 else response.columns
             )
-
-        # Add last conversion rate column
-        if self.query.conversionGoal is not None:
-            for result in results_mapped:
-                unique_visitors = result[1]
-                unique_conversions = result[-1]
-
-                # Keep them in the same tuple format we already have
-                result.append(
-                    (
-                        unique_conversions[0] / unique_visitors[0] if unique_visitors[0] != 0 else None,
-                        unique_conversions[1] / unique_visitors[1] if unique_visitors[1] != 0 else None,
-                    )
-                )
-
-            # Guarantee new column exists
-            columns.append("context.columns.conversion_rate")
 
         return WebStatsTableQueryResponse(
             columns=columns,
