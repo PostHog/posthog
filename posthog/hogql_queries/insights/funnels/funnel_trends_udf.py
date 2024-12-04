@@ -196,8 +196,9 @@ class FunnelTrendsUDF(FunnelTrends):
             """,
                 {"fill_query": fill_query, "inner_select": inner_select},
             )
+        s = cast(ast.SelectQuery, s)
         s.settings = HogQLQuerySettings(join_algorithm=JOIN_ALGOS)
-        return cast(ast.SelectQuery, s)
+        return s
 
     def _matching_events(self):
         if (

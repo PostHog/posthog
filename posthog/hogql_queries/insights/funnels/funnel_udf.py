@@ -169,8 +169,10 @@ class FunnelUDF(FunnelBase):
         )
 
         # Weird: unless you reference row_number in this outer block, it doesn't work correctly
-        s = parse_select(
-            f"""
+        s = cast(
+            ast.SelectQuery,
+            parse_select(
+                f"""
             SELECT
                 {step_results2},
                 {mean_conversion_times},
@@ -182,10 +184,11 @@ class FunnelUDF(FunnelBase):
             GROUP BY final_prop
             LIMIT {self.get_breakdown_limit() + 1 if use_breakdown_limit else DEFAULT_RETURNED_ROWS}
         """,
-            {"s": s},
+                {"s": s},
+            ),
         )
         s.settings = HogQLQuerySettings(join_algorithm=JOIN_ALGOS)
-        return cast(ast.SelectQuery, s)
+        return s
 
     def _get_funnel_person_step_condition(self) -> ast.Expr:
         actorsQuery, breakdownType = (
