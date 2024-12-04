@@ -81,8 +81,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             properties=properties,
         )
 
-    def _filter_recordings_by(self, recordings_filter: dict) -> SessionRecordingQueryResult:
-        the_filter = SessionRecordingsFilter(team=self.team, data=recordings_filter)
+    def _filter_recordings_by(self, recordings_filter: dict | None) -> SessionRecordingQueryResult:
+        the_filter = SessionRecordingsFilter(team=self.team, data=recordings_filter or {})
         session_recording_list_instance = SessionRecordingListFromFilters(
             filter=the_filter, team=self.team, hogql_query_modifiers=None
         )
@@ -783,6 +783,26 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             # Not far enough in the future from `days_since_blob_ingestion`
             with freeze_time("2023-09-05T12:00:01Z"):
                 assert ttl_days(self.team) == 35
+
+    @snapshot_clickhouse_queries
+    def test_listing_ignores_future_replays(self):
+        with freeze_time("2023-08-29T12:00:01Z"):
+            produce_replay_summary(team_id=self.team.id, session_id="29th Aug")
+
+        with freeze_time("2023-09-01T12:00:01Z"):
+            produce_replay_summary(team_id=self.team.id, session_id="1st-sep")
+
+        with freeze_time("2023-09-02T12:00:01Z"):
+            produce_replay_summary(team_id=self.team.id, session_id="2nd-sep")
+
+        with freeze_time("2023-09-03T12:00:01Z"):
+            produce_replay_summary(team_id=self.team.id, session_id="3rd-sep")
+
+        with freeze_time("2023-08-30T12:00:01Z"):
+            recordings = self._filter_recordings_by()
+
+            # recordings in the future don't show
+            assert [s["session_id"] for s in recordings.results] == ["29th Aug"]
 
     @snapshot_clickhouse_queries
     def test_filter_on_session_ids(self):
