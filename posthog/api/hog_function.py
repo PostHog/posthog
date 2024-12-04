@@ -18,13 +18,22 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from posthog.cdp.filters import compile_filters_bytecode
+from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
+from posthog.cdp.site_functions import get_transpiled_function
 from posthog.constants import AvailableFeature
+from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, TYPES_WITH_COMPILED_FILTERS
+from posthog.models.hog_functions.hog_function import (
+    HogFunction,
+    HogFunctionState,
+    TYPES_WITH_COMPILED_FILTERS,
+    TYPES_WITH_TRANSPILED_FILTERS,
+    TYPES_WITH_JAVASCRIPT_SOURCE,
+)
+from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
 
@@ -93,6 +102,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "deleted",
             "hog",
             "bytecode",
+            "transpiled",
             "inputs_schema",
             "inputs",
             "filters",
@@ -108,6 +118,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "created_by",
             "updated_at",
             "bytecode",
+            "transpiled",
             "template",
             "status",
         ]
@@ -135,7 +146,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     {"template_id": "The Data Pipelines addon is required to create custom functions."}
                 )
 
-            if template.status != "free":
+            if template.status != "free" and not instance:
                 raise serializers.ValidationError(
                     {"template_id": "The Data Pipelines addon is required for this template."}
                 )
@@ -143,6 +154,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             # Without the addon, they cannot deviate from the template
             attrs["inputs_schema"] = template.inputs_schema
             attrs["hog"] = template.hog
+
+        if "type" not in attrs:
+            attrs["type"] = "destination"
 
         if self.context.get("view") and self.context["view"].action == "create":
             # Ensure we have sensible defaults when created
@@ -161,16 +175,36 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 existing_encrypted_inputs = instance.encrypted_inputs
 
             attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
-            attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs)
+            attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs, attrs["type"])
+
+        if "filters" in attrs:
+            if attrs["type"] in TYPES_WITH_COMPILED_FILTERS:
+                attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
+            elif attrs["type"] in TYPES_WITH_TRANSPILED_FILTERS:
+                compiler = JavaScriptCompiler()
+                code = compiler.visit(compile_filters_expr(attrs["filters"], team))
+                attrs["filters"]["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
+                if "bytecode" in attrs["filters"]:
+                    del attrs["filters"]["bytecode"]
 
         if "hog" in attrs:
-            attrs["bytecode"] = compile_hog(attrs["hog"])
-
-        if "type" not in attrs:
-            attrs["type"] = "destination"
-
-        if "filters" in attrs and attrs["type"] in TYPES_WITH_COMPILED_FILTERS:
-            attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
+            if attrs["type"] in TYPES_WITH_JAVASCRIPT_SOURCE:
+                # Upon creation, this code will be run before the model has an "id".
+                # If that's the case, the code just makes sure transpilation doesn't throw. We'll re-transpile after creation.
+                id = str(instance.id) if instance else "__"
+                try:
+                    attrs["transpiled"] = get_transpiled_function(
+                        id, attrs["hog"], attrs["filters"], attrs["inputs"], team
+                    )
+                except TranspilerError:
+                    raise serializers.ValidationError({"hog": f"Error in TypeScript code"})
+                attrs["bytecode"] = None
+            else:
+                attrs["bytecode"] = compile_hog(attrs["hog"])
+                attrs["transpiled"] = None
+        else:
+            attrs["bytecode"] = None
+            attrs["transpiled"] = None
 
         return super().validate(attrs)
 
@@ -196,7 +230,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        return super().create(validated_data=validated_data)
+        hog_function = super().create(validated_data=validated_data)
+        if validated_data.get("type") in TYPES_WITH_JAVASCRIPT_SOURCE:
+            # Re-run the transpilation now that we have an ID
+            hog_function.transpiled = get_transpiled_function(
+                str(hog_function.id), hog_function.hog, hog_function.filters, hog_function.inputs, hog_function.team
+            )
+        return hog_function
 
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
         res: HogFunction = super().update(instance, validated_data)
@@ -231,8 +271,13 @@ class HogFunctionViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
-            type = self.request.GET.get("type", "destination")
-            queryset = queryset.filter(deleted=False, type=type)
+            if "type" in self.request.GET:
+                types = [self.request.GET.get("type", "destination")]
+            elif "types" in self.request.GET:
+                types = self.request.GET.get("types", "destination").split(",")
+            else:
+                types = ["destination"]
+            queryset = queryset.filter(deleted=False, type__in=types)
 
         if self.request.GET.get("filters"):
             try:

@@ -41,7 +41,7 @@ const paramsToProps = ({
     }
 
     return {
-        stage: PIPELINE_TAB_TO_NODE_STAGE[stage] || null,
+        stage: PIPELINE_TAB_TO_NODE_STAGE[stage as PipelineTab] || null,
         id: numericId && !isNaN(numericId) ? numericId : id,
     }
 }
@@ -95,6 +95,11 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
                 scope={ActivityScope.HOG_FUNCTION}
             />
         )
+    }
+
+    if (stage === PipelineStage.SiteApp) {
+        delete tabToContent[PipelineNodeTab.Logs]
+        delete tabToContent[PipelineNodeTab.Metrics]
     }
 
     return (

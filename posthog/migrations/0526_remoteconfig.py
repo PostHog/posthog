@@ -7,7 +7,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0524_datawarehousejoin_configuration"),
+        ("posthog", "0525_hog_function_transpiled"),
     ]
 
     operations = [

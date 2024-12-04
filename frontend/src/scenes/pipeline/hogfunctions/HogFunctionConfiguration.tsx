@@ -151,11 +151,14 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
-    const showFilters = type === 'destination' || type === 'broadcast'
-    const showExpectedVolume = type === 'destination'
-    const showEnabled = type === 'destination' || type === 'email'
-    const canEditSource = type === 'destination' || type === 'email'
+    const showFilters = type === 'destination' || type === 'site_destination' || type === 'broadcast'
+    const showExpectedVolume = type === 'destination' || type === 'site_destination'
+    const showStatus = type === 'destination' || type === 'email'
+    const showEnabled = type === 'destination' || type === 'email' || type === 'site_destination' || type === 'site_app'
+    const canEditSource =
+        type === 'destination' || type === 'email' || type === 'site_destination' || type === 'site_app'
     const showPersonsCount = type === 'broadcast'
+    const showTesting = type === 'destination' || type === 'broadcast' || type === 'email'
 
     return (
         <div className="space-y-3">
@@ -210,7 +213,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                         {template && <DestinationTag status={template.status} />}
                                     </div>
 
-                                    {showEnabled && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
+                                    {showStatus && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
                                     {showEnabled && (
                                         <LemonField name="enabled">
                                             {({ value, onChange }) => (
@@ -236,7 +239,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                     <LemonTextArea disabled={loading} />
                                 </LemonField>
 
-                                {hogFunction?.template ? (
+                                {hogFunction?.template && !hogFunction.template.id.startsWith('template-blank-') ? (
                                     <LemonDropdown
                                         showArrow
                                         overlay={
@@ -458,14 +461,16 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                         <LemonField name="hog">
                                             {({ value, onChange }) => (
                                                 <>
-                                                    <span className="text-xs text-muted-alt">
-                                                        This is the underlying Hog code that will run whenever the
-                                                        filters match.{' '}
-                                                        <Link to="https://posthog.com/docs/hog">See the docs</Link> for
-                                                        more info
-                                                    </span>
+                                                    {!type.startsWith('site_') ? (
+                                                        <span className="text-xs text-muted-alt">
+                                                            This is the underlying Hog code that will run whenever the
+                                                            filters match.{' '}
+                                                            <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}
+                                                            for more info
+                                                        </span>
+                                                    ) : null}
                                                     <CodeEditorResizeable
-                                                        language="hog"
+                                                        language={type.startsWith('site_') ? 'typescript' : 'hog'}
                                                         value={value ?? ''}
                                                         onChange={(v) => onChange(v ?? '')}
                                                         globals={globalsWithInputs}
@@ -489,8 +494,13 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                     ) : null}
                                 </div>
                             )}
-
-                            {!id || id === 'new' ? <HogFunctionTestPlaceholder /> : <HogFunctionTest id={id} />}
+                            {showTesting ? (
+                                !id || id === 'new' ? (
+                                    <HogFunctionTestPlaceholder />
+                                ) : (
+                                    <HogFunctionTest id={id} />
+                                )
+                            ) : null}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>
