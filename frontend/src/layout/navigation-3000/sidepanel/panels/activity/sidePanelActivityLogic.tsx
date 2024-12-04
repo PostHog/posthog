@@ -188,7 +188,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         },
         openSidePanel: ({ options }) => {
             if (options) {
-                actions.setActiveTab(options)
+                actions.setActiveTab(options as SidePanelActivityTab)
             }
         },
     })),
