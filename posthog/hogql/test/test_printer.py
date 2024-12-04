@@ -460,11 +460,19 @@ class TestPrinter(BaseTest):
             self.assertEqual(1 + 2, 3)
             return
 
-        materialize("events", "withmat")
         context = HogQLContext(team_id=self.team.pk)
+        materialize("events", "withmat")
         self.assertEqual(
             self._expr("properties.withmat.json.yet", context),
             "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(nullIf(nullIf(events.mat_withmat, ''), 'null'), %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
+        )
+        self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
+
+        context = HogQLContext(team_id=self.team.pk)
+        materialize("events", "withmat_nullable", is_nullable=True)
+        self.assertEqual(
+            self._expr("properties.withmat_nullable.json.yet", context),
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.mat_withmat_nullable, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
 
@@ -497,6 +505,12 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("properties['$browser%%%#@!@']"),
             "nullIf(nullIf(events.`mat_$browser_______`, ''), 'null')",
+        )
+
+        materialize("events", "nullable_property", is_nullable=True)
+        self.assertEqual(
+            self._expr("properties['nullable_property']"),
+            "events.mat_nullable_property",
         )
 
     def test_property_groups(self):
