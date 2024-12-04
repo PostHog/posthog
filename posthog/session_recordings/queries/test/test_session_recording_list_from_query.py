@@ -778,6 +778,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2023-08-29T12:00:01Z"):
             produce_replay_summary(team_id=self.team.id, session_id="29th Aug")
 
+        with freeze_time("2023-08-30T14:00:01Z"):
+            produce_replay_summary(team_id=self.team.id, session_id="30th Aug 1400")
+
         with freeze_time("2023-09-01T12:00:01Z"):
             produce_replay_summary(team_id=self.team.id, session_id="1st-sep")
 
@@ -787,6 +790,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2023-09-03T12:00:01Z"):
             produce_replay_summary(team_id=self.team.id, session_id="3rd-sep")
 
+        # before the recording on the thirtieth so should exclude it
         with freeze_time("2023-08-30T12:00:01Z"):
             recordings = self._filter_recordings_by()
 
