@@ -6,7 +6,7 @@ from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.utils import cast_timestamp_or_now
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from rest_framework import mixins, request, response, viewsets, serializers
+from rest_framework import request, response, viewsets, serializers
 from rest_framework.serializers import BaseSerializer
 
 from posthog.models.plugin import PluginConfig
@@ -17,15 +17,12 @@ class MetalyticsCreateRequestSerializer(serializers.Serializer):
     instance_id = serializers.CharField(required=True)
 
 
-class MetalyticsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class MetalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     queryset = PluginConfig.objects.all()
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return MetalyticsCreateRequestSerializer if self.action == "create" else MetalyticsCreateRequestSerializer
-
-    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        return response.Response({})
 
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         serializer = self.get_serializer(data=request.data)
