@@ -17,6 +17,7 @@ use anyhow::Result;
 use common_metrics::inc;
 use petgraph::algo::{is_cyclic_directed, toposort};
 use petgraph::graph::DiGraph;
+use serde::Deserialize;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, FromRow, Row};
@@ -50,6 +51,21 @@ pub struct FeatureFlagMatch {
     pub reason: FeatureFlagMatchReason,
     pub condition_index: Option<usize>,
     pub payload: Option<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GroupRelationship {
+    pub group_type: String,
+    pub group_key: String,
+}
+
+impl GroupRelationship {
+    pub fn new(group_type: String, group_key: String) -> Self {
+        Self {
+            group_type,
+            group_key,
+        }
+    }
 }
 
 #[derive(Debug, FromRow)]
@@ -513,7 +529,7 @@ impl FeatureFlagMatcher {
             let distinct_id = self.distinct_id.clone();
             let team_id = self.team_id;
 
-            match fetch_and_locally_cache_all_properties(
+            match fetch_and_locally_cache_all_relevant_properties(
                 &mut self.properties_cache,
                 reader,
                 distinct_id,
@@ -599,6 +615,10 @@ impl FeatureFlagMatcher {
             .flat_map(|c| c.properties.clone().unwrap_or_default())
             .collect();
 
+        println!("flag_property_filters: {:?}", flag_property_filters);
+
+        println!("group_property_overrides: {:?}", group_property_overrides);
+
         let overrides = match flag.get_group_type_index() {
             Some(group_type_index) => {
                 self.get_group_overrides(
@@ -610,6 +630,8 @@ impl FeatureFlagMatcher {
             }
             None => self.get_person_overrides(person_property_overrides, &flag_property_filters),
         };
+
+        println!("overrides: {:?}", overrides);
 
         match overrides {
             Some(props) => self
@@ -636,9 +658,17 @@ impl FeatureFlagMatcher {
             .group_type_index_to_group_type_map()
             .await?;
 
+        println!("index_to_type_map: {:?}", index_to_type_map);
+
         if let Some(group_type) = index_to_type_map.get(&group_type_index) {
+            // this would be "project"
+            println!("group_type: {:?}", group_type);
             if let Some(group_overrides) = group_property_overrides {
+                // this would be something like {"project": {"$group_key": "123"}}
+                println!("group_overrides: {:?}", group_overrides);
                 if let Some(group_overrides_by_type) = group_overrides.get(group_type) {
+                    // this would be {"$group_key": "123"}
+                    println!("group_overrides_by_type: {:?}", group_overrides_by_type);
                     return Ok(locally_computable_property_overrides(
                         &Some(group_overrides_by_type.clone()),
                         flag_property_filters,
@@ -1547,7 +1577,6 @@ fn build_cohort_dependency_graph(
         }
     }
 
-    // Check for cycles, this is an directed acyclic graph so we use is_cyclic_directed
     if is_cyclic_directed(&graph) {
         return Err(FlagError::CohortDependencyCycle(format!(
             "Cyclic dependency detected starting at cohort {}",
@@ -1562,8 +1591,7 @@ fn build_cohort_dependency_graph(
 ///
 /// This function fetches both person and group properties for a specified distinct ID and team ID.
 /// It updates the properties cache with the fetched properties and returns the result.
-/// Enhanced with detailed logging for better traceability and debuggability.
-async fn fetch_and_locally_cache_all_properties(
+async fn fetch_and_locally_cache_all_relevant_properties(
     properties_cache: &mut PropertiesCache,
     reader: PostgresReader,
     distinct_id: String,

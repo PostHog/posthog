@@ -100,9 +100,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         .await?;
 
     let distinct_id = request.extract_distinct_id()?;
-    println!("request: {:?}", request);
     let groups = request.groups.clone();
-    println!("groups: {:?}", groups);
     let team_id = team.id;
     let person_property_overrides = get_person_property_overrides(
         !request.geoip_disable.unwrap_or(false),
@@ -110,7 +108,33 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         &ip,
         &state.geoip,
     );
-    let group_property_overrides = request.group_properties.clone();
+    let mut group_property_overrides = request.group_properties.clone();
+
+    // this should also include the group key overrides if groups are provided, since the provided group info
+    // is technically a group key override: {"group_type": "group_key"}
+    // Add group key overrides if groups are present
+    if let Some(groups) = groups.clone() {
+        let group_key_overrides: HashMap<String, HashMap<String, Value>> = groups
+            .into_iter()
+            .map(|(group_type, group_key)| {
+                (
+                    group_type,
+                    // the group key is the name of the group... right?
+                    // I mean... I guess it could be the ID too, as long as the flag has a property filter for the ID.
+                    // seems like we need some special handling for `group_key` in the flag matching code.
+                    [("$group_key".to_string(), group_key)]
+                        .iter()
+                        .cloned()
+                        .collect(),
+                )
+            })
+            .collect();
+
+        group_property_overrides
+            .get_or_insert_with(HashMap::new)
+            .extend(group_key_overrides);
+    }
+
     let hash_key_override = request.anon_distinct_id.clone();
 
     let feature_flags_from_cache_or_pg = request

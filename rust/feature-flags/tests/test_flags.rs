@@ -194,7 +194,6 @@ async fn it_handles_malformed_json() -> Result<()> {
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
 
     let response_text = res.text().await?;
-    println!("Response text: {:?}", response_text);
 
     assert!(
         response_text.contains("Failed to decode request: invalid JSON"),
@@ -716,7 +715,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         );
     }
 
-    // Third Decision: With matching group overrides
+    // Third Decision: With matching group
     {
         let payload = json!({
             "token": token,
@@ -742,6 +741,100 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
             })
         );
     }
+
+    Ok(())
+}
+
+// can you make a test that checks that the group overrides are applied correctly, i.e. if the flag has a property filter based on the group key, we should be able to calculate the flag locally based on the group overrides?
+
+#[tokio::test]
+async fn it_applies_group_overrides_correctly() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let distinct_id = "user_with_group_override".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    let token = team.api_token;
+
+    // Insert a flag that has a property filter based on a group key
+    let flag_json = json!([{
+        "id": 2,
+        "key": "group-based-flag",
+        "name": "Group Based Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [{"key": "name", "type": "group", "value": "PostHog Local", "operator": "exact", "group_type_index": 1}],
+                    "rollout_percentage": 100
+                }
+            ],
+            "aggregation_group_type_index": 1
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Define groups overrides
+    let payload_with_override = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "groups": {
+            "organization": "PostHog Local"
+        },
+    });
+
+    // Send flags request with group overrides
+    let res = server
+        .send_flags_request(payload_with_override.to_string())
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorWhileComputingFlags": false,
+            "featureFlags": {
+                "group-based-flag": true
+            }
+        })
+    );
+
+    // Define group overrides with no matching group
+    let payload_with_non_matching_override = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "groups": {
+            "organization": "PostHog Production"
+        },
+    });
+
+    // Send flags request with non-matching group overrides
+    let res = server
+        .send_flags_request(payload_with_non_matching_override.to_string())
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorWhileComputingFlags": false,
+            "featureFlags": {
+                "group-based-flag": false
+            }
+        })
+    );
 
     Ok(())
 }
