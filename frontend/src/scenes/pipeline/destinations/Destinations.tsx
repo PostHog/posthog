@@ -15,6 +15,7 @@ import { AppMetricSparkLine } from '../AppMetricSparkLine'
 import { FrontendApps } from '../FrontendApps'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { HogFunctionStatusIndicator } from '../hogfunctions/HogFunctionStatusIndicator'
+import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { AppMetricSparkLineV2 } from '../metrics/AppMetricsV2Sparkline'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
@@ -144,7 +145,7 @@ export function DestinationsTable({
                             return (
                                 <LemonTableLink
                                     to={urls.pipelineNode(
-                                        PipelineStage.Destination,
+                                        hogFunctionTypeToPipelineStage(destination.stage),
                                         destination.id,
                                         PipelineNodeTab.Configuration
                                     )}
@@ -179,7 +180,7 @@ export function DestinationsTable({
                                       return (
                                           <Link
                                               to={urls.pipelineNode(
-                                                  PipelineStage.Destination,
+                                                  hogFunctionTypeToPipelineStage(destination.stage),
                                                   destination.id,
                                                   PipelineNodeTab.Metrics
                                               )}
