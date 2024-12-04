@@ -83,20 +83,17 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             target_cname=record.target_cname,
         )
         workflow_id = f"proxy-create-{inputs.proxy_record_id}"
-        try:
-            asyncio.run(
-                temporal.start_workflow(
-                    "create-proxy",
-                    inputs,
-                    id=workflow_id,
-                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
-                )
+        asyncio.run(
+            temporal.start_workflow(
+                "create-proxy",
+                inputs,
+                id=workflow_id,
+                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
             )
-            _capture_proxy_event(request, record, "created")
-        except Exception:
-            raise
+        )
 
         serializer = self.get_serializer(record)
+        _capture_proxy_event(request, record, "created")
         return Response(serializer.data)
 
     def destroy(self, request, *args, pk=None, **kwargs):
@@ -116,20 +113,18 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 domain=record.domain,
             )
             workflow_id = f"proxy-delete-{inputs.proxy_record_id}"
-            try:
-                asyncio.run(
-                    temporal.start_workflow(
-                        "delete-proxy",
-                        inputs,
-                        id=workflow_id,
-                        task_queue=GENERAL_PURPOSE_TASK_QUEUE,
-                    )
+            asyncio.run(
+                temporal.start_workflow(
+                    "delete-proxy",
+                    inputs,
+                    id=workflow_id,
+                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
                 )
-                record.status = ProxyRecord.Status.DELETING
-                record.save()
-                _capture_proxy_event(request, record, "deleted")
-            except Exception:
-                raise
+            )
+            record.status = ProxyRecord.Status.DELETING
+            record.save()
+
+            _capture_proxy_event(request, record, "deleted")
 
         return Response(
             {"success": True},
