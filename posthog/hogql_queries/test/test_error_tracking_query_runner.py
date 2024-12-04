@@ -1,6 +1,9 @@
 from unittest import TestCase
 from freezegun import freeze_time
 
+from dateutil.relativedelta import relativedelta
+from django.utils.timezone import now
+
 from posthog.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner, search_tokenizer
 from posthog.schema import (
     ErrorTrackingQuery,
@@ -187,7 +190,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     issue_two = "01936e80-5e69-7e70-b837-871f5cdad28b"
     issue_three = "01936e80-aa51-746f-aec4-cdf16a5c5332"
 
-    def create_events_and_issue(self, issue_id, distinct_ids, exception_list=None):
+    def create_events_and_issue(self, issue_id, distinct_ids, timestamp=None, exception_list=None):
         event_properties = {"$exception_issue_id": issue_id}
         if exception_list:
             event_properties["$exception_list"] = exception_list
@@ -198,6 +201,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 event="$exception",
                 team=self.team,
                 properties=event_properties,
+                timestamp=timestamp,
             )
 
         ErrorTrackingIssue.objects.create(id=issue_id, team=self.team)
@@ -224,9 +228,14 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.create_events_and_issue(
                 issue_id=self.issue_one,
                 distinct_ids=[self.distinct_id_one, self.distinct_id_two],
+                timestamp=now() - relativedelta(hours=3),
             )
-            self.create_events_and_issue(issue_id=self.issue_two, distinct_ids=[self.distinct_id_one])
-            self.create_events_and_issue(issue_id=self.issue_three, distinct_ids=[self.distinct_id_two])
+            self.create_events_and_issue(
+                issue_id=self.issue_two, distinct_ids=[self.distinct_id_one], timestamp=now() - relativedelta(hours=2)
+            )
+            self.create_events_and_issue(
+                issue_id=self.issue_three, distinct_ids=[self.distinct_id_two], timestamp=now() - relativedelta(hours=1)
+            )
 
         flush_persons_and_events()
 
@@ -452,6 +461,24 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._calculate(runner)["results"]
         # two errors exist for person with distinct_id_two
         self.assertEqual(len(results), 2)
+
+    @snapshot_clickhouse_queries
+    def test_ordering(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(kind="ErrorTrackingQuery", dateRange=DateRange(), orderBy="last_seen"),
+        )
+
+        results = self._calculate(runner)["results"]
+        self.assertEqual([r["id"] for r in results], [self.issue_three, self.issue_two, self.issue_one])
+
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(kind="ErrorTrackingQuery", dateRange=DateRange(), orderBy="first_seen"),
+        )
+
+        results = self._calculate(runner)["results"]
+        self.assertEqual([r["id"] for r in results], [self.issue_one, self.issue_two, self.issue_three])
 
     # def test_merges_and_defaults_groups(self):
     #     ErrorTrackingGroup.objects.create(
