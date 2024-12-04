@@ -44,6 +44,11 @@ from posthog.hogql.database.schema.person_distinct_id_overrides import (
     RawPersonDistinctIdOverridesTable,
     join_with_person_distinct_id_overrides_table,
 )
+from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
+    ErrorTrackingIssueFingerprintOverridesTable,
+    RawErrorTrackingIssueFingerprintOverridesTable,
+    join_with_person_distinct_id_overrides_table,
+)
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
@@ -103,6 +108,9 @@ class Database(BaseModel):
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
     person_distinct_id_overrides: PersonDistinctIdOverridesTable = PersonDistinctIdOverridesTable()
+    error_tracking_issue_fingerprint_overrides: ErrorTrackingIssueFingerprintOverridesTable = (
+        ErrorTrackingIssueFingerprintOverridesTable()
+    )
 
     session_replay_events: SessionReplayEventsTable = SessionReplayEventsTable()
     cohort_people: CohortPeople = CohortPeople()
@@ -119,6 +127,9 @@ class Database(BaseModel):
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_distinct_id_overrides: RawPersonDistinctIdOverridesTable = RawPersonDistinctIdOverridesTable()
+    raw_error_tracking_issue_fingerprint_overrides: RawErrorTrackingIssueFingerprintOverridesTable = (
+        RawErrorTrackingIssueFingerprintOverridesTable()
+    )
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
 
     # system tables
@@ -409,9 +420,11 @@ def create_hogql_database(
                 from_field=from_field,
                 to_field=to_field,
                 join_table=joining_table,
-                join_function=join.join_function_for_experiments()
-                if "events" == join.joining_table_name and join.configuration.get("experiments_optimized")
-                else join.join_function(),
+                join_function=(
+                    join.join_function_for_experiments()
+                    if "events" == join.joining_table_name and join.configuration.get("experiments_optimized")
+                    else join.join_function()
+                ),
             )
 
             if join.source_table_name == "persons":
