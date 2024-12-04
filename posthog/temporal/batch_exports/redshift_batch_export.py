@@ -32,6 +32,11 @@ from posthog.temporal.batch_exports.batch_exports import (
     start_batch_export_run,
     start_produce_batch_export_record_batches,
 )
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
+    should_resume_from_activity_heartbeat,
+)
 from posthog.temporal.batch_exports.metrics import get_rows_exported_metric
 from posthog.temporal.batch_exports.postgres_batch_export import (
     Fields,
@@ -47,11 +52,6 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
-from posthog.temporal.batch_exports.heartbeat import (
-    BatchExportRangeHeartbeatDetails,
-    DateRange,
-    should_resume_from_activity_heartbeat,
-)
 
 
 def remove_escaped_whitespace_recursive(value):
@@ -715,6 +715,8 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                 "StringDataRightTruncation",
                 # Raised by our PostgreSQL client when failing to connect after several attempts.
                 "PostgreSQLConnectionError",
+                # Column missing in Redshift, likely the schema was altered.
+                "UndefinedColumn",
             ],
             finish_inputs=finish_inputs,
         )
