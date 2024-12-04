@@ -84,7 +84,7 @@ impl GroupType {
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct PropertyDefinition {
     pub team_id: i32,
-    pub project_id: i32,
+    pub project_id: i64,
     pub name: String,
     pub is_numerical: bool,
     pub property_type: Option<PropertyValueType>,
@@ -99,7 +99,7 @@ pub struct PropertyDefinition {
 pub struct EventDefinition {
     pub name: String,
     pub team_id: i32,
-    pub project_id: i32,
+    pub project_id: i64,
     pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
 }
 
@@ -107,7 +107,7 @@ pub struct EventDefinition {
 #[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct EventProperty {
     pub team_id: i32,
-    pub project_id: i32,
+    pub project_id: i64,
     pub event: String,
     pub property: String,
 }
@@ -136,7 +136,7 @@ impl Update {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Event {
     pub team_id: i32,
-    pub project_id: i32,
+    pub project_id: i64,
     pub event: String,
     pub properties: Option<String>,
 }
@@ -434,7 +434,7 @@ impl EventDefinition {
             Uuid::now_v7(),
             self.name,
             self.team_id,
-            self.project_id as i64,
+            self.project_id,
             Utc::now() // We floor the update datetime to the nearest day for cache purposes, but can insert the exact time we see the event
         ).execute(executor).await.map(|_| ())
     }
@@ -481,7 +481,7 @@ impl PropertyDefinition {
             group_type_index,
             self.is_numerical,
             self.team_id,
-            self.project_id as i64,
+            self.project_id,
             self.property_type.as_ref().map(|t| t.to_string())
         ).execute(executor).await.map(|_| ())
     }
@@ -497,7 +497,7 @@ impl EventProperty {
             self.event,
             self.property,
             self.team_id,
-            self.project_id as i64
+            self.project_id
         )
         .execute(executor)
         .await
