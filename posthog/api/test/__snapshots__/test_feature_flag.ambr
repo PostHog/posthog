@@ -351,7 +351,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."feature_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."key" = 'some-feature2'
          AND "posthog_featureflag"."team_id" = 99999)
@@ -604,7 +605,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."feature_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."key" = 'some-feature-new'
          AND "posthog_featureflag"."team_id" = 99999)
@@ -940,7 +942,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."feature_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."key" = 'some-feature2'
          AND "posthog_featureflag"."team_id" = 99999)
@@ -1261,7 +1264,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."feature_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."key" = 'some-feature-new'
          AND "posthog_featureflag"."team_id" = 99999)
@@ -1329,7 +1333,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."feature_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."key" = 'some-feature2'
          AND "posthog_featureflag"."team_id" = 99999)
@@ -1905,7 +1910,8 @@
          "posthog_experiment"."type",
          "posthog_experiment"."variants",
          "posthog_experiment"."metrics",
-         "posthog_experiment"."metrics_secondary"
+         "posthog_experiment"."metrics_secondary",
+         "posthog_experiment"."feature_id"
   FROM "posthog_experiment"
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
   '''
@@ -2001,12 +2007,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '313'
+          AND "ee_accesscontrol"."resource_id" = '315'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '313'
+             AND "ee_accesscontrol"."resource_id" = '315'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -2021,12 +2027,12 @@
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" = 'feature_flag'
-             AND "ee_accesscontrol"."resource_id" = '130'
+             AND "ee_accesscontrol"."resource_id" = '133'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'feature_flag'
-             AND "ee_accesscontrol"."resource_id" = '130'
+             AND "ee_accesscontrol"."resource_id" = '133'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -2106,6 +2112,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."feature_id",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -2156,7 +2163,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."feature_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."key" = 'some-feature'
          AND "posthog_featureflag"."team_id" = 99999)
