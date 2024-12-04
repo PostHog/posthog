@@ -30,6 +30,7 @@ class EarlyAccessFeature(UUIDModel):
     stage = models.CharField(max_length=40, choices=Stage.choices)
     documentation_url = models.URLField(max_length=800, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    feature = models.ForeignKey("posthog.Feature", on_delete=models.SET_NULL, null=True)
 
     def __str__(self) -> str:
         return self.name

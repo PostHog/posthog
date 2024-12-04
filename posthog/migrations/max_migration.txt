@@ -1,1 +1,1 @@
-0526_add_features_table
+0526_add_features
