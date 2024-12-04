@@ -4,7 +4,8 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, propsCh
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { ModelMarker } from 'lib/monaco/codeEditorLogic'
+import { initModel } from 'lib/monaco/CodeEditor'
+import { codeEditorLogic, ModelMarker } from 'lib/monaco/codeEditorLogic'
 import { editor, MarkerSeverity, Uri } from 'monaco-editor'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
@@ -157,6 +158,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
         createTab: ({ query = '', view }) => {
+            const mountedCodeEditorLogic = codeEditorLogic.findMounted()
             let currentModelCount = 1
             const allNumbers = values.allTabs.map((tab) => parseInt(tab.uri.path.split('/').pop() || '0'))
             while (allNumbers.includes(currentModelCount)) {
@@ -167,6 +169,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const uri = props.monaco.Uri.parse(currentModelCount.toString())
                 const model = props.monaco.editor.createModel(query, 'hogQL', uri)
                 props.editor?.setModel(model)
+
+                if (mountedCodeEditorLogic) {
+                    initModel(model, mountedCodeEditorLogic)
+                }
+
                 actions.addTab({
                     uri,
                     view,
@@ -224,6 +231,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         initialize: () => {
             const allModelQueries = localStorage.getItem(editorModelsStateKey(props.key))
             const activeModelUri = localStorage.getItem(activemodelStateKey(props.key))
+            const mountedCodeEditorLogic =
+                codeEditorLogic.findMounted() ||
+                codeEditorLogic({
+                    key: props.key,
+                    query: props.sourceQuery?.source.query ?? '',
+                    language: 'hogQL',
+                })
 
             if (allModelQueries) {
                 // clear existing models
@@ -243,6 +257,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             uri,
                             view: model.view,
                         })
+                        mountedCodeEditorLogic && initModel(newModel, mountedCodeEditorLogic)
                     }
                 })
 
