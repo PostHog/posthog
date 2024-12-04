@@ -243,15 +243,26 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
     def test_column_types(self):
         materialize("events", "myprop", create_minmax_index=True)
+        materialize("events", "myprop_nullable", create_minmax_index=True, is_nullable=True)
 
-        expr = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
-        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+        expr_nonnullable = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
+        expr_nullable = "JSONExtract(properties, 'myprop_nullable', 'Nullable(String)')"
+        self.assertEqual(("String", "MATERIALIZED", expr_nonnullable), self._get_column_types("mat_myprop"))
+        self.assertEqual(
+            ("Nullable(String)", "MATERIALIZED", expr_nullable), self._get_column_types("mat_myprop_nullable")
+        )
 
-        backfill_materialized_columns("events", [("myprop", "properties")], timedelta(days=50))
-        self.assertEqual(("DEFAULT", expr), self._get_column_types("mat_myprop"))
+        backfill_materialized_columns(
+            "events", [("myprop", "properties"), ("myprop_nullable", "properties")], timedelta(days=50)
+        )
+        self.assertEqual(("String", "DEFAULT", expr_nonnullable), self._get_column_types("mat_myprop"))
+        self.assertEqual(("Nullable(String)", "DEFAULT", expr_nullable), self._get_column_types("mat_myprop_nullable"))
 
         mark_all_materialized()
-        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+        self.assertEqual(("String", "MATERIALIZED", expr_nonnullable), self._get_column_types("mat_myprop"))
+        self.assertEqual(
+            ("Nullable(String)", "MATERIALIZED", expr_nullable), self._get_column_types("mat_myprop_nullable")
+        )
 
     def _count_materialized_rows(self, column):
         return sync_execute(
@@ -281,7 +292,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
     def _get_column_types(self, column: str):
         return sync_execute(
             """
-            SELECT default_kind, default_expression
+            SELECT type, default_kind, default_expression
             FROM system.columns
             WHERE database = %(database)s AND table = %(table)s AND name = %(column)s
             """,
