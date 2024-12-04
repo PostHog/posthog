@@ -19,6 +19,7 @@ import { InsightLogicProps } from '~/types'
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
+import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
@@ -147,6 +148,11 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                 }
                 className="flex-1"
                 to={urls.errorTrackingIssue(record.id)}
+                onClick={() => {
+                    const issueLogic = errorTrackingIssueSceneLogic({ id: record.id })
+                    issueLogic.mount()
+                    issueLogic.actions.setIssue(record)
+                }}
             />
         </div>
     )
