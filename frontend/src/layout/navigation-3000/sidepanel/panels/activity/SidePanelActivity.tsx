@@ -157,64 +157,62 @@ export const SidePanelActivity = (): JSX.Element => {
                     </div>
 
                     {/* Controls */}
-                    <div className="px-2 pb-2 space-y-2 shrink-0">
-                        {activeTab === SidePanelActivityTab.Unread ? (
-                            <>
-                                <LemonBanner type="info" dismissKey="notifications-introduction">
-                                    Notifications shows you changes others make to{' '}
-                                    <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
-                                    <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come
-                                    join <Link to="https://posthog.com/community">our community forum</Link> and tell us
-                                    what else should be here!
-                                </LemonBanner>
+                    {activeTab === SidePanelActivityTab.Unread ? (
+                        <div className="px-2 pb-2 space-y-2 shrink-0">
+                            <LemonBanner type="info" dismissKey="notifications-introduction">
+                                Notifications shows you changes others make to{' '}
+                                <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
+                                <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come join{' '}
+                                <Link to="https://posthog.com/community">our community forum</Link> and tell us what
+                                else should be here!
+                            </LemonBanner>
 
-                                <div className="flex items-center justify-between gap-2">
-                                    {toggleExtendedDescription}
-                                    {hasUnread ? (
-                                        <LemonButton type="secondary" onClick={() => markAllAsRead()}>
-                                            Mark all as read
-                                        </LemonButton>
-                                    ) : null}
-                                </div>
-                            </>
-                        ) : activeTab === SidePanelActivityTab.All ? (
                             <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                    {toggleExtendedDescription}
-                                    {allActivityResponseLoading ? <Spinner textColored /> : null}
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    <span>Filter for activity on:</span>
-                                    <LemonSelect
-                                        size="small"
-                                        options={scopeMenuOptions}
-                                        placeholder="All activity"
-                                        value={(activeScopeMenuOption as ActivityScope) ?? undefined}
-                                        onChange={(value) =>
-                                            setFilters({
-                                                ...filters,
-                                                scope: value ?? undefined,
-                                                item_id: undefined,
-                                            })
-                                        }
-                                        dropdownMatchSelectWidth={false}
-                                    />
-
-                                    <span>by</span>
-                                    <MemberSelect
-                                        value={filters?.user ?? null}
-                                        onChange={(user) =>
-                                            setFilters({
-                                                ...filters,
-                                                user: user?.id ?? undefined,
-                                            })
-                                        }
-                                    />
-                                </div>
+                                {toggleExtendedDescription}
+                                {hasUnread ? (
+                                    <LemonButton type="secondary" onClick={() => markAllAsRead()}>
+                                        Mark all as read
+                                    </LemonButton>
+                                ) : null}
                             </div>
-                        ) : null}
-                    </div>
+                        </div>
+                    ) : activeTab === SidePanelActivityTab.All ? (
+                        <div className="flex items-center justify-between gap-2 px-2 pb-2 space-y-2 shrink-0">
+                            <div className="flex items-center gap-2">
+                                {toggleExtendedDescription}
+                                {allActivityResponseLoading ? <Spinner textColored /> : null}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <span>Filter for activity on:</span>
+                                <LemonSelect
+                                    size="small"
+                                    options={scopeMenuOptions}
+                                    placeholder="All activity"
+                                    value={(activeScopeMenuOption as ActivityScope) ?? undefined}
+                                    onChange={(value) =>
+                                        setFilters({
+                                            ...filters,
+                                            scope: value ?? undefined,
+                                            item_id: undefined,
+                                        })
+                                    }
+                                    dropdownMatchSelectWidth={false}
+                                />
+
+                                <span>by</span>
+                                <MemberSelect
+                                    value={filters?.user ?? null}
+                                    onChange={(user) =>
+                                        setFilters({
+                                            ...filters,
+                                            user: user?.id ?? undefined,
+                                        })
+                                    }
+                                />
+                            </div>
+                        </div>
+                    ) : null}
 
                     <div className="flex flex-col flex-1 overflow-hidden" ref={contentRef} onScroll={handleScroll}>
                         <ScrollableShadows direction="vertical" innerClassName="p-2 space-y-px">
