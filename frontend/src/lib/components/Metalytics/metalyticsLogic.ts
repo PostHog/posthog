@@ -64,11 +64,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
         instanceId: [
             (s) => [s.sceneActivityFilters],
             (sceneActivityFilters) =>
-                sceneActivityFilters
-                    ? sceneActivityFilters.item_id
-                        ? `${sceneActivityFilters.scope}:${sceneActivityFilters.item_id}`
-                        : sceneActivityFilters.scope
-                    : null,
+                sceneActivityFilters?.item_id ? `${sceneActivityFilters.scope}:${sceneActivityFilters.item_id}` : null,
         ],
 
         recentUserMembers: [

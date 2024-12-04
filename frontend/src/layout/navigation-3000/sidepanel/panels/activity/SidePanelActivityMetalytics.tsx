@@ -1,4 +1,4 @@
-import { Tooltip } from '@posthog/lemon-ui'
+import { Spinner, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useValues } from 'kea'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
@@ -9,17 +9,15 @@ import { NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 
 export function SidePanelActivityMetalytics(): JSX.Element {
-    const { instanceId, viewCount, recentUserMembers } = useValues(metalyticsLogic)
+    const { instanceId, viewCount, recentUserMembers, viewCountLoading, usersLast30daysLoading } =
+        useValues(metalyticsLogic)
 
     if (!instanceId) {
         return (
-            <>
-                <h3>Metalytics</h3>
-                <p>
-                    You can see internal analytics of how your Organization members are using PostHog for certain
-                    things.
-                </p>
-            </>
+            <p className="border-dashed ">
+                You can see internal analytics of how your Organization members are using PostHog for things such as
+                Dashboards, Insights, Playlists etc. Open an app to see the viewership data here.
+            </p>
         )
     }
 
@@ -32,7 +30,9 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                 >
                     <div className="flex-1 p-4 border rounded bg-bg-light min-w-40">
                         <div className="text-sm text-muted">View count</div>
-                        <div className="text-2xl font-semibold">{viewCount?.views ?? 0}</div>
+                        <div className="text-2xl font-semibold">
+                            {viewCountLoading ? <Spinner /> : viewCount?.views ?? 0}
+                        </div>
                     </div>
                 </Tooltip>
 
@@ -42,22 +42,28 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                 >
                     <div className="flex-1 p-4 border rounded bg-bg-light min-w-40">
                         <div className="text-sm text-muted">Viewer count</div>
-                        <div className="text-2xl font-semibold">{viewCount?.users ?? 0}</div>
+                        <div className="text-2xl font-semibold">
+                            {viewCountLoading ? <Spinner /> : viewCount?.users ?? 0}
+                        </div>
                     </div>
                 </Tooltip>
 
                 <Tooltip title="The most recent 30 users who have viewed this scene." placement="top">
                     <div className="flex-1 p-4 border rounded bg-bg-light min-w-40">
                         <div className="text-sm text-muted">Recent viewers (30 days)</div>
-                        <ProfileBubbles
-                            className="mt-2"
-                            people={recentUserMembers.map((member) => ({
-                                email: member.user.email,
-                                name: member.user.first_name,
-                                title: member.user.email,
-                            }))}
-                            limit={3}
-                        />
+                        {usersLast30daysLoading ? (
+                            <Spinner />
+                        ) : (
+                            <ProfileBubbles
+                                className="mt-2"
+                                people={recentUserMembers.map((member) => ({
+                                    email: member.user.email,
+                                    name: member.user.first_name,
+                                    title: member.user.email,
+                                }))}
+                                limit={3}
+                            />
+                        )}
                     </div>
                 </Tooltip>
             </div>
