@@ -23,15 +23,15 @@ export function SidePanelActivityMetalytics(): JSX.Element {
     }
 
     return (
-        <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-200px)]">
+        <div className="space-y-4 ">
             <div className="flex gap-4">
-                <div className="flex-1 rounded bg-bg-light p-4">
-                    <div className="text-muted text-sm">Number Of Sessions</div>
+                <div className="flex-1 p-4 border rounded bg-bg-light">
+                    <div className="text-sm text-muted">Number Of Sessions</div>
                     <div className="text-2xl font-semibold">{viewCount ?? 0}</div>
                 </div>
 
-                <div className="flex-1 rounded bg-bg-light p-4">
-                    <div className="text-muted text-sm mb-2">Recent Viewers (30 days)</div>
+                <div className="flex-1 p-4 border rounded bg-bg-light">
+                    <div className="mb-2 text-sm text-muted">Recent Viewers (30 days)</div>
                     <ProfileBubbles
                         people={recentUserMembers.map((member) => ({
                             email: member.user.email,
