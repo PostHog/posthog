@@ -40,6 +40,8 @@ from .google_cloud_storage.template_google_cloud_storage import (
 )
 from .airtable.template_airtable import template as airtable
 from .brevo.template_brevo import template as brevo
+from ._siteapps.template_early_access_features import template as early_access_features
+from ._siteapps.template_hogdesk import template as hogdesk
 from ._siteapps.template_notification_bar import template as notification_bar
 from ._siteapps.template_pineapple_mode import template as pineapple_mode
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
@@ -83,8 +85,6 @@ HOG_FUNCTION_TEMPLATES = [
     make,
     meta_ads,
     microsoft_teams,
-    notification_bar,
-    pineapple_mode,
     posthog,
     rudderstack,
     salesforce_create,
@@ -92,6 +92,10 @@ HOG_FUNCTION_TEMPLATES = [
     sendgrid,
     zapier,
     zendesk,
+    early_access_features,
+    hogdesk,
+    notification_bar,
+    pineapple_mode,
 ]
 
 
