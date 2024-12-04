@@ -736,7 +736,7 @@ function ResponseSummaryFeedback({ surveyId }: { surveyId: string }): JSX.Elemen
             return // Already rated
         }
         setRating(newRating)
-        posthog.capture('chat rating', {
+        posthog.capture('survey_resonse_rated', {
             survey_id: surveyId,
             answer_rating: rating,
         })
