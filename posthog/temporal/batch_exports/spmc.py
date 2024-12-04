@@ -362,7 +362,9 @@ async def run_consumer_loop(
         consumer_task.add_done_callback(consumer_done_callback)
         consumer_number += 1
 
-        while not consumer.flush_start_event.is_set() or not consumer_task.done():
+        while not consumer.flush_start_event.is_set() and not consumer_task.done():
+            # Block until we either start flushing or we are done consuming.
+            # Flush start should always happen first unless the consumer task fails.
             await asyncio.sleep(0)
 
         if consumer_task.done():
