@@ -10,7 +10,11 @@ logger = structlog.get_logger(__name__)
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 def update_team_remote_config(team_id: int) -> None:
-    team = Team.objects.get(id=team_id)
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.exception("Team does not exist", team_id=team_id)
+        return
 
     try:
         remote_config = RemoteConfig.objects.get(team=team)
