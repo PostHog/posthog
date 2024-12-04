@@ -7,6 +7,8 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect, useRef, useState } from 'react'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
 import { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
@@ -68,7 +70,13 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
     }
 
     return (
-        <Tooltip title="Play the next recording (press n)">
+        <Tooltip
+            title={
+                <>
+                    Play the next recording <KeyboardShortcut n />
+                </>
+            }
+        >
             <div className="PlayerUpNext text-xs">
                 <div
                     className={clsx('px-1 py-0.5 PlayerUpNextButton', animate && 'PlayerUpNextButton--animating')}
