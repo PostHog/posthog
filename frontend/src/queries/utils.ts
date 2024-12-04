@@ -13,6 +13,7 @@ import {
     DataVisualizationNode,
     DataWarehouseNode,
     DateRange,
+    ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
@@ -140,6 +141,10 @@ export function isSessionAttributionExplorerQuery(
     node?: Record<string, any> | null
 ): node is SessionAttributionExplorerQuery {
     return node?.kind === NodeKind.SessionAttributionExplorerQuery
+}
+
+export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
+    return node?.kind === NodeKind.ErrorTrackingQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
