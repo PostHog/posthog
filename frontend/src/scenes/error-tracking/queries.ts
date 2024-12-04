@@ -40,7 +40,7 @@ const toStartOfIntervalFn = {
 }
 
 export const errorTrackingQuery = ({
-    order,
+    orderBy,
     dateRange,
     assignee,
     filterTestAccounts,
@@ -49,7 +49,7 @@ export const errorTrackingQuery = ({
     sparklineSelectedPeriod,
     columns,
     limit = 50,
-}: Pick<ErrorTrackingQuery, 'order' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery'> & {
+}: Pick<ErrorTrackingQuery, 'orderBy' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery'> & {
     filterGroup: UniversalFiltersGroup
     sparklineSelectedPeriod: string | null
     columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
@@ -69,7 +69,7 @@ export const errorTrackingQuery = ({
         source: {
             kind: NodeKind.ErrorTrackingQuery,
             select: select,
-            order: order,
+            orderBy: orderBy,
             dateRange: dateRange,
             assignee: assignee,
             filterGroup: filterGroup as PropertyGroupFilter,

@@ -313,7 +313,7 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const { showSource, configuration } = useValues(hogFunctionConfigurationLogic)
     const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
-    const [editing, setEditing] = useState(showSource)
+    const [editing, setEditing] = useState(false)
 
     const value = configuration.inputs?.[schema.key]
 
@@ -390,7 +390,7 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
                                     {supportsTemplating && (
                                         <LemonButton
                                             size="xsmall"
-                                            to="https://posthog.com/docs/cdp/destinations#input-formatting"
+                                            to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload"
                                             sideIcon={<IconInfo />}
                                             noPadding
                                             className=" opacity-0 group-hover:opacity-100 p-1 transition-opacity"

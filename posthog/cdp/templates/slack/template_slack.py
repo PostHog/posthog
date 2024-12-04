@@ -24,7 +24,7 @@ let res := fetch('https://slack.com/api/chat.postMessage', {
   }
 });
 
-if (res.status != 200 or not res.body.ok) {
+if (res.status != 200 or res.body.ok == false) {
   throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');
 }
 """.strip(),

@@ -21,10 +21,14 @@ impl Team {
             .await?;
 
         // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
-        let team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
+        let mut team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
             tracing::error!("failed to parse data to team: {}", e);
             FlagError::RedisDataParsingError
         })?;
+        if team.project_id == 0 {
+            // If `project_id` is 0, this means the payload is from before December 2025, which we correct for here
+            team.project_id = team.id as i64;
+        }
 
         Ok(team)
     }
@@ -59,7 +63,7 @@ impl Team {
     ) -> Result<Team, FlagError> {
         let mut conn = client.get_connection().await?;
 
-        let query = "SELECT id, name, api_token FROM posthog_team WHERE api_token = $1";
+        let query = "SELECT id, name, api_token, project_id FROM posthog_team WHERE api_token = $1";
         let row = sqlx::query_as::<_, Team>(query)
             .bind(&token)
             .fetch_one(&mut *conn)
@@ -95,6 +99,7 @@ mod tests {
             .unwrap();
         assert_eq!(team_from_redis.api_token, target_token);
         assert_eq!(team_from_redis.id, team.id);
+        assert_eq!(team_from_redis.project_id, team.project_id);
     }
 
     #[tokio::test]
@@ -120,10 +125,11 @@ mod tests {
     #[tokio::test]
     async fn test_corrupted_data_in_redis_is_handled() {
         // TODO: Extend this test with fallback to pg
-        let id = rand::thread_rng().gen_range(0..10_000_000);
+        let id = rand::thread_rng().gen_range(1..10_000_000);
         let token = random_string("phc_", 12);
         let team = Team {
             id,
+            project_id: i64::from(id) - 1,
             name: "team".to_string(),
             api_token: token,
         };
@@ -151,6 +157,32 @@ mod tests {
             Err(other) => panic!("Expected DataParsingError, got {:?}", other),
             Ok(_) => panic!("Expected DataParsingError"),
         };
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_from_before_project_id_from_redis() {
+        let client = setup_redis_client(None);
+        let target_token = "phc_123456789012".to_string();
+        // A payload form before December 2025, it's missing `project_id`
+        let serialized_team = format!(
+            "{{\"id\":343,\"name\":\"team\",\"api_token\":\"{}\"}}",
+            target_token
+        );
+        client
+            .set(
+                format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, target_token),
+                serialized_team,
+            )
+            .await
+            .expect("Failed to write data to redis");
+
+        let team_from_redis = Team::from_redis(client.clone(), target_token.clone())
+            .await
+            .expect("Failed to fetch team from redis");
+
+        assert_eq!(team_from_redis.api_token, target_token);
+        assert_eq!(team_from_redis.id, 343);
+        assert_eq!(team_from_redis.project_id, 343); // Same as `id`
     }
 
     #[tokio::test]
