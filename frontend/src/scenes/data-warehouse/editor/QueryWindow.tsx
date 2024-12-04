@@ -87,6 +87,9 @@ interface InternalQueryWindowProps {
 }
 
 function InternalQueryWindow({ setQuery, query }: InternalQueryWindowProps): JSX.Element {
+    const [error, setError] = useState<string | null>(null)
+    const [isValidView, setIsValidView] = useState(true)
+
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
@@ -111,17 +114,7 @@ function InternalQueryWindow({ setQuery, query }: InternalQueryWindowProps): JSX
         },
     })
 
-    const {
-        allTabs,
-        activeModelUri,
-        queryInput,
-        activeQuery,
-        hasErrors,
-        error,
-        isValidView,
-        editingView,
-        exportContext,
-    } = useValues(logic)
+    const { allTabs, activeModelUri, queryInput, activeQuery, editingView, exportContext } = useValues(logic)
     const { selectTab, deleteTab, createTab, setQueryInput, runQuery, saveAsView, saveAsInsight } = useActions(logic)
 
     return (
@@ -157,6 +150,10 @@ function InternalQueryWindow({ setQuery, query }: InternalQueryWindowProps): JSX
                             runQuery()
                         }
                     },
+                    onError: (error, isValidView) => {
+                        setError(error)
+                        setIsValidView(isValidView)
+                    },
                 }}
             />
             <OutputPane
@@ -166,9 +163,7 @@ function InternalQueryWindow({ setQuery, query }: InternalQueryWindowProps): JSX
                 onSaveView={saveAsView}
                 onSaveInsight={saveAsInsight}
                 exportContext={exportContext}
-                saveDisabledReason={
-                    hasErrors ? error ?? 'Query has errors' : !isValidView ? 'Some fields may need an alias' : ''
-                }
+                saveDisabledReason={error ? error : !isValidView ? 'Some fields may need an alias' : ''}
             />
         </div>
     )

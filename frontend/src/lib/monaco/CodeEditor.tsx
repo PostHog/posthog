@@ -32,6 +32,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     sourceQuery?: AnyDataNode
     globals?: Record<string, any>
     schema?: Record<string, any> | null
+
+    onError?: (error: string | null, isValidView: boolean) => void
 }
 let codeEditorIndex = 0
 
@@ -118,6 +120,7 @@ export function CodeEditor({
     globals,
     sourceQuery,
     schema,
+    onError,
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -136,6 +139,7 @@ export function CodeEditor({
         sourceQuery,
         monaco: monaco,
         editor: editor,
+        onError,
     })
     useMountedLogic(builtCodeEditorLogic)
 

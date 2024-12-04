@@ -5,14 +5,14 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { initModel } from 'lib/monaco/CodeEditor'
-import { codeEditorLogic, ModelMarker } from 'lib/monaco/codeEditorLogic'
-import { editor, MarkerSeverity, Uri } from 'monaco-editor'
+import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
+import { editor, Uri } from 'monaco-editor'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { queryExportContext } from '~/queries/query'
-import { HogQLMetadataResponse, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLMetadataResponse, HogQLQuery, NodeKind } from '~/queries/schema'
 import { DataVisualizationNode } from '~/queries/schema'
 import { DataWarehouseSavedQuery, ExportContext } from '~/types'
 
@@ -69,7 +69,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.initialize()
         }
     }),
-    reducers(({ props }) => ({
+    reducers({
         queryInput: [
             '',
             {
@@ -108,55 +108,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 setTabs: (_, { tabs }) => tabs,
             },
         ],
-        metadata: [
-            null as null | [string, HogQLMetadataResponse],
-            {
-                setMetadata: (_, { query, metadata }) => [query, metadata],
-            },
-        ],
-        modelMarkers: [
-            [] as ModelMarker[],
-            {
-                setMetadata: (_, { query, metadata }) => {
-                    const model = props.editor?.getModel()
-                    if (!model || !metadata) {
-                        return []
-                    }
-                    const markers: ModelMarker[] = []
-                    const metadataResponse = metadata
-
-                    function noticeToMarker(error: HogQLNotice, severity: MarkerSeverity): ModelMarker {
-                        const start = model!.getPositionAt(error.start ?? 0)
-                        const end = model!.getPositionAt(error.end ?? query.length)
-                        return {
-                            start: error.start ?? 0,
-                            startLineNumber: start.lineNumber,
-                            startColumn: start.column,
-                            end: error.end ?? query.length,
-                            endLineNumber: end.lineNumber,
-                            endColumn: end.column,
-                            message: error.message ?? 'Unknown error',
-                            severity: severity,
-                            hogQLFix: error.fix,
-                        }
-                    }
-
-                    for (const notice of metadataResponse?.errors ?? []) {
-                        markers.push(noticeToMarker(notice, 8 /* MarkerSeverity.Error */))
-                    }
-                    for (const notice of metadataResponse?.warnings ?? []) {
-                        markers.push(noticeToMarker(notice, 4 /* MarkerSeverity.Warning */))
-                    }
-                    for (const notice of metadataResponse?.notices ?? []) {
-                        markers.push(noticeToMarker(notice, 1 /* MarkerSeverity.Hint */))
-                    }
-
-                    props.monaco?.editor.setModelMarkers(model, 'hogql', markers)
-                    return markers
-                },
-            },
-        ],
-    })),
+    }),
     listeners(({ values, props, actions, asyncActions }) => ({
         createTab: ({ query = '', view }) => {
             const mountedCodeEditorLogic = codeEditorLogic.findMounted()
@@ -428,20 +380,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     })),
     selectors({
         activeTabKey: [(s) => [s.activeModelUri], (activeModelUri) => `hogQLQueryEditor/${activeModelUri?.uri.path}`],
-        isValidView: [(s) => [s.metadata], (metadata) => !!(metadata && metadata[1]?.isValidView)],
-        hasErrors: [
-            (s) => [s.modelMarkers],
-            (modelMarkers) => !!(modelMarkers ?? []).filter((e) => e.severity === 8 /* MarkerSeverity.Error */).length,
-        ],
-        error: [
-            (s) => [s.hasErrors, s.modelMarkers],
-            (hasErrors, modelMarkers) => {
-                const firstError = modelMarkers.find((e) => e.severity === 8 /* MarkerSeverity.Error */)
-                return hasErrors && firstError
-                    ? `Error on line ${firstError.startLineNumber}, column ${firstError.startColumn}`
-                    : null
-            },
-        ],
         exportContext: [
             () => [(_, props) => props.sourceQuery],
             (sourceQuery) => {
