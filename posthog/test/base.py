@@ -263,6 +263,15 @@ def clean_varying_query_parts(query, replace_all_numbers):
         "SELECT distinct_id, 1 as value",
         query,
     )
+
+    # rbac has some varying IDs we can replace
+    # e.g. AND "ee_accesscontrol"."resource_id" = '450'
+    query = re.sub(
+        r"\"resource_id\" = '\d+'",
+        "\"resource_id\" = '99999'",
+        query,
+    )
+
     return query
 
 
