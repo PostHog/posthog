@@ -350,14 +350,23 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
             sf_schema = source.job_inputs.get("schema")
             role = source.job_inputs.get("role")
 
+            auth_type = source.job_inputs.get("auth_type", "password")
+            auth_type_username = source.job_inputs.get("user")
+            auth_type_password = source.job_inputs.get("password")
+            auth_type_passphrase = source.job_inputs.get("passphrase")
+            auth_type_private_key = source.job_inputs.get("private_key")
+
             sf_schemas = get_snowflake_schemas(
                 account_id=account_id,
                 database=database,
                 warehouse=warehouse,
-                user=user,
-                password=password,
+                user=auth_type_username,
+                password=auth_type_password,
                 schema=sf_schema,
                 role=role,
+                auth_type=auth_type,
+                passphrase=auth_type_passphrase,
+                private_key=auth_type_private_key,
             )
 
             columns = sf_schemas.get(instance.name, [])
