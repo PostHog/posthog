@@ -163,7 +163,11 @@ function FullScreen(): JSX.Element {
         <LemonButton
             size="xsmall"
             onClick={() => setIsFullScreen(!isFullScreen)}
-            tooltip={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}
+            tooltip={
+                <>
+                    {!isFullScreen ? 'Go' : 'Exit'} full screen <KeyboardShortcut f />
+                </>
+            }
         >
             <IconFullScreen className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')} />
         </LemonButton>
@@ -194,7 +198,11 @@ function Maximise(): JSX.Element {
         <LemonButton
             size="xsmall"
             onClick={onChangeMaximise}
-            tooltip={`${isMaximised ? 'Open' : 'Close'} other panels (M)`}
+            tooltip={
+                <>
+                    {isMaximised ? 'Open' : 'Close'} other panels <KeyboardShortcut m />
+                </>
+            }
             icon={isMaximised ? <IconCollapse45 className="text-lg" /> : <IconExpand45 className="text-lg" />}
         />
     )
