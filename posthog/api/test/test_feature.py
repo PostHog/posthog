@@ -17,16 +17,69 @@ class TestFeatureAPI(APIBaseTest):
         )
 
     def test_list_features(self):
+        # Create a feature flag and experiment for the feature, ensure they are not returned in the response
+        Experiment.objects.create(
+            team=self.team,
+            name="Test Experiment",
+            feature=self.feature,
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team,
+                name="Test Flag for Experiment",
+                key="test-flag-for-experiment-list",
+                feature=self.feature,
+            ),
+        )
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Test EAF",
+            description="Test Description",
+            feature=self.feature,
+        )
+
         response = self.client.get(f"/api/projects/{self.team.id}/features/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["name"], "Test Feature")
 
+        # Ensure we are not returning joined data
+        with self.assertRaises(KeyError):
+            response.json()["results"][0]["experiments"]
+        with self.assertRaises(KeyError):
+            response.json()["results"][0]["feature_flags"]
+        with self.assertRaises(KeyError):
+            response.json()["results"][0]["early_access_features"]
+
     def test_retrieve_feature(self):
+        Experiment.objects.create(
+            team=self.team,
+            name="Test Experiment",
+            feature=self.feature,
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team,
+                name="Test Flag for Experiment",
+                key="test-flag-for-experiment-retrieve",
+                feature=self.feature,
+            ),
+        )
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Test EAF",
+            description="Test Description",
+            feature=self.feature,
+        )
+
         response = self.client.get(f"/api/projects/{self.team.id}/features/{self.feature.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Test Feature")
         self.assertEqual(response.json()["description"], "Test Description")
+
+        # Ensure we are not returning joined data
+        with self.assertRaises(KeyError):
+            response.json()["experiments"]
+        with self.assertRaises(KeyError):
+            response.json()["feature_flags"]
+        with self.assertRaises(KeyError):
+            response.json()["early_access_features"]
 
     def test_create_feature(self):
         response = self.client.post(
