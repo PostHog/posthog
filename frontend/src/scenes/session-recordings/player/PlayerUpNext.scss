@@ -8,10 +8,7 @@
     align-items: center;
     overflow: hidden;
     cursor: pointer;
-    background-color: rgb(255 255 255 / 75%);
     backdrop-filter: blur(5px);
-    border: 1px solid rgb(0 0 0 / 50%);
-    border-radius: var(--radius);
 
     .PlayerUpNextButtonBackground {
         position: absolute;
@@ -20,7 +17,7 @@
         left: 0;
         width: 0;
         color: var(--primary-alt);
-        background-color: var(--bg-light);
+        background-color: var(--border-3000);
     }
 
     &.PlayerUpNextButton--animating {

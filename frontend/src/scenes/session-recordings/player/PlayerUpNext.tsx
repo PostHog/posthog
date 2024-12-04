@@ -38,7 +38,7 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
             setPlayNextAnimationInterrupted(false)
             timeoutRef.current = setTimeout(() => {
                 goToRecording(true)
-            }, 3000) // NOTE: Keep in sync with SCSS
+            }, 30000) // NOTE: Keep in sync with SCSS
         }
 
         return () => clearTimeout(timeoutRef.current)
@@ -62,7 +62,7 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
                     className={clsx('px-1 py-0.5 PlayerUpNextButton', animate && 'PlayerUpNextButton--animating')}
                     onClick={() => goToRecording(false)}
                 >
-                    <div className="w-full PlayerUpNextButtonBackground" />
+                    <div className="PlayerUpNextButtonBackground" />
                     <div className="z-10 flex items-center gap-2">
                         <IconPlay className="text-lg" /> Play next
                     </div>
