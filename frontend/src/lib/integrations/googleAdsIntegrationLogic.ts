@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props } from 'kea'
+import { actions, afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -34,4 +34,7 @@ export const googleAdsIntegrationLogic = kea<googleAdsIntegrationLogicType>([
             },
         ],
     })),
+    afterMount(({ actions }) => {
+        actions.loadGoogleAdsAccessibleAccounts()
+    }),
 ])
