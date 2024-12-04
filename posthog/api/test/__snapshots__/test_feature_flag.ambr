@@ -2027,12 +2027,12 @@
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" = 'feature_flag'
-             AND "ee_accesscontrol"."resource_id" = '133'
+             AND "ee_accesscontrol"."resource_id" = '135'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'feature_flag'
-             AND "ee_accesscontrol"."resource_id" = '133'
+             AND "ee_accesscontrol"."resource_id" = '135'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
