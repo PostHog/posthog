@@ -111,8 +111,17 @@ function InternalQueryWindow({ setQuery, query }: InternalQueryWindowProps): JSX
         },
     })
 
-    const { allTabs, activeModelUri, queryInput, activeQuery, hasErrors, error, isValidView, editingView } =
-        useValues(logic)
+    const {
+        allTabs,
+        activeModelUri,
+        queryInput,
+        activeQuery,
+        hasErrors,
+        error,
+        isValidView,
+        editingView,
+        exportContext,
+    } = useValues(logic)
     const { selectTab, deleteTab, createTab, setQueryInput, runQuery, saveAsView, saveAsInsight } = useActions(logic)
 
     return (
@@ -156,6 +165,7 @@ function InternalQueryWindow({ setQuery, query }: InternalQueryWindowProps): JSX
                 onQueryChange={setQuery}
                 onSaveView={saveAsView}
                 onSaveInsight={saveAsInsight}
+                exportContext={exportContext}
                 saveDisabledReason={
                     hasErrors ? error ?? 'Query has errors' : !isValidView ? 'Some fields may need an alias' : ''
                 }

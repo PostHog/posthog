@@ -26,7 +26,7 @@ import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Var
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema'
-import { ChartDisplayType, ExporterFormat } from '~/types'
+import { ChartDisplayType, ExportContext, ExporterFormat } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
@@ -39,6 +39,7 @@ interface OutputPaneProps {
     onQueryInputChange: () => void
     onQueryChange: (query: DataVisualizationNode) => void
     query: string
+    exportContext?: ExportContext
 }
 
 export function OutputPane({
@@ -48,6 +49,7 @@ export function OutputPane({
     onSaveInsight,
     saveDisabledReason,
     query,
+    exportContext,
 }: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
@@ -64,6 +66,7 @@ export function OutputPane({
     const { response, responseLoading } = useValues(dataNodeLogic)
     const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+    const { visualizationType } = useValues(dataVisualizationLogic)
 
     const vizKey = `SQLEditorScene`
 
@@ -126,6 +129,7 @@ export function OutputPane({
                         setQuery={onQueryChange}
                         context={{}}
                         cachedResults={undefined}
+                        exportContext={exportContext}
                         onSaveInsight={onSaveInsight}
                     />
                 </div>
@@ -159,6 +163,26 @@ export function OutputPane({
                 />
                 <div className="flex gap-4">
                     <AddVariableButton />
+
+                    {exportContext && (
+                        <ExportButton
+                            disabledReason={
+                                visualizationType != ChartDisplayType.ActionsTable &&
+                                'Only table results are exportable'
+                            }
+                            type="secondary"
+                            items={[
+                                {
+                                    export_format: ExporterFormat.CSV,
+                                    export_context: exportContext,
+                                },
+                                {
+                                    export_format: ExporterFormat.XLSX,
+                                    export_context: exportContext,
+                                },
+                            ]}
+                        />
+                    )}
 
                     {editingView ? (
                         <>
@@ -290,26 +314,6 @@ function InternalDataTableVisualization(
                                         onClick={() => toggleChartSettingsPanel()}
                                         tooltip="Visualization settings"
                                     />
-
-                                    {props.exportContext && (
-                                        <ExportButton
-                                            disabledReason={
-                                                visualizationType != ChartDisplayType.ActionsTable &&
-                                                'Only table results are exportable'
-                                            }
-                                            type="secondary"
-                                            items={[
-                                                {
-                                                    export_format: ExporterFormat.CSV,
-                                                    export_context: props.exportContext,
-                                                },
-                                                {
-                                                    export_format: ExporterFormat.XLSX,
-                                                    export_context: props.exportContext,
-                                                },
-                                            ]}
-                                        />
-                                    )}
 
                                     <LemonButton type="primary" onClick={() => props.onSaveInsight()}>
                                         Create insight

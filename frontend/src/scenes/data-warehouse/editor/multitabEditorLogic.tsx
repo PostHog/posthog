@@ -11,9 +11,10 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { queryExportContext } from '~/queries/query'
 import { HogQLMetadataResponse, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
 import { DataVisualizationNode } from '~/queries/schema'
-import { DataWarehouseSavedQuery } from '~/types'
+import { DataWarehouseSavedQuery, ExportContext } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
@@ -439,6 +440,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return hasErrors && firstError
                     ? `Error on line ${firstError.startLineNumber}, column ${firstError.startColumn}`
                     : null
+            },
+        ],
+        exportContext: [
+            () => [(_, props) => props.sourceQuery],
+            (sourceQuery) => {
+                // TODO: use active tab at some point
+                const filename = 'export'
+
+                return {
+                    ...queryExportContext(sourceQuery.source, undefined, undefined),
+                    filename,
+                } as ExportContext
             },
         ],
     }),
