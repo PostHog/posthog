@@ -1,10 +1,13 @@
 from datetime import datetime
+from typing import Literal
 from unittest.mock import ANY
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
@@ -1613,8 +1616,53 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert len(session_recordings) == 2
         assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])
 
+    @parameterized.expand(
+        [
+            # Case 1: Neither has WARN and message "random"
+            (
+                '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
+                "AND",
+                0,
+                [],
+            ),
+            # Case 2: AND only matches one recording
+            (
+                '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
+                "AND",
+                1,
+                ["both_log_filters"],
+            ),
+            # Case 3: Only one is WARN level
+            (
+                '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}]',
+                "AND",
+                1,
+                ["one_log_filter"],
+            ),
+            # Case 4: Only one has message "random"
+            (
+                '[{"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
+                "AND",
+                1,
+                ["both_log_filters"],
+            ),
+            # Case 5: OR matches both
+            (
+                '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
+                "OR",
+                2,
+                ["both_log_filters", "one_log_filter"],
+            ),
+        ]
+    )
     @snapshot_clickhouse_queries
-    def test_operand_or_filters(self):
+    def test_operand_or_filters(
+        self,
+        console_log_filters: str,
+        operand: Literal["AND", "OR"],
+        expected_count: int,
+        expected_session_ids: list[str],
+    ) -> None:
         user = "test_operand_or_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
@@ -1624,13 +1672,10 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_with_both_log_filters,
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
-            console_warn_count=1,
-            log_messages={
-                "warn": [
-                    "random",
-                ],
-            },
+            console_log_count=1,
+            log_messages={"info": ["random"]},
         )
+
         session_with_one_log_filter = "one_log_filter"
         produce_replay_summary(
             distinct_id="user",
@@ -1638,29 +1683,15 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_warn_count=1,
-            log_messages={
-                "warn": [
-                    "warn",
-                ],
-            },
+            log_messages={"warn": ["warn"]},
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                "console_log_filters": '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
-                "operand": "AND",
-            }
+        session_recordings, _, _ = self._filter_recordings_by(
+            {"console_log_filters": console_log_filters, "operand": operand}
         )
-        assert len(session_recordings) == 1
-        assert session_recordings[0]["session_id"] == session_with_both_log_filters
 
-        (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                "console_log_filters": '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
-                "operand": "OR",
-            }
-        )
-        assert len(session_recordings) == 2
+        assert len(session_recordings) == expected_count
+        assert sorted([rec["session_id"] for rec in session_recordings]) == sorted(expected_session_ids)
 
     @snapshot_clickhouse_queries
     def test_operand_or_mandatory_filters(self):
@@ -3028,19 +3059,42 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
+    @parameterized.expand(
+        [
+            # Case 1: OR operand, message 4 matches in warn and error
+            (
+                '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 4", "operator": "icontains", "type": "log_entry"}]',
+                "OR",
+                ["with-errors-session", "with-two-session", "with-warns-session", "with-logs-session"],
+            ),
+            # Case 2: AND operand, message 5 matches only in warn
+            (
+                '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
+                "AND",
+                ["with-warns-session"],
+            ),
+            # Case 3: AND operand, message 5 does not match log level "info"
+            (
+                '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
+                "AND",
+                [],
+            ),
+        ]
+    )
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
-    def test_filter_for_recordings_by_console_text(self):
+    def test_filter_for_recordings_by_console_text(
+        self,
+        console_log_filters: str,
+        operand: Literal["AND", "OR"],
+        expected_session_ids: list[str],
+    ) -> None:
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
-        with_logs_session_id = "with-logs-session"
-        with_warns_session_id = "with-warns-session"
-        with_errors_session_id = "with-errors-session"
-        with_two_session_id = "with-two-session"
-
+        # Create sessions
         produce_replay_summary(
             distinct_id="user",
-            session_id=with_logs_session_id,
+            session_id="with-logs-session",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_log_count=4,
@@ -3055,7 +3109,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         produce_replay_summary(
             distinct_id="user",
-            session_id=with_warns_session_id,
+            session_id="with-warns-session",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_warn_count=5,
@@ -3071,7 +3125,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         produce_replay_summary(
             distinct_id="user",
-            session_id=with_errors_session_id,
+            session_id="with-errors-session",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
@@ -3086,7 +3140,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         produce_replay_summary(
             distinct_id="user",
-            session_id=with_two_session_id,
+            session_id="with-two-session",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
@@ -3101,46 +3155,24 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "info": ["log message 1", "log message 2", "log message 3"],
             },
         )
-
-        (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                # there are 5 warn and 4 error logs, message 4 matches in both
-                "console_log_filters": '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 4", "operator": "exact", "type": "log_entry"}]',
-                "operand": "OR",
-            }
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="with-no-matches-session",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            console_error_count=4,
+            console_log_count=3,
+            log_messages={
+                "info": ["log message 1", "log message 2", "log message 3"],
+            },
         )
 
-        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
-            [
-                with_errors_session_id,
-                with_two_session_id,
-                with_warns_session_id,
-            ]
+        # Perform the filtering and validate results
+        session_recordings, _, _ = self._filter_recordings_by(
+            {"console_log_filters": console_log_filters, "operand": operand}
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                # there are 5 warn and 4 error logs, message 5 matches only matches in warn
-                "console_log_filters": '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
-                "operand": "AND",
-            }
-        )
-
-        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
-            [
-                with_warns_session_id,
-            ]
-        )
-
-        (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                # message 5 does not match log level "info"
-                "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
-                "operand": "AND",
-            }
-        )
-
-        assert sorted([sr["session_id"] for sr in session_recordings]) == []
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(expected_session_ids)
 
     @snapshot_clickhouse_queries
     def test_filter_for_recordings_by_snapshot_source(self):

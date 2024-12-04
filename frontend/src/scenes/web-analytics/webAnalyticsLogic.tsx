@@ -1290,7 +1290,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   colSpanClassName: 'md:col-span-1',
                               },
                               query: errorTrackingQuery({
-                                  order: 'users',
+                                  orderBy: 'users',
                                   dateRange: dateRange,
                                   filterTestAccounts: filterTestAccounts,
                                   filterGroup: replayFilters.filter_group,
