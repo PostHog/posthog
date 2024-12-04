@@ -31,7 +31,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                     placement="top"
                 >
                     <div className="flex-1 p-4 border rounded bg-bg-light min-w-40">
-                        <div className="text-sm text-muted text-semibold">View count</div>
+                        <div className="text-sm text-muted">View count</div>
                         <div className="text-2xl font-semibold">{viewCount?.views ?? 0}</div>
                     </div>
                 </Tooltip>
@@ -41,14 +41,14 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                     placement="top"
                 >
                     <div className="flex-1 p-4 border rounded bg-bg-light min-w-40">
-                        <div className="text-sm text-muted text-semibold">Viewer count</div>
+                        <div className="text-sm text-muted">Viewer count</div>
                         <div className="text-2xl font-semibold">{viewCount?.users ?? 0}</div>
                     </div>
                 </Tooltip>
 
                 <Tooltip title="The most recent 30 users who have viewed this scene." placement="top">
                     <div className="flex-1 p-4 border rounded bg-bg-light min-w-40">
-                        <div className="text-sm text-muted text-semibold">Recent viewers (30 days)</div>
+                        <div className="text-sm text-muted">Recent viewers (30 days)</div>
                         <ProfileBubbles
                             className="mt-2"
                             people={recentUserMembers.map((member) => ({
