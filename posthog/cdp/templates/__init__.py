@@ -45,11 +45,12 @@ from ._siteapps.template_hogdesk import template as hogdesk
 from ._siteapps.template_notification_bar import template as notification_bar
 from ._siteapps.template_pineapple_mode import template as pineapple_mode
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
-from ._internal.template_blank import blank_site_destination, blank_site_app
+from ._internal.template_blank import blank_site_destination, blank_site_destination_match_groups, blank_site_app
 
 HOG_FUNCTION_TEMPLATES = [
     _broadcast,
     blank_site_destination,
+    blank_site_destination_match_groups,
     blank_site_app,
     slack,
     webhook,
