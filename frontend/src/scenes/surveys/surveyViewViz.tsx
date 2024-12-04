@@ -655,7 +655,7 @@ function ResponseSummariesButton({ questionIndex }: { questionIndex: number | un
                     : responseSummaryLoading
                     ? 'Let me think...'
                     : responseSummary
-                    ? 'already summarized'
+                    ? 'Already summarized'
                     : undefined
             }
             icon={<IconSparkles />}
