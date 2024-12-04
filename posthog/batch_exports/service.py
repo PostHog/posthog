@@ -794,3 +794,13 @@ async def aupdate_batch_export_backfill_status(backfill_id: UUID, status: str) -
         raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
 
     return await model.aget()
+
+
+async def aget_active_event_batch_exports(team_id: int) -> list[BatchExport]:
+    """Get active (non-paused, non-deleted) event batch exports for a given team."""
+    return [
+        model
+        async for model in BatchExport.objects.filter(
+            team_id=team_id, model="events", paused=False, deleted=False
+        ).prefetch_related("destination")
+    ]
