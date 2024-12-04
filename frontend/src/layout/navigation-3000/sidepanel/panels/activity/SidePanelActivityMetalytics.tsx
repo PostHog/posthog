@@ -1,5 +1,6 @@
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useValues } from 'kea'
+import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -9,7 +10,7 @@ import { NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 
 export function SidePanelActivityMetalytics(): JSX.Element {
-    const { instanceId, viewCount, recentUserMembers, viewCountLoading, recentUsersLoading } =
+    const { scope, instanceId, viewCount, recentUserMembers, viewCountLoading, recentUsersLoading } =
         useValues(metalyticsLogic)
 
     if (!instanceId) {
@@ -21,15 +22,21 @@ export function SidePanelActivityMetalytics(): JSX.Element {
         )
     }
 
+    const humanizedScope = `this ${scope ? humanizeScope(scope, true) : 'app'}`
+
     return (
         <div className="space-y-4 ">
+            <p>
+                You are viewing "meta" analytics of how your organization members are interacting with{' '}
+                <b>{humanizedScope}</b>.
+            </p>
             <div className="flex flex-wrap gap-4">
                 <Tooltip
-                    title="The total number of times this scene has been viewed by members of your organization."
+                    title={`The total number of times ${humanizedScope} has been viewed by members of your organization.`}
                     placement="top"
                 >
                     <div className="flex-1 p-4 border rounded bg-bg-light min-w-40">
-                        <div className="text-sm text-muted">View count</div>
+                        <div className="text-sm text-muted">Views</div>
                         <div className="text-2xl font-semibold">
                             {viewCountLoading ? <Spinner /> : viewCount?.views ?? 0}
                         </div>
@@ -37,18 +44,18 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                 </Tooltip>
 
                 <Tooltip
-                    title="The total number of unique organization members who have viewed this scene."
+                    title={`The total number of unique organization members who have viewed ${humanizedScope}.`}
                     placement="top"
                 >
                     <div className="flex-1 p-4 border rounded bg-bg-light min-w-40">
-                        <div className="text-sm text-muted">Viewer count</div>
+                        <div className="text-sm text-muted">Viewers</div>
                         <div className="text-2xl font-semibold">
                             {viewCountLoading ? <Spinner /> : viewCount?.users ?? 0}
                         </div>
                     </div>
                 </Tooltip>
 
-                <Tooltip title="The most recent 30 users who have viewed this scene." placement="top">
+                <Tooltip title={`The most recent 30 users who have viewed ${humanizedScope}.`} placement="top">
                     <div className="flex-1 p-4 border rounded bg-bg-light min-w-40">
                         <div className="text-sm text-muted">Recent viewers (30 days)</div>
                         {recentUsersLoading ? (

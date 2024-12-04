@@ -66,6 +66,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
             (sceneActivityFilters) =>
                 sceneActivityFilters?.item_id ? `${sceneActivityFilters.scope}:${sceneActivityFilters.item_id}` : null,
         ],
+        scope: [(s) => [s.sceneActivityFilters], (sceneActivityFilters) => sceneActivityFilters?.scope],
 
         recentUserMembers: [
             (s) => [s.recentUsers, s.members],
