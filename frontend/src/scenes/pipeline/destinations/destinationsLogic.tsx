@@ -31,7 +31,6 @@ import {
     WebhookDestination,
 } from '../types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
-import { getDestinationTypes } from './constants'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 
@@ -176,8 +175,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {
                 loadHogFunctions: async () => {
                     const siteDesinationsEnabled = !!values.featureFlags[FEATURE_FLAGS.SITE_DESTINATIONS]
-                    // TODO: fix ths
-                    const destinationTypes = props.types ?? getDestinationTypes(!!siteDesinationsEnabled)
+                    const destinationTypes = siteDesinationsEnabled
+                        ? props.types
+                        : props.types.filter((type) => type !== 'site_destination')
                     return (await api.hogFunctions.list(undefined, destinationTypes)).results
                 },
 
