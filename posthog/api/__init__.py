@@ -31,6 +31,7 @@ from . import (
     error_tracking,
     event_definition,
     exports,
+    feature,
     feature_flag,
     hog_function,
     hog_function_template,
@@ -149,6 +150,12 @@ projects_router.register(
     r"activity_log",
     activity_log.ActivityLogViewSet,
     "project_activity_log",
+    ["project_id"],
+)
+projects_router.register(
+    r"features",
+    feature.FeatureViewSet,
+    "project_feature_management",
     ["project_id"],
 )
 project_feature_flags_router = projects_router.register(

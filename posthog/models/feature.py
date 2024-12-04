@@ -9,7 +9,7 @@ class Feature(models.Model):
         BETA = "beta", "Beta"
         GENERAL_AVAILABILITY = "general_availability", "GA"
 
-    name = models.CharField(max_length=400, blank=True)
+    name = models.CharField(max_length=400, blank=False)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     description = models.TextField(blank=True)
     documentation_url = models.URLField(blank=True)
