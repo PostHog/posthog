@@ -7,11 +7,7 @@ from statshog.defaults.django import statsd
 
 from posthog.exceptions import generate_exception_response
 from posthog.logging.timing import timed
-from posthog.plugins.site import (
-    get_transpiled_site_source,
-    get_site_config_from_schema,
-    get_transpiled_site_source,
-)
+from posthog.plugins.site import get_transpiled_site_source, get_site_config_from_schema
 from posthog.models.hog_functions.hog_function import HogFunction
 
 
