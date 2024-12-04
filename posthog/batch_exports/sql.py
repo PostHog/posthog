@@ -318,3 +318,17 @@ CREATE OR REPLACE VIEW events_batch_export_backfill ON CLUSTER {settings.CLICKHO
     SETTINGS optimize_aggregation_in_order=1
 )
 """
+
+# TODO: is this the best query to use?
+EVENT_COUNT_FROM_UNBOUNDED_VIEW = """
+SELECT
+    count()
+FROM
+    events_batch_export_unbounded(
+        team_id={team_id},
+        interval_start={interval_start},
+        interval_end={interval_end},
+        include_events={include_events}::Array(String),
+        exclude_events={exclude_events}::Array(String)
+    ) AS events
+"""
