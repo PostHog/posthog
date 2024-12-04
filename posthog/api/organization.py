@@ -247,16 +247,17 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if "enforce_2fa" in request.data:
             enforce_2fa_value = request.data["enforce_2fa"]
             organization = self.get_object()
+            user = cast(User, request.user)
 
             # Add capture event for 2FA enforcement change
             posthoganalytics.capture(
-                request.user.distinct_id,
+                str(user.distinct_id),
                 "organization 2fa enforcement toggled",
                 properties={
                     "enabled": enforce_2fa_value,
                     "organization_id": str(organization.id),
                     "organization_name": organization.name,
-                    "user_role": request.user.organization_memberships.get(organization=organization).level,
+                    "user_role": user.organization_memberships.get(organization=organization).level,
                 },
                 groups=groups(organization),
             )
