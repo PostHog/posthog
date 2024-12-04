@@ -135,8 +135,8 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
 
                         if (!('distinct_id_field' in item)) {
                             const distinctIdField =
-                                Object.values(warehouseItem.fields).find((n) => n.name === 'distinct_id')
-                                ?? Object.values(warehouseItem.fields).find((n) => n.name === 'id')
+                                Object.values(warehouseItem.fields).find((n) => n.name === 'distinct_id') ??
+                                Object.values(warehouseItem.fields).find((n) => n.name === 'id')
                             if (distinctIdField) {
                                 warehouseItem['distinct_id_field'] = distinctIdField.name
                             }
