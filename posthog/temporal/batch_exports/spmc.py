@@ -16,6 +16,7 @@ from posthog.temporal.batch_exports.metrics import get_bytes_exported_metric, ge
 from posthog.temporal.batch_exports.sql import (
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
+    SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     SELECT_FROM_PERSONS_VIEW,
     SELECT_FROM_PERSONS_VIEW_BACKFILL,
@@ -362,6 +363,8 @@ async def run_consumer_loop(
         consumer_number += 1
 
         while not consumer.flush_start_event.is_set() and not consumer_task.done():
+            # Block until we either start flushing or we are done consuming.
+            # Flush start should always happen first unless the consumer task fails.
             await asyncio.sleep(0)
 
         if consumer_task.done():
@@ -472,7 +475,7 @@ class Producer:
         done_ranges: list[tuple[dt.datetime, dt.datetime]],
         fields: list[BatchExportField] | None = None,
         destination_default_fields: list[BatchExportField] | None = None,
-        use_latest_schema: bool = True,
+        use_latest_schema: bool = False,
         **parameters,
     ) -> asyncio.Task:
         if fields is None:
@@ -503,7 +506,16 @@ class Producer:
             else:
                 parameters["include_events"] = []
 
-            if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+            start_at, end_at = full_range
+
+            if start_at:
+                is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
+            else:
+                is_5_min_batch_export = False
+
+            if is_5_min_batch_export and not is_backfill:
+                query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+            elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
                 query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
             elif is_backfill:
                 query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
