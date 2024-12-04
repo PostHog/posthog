@@ -452,7 +452,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     # Delete domains
 
-    def test_admin_can_delete_domain(self):
+    @patch("posthoganalytics.capture")
+    def test_admin_can_delete_domain(self, mock_capture):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
@@ -461,6 +462,20 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response.content, b"")
 
         self.assertFalse(OrganizationDomain.objects.filter(id=self.domain.id).exists())
+
+        # Verify the domain deletion capture event was called
+        mock_capture.assert_any_call(
+            self.user.distinct_id,
+            "organization domain deleted",
+            properties={
+                "domain": "myposthog.com",
+                "is_verified": False,
+                "had_saml": False,
+                "had_jit_provisioning": False,
+                "had_sso_enforcement": False,
+            },
+            groups={"instance": ANY, "organization": str(self.organization.id)},
+        )
 
     def test_only_admin_can_delete_domain(self):
         response = self.client.delete(f"/api/organizations/@current/domains/{self.domain.id}")
