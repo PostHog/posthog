@@ -241,6 +241,54 @@ describe('CDP API', () => {
             })
         })
 
+        it('doesnt include enriched values in the mock response', async () => {
+            hogFunction = await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_google_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+                .send({ globals, mock_async_functions: true })
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toMatchObject({
+                status: 'success',
+                error: null,
+                logs: [
+                    {
+                        level: 'debug',
+                        message: 'Executing function',
+                    },
+                    {
+                        level: 'debug',
+                        message: "Suspending function due to async function call 'fetch'. Payload: 2108 bytes",
+                    },
+                    {
+                        level: 'info',
+                        message: "Async function 'fetch' was mocked with arguments:",
+                    },
+                    {
+                        level: 'info',
+                        message: expect.not.stringContaining('developer-token'),
+                    },
+                    {
+                        level: 'debug',
+                        message: 'Resuming function',
+                    },
+                    {
+                        level: 'info',
+                        message: 'Fetch response:, {"status":200,"body":{}}',
+                    },
+                    {
+                        level: 'debug',
+                        message: expect.stringContaining('Function completed in '),
+                    },
+                ],
+            })
+        })
+
         it('call exported sendEmail for email provider functions', async () => {
             hogFunction = await insertHogFunction({
                 ...HOG_EXAMPLES.export_send_email,
