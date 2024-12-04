@@ -114,7 +114,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == "The Data Pipelines addon is required to create custom functions."
 
-    def test_free_users_cannot_use_non_free_templates(self):
+    def test_free_users_cannot_create_non_free_templates(self):
         response = self._create_slack_function(
             {
                 "template_id": template_webhook.id,
@@ -123,6 +123,43 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == "The Data Pipelines addon is required for this template."
+
+    def test_free_users_can_update_non_free_templates(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
+        ]
+        self.organization.save()
+
+        response = self._create_slack_function(
+            {
+                "name": template_webhook.name,
+                "template_id": template_webhook.id,
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                },
+            }
+        )
+
+        assert response.json()["template"]["status"] == template_webhook.status
+
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        payload = {
+            "name": template_webhook.name,
+            "template_id": template_webhook.id,
+            "inputs": {
+                "url": {"value": "https://example.com/posthog-webhook-updated"},
+            },
+        }
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+            data=payload,
+        )
+
+        assert update_response.status_code == status.HTTP_200_OK, update_response.json()
+        assert update_response.json()["inputs"]["url"]["value"] == "https://example.com/posthog-webhook-updated"
 
 
 class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
