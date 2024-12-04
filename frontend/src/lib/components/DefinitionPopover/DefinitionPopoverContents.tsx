@@ -330,7 +330,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         />
                         {isUsingHogQLExpression(distinct_id_field_value) && (
                             <HogQLDropdown
-                                hogQLValue={distinct_id_field_value}
+                                hogQLValue={distinct_id_field_value || ''}
                                 tableName={_definition.name}
                                 onHogQLValueChange={(value) => setLocalDefinition({ distinct_id_field: value })}
                             />
@@ -346,7 +346,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         />
                         {isUsingHogQLExpression(timestamp_field_value) && (
                             <HogQLDropdown
-                                hogQLValue={timestamp_field_value}
+                                hogQLValue={timestamp_field_value || ''}
                                 tableName={_definition.name}
                                 onHogQLValueChange={(value) => setLocalDefinition({ timestamp_field: value })}
                             />
