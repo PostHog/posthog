@@ -659,7 +659,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
         _, serialized_result, _ = PseudoFunnelActors(person_filter, self.team).get_actors()
 
-        return [val["id"] for val in serialized_result]
+        return [val["id"]["id"] for val in serialized_result]
 
     def test_basic_unordered_funnel(self):
         filters = {

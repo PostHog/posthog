@@ -189,7 +189,7 @@ class BaseTestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(filters, self.team, funnel_step=1, include_recordings=True)
 
         # self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0][0], p1.uuid)
+        self.assertEqual(results[0][0]["id"], p1.uuid)
         self.assertEqual(
             # results[0]["matched_recordings"],
             list(results[0][2]),
