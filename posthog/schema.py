@@ -5660,7 +5660,7 @@ class RecordingsQuery(BaseModel):
     )
     actions: Optional[list[dict[str, Any]]] = None
     console_log_filters: Optional[list[LogEntryPropertyFilter]] = None
-    date_from: Optional[str] = None
+    date_from: Optional[str] = "-3d"
     date_to: Optional[str] = None
     events: Optional[list[dict[str, Any]]] = None
     filter_test_accounts: Optional[bool] = None
@@ -5689,8 +5689,8 @@ class RecordingsQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
-    operand: Optional[FilterLogicalOperator] = None
-    order: Optional[RecordingOrder] = None
+    operand: Optional[FilterLogicalOperator] = FilterLogicalOperator.AND_
+    order: Optional[RecordingOrder] = RecordingOrder.START_TIME
     person_uuid: Optional[str] = None
     properties: Optional[
         list[
@@ -6918,6 +6918,7 @@ class HogQLAutocomplete(BaseModel):
             ErrorTrackingQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
+            RecordingsQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -6961,6 +6962,7 @@ class HogQLMetadata(BaseModel):
             ErrorTrackingQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
+            RecordingsQuery,
         ]
     ] = Field(
         default=None,
