@@ -161,14 +161,12 @@ class ErrorTrackingIssueFingerprint(models.Model):
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique fingerprint for team")]
 
 
-def resolve_fingerprints_for_issue(team_id: str, issue_id: str) -> list[str]:
+def resolve_fingerprints_for_issue(team_id: int, issue_id: str) -> list[str]:
     override_records = ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=issue_id)
     return [r.fingerprint for r in override_records]
 
 
-def update_error_tracking_issue_fingerprint(
-    team_id: str, issue_id: str, fingerprint: list[str]
-) -> tuple[str, int, str]:
+def update_error_tracking_issue_fingerprint(team_id: int, issue_id: str, fingerprint: str) -> tuple[str, int, str]:
     issue_fingerprint = ErrorTrackingIssueFingerprintV2.objects.select_for_update().get(
         team_id=team_id, fingerprint=fingerprint
     )
@@ -179,7 +177,9 @@ def update_error_tracking_issue_fingerprint(
     return (fingerprint, issue_fingerprint.version, issue_id)
 
 
-def update_error_tracking_issue_fingerprint_overrides(team_id: str, override_inserts: tuple[str, int, str]) -> None:
+def update_error_tracking_issue_fingerprint_overrides(
+    team_id: int, override_inserts: list[tuple[str, int, str]]
+) -> None:
     for fingerprint, version, issue_id in override_inserts:
         override_error_tracking_issue_fingerprint(
             team_id=team_id, fingerprint=fingerprint, issue_id=issue_id, version=version

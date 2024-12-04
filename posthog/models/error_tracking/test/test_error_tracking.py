@@ -25,6 +25,7 @@ class TestErrorTracking(BaseTest):
         assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_two.id).count() == 2
         # bumps the version
         override = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one").first()
+        assert override
         assert override.version == 1
 
         # deletes issue one
@@ -45,8 +46,10 @@ class TestErrorTracking(BaseTest):
 
         # bumps versions of the merged issues correct number of times
         override = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one").first()
+        assert override
         assert override.version == 2
         override = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two").first()
+        assert override
         assert override.version == 1
 
     def test_merging_multiple_issues_at_once(self):
@@ -68,5 +71,6 @@ class TestErrorTracking(BaseTest):
 
         # bumps the version but no longer points to the old issue
         override = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one").first()
+        assert override
         assert override.issue_id != issue.id
         assert override.version == 1

@@ -45,7 +45,7 @@ class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     @action(methods=["POST"], detail=True)
     def merge(self, request, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
-        ids: list[list[str]] = request.data.get("ids", [])
+        ids: list[str] = request.data.get("ids", [])
         issue.merge(issue_ids=ids)
         return Response({"success": True})
 
