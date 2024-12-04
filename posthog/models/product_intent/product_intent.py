@@ -4,6 +4,7 @@ from celery import shared_task
 from django.db import models
 
 from posthog.models.experiment import Experiment
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
@@ -31,6 +32,10 @@ We shouldn't use this model and the `activated_at` field in place of sending eve
 about product usage because that limits our data exploration later. Definitely continue
 sending events for product usage that we may want to track for any reason, along with
 calculating activation here.
+
+Note: single-event activation metrics that can also happen at the same time the intent
+is created won't have tracking events sent for them. Unless you want to solve this,
+make activation metrics require multiple things to happen.
 """
 
 
@@ -76,13 +81,37 @@ class ProductIntent(UUIDModel):
         return False
 
     def has_activated_experiments(self) -> bool:
-        # if the team has launched any experiments after the intent was updated, return True
-        return Experiment.objects.filter(team=self.team, start_date__gte=self.updated_at).exists()
+        # the team has any launched experiments
+        return Experiment.objects.filter(team=self.team, start_date__isnull=False).exists()
+
+    def has_activated_feature_flags(self) -> bool:
+        # Get feature flags that have at least one filter group
+        feature_flags = (
+            FeatureFlag.objects.filter(
+                team=self.team,
+                filters__groups__0__properties__isnull=False,
+            )
+            .exclude(name__istartswith="Feature Flag for Experiment")
+            .exclude(name__istartswith="Targeting flag for survey")
+            .only("id", "filters")
+        )
+
+        # To activate we need at least 2 feature flags
+        if feature_flags.count() < 2:
+            return False
+
+        # To activate we need at least 2 filter groups across all flags
+        total_groups = 0
+        for flag in feature_flags:
+            total_groups += len(flag.filters.get("groups", []))
+
+        return total_groups >= 2
 
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         activation_checks = {
             "data_warehouse": self.has_activated_data_warehouse,
             "experiments": self.has_activated_experiments,
+            "feature_flags": self.has_activated_feature_flags,
         }
 
         if self.product_type in activation_checks and activation_checks[self.product_type]():
