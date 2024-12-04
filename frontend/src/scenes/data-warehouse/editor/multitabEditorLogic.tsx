@@ -379,6 +379,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 saved: true,
             })
 
+            lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
+
             router.actions.push(urls.insightView(insight.short_id))
         },
         deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
