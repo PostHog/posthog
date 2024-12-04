@@ -30,7 +30,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                     }
 
                     // NOTE: I think this gets cached heavily - how to correctly invalidate?
-                    const response = await api.query(query)
+                    const response = await api.query(query, undefined, undefined, true)
                     const result = response.results as number[][]
                     return {
                         views: result[0][0],
@@ -53,7 +53,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                             ORDER BY timestamp DESC`,
                     }
 
-                    const response = await api.query(query)
+                    const response = await api.query(query, undefined, undefined, true)
                     return response.results.map((result) => result[0]) as string[]
                 },
             },
@@ -92,12 +92,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
 
                 await api.create('/api/projects/@current/metalytics/', {
                     metric_name: 'viewed',
-                    // metric_kind: 'misc',
                     instance_id: instanceId,
-
-                    // API sets these
-                    // app_source: 'internal_metrics',
-                    // app_source_id: user.id,
                 })
             }
         },

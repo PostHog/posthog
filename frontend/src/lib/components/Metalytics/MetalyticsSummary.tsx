@@ -1,7 +1,6 @@
 import { IconPulse } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconWithCount } from 'lib/lemon-ui/icons'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
@@ -19,7 +18,7 @@ export function MetalyticsSummary(): JSX.Element | null {
     }
 
     return (
-        <IconWithCount count={safeViewCount}>
+        <span className="relative inline-flex">
             <LemonButton
                 loading={viewCountLoading}
                 icon={<IconPulse />}
@@ -27,6 +26,14 @@ export function MetalyticsSummary(): JSX.Element | null {
                 onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
                 tooltip={`${safeUniqueUsers} PostHog members have viewed this a total of ${safeViewCount} times. Click to see more.`}
             />
-        </IconWithCount>
+            <LemonBadge.Number
+                count={safeViewCount}
+                size="small"
+                position="top-right"
+                showZero={false}
+                status="primary"
+                maxDigits={3}
+            />
+        </span>
     )
 }
