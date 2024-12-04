@@ -30,7 +30,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = EarlyAccessFeature
-        fields = ["id", "name", "description", "stage", "documentationUrl", "flagKey", "feature"]
+        fields = ["id", "name", "description", "stage", "documentationUrl", "flagKey"]
         read_only_fields = fields
 
 
