@@ -33,6 +33,8 @@ Action:
   "action_input": "Final response to human"
 }
 ```
+
+If the user's question is ambiguous, or you can't find a matching taxonomy, ask for clarification.
 """.strip()
 
 REACT_PROPERTY_FILTERS_PROMPT = """
