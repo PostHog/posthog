@@ -9,7 +9,7 @@ import { NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 
 export function SidePanelActivityMetalytics(): JSX.Element {
-    const { instanceId, viewCount, recentUserMembers, viewCountLoading, usersLast30daysLoading } =
+    const { instanceId, viewCount, recentUserMembers, viewCountLoading, recentUsersLoading } =
         useValues(metalyticsLogic)
 
     if (!instanceId) {
@@ -51,7 +51,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                 <Tooltip title="The most recent 30 users who have viewed this scene." placement="top">
                     <div className="flex-1 p-4 border rounded bg-bg-light min-w-40">
                         <div className="text-sm text-muted">Recent viewers (30 days)</div>
-                        {usersLast30daysLoading ? (
+                        {recentUsersLoading ? (
                             <Spinner />
                         ) : (
                             <ProfileBubbles
