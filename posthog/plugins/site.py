@@ -141,13 +141,3 @@ def get_decide_site_functions(team: "Team", using_database: str = "default") -> 
     return [
         asdict(WebJsUrl(source[0], site_function_url(source), source[2] or "site_destination")) for source in sources
     ]
-
-
-def get_site_config_from_schema(config_schema: Optional[list[dict]], config: Optional[dict]):
-    if not config or not config_schema:
-        return {}
-    return {
-        schema_element["key"]: config.get(schema_element["key"], schema_element.get("default", None))
-        for schema_element in config_schema
-        if schema_element.get("site", False) and schema_element.get("key", False)
-    }
