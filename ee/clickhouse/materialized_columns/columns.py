@@ -126,7 +126,7 @@ def get_materialized_columns(
 def get_cluster() -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
-        extra_hosts.append(ConnectionInfo(host_config.pop("host"), host_config.pop("port", None)))
+        extra_hosts.append(ConnectionInfo(host_config.pop("host")))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
     return ClickhouseCluster(default_client(), extra_hosts=extra_hosts)
 
