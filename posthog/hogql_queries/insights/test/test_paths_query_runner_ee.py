@@ -4729,7 +4729,7 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 insight_funnels_use_udf_funnel_flag_side_effect = lambda key, *args, **kwargs: key == "insight-funnels-use-udf"
 
 
-class ClickhousePathsUDF(BaseTestClickhousePaths):
+class TestClickhousePaths(BaseTestClickhousePaths):
     __test__ = True
 
 
