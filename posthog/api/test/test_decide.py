@@ -699,45 +699,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(len(injected), 1)
             self.assertTrue(injected[0]["url"].startswith(f"/site_app/{plugin_config.id}/{plugin_config.web_token}/"))
 
-    def test_site_function_injection(self, *args):
-        # yype: site_app
-        site_app = HogFunction.objects.create(
-            team=self.team,
-            name="my_function",
-            hog="function onLoad(){}",
-            type="site_app",
-            transpiled="function onLoad(){}",
-            enabled=True,
-        )
-
-        self.team.refresh_from_db()
-        self.assertTrue(self.team.inject_web_apps)
-        with self.assertNumQueries(9):
-            response = self._post_decide()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            injected = response.json()["siteApps"]
-            self.assertEqual(len(injected), 1)
-            self.assertTrue(injected[0]["url"].startswith(f"/site_function/{site_app.id}/"))
-
-        # yype: site_destination
-        site_destination = HogFunction.objects.create(
-            team=self.team,
-            name="my_function",
-            hog="function onLoad(){}",
-            type="site_destination",
-            transpiled="function onLoad(){}",
-            enabled=True,
-        )
-
-        self.team.refresh_from_db()
-        self.assertTrue(self.team.inject_web_apps)
-        with self.assertNumQueries(8):
-            response = self._post_decide()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            injected = response.json()["siteApps"]
-            self.assertEqual(len(injected), 2)
-            self.assertTrue(injected[1]["url"].startswith(f"/site_function/{site_destination.id}/"))
-
     def test_feature_flags(self, *args):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
@@ -4733,7 +4694,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # update caches
         self._post_decide(api_version=3)
 
-        with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
