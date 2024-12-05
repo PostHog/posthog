@@ -8,7 +8,7 @@ from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGER
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
-from posthog.models.utils import UUIDT
+from uuid import UUID
 
 
 class ErrorTrackingIssue(UUIDModel):
@@ -191,7 +191,7 @@ def update_error_tracking_issue_fingerprint_overrides(
 def override_error_tracking_issue_fingerprint(
     team_id: int,
     fingerprint: str,
-    issue_id: UUIDT,
+    issue_id: UUID,
     version=0,
     is_deleted: bool = False,
     sync: bool = False,
