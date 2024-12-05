@@ -279,15 +279,16 @@ def team_saved(sender, instance: "Team", created, **kwargs):
 
 @receiver(post_save, sender=FeatureFlag)
 def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
-    _update_team_remote_config(instance.team.id)
+    _update_team_remote_config(instance.team_id)
 
 
 @receiver(post_save, sender=PluginConfig)
 def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
-    _update_team_remote_config(instance.team.id)
+    if instance.team_id:
+        _update_team_remote_config(instance.team_id)
 
 
 @receiver(post_save, sender=HogFunction)
 def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
     if instance.enabled and instance.type in ("site_destination", "site_app") and instance.transpiled:
-        _update_team_remote_config(instance.team.id)
+        _update_team_remote_config(instance.team_id)

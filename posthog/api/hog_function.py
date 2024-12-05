@@ -194,6 +194,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 id = str(instance.id) if instance else "__"
                 try:
                     # NOTE: We technically don't need to save this here as it will never be used directly from the model :thinking:
+                    # TODO: Fix this
                     attrs["transpiled"] = get_transpiled_function(
                         id, attrs["hog"], attrs["filters"], attrs["inputs"], team
                     )
