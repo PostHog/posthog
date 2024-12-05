@@ -152,7 +152,7 @@ export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndRes
 
 function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { sortedMembers, roles } = useValues(roleBasedAccessControlLogic)
+    const { sortedMembers, roles, canEditRoleBasedAccessControls } = useValues(roleBasedAccessControlLogic)
     const { addMembersToRole, removeMemberFromRole, setEditingRoleId } = useActions(roleBasedAccessControlLogic)
     const [membersToAdd, setMembersToAdd] = useState<string[]>([])
 
@@ -185,6 +185,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                             value={membersToAdd}
                             onChange={(newValues: string[]) => setMembersToAdd(newValues)}
                             mode="multiple"
+                            disabled={!canEditRoleBasedAccessControls}
                             options={usersLemonSelectOptions(
                                 membersNotInRole.map((member) => member.user),
                                 'uuid'
@@ -195,13 +196,23 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                     <LemonButton
                         type="primary"
                         onClick={onSubmit}
-                        disabledReason={!onSubmit ? 'Please select members to add' : undefined}
+                        disabledReason={
+                            !canEditRoleBasedAccessControls
+                                ? 'You cannot edit this'
+                                : !onSubmit
+                                ? 'Please select members to add'
+                                : undefined
+                        }
                     >
                         Add members
                     </LemonButton>
                 </div>
                 <div className="flex items-center gap-2">
-                    <LemonButton type="secondary" onClick={() => setEditingRoleId(role.id)}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => setEditingRoleId(role.id)}
+                        disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
+                    >
                         Edit role
                     </LemonButton>
                 </div>
@@ -241,6 +252,9 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                                         status="danger"
                                         size="small"
                                         type="tertiary"
+                                        disabledReason={
+                                            !canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined
+                                        }
                                         onClick={() => removeMemberFromRole(role, member.id)}
                                     >
                                         Remove
@@ -249,15 +263,6 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                             )
                         },
                     },
-                    /* {isAdminOrOwner && deleteMember && (
-                                            <LemonButton
-                                                icon={<IconTrash />}
-                                                onClick={() => deleteMember(member.id)}
-                                                tooltip="Remove user from role"
-                                                type="tertiary"
-                                                size="small"
-                                            />
-                                        )} */
                 ]}
                 dataSource={role.members}
             />
@@ -289,6 +294,7 @@ function RoleModal(): JSX.Element {
         <Form logic={roleBasedAccessControlLogic} formKey="editingRole" enableFormOnSubmit>
             <LemonModal
                 isOpen={!!editingRoleId}
+                onClose={() => setEditingRoleId(null)}
                 title={!isEditing ? 'Create role' : `Edit role`}
                 footer={
                     <>

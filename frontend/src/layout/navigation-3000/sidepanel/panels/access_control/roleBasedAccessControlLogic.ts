@@ -77,6 +77,7 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
                 },
             },
         ],
+
         roles: [
             null as RoleType[] | null,
             {
@@ -180,6 +181,7 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
                 return roleBasedAccessControls?.default_access_level ?? null
             },
         ],
+
         defaultResourceAccessControls: [
             (s) => [s.roleBasedAccessControls],
             (roleBasedAccessControls): RoleWithResourceAccessControls => {
@@ -199,6 +201,7 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
                 return { accessControlByResource }
             },
         ],
+
         rolesWithResourceAccessControls: [
             (s) => [s.roles, s.roleBasedAccessControls, s.defaultResourceAccessControls],
             (roles, roleBasedAccessControls, defaultResourceAccessControls): RoleWithResourceAccessControls[] => {
@@ -232,6 +235,13 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
             (): AccessControlType['resource'][] => {
                 // TODO: Sync this as an enum
                 return ['feature_flag', 'dashboard', 'insight', 'notebook']
+            },
+        ],
+
+        canEditRoleBasedAccessControls: [
+            (s) => [s.roleBasedAccessControls],
+            (roleBasedAccessControls): boolean | null => {
+                return roleBasedAccessControls?.user_can_edit_access_levels ?? null
             },
         ],
     }),
