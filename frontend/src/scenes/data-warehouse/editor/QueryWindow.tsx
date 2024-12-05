@@ -90,7 +90,11 @@ function InternalQueryWindow(): JSX.Element {
     const { setSourceQuery } = useActions(multitabEditorLogic)
 
     if (cacheLoading) {
-        return <Spinner className="text-3xl" />
+        return (
+            <div className="flex-1 flex justify-center items-center">
+                <Spinner className="text-3xl" />
+            </div>
+        )
     }
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
