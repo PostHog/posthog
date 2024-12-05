@@ -3,9 +3,6 @@ name: Update Browserslist database
 on:
     schedule:
         - cron: '0 12 * * MON'
-    pull_request:
-        paths:
-            - '.github/workflows/browserslist-update.yml'
     workflow_dispatch:
 
 permissions:
