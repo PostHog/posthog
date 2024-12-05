@@ -729,7 +729,7 @@ class FeatureFlagViewSet(
                 "group_type_mapping": {
                     str(row.group_type_index): row.group_type
                     for row in GroupTypeMapping.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-                        team_id=self.team_id
+                        project_id=self.project_id
                     )
                 },
                 "cohorts": cohorts,

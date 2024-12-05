@@ -284,7 +284,7 @@ def create_hogql_database(
         "$virt_initial_channel_type", modifiers.customChannelTypeRules
     )
 
-    for mapping in GroupTypeMapping.objects.filter(team=team):
+    for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
         if database.events.fields.get(mapping.group_type) is None:
             database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
