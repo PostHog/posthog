@@ -16,7 +16,6 @@ from posthog.models import Cohort, GroupTypeMapping, Person
 from posthog.models.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
-from posthog.queries.test.test_base import TestBase
 from posthog.schema import RecordingsQuery, DateRange
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingQueryResult,
@@ -41,7 +40,7 @@ from posthog.test.base import (
 
 
 @freeze_time("2021-01-01T13:46:23")
-class TestSessionRecordingQueryDateRange(TestBase):
+class TestSessionRecordingQueryDateRange(APIBaseTest):
     def test_with_relative_dates(self) -> None:
         query_date_range = QueryDateRange(
             date_range=DateRange(date_from="-3d", date_to="-24h", explicitDate=True),

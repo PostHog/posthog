@@ -16,7 +16,6 @@ from posthog.models.action import Action
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
-from posthog.queries.test.test_base import TestBase
 from posthog.session_recordings.queries.session_recording_list_from_filters import (
     SessionRecordingListFromFilters,
     SessionRecordingQueryResult,
@@ -39,7 +38,7 @@ from posthog.test.base import (
 
 
 @freeze_time("2021-01-01T13:46:23")
-class TestSessionRecordingFilterDateRange(TestBase):
+class TestSessionRecordingFilterDateRange(APIBaseTest):
     def test_with_relative_dates(self) -> None:
         the_filter = SessionRecordingsFilter(team=self.team, data={"date_from": "-3d", "date_to": "-24h"})
 
