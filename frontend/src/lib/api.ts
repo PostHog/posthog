@@ -929,6 +929,10 @@ class ApiRequest {
         return await api.update(this.assembleFullUrl(), options?.data, options)
     }
 
+    public async put(options?: ApiMethodOptions & { data: any }): Promise<any> {
+        return await api.put(this.assembleFullUrl(), options?.data, options)
+    }
+
     public async create(options?: ApiMethodOptions & { data: any }): Promise<any> {
         return await api.create(this.assembleFullUrl(), options?.data, options)
     }
@@ -2568,14 +2572,19 @@ const api = {
         })
     },
 
-    async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
+    async _update<T = any, P = any>(
+        method: 'PATCH' | 'PUT',
+        url: string,
+        data: P,
+        options?: ApiMethodOptions
+    ): Promise<T> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
-        const response = await handleFetch(url, 'PATCH', async () => {
+        const response = await handleFetch(url, method, async () => {
             return await fetch(url, {
-                method: 'PATCH',
+                method: method,
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
@@ -2590,7 +2599,15 @@ const api = {
         return await getJSONOrNull(response)
     },
 
-    async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
+    async update<T = any, P = any>(url: string, data: P, options?: ApiMethodOptions): Promise<T> {
+        return api._update('PATCH', url, data, options)
+    },
+
+    async put<T = any, P = any>(url: string, data: P, options?: ApiMethodOptions): Promise<T> {
+        return api._update('PUT', url, data, options)
+    },
+
+    async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
         const res = await api.createResponse(url, data, options)
         return await getJSONOrNull(res)
     },
