@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Literal
 from unittest.mock import ANY
 from uuid import uuid4
@@ -11,11 +11,12 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Cohort, GroupTypeMapping, Person
 from posthog.models.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
-from posthog.schema import RecordingsQuery
+from posthog.schema import RecordingsQuery, DateRange
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingQueryResult,
 )
@@ -36,6 +37,74 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+
+@freeze_time("2021-01-01T13:46:23")
+class TestSessionRecordingQueryDateRange(APIBaseTest):
+    def test_with_relative_dates(self) -> None:
+        query_date_range = QueryDateRange(
+            date_range=DateRange(date_from="-3d", date_to="-24h", explicitDate=True),
+            team=self.team,
+            interval=None,
+            now=datetime.now(UTC),
+        )
+
+        assert query_date_range.date_from() == datetime(2020, 12, 29, 0, 0, 0, 0, UTC)
+        assert query_date_range.date_to() == datetime(
+            year=2020, month=12, day=31, hour=13, minute=46, second=23, tzinfo=UTC
+        )
+
+    def test_with_string_dates(self) -> None:
+        query_date_range = QueryDateRange(
+            date_range=DateRange(date_from="2020-12-29", date_to="2021-01-01", explicitDate=True),
+            team=self.team,
+            interval=None,
+            now=datetime.now(UTC),
+        )
+
+        assert query_date_range.date_from() == datetime(2020, 12, 29, 0, 0, 0, 0, UTC)
+        assert query_date_range.date_to() == datetime(year=2021, month=1, day=1, hour=0, minute=0, second=0, tzinfo=UTC)
+
+    def test_with_string_date_times(self) -> None:
+        query_date_range = QueryDateRange(
+            date_range=DateRange(date_from="2020-12-29T12:23:45Z", date_to="2021-01-01T13:34:42Z", explicitDate=True),
+            team=self.team,
+            interval=None,
+            now=datetime.now(UTC),
+        )
+
+        assert query_date_range.date_from() == datetime(2020, 12, 29, 12, 23, 45, tzinfo=UTC)
+        assert query_date_range.date_to() == datetime(
+            year=2021, month=1, day=1, hour=13, minute=34, second=42, tzinfo=UTC
+        )
+
+    def test_with_no_date_from(self) -> None:
+        query_date_range = QueryDateRange(
+            date_range=DateRange(date_from=None, date_to="2021-01-01T13:34:42Z", explicitDate=True),
+            team=self.team,
+            interval=None,
+            now=datetime.now(UTC),
+        )
+
+        # defaults to start of 7 days ago
+        assert query_date_range.date_from() == datetime(2020, 12, 25, 0, 0, 0, 0, UTC)
+        assert query_date_range.date_to() == datetime(
+            year=2021, month=1, day=1, hour=13, minute=34, second=42, tzinfo=UTC
+        )
+
+    def test_with_no_date_to(self) -> None:
+        query_date_range = QueryDateRange(
+            date_range=DateRange(date_from="2021-01-01T11:34:42Z", date_to=None, explicitDate=True),
+            team=self.team,
+            interval=None,
+            now=datetime.now(UTC),
+        )
+
+        assert query_date_range.date_from() == datetime(2021, 1, 1, 11, 34, 42, tzinfo=UTC)
+        # defaults to now
+        assert query_date_range.date_to() == datetime(
+            year=2021, month=1, day=1, hour=13, minute=46, second=23, tzinfo=UTC
+        )
 
 
 @freeze_time("2021-01-01T13:46:23")
@@ -778,6 +847,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2023-08-29T12:00:01Z"):
             produce_replay_summary(team_id=self.team.id, session_id="29th Aug")
 
+        with freeze_time("2023-08-30T14:00:01Z"):
+            produce_replay_summary(team_id=self.team.id, session_id="30th Aug 1400")
+
         with freeze_time("2023-09-01T12:00:01Z"):
             produce_replay_summary(team_id=self.team.id, session_id="1st-sep")
 
@@ -787,6 +859,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2023-09-03T12:00:01Z"):
             produce_replay_summary(team_id=self.team.id, session_id="3rd-sep")
 
+        # before the recording on the thirtieth so should exclude it
         with freeze_time("2023-08-30T12:00:01Z"):
             recordings = self._filter_recordings_by()
 
@@ -1896,11 +1969,11 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
         assert session_recordings == []
 
+        # we have to change this test because the behavior of the API did change 🙈
         (session_recordings, _, _) = self._filter_recordings_by(
-            {"date_to": (self.an_hour_ago - relativedelta(days=3)).strftime("%Y-%m-%d")}
+            {"date_to": (self.an_hour_ago - relativedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S")}
         )
 
-        assert len(session_recordings) == 1
         assert [s["session_id"] for s in session_recordings] == ["three days before base time"]
 
     def test_recording_that_spans_time_bounds(self):

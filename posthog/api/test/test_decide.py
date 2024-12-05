@@ -74,6 +74,9 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
     }
 
 
+# TODO: Add a derived version of decide that covers the new RemoteConfig option
+
+
 @patch(
     "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
     return_value=True,

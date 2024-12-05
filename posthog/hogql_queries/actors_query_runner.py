@@ -3,7 +3,7 @@ from typing import Optional
 from collections.abc import Sequence, Iterator
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql.resolver_utils import extract_select_queries
@@ -307,6 +307,7 @@ class ActorsQueryRunner(QueryRunner):
             having=having,
             group_by=group_by if has_any_aggregation else None,
             order_by=order_by,
+            settings=HogQLQuerySettings(join_algorithm="auto", optimize_aggregation_in_order=True),
         )
 
     def to_actors_query(self) -> ast.SelectQuery:

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Literal
 from unittest.mock import ANY
 from uuid import uuid4
@@ -35,6 +35,49 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+
+@freeze_time("2021-01-01T13:46:23")
+class TestSessionRecordingFilterDateRange(APIBaseTest):
+    def test_with_relative_dates(self) -> None:
+        the_filter = SessionRecordingsFilter(team=self.team, data={"date_from": "-3d", "date_to": "-24h"})
+
+        assert the_filter.date_from == datetime(2020, 12, 29, 0, 0, 0, 0, UTC)
+        assert the_filter.date_to == datetime(year=2020, month=12, day=31, hour=13, minute=0, second=0, tzinfo=UTC)
+
+    def test_with_string_dates(self) -> None:
+        the_filter = SessionRecordingsFilter(team=self.team, data={"date_from": "2020-12-29", "date_to": "2021-01-01"})
+
+        assert the_filter.date_from == datetime(2020, 12, 29, 0, 0, 0, 0, UTC)
+        assert the_filter.date_to == datetime(
+            year=2021, month=1, day=1, hour=23, minute=59, second=59, microsecond=999999, tzinfo=UTC
+        )
+
+    def test_with_string_date_times(self) -> None:
+        the_filter = SessionRecordingsFilter(
+            team=self.team, data={"date_from": "2020-12-29T12:23:45Z", "date_to": "2021-01-01T13:34:42Z"}
+        )
+
+        assert the_filter.date_from == datetime(2020, 12, 29, 12, 23, 45, tzinfo=UTC)
+        assert the_filter.date_to == datetime(year=2021, month=1, day=1, hour=13, minute=34, second=42, tzinfo=UTC)
+
+    def test_with_no_date_from(self) -> None:
+        the_filter = SessionRecordingsFilter(
+            team=self.team, data={"date_from": None, "date_to": "2021-01-01T13:34:42Z"}
+        )
+
+        # defaults to start of 7 days ago
+        assert the_filter.date_from == datetime(2020, 12, 25, 0, 0, 0, 0, UTC)
+        assert the_filter.date_to == datetime(year=2021, month=1, day=1, hour=13, minute=34, second=42, tzinfo=UTC)
+
+    def test_with_no_date_to(self) -> None:
+        the_filter = SessionRecordingsFilter(
+            team=self.team, data={"date_from": "2021-01-01T11:34:42Z", "date_to": None}
+        )
+
+        assert the_filter.date_from == datetime(2021, 1, 1, 11, 34, 42, tzinfo=UTC)
+        # defaults to now
+        assert the_filter.date_to == datetime(year=2021, month=1, day=1, hour=13, minute=46, second=23, tzinfo=UTC)
 
 
 @freeze_time("2021-01-01T13:46:23")
