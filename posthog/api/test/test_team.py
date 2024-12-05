@@ -16,6 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -86,6 +87,26 @@ def team_api_test_factory():
             self.assertNotIn("event_properties_numerical", response_data)
             self.assertNotIn("event_names_with_usage", response_data)
             self.assertNotIn("event_properties_with_usage", response_data)
+
+        def test_retrieve_team_has_group_types(self):
+            other_team = Team.objects.create(organization=self.organization, project=self.project)
+
+            response = self.client.get("/api/environments/@current/")
+            response_data = response.json()
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+            self.assertEqual(response_data["has_group_types"], False)
+
+            # Creating a group type in the same project, but different team
+            GroupTypeMapping.objects.create(
+                project=self.project, team=other_team, group_type="person", group_type_index=0
+            )
+
+            response = self.client.get("/api/environments/@current/")
+            response_data = response.json()
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+            self.assertEqual(response_data["has_group_types"], True)  # Irreleveant that group type has different `team`
 
         def test_cant_retrieve_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
