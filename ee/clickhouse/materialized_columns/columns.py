@@ -298,37 +298,29 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
 
 
 def check_index_exists(client: Client, table: str, index: str) -> bool:
-    match client.execute(
+    [(count,)] = client.execute(
         """
         SELECT count()
         FROM system.data_skipping_indices
         WHERE database = currentDatabase() AND table = %(table)s AND name = %(name)s
         """,
         {"table": table, "name": index},
-    ):
-        case [(1,)]:
-            return True
-        case [(0,)]:
-            return False
-        case _:
-            raise Exception("received unexpected response")
+    )
+    assert 1 >= count >= 0
+    return bool(count)
 
 
 def check_column_exists(client: Client, table: str, column: str) -> bool:
-    match client.execute(
+    [(count,)] = client.execute(
         """
         SELECT count()
         FROM system.columns
         WHERE database = currentDatabase() AND table = %(table)s AND name = %(name)s
         """,
         {"table": table, "name": column},
-    ):
-        case [(1,)]:
-            return True
-        case [(0,)]:
-            return False
-        case _:
-            raise Exception("received unexpected response")
+    )
+    assert 1 >= count >= 0
+    return bool(count)
 
 
 @dataclass
