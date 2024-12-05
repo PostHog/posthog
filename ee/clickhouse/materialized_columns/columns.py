@@ -165,6 +165,10 @@ tables: dict[str, TableInfo | ShardedTableInfo] = {
 }
 
 
+def get_minmax_index_name(column: str) -> str:
+    return f"minmax_{column}"
+
+
 @dataclass
 class CreateColumnOnDataNodesTask:
     table: str
@@ -186,7 +190,7 @@ class CreateColumnOnDataNodesTask:
             parameters["comment"] = self.column.details.as_column_comment()
 
         if self.create_minmax_index:
-            index_name = f"minmax_{self.column.name}"
+            index_name = get_minmax_index_name(self.column.name)
             actions.append(f"ADD INDEX IF NOT EXISTS {index_name} {self.column.name} TYPE minmax GRANULARITY 1")
 
         client.execute(
@@ -337,8 +341,7 @@ class DropColumnTask:
         actions = []
 
         if self.try_drop_index:
-            # XXX: copy/pasted from create task
-            index_name = f"minmax_{self.column_name}"
+            index_name = get_minmax_index_name(self.column_name)
             drop_index_action = f"DROP INDEX IF EXISTS {index_name}"
             if check_index_exists(client, self.table, index_name):
                 actions.append(drop_index_action)
