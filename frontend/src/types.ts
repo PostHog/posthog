@@ -233,6 +233,10 @@ export interface ColumnConfig {
     active: ColumnChoice
 }
 
+export type WithAccessControl = {
+    user_access_level: 'none' | 'member' | 'admin' | 'viewer' | 'editor'
+}
+
 interface UserBaseType {
     uuid: string
     distinct_id: string
@@ -456,7 +460,7 @@ export interface ProjectBasicType {
     name: string
 }
 
-export interface TeamBasicType {
+export interface TeamBasicType extends WithAccessControl {
     id: number
     uuid: string
     organization: string // Organization ID
@@ -494,6 +498,7 @@ export interface ProjectType extends ProjectBasicType {
 export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
 }
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -2940,7 +2945,7 @@ export interface FeatureFlagBasicType {
     ensure_experience_continuity: boolean | null
 }
 
-export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team_id'> {
+export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team_id'>, WithAccessControl {
     /** Null means that the flag has never been saved yet (it's new). */
     id: number | null
     created_by: UserBasicType | null
@@ -3831,21 +3836,12 @@ export interface RoleType {
     name: string
     feature_flags_access_level: AccessLevel
     members: RoleMemberType[]
-    associated_flags: { id: number; key: string }[]
     created_at: string
     created_by: UserBasicType | null
 }
 
 export interface RolesListParams {
     feature_flags_access_level?: AccessLevel
-}
-
-export interface FeatureFlagAssociatedRoleType {
-    id: string
-    feature_flag: FeatureFlagType | null
-    role: RoleType
-    updated_at: string
-    added_at: string
 }
 
 export interface RoleMemberType {
@@ -3887,6 +3883,50 @@ export type APIScopeObject =
     | 'survey'
     | 'user'
     | 'webhook'
+
+export interface AccessControlTypeBase {
+    created_by: UserBasicType | null
+    created_at: string
+    updated_at: string
+    resource: APIScopeObject
+    access_level: string | null // TODO: Change to enum
+    organization_member?: OrganizationMemberType['id'] | null
+    role?: RoleType['id'] | null
+}
+
+export interface AccessControlTypeProject extends AccessControlTypeBase {}
+
+export interface AccessControlTypeMember extends AccessControlTypeBase {
+    organization_member: OrganizationMemberType['id']
+}
+
+export interface AccessControlTypeRole extends AccessControlTypeBase {
+    role: RoleType['id']
+}
+
+export type AccessControlType = AccessControlTypeProject | AccessControlTypeMember | AccessControlTypeRole
+
+export type AccessControlUpdateType = Pick<AccessControlType, 'access_level' | 'organization_member' | 'role'> & {
+    resource?: AccessControlType['resource']
+}
+
+export type AccessControlResponseType = {
+    access_controls: AccessControlType[]
+    available_access_levels: string[] // TODO: Change to enum
+    user_access_level: string
+    default_access_level: string
+    user_can_edit_access_levels: boolean
+}
+
+// TODO: To be deprecated
+export interface FeatureFlagAssociatedRoleType {
+    id: string
+    feature_flag: FeatureFlagType | null
+    role: RoleType
+    updated_at: string
+    added_at: string
+}
+// TODO: To be deprecated
 
 export interface OrganizationResourcePermissionType {
     id: string
@@ -3973,12 +4013,13 @@ export type NotebookListItemType = {
     last_modified_by?: UserBasicType | null
 }
 
-export type NotebookType = NotebookListItemType & {
-    content: JSONContent | null
-    version: number
-    // used to power text-based search
-    text_content?: string | null
-}
+export type NotebookType = NotebookListItemType &
+    WithAccessControl & {
+        content: JSONContent | null
+        version: number
+        // used to power text-based search
+        text_content?: string | null
+    }
 
 export enum NotebookNodeType {
     Mention = 'ph-mention',
@@ -4426,6 +4467,7 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
+    // AccessControl = 'access-control',
 }
 
 export interface SourceFieldOauthConfig {

@@ -1,43 +1,14 @@
 .PlayerUpNext {
-    position: absolute;
-    right: 1rem;
-    bottom: 1rem;
     z-index: 11;
     transition: 250ms transform ease-out;
-
-    &--enter {
-        transform: translateY(200%);
-    }
-
-    &--enter-active,
-    &--enter-done {
-        transform: translateY(0%);
-    }
-
-    &--exit {
-        transform: translateY(0%);
-    }
-
-    &--exit-active {
-        transform: translateY(200%);
-    }
 }
 
 .PlayerUpNextButton {
-    position: relative;
     display: flex;
     align-items: center;
-    min-height: 2.5rem;
-    padding: 0.25rem 0.75rem;
     overflow: hidden;
-    font-weight: 600;
-    line-height: 1.5rem;
     cursor: pointer;
-    background-color: rgb(255 255 255 / 75%);
     backdrop-filter: blur(5px);
-    border: 1px solid rgb(0 0 0 / 50%);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-elevation-3000);
 
     .PlayerUpNextButtonBackground {
         position: absolute;
@@ -46,7 +17,7 @@
         left: 0;
         width: 0;
         color: var(--primary-alt);
-        background-color: var(--bg-light);
+        background-color: var(--border-3000);
     }
 
     &.PlayerUpNextButton--animating {
