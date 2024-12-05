@@ -1,10 +1,13 @@
-import { LemonBanner, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
+import { PlaylistProps, PlaylistSection } from 'lib/components/Playlist/Playlist'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { range } from 'lib/utils'
+import { useRef } from 'react'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
@@ -17,7 +20,9 @@ import {
 } from '../playlist/SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from '../playlist/SessionRecordingsPlaylistTroubleshooting'
 
-export const PanelPlaylist = ({ isCollapsed }: { isCollapsed: boolean }): JSX.Element => {
+const SCROLL_TRIGGER_OFFSET = 100
+
+export const PanelPlaylist = (): JSX.Element => {
     const {
         filters,
         pinnedRecordings,
@@ -28,8 +33,6 @@ export const PanelPlaylist = ({ isCollapsed }: { isCollapsed: boolean }): JSX.El
     } = useValues(sessionRecordingsPlaylistLogic)
     const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, setShowOtherRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
-
-    const notebookNode = useNotebookNode()
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -73,17 +76,13 @@ export const PanelPlaylist = ({ isCollapsed }: { isCollapsed: boolean }): JSX.El
     })
 
     return (
-        <Playlist
-            isCollapsed={isCollapsed}
-            data-attr="session-recordings-playlist"
-            notebooksHref={urls.replay(ReplayTabs.Home, filters)}
+        <List
             title="Results"
-            embedded={!!notebookNode}
+            notebooksHref={urls.replay(ReplayTabs.Home, filters)}
+            loading={sessionRecordingsResponseLoading}
             sections={sections}
-            onChangeSections={(activeSections) => setShowOtherRecordings(activeSections.includes('other'))}
             headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
             footerActions={<SessionRecordingPlaylistBottomSettings />}
-            loading={sessionRecordingsResponseLoading}
             onScrollListEdge={(edge) => {
                 if (edge === 'top') {
                     maybeLoadSessionRecordings('newer')
@@ -91,10 +90,10 @@ export const PanelPlaylist = ({ isCollapsed }: { isCollapsed: boolean }): JSX.El
                     maybeLoadSessionRecordings('older')
                 }
             }}
-            listEmptyState={<ListEmptyState />}
-            onSelect={(item) => setSelectedRecordingId(item.id)}
             activeItemId={activeSessionRecordingId}
-            content={null}
+            setActiveItemId={(item) => setSelectedRecordingId(item.id)}
+            onChangeSections={(activeSections) => setShowOtherRecordings(activeSections.includes('other'))}
+            emptyState={<ListEmptyState />}
         />
     )
 }
@@ -153,5 +152,147 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
                 </Link>
             </p>
         </LemonBanner>
+    )
+}
+
+function List<
+    T extends {
+        id: string | number
+        [key: string]: any
+    }
+>({
+    notebooksHref,
+    setActiveItemId,
+    headerActions,
+    footerActions,
+    sections,
+    onChangeSections,
+    activeItemId,
+    onScrollListEdge,
+    loading,
+    emptyState,
+}: {
+    title?: string
+    notebooksHref: PlaylistProps<T>['notebooksHref']
+    activeItemId: T['id'] | null
+    setActiveItemId: (item: T) => void
+    headerActions: PlaylistProps<T>['headerActions']
+    footerActions: PlaylistProps<T>['footerActions']
+    sections: PlaylistProps<T>['sections']
+    onChangeSections?: (activeKeys: string[]) => void
+    onScrollListEdge: PlaylistProps<T>['onScrollListEdge']
+    loading: PlaylistProps<T>['loading']
+    emptyState: PlaylistProps<T>['listEmptyState']
+}): JSX.Element {
+    const lastScrollPositionRef = useRef(0)
+    const contentRef = useRef<HTMLDivElement | null>(null)
+
+    const handleScroll = (e: React.UIEvent<HTMLDivElement>): void => {
+        // If we are scrolling down then check if we are at the bottom of the list
+        if (e.currentTarget.scrollTop > lastScrollPositionRef.current) {
+            const scrollPosition = e.currentTarget.scrollTop + e.currentTarget.clientHeight
+            if (e.currentTarget.scrollHeight - scrollPosition < SCROLL_TRIGGER_OFFSET) {
+                onScrollListEdge?.('bottom')
+            }
+        }
+
+        // Same again but if scrolling to the top
+        if (e.currentTarget.scrollTop < lastScrollPositionRef.current) {
+            if (e.currentTarget.scrollTop < SCROLL_TRIGGER_OFFSET) {
+                onScrollListEdge?.('top')
+            }
+        }
+
+        lastScrollPositionRef.current = e.currentTarget.scrollTop
+    }
+
+    const initiallyOpenSections = sections.filter((s) => s.initiallyOpen).map((s) => s.key)
+
+    return (
+        <div className="bg-bg-light h-full flex flex-col">
+            <DraggableToNotebook href={notebooksHref}>
+                <div className="flex flex-col gap-1">
+                    <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                        {headerActions}
+                    </div>
+                    <LemonTableLoader loading={loading} />
+                </div>
+            </DraggableToNotebook>
+
+            <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
+                {sections.flatMap((s) => s.items).length ? (
+                    <>
+                        {sections.length > 1 ? (
+                            <LemonCollapse
+                                defaultActiveKeys={initiallyOpenSections}
+                                panels={sections.map((s) => ({
+                                    key: s.key,
+                                    header: s.title,
+                                    content: (
+                                        <ListSection {...s} activeItemId={activeItemId} onClick={setActiveItemId} />
+                                    ),
+                                    className: 'p-0',
+                                }))}
+                                onChange={onChangeSections}
+                                multiple
+                                embedded
+                                size="small"
+                            />
+                        ) : (
+                            <ListSection {...sections[0]} activeItemId={activeItemId} onClick={setActiveItemId} />
+                        )}
+                    </>
+                ) : loading ? (
+                    <LoadingState />
+                ) : (
+                    emptyState
+                )}
+            </div>
+            <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-t">
+                {footerActions}
+            </div>
+        </div>
+    )
+}
+
+export function ListSection<
+    T extends {
+        id: string | number
+        [key: string]: any
+    }
+>({
+    items,
+    render,
+    footer,
+    onClick,
+    activeItemId,
+}: PlaylistSection<T> & {
+    onClick: (item: T) => void
+    activeItemId: T['id'] | null
+}): JSX.Element {
+    return (
+        <>
+            {items.length > 0
+                ? items.map((item) => (
+                      <div key={item.id} className="border-b" onClick={() => onClick(item)}>
+                          {render({ item, isActive: item.id === activeItemId })}
+                      </div>
+                  ))
+                : null}
+            {footer}
+        </>
+    )
+}
+
+const LoadingState = (): JSX.Element => {
+    return (
+        <>
+            {range(20).map((i) => (
+                <div key={i} className="p-4 space-y-2">
+                    <LemonSkeleton className="w-1/2 h-4" />
+                    <LemonSkeleton className="w-1/3 h-4" />
+                </div>
+            ))}
+        </>
     )
 }

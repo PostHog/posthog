@@ -11,6 +11,7 @@
     --panel-inspector-min-width: 200px;
     --container-primary-min-width: max(var(--panel-playback-min-width), var(--panel-inspector-min-width));
     --container-secondary-min-width: max(var(--panel-playlist-min-width), var(--panel-filters-min-width));
+    --container-secondary-max-width: 200px;
 
     height: var(--session-recordings-panel-height);
     container: replay-panel-layout / inline-size;
@@ -19,10 +20,6 @@
         container: replay-primary-panels / inline-size;
         flex: 1 1 0% !important;
         min-width: var(--container-primary-min-width);
-    }
-
-    .PanelLayout__secondary {
-        min-width: var(--container-secondary-min-width);
     }
 
     .PanelLayout__playlist {
@@ -41,8 +38,8 @@
     }
 
     // All panels horizontally stacked
-    @container replay-panel-layout (width >= 716px) {
-        // var(--panel-playback-min-width) + var(--panel-inspector-min-width) + var(--panel-gap) + var(--panel-gap)
+    // var(--panel-playback-min-width) + var(--panel-inspector-min-width) + var(--panel-gap) + var(--panel-gap)
+    @container replay-panel-layout (width >= 1040px) {
         .PanelLayout__primary {
             height: 100%;
         }
@@ -54,8 +51,8 @@
     }
 
     // Primary panels vertically stacked
-    @container replay-panel-layout (width < 716px) {
-        // var(--panel-playback-min-width) + var(--panel-inspector-min-width) + var(--panel-gap) + var(--panel-gap)
+    // var(--panel-playback-min-width) + var(--panel-inspector-min-width) + var(--panel-gap) + var(--panel-gap)
+    @container replay-panel-layout (width < 1040px) {
         .PanelLayout__inspector {
             width: 100%;
         }
@@ -74,6 +71,18 @@
 
         .PanelLayout__playlist {
             max-height: 150px;
+        }
+    }
+
+    @container replay-panel-layout (width > 508px) {
+        // var(--container-primary-min-width) + var(--container-secondary-min-width) + var(--panel-gap)
+        .PanelLayout__secondary {
+            height: 100%;
+        }
+
+        .PanelLayout__secondary {
+            min-width: var(--container-secondary-min-width);
+            max-width: var(--container-secondary-max-width);
         }
     }
 

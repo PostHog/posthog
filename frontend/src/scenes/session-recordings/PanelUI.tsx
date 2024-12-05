@@ -5,11 +5,11 @@ import { BindLogic } from 'kea'
 
 import { PanelPlayback } from './panels/Playback'
 import { PanelPlaylist } from './panels/Playlist'
+import { PlayerInspector } from './player/inspector/PlayerInspector'
 import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './playlist/sessionRecordingsPlaylistLogic'
-import { PlayerSidebar } from './player/PlayerSidebar'
 
 export function PanelsUI(props: SessionRecordingPlaylistLogicProps): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
@@ -24,17 +24,17 @@ export function PanelsUI(props: SessionRecordingPlaylistLogicProps): JSX.Element
                     <Panel primary={false} className="bg-[red]">
                         <>Filters</>
                     </Panel>
-                    <Panel primary className="PanelLayout__playlist bg-[yellow]">
-                        <PanelPlaylist isCollapsed={false} />
+                    <Panel primary className="PanelLayout__playlist overflow-y-auto flex-1 border w-full">
+                        <PanelPlaylist />
                     </Panel>
                 </PanelContainer>
 
                 <PanelContainer primary className="PanelLayout__primary">
-                    <Panel primary className="PanelLayout__playback bg-[green]">
+                    <Panel primary className="PanelLayout__playback">
                         <PanelPlayback logicKey={props.logicKey} />
                     </Panel>
-                    <Panel primary={false} className="PanelLayout__inspector bg-[pink]">
-                        <PlayerSidebar />
+                    <Panel primary={false} className="PanelLayout__inspector flex flex-col">
+                        <PlayerInspector />
                     </Panel>
                 </PanelContainer>
             </PanelLayout>
