@@ -254,7 +254,7 @@ export class DB {
         })
     }
 
-    public redisSetNK(
+    public redisSetNX(
         key: string,
         value: unknown,
         tag: string,
@@ -263,13 +263,13 @@ export class DB {
     ): Promise<'OK' | null> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery('query.redisSetNK', tag, async () => {
+        return instrumentQuery('query.redisSetNX', tag, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key (NK)', { key })
             try {
                 const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
                 if (ttlSeconds) {
-                    return await client.set(key, serializedValue, 'EX', ttlSeconds, 'NK')
+                    return await client.set(key, serializedValue, 'EX', ttlSeconds, 'NX')
                 } else {
                     return await client.set(key, serializedValue)
                 }
