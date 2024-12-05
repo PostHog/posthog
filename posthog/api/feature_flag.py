@@ -395,8 +395,10 @@ class FeatureFlagSerializer(
 
         # Propagate the new variants and aggregation group type index to the linked experiments
         if "filters" in validated_data:
-            variants = validated_data["filters"].get("multivariate", {}).get("variants", [])
-            aggregation_group_type_index = validated_data["filters"].get("aggregation_group_type_index")
+            filters = validated_data["filters"] or {}
+            multivariate = filters.get("multivariate") or {}
+            variants = multivariate.get("variants", [])
+            aggregation_group_type_index = filters.get("aggregation_group_type_index")
 
             for experiment in instance.experiment_set.all():
                 if experiment.parameters is None:
