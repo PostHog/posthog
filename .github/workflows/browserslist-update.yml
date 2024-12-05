@@ -25,6 +25,7 @@ jobs:
             - name: Update Browserslist database and create PR if applies
               uses: c2corg/browserslist-update-action@v2
               with:
+                  github_token: ${{ secrets.GITHUB_TOKEN }}
                   base_branch: master
                   commit_message: 'build: update Browserslist db'
                   title: 'build: update Browserslist db'
