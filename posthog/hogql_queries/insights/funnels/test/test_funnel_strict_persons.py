@@ -192,7 +192,7 @@ class BaseTestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0][0]["id"], p1.uuid)
         self.assertEqual(
             # results[0]["matched_recordings"],
-            list(results[0][2]),
+            list(results[0][1]),
             [],
         )
 
@@ -214,10 +214,10 @@ class BaseTestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(filters, self.team, funnel_step=2, include_recordings=True)
 
         # self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0][0], p1.uuid)
+        self.assertEqual(results[0][0]["id"], p1.uuid)
         self.assertEqual(
             # results[0]["matched_recordings"],
-            list(results[0][2]),
+            list(results[0][1]),
             [
                 {
                     "session_id": "s2",
@@ -250,10 +250,10 @@ class BaseTestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(filters, self.team, funnel_step=-3, include_recordings=True)
 
         # self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0][0], p1.uuid)
+        self.assertEqual(results[0][0]["id"], p1.uuid)
         self.assertEqual(
             # results[0]["matched_recordings"],
-            list(results[0][2]),
+            list(results[0][1]),
             [
                 {
                     "session_id": "s2",
