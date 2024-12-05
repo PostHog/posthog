@@ -306,6 +306,19 @@ def check_index_exists(client: Client, table: str, index: str) -> bool:
             raise Exception("received unexpected response")
 
 
+def check_column_exists(client: Client, table: str, column: str) -> bool:
+    match client.execute(
+        "SELECT count() FROM system.columns WHERE table = %(table)s AND name = %(name)s",
+        {"table": table, "name": column},
+    ):
+        case [(1,)]:
+            return True
+        case [(0,)]:
+            return False
+        case _:
+            raise Exception("received unexpected response")
+
+
 @dataclass
 class DropColumnTask:
     table: str
@@ -322,12 +335,15 @@ class DropColumnTask:
                     settings={"alter_sync": 2 if TEST else 1},
                 )
             else:
-                logger.info("Skipping DROP INDEX for %r, nothing to do...", index_name)
+                logger.info("Skipping DROP INDEX for %r, nothing to do...", self)
 
-        client.execute(
-            f"ALTER TABLE {self.table} DROP COLUMN IF EXISTS {self.column_name}",
-            settings={"alter_sync": 2 if TEST else 1},
-        )
+        if check_column_exists(client, self.table, self.column_name):
+            client.execute(
+                f"ALTER TABLE {self.table} DROP COLUMN IF EXISTS {self.column_name}",
+                settings={"alter_sync": 2 if TEST else 1},
+            )
+        else:
+            logger.info("Skipping DROP COLUMN for %r, nothing to do...", self)
 
 
 def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
