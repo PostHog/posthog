@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
+import { productConfiguration, productRedirects, productRoutes } from '~/products'
 import { EventsQuery } from '~/queries/schema'
 import {
     ActivityScope,
@@ -39,7 +40,7 @@ export const preloadedScenes: Record<string, LoadedScene> = {
     },
 }
 
-export const sceneConfigurations: Record<Scene, SceneConfig> = {
+export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Error404]: {
         name: 'Not found',
         projectBased: true,
@@ -420,14 +421,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Session attribution explorer (beta)',
     },
-    [Scene.MessagingBroadcasts]: {
-        projectBased: true,
-        name: 'Broadcasts',
-    },
-    [Scene.MessagingProviders]: {
-        projectBased: true,
-        name: 'Providers',
-    },
+    ...productConfiguration,
 }
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
@@ -495,10 +489,10 @@ export const redirects: Record<
     '/batch_exports': urls.pipeline(PipelineTab.Destinations),
     '/apps': urls.pipeline(PipelineTab.Overview),
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
-    '/messaging': urls.messagingBroadcasts(),
+    ...productRedirects,
 }
 
-export const routes: Record<string, Scene> = {
+export const routes: Record<string, Scene | string> = {
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
     [urls.dashboardTextTile(':id', ':textTileId')]: Scene.Dashboard,
@@ -615,11 +609,5 @@ export const routes: Record<string, Scene> = {
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
     [urls.heatmaps()]: Scene.Heatmaps,
     [urls.sessionAttributionExplorer()]: Scene.SessionAttributionExplorer,
-    [urls.messagingProviders()]: Scene.MessagingProviders,
-    [urls.messagingProvider(':id')]: Scene.MessagingProviders,
-    [urls.messagingProviderNew()]: Scene.MessagingProviders,
-    [urls.messagingProviderNew(':template')]: Scene.MessagingProviders,
-    [urls.messagingBroadcasts()]: Scene.MessagingBroadcasts,
-    [urls.messagingBroadcast(':id')]: Scene.MessagingBroadcasts,
-    [urls.messagingBroadcastNew()]: Scene.MessagingBroadcasts,
+    ...productRoutes,
 }

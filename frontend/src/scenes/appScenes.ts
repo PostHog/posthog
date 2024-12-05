@@ -1,10 +1,13 @@
 import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
-export const appScenes: Record<Scene, () => any> = {
+import { productScenes } from '~/products'
+
+export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
+    ...productScenes,
     [Scene.Dashboards]: () => import('./dashboard/dashboards/Dashboards'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
     [Scene.Insight]: () => import('./insights/InsightScene'),

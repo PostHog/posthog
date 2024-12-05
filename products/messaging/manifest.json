@@ -1,9 +1,24 @@
 {
     "name": "Messaging",
-    "projectBased": true,
+    "scenes": {
+        "MessagingBroadcasts": {
+            "import": "frontend/Broadcasts",
+            "name": "Messaging",
+            "projectBased": true
+        },
+        "MessagingProviders": {
+            "import": "frontend/Providers",
+            "name": "Messaging",
+            "projectBased": true
+        }
+    },
     "routes": {
-        "/messaging/broadcasts": "./frontend/Broadcasts.tsx",
-        "/messaging/providers": "./frontend/Providers.tsx"
+        "/messaging/providers": "MessagingProviders",
+        "/messaging/providers/:id": "MessagingProviders",
+        "/messaging/providers/new": "MessagingProviders",
+        "/messaging/broadcasts": "MessagingBroadcasts",
+        "/messaging/broadcasts/:id": "MessagingBroadcasts",
+        "/messaging/broadcasts/new": "MessagingBroadcasts"
     },
     "redirects": {
         "/messaging": "/messaging/broadcasts"

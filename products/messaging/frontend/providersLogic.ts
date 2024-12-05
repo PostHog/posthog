@@ -1,7 +1,7 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
+import { messagingBroadcasts, messagingProviderNew, messagingProviders, messagingProvider } from './urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -24,19 +24,19 @@ export const providersLogic = kea<providersLogicType>([
                     {
                         key: Scene.MessagingBroadcasts,
                         name: 'Messaging',
-                        path: urls.messagingBroadcasts(),
+                        path: messagingBroadcasts(),
                     },
                     {
                         key: 'providers',
                         name: 'Providers',
-                        path: urls.messagingProviders(),
+                        path: messagingProviders(),
                     },
                     ...(providerId === 'new' || templateId
                         ? [
                             {
                                 key: 'new-provider',
                                 name: 'New provider',
-                                path: urls.messagingProviderNew(),
+                                path: messagingProviderNew(),
                             },
                         ]
                         : providerId
@@ -44,7 +44,7 @@ export const providersLogic = kea<providersLogicType>([
                                 {
                                     key: 'edit-provider',
                                     name: 'Edit provider',
-                                    path: urls.messagingProvider(providerId),
+                                    path: messagingProvider(providerId),
                                 },
                             ]
                             : []),

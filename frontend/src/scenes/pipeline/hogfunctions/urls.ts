@@ -1,20 +1,28 @@
+import {
+    messagingBroadcast,
+    messagingBroadcastNew,
+    messagingBroadcasts,
+    messagingProvider,
+    messagingProviderNew,
+    messagingProviders,
+} from 'products/messaging/frontend/urls'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionTypeType, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
 
 export function hogFunctionNewUrl(type: HogFunctionTypeType, template?: string): string {
     return type === 'email'
-        ? urls.messagingProviderNew(template)
+        ? messagingProviderNew(template)
         : type === 'broadcast'
-        ? urls.messagingBroadcastNew()
+        ? messagingBroadcastNew()
         : urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(type), template ? `hog-${template}` : undefined)
 }
 
 export function hogFunctionUrl(type: HogFunctionTypeType | PipelineStage, id?: string): string {
     if (type === 'email') {
-        return id ? urls.messagingProvider(id) : urls.messagingProviders()
+        return id ? messagingProvider(id) : messagingProviders()
     } else if (type === 'broadcast') {
-        return id ? urls.messagingBroadcast(id) : urls.messagingBroadcasts()
+        return id ? messagingBroadcast(id) : messagingBroadcasts()
     }
     return id
         ? urls.pipelineNode(
