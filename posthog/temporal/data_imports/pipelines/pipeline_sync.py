@@ -458,7 +458,11 @@ def validate_schema_and_update_table_sync(
     ).get(pk=run_id)
 
     using_v2_pipeline = job.pipeline_version == ExternalDataJob.PipelineVersion.V2
-    pipeline_version = ExternalDataJob.PipelineVersion(job.pipeline_version)
+    pipeline_version = (
+        ExternalDataJob.PipelineVersion.V1
+        if job.pipeline_version is None
+        else ExternalDataJob.PipelineVersion(job.pipeline_version)
+    )
 
     # Temp so we dont create a bunch of orphaned Table objects
     if using_v2_pipeline:
