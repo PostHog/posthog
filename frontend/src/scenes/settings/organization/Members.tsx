@@ -165,7 +165,7 @@ export function Members(): JSX.Element | null {
             title: 'Name',
             key: 'user_name',
             render: (_, member) =>
-                member.user.uuid == user.uuid ? `${fullName(member.user)} (me)` : fullName(member.user),
+                member.user.uuid == user.uuid ? `${fullName(member.user)} (you)` : fullName(member.user),
             sorter: (a, b) => fullName(a.user).localeCompare(fullName(b.user)),
         },
         {

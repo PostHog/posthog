@@ -4468,7 +4468,7 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
-    // AccessControl = 'access-control',
+    AccessControl = 'access-control',
 }
 
 export interface SourceFieldOauthConfig {

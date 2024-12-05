@@ -188,7 +188,8 @@ export const teamLogic = kea<teamLogicType>([
             (selectors) => [selectors.currentTeam, selectors.currentTeamLoading],
             // If project has been loaded and is still null, it means the user just doesn't have access.
             (currentTeam, currentTeamLoading): boolean =>
-                !currentTeam?.effective_membership_level && !currentTeamLoading,
+                (!currentTeam?.effective_membership_level || currentTeam.user_access_level === 'none') &&
+                !currentTeamLoading,
         ],
         demoOnlyProject: [
             (selectors) => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],
@@ -210,8 +211,9 @@ export const teamLogic = kea<teamLogicType>([
         isTeamTokenResetAvailable: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): boolean =>
-                !!currentTeam?.effective_membership_level &&
-                currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin,
+                (!!currentTeam?.effective_membership_level &&
+                    currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin) ||
+                currentTeam?.user_access_level === 'admin',
         ],
         testAccountFilterFrequentMistakes: [
             (selectors) => [selectors.currentTeam],

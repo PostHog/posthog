@@ -5,7 +5,8 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
+import { SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { SIDE_PANEL_CONTEXT_KEY } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, PipelineTab } from '~/types'
 
 import type { pipelineLogicType } from './pipelineLogicType'
@@ -44,11 +45,11 @@ export const pipelineLogic = kea<pipelineLogicType>([
             },
         ],
 
-        activityFilters: [
+        [SIDE_PANEL_CONTEXT_KEY]: [
             () => [],
-            (): ActivityFilters | null => {
+            (): SidePanelSceneContext => {
                 return {
-                    scope: ActivityScope.PLUGIN,
+                    activity_scope: ActivityScope.PLUGIN,
                 }
             },
         ],
