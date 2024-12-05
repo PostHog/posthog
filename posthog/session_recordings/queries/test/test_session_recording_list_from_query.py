@@ -45,12 +45,15 @@ from posthog.test.base import (
 class TestSessionRecordingQueryDateRange(TestBase):
     def test_with_relative_dates(self) -> None:
         query_date_range = QueryDateRange(
-            date_range=DateRange(date_from="-3d", date_to="-24h"), team=self.team, interval=None, now=datetime.now(UTC)
+            date_range=DateRange(date_from="-3d", date_to="-24h", explicitDate=True),
+            team=self.team,
+            interval=None,
+            now=datetime.now(UTC),
         )
         assert query_date_range is not None
         assert query_date_range.date_from() == datetime(2020, 12, 29, 0, 0, 0, 0, UTC)
         assert query_date_range.date_to() == datetime(
-            year=2020, month=12, day=31, hour=13, minute=0, second=0, tzinfo=UTC
+            year=2020, month=12, day=31, hour=13, minute=46, second=23, tzinfo=UTC
         )
 
     def test_with_string_dates(self) -> None:
@@ -68,7 +71,7 @@ class TestSessionRecordingQueryDateRange(TestBase):
 
     def test_with_string_date_times(self) -> None:
         query_date_range = QueryDateRange(
-            date_range=DateRange(date_from="2020-12-29T12:23:45Z", date_to="2021-01-01T13:34:42Z"),
+            date_range=DateRange(date_from="2020-12-29T12:23:45Z", date_to="2021-01-01T13:34:42Z", explicitDate=True),
             team=self.team,
             interval=None,
             now=datetime.now(UTC),
@@ -81,7 +84,7 @@ class TestSessionRecordingQueryDateRange(TestBase):
 
     def test_with_no_date_from(self) -> None:
         query_date_range = QueryDateRange(
-            date_range=DateRange(date_from=None, date_to="2021-01-01T13:34:42Z"),
+            date_range=DateRange(date_from=None, date_to="2021-01-01T13:34:42Z", explicitDate=True),
             team=self.team,
             interval=None,
             now=datetime.now(UTC),
@@ -95,7 +98,7 @@ class TestSessionRecordingQueryDateRange(TestBase):
 
     def test_with_no_date_to(self) -> None:
         query_date_range = QueryDateRange(
-            date_range=DateRange(date_from="2021-01-01T11:34:42Z", date_to=None),
+            date_range=DateRange(date_from="2021-01-01T11:34:42Z", date_to=None, explicitDate=True),
             team=self.team,
             interval=None,
             now=datetime.now(UTC),
