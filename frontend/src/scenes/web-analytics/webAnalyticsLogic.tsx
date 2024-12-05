@@ -1298,7 +1298,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               kind: 'replay',
                               tileId: TileId.REPLAY,
                               layout: {
-                                  colSpanClassName: 'md:col-span-1',
+                                  colSpanClassName: conversionGoal ? 'md:col-span-full' : 'md:col-span-1',
                               },
                               docs: {
                                   url: 'https://posthog.com/docs/session-replay',
