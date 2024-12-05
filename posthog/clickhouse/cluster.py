@@ -54,6 +54,9 @@ class ConnectionInfo(NamedTuple):
     address: str
     port: int
 
+    def make_pool(self) -> ChPool:
+        return make_ch_pool(host=self.address, port=self.port)
+
 
 class HostInfo(NamedTuple):
     connection_info: ConnectionInfo
@@ -87,7 +90,7 @@ class ClickhouseCluster:
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
         if pool is None:
-            pool = self.__pools[host] = make_ch_pool(host=host.connection_info.address, port=host.connection_info.port)
+            pool = self.__pools[host] = host.connection_info.make_pool()
 
         def task():
             with pool.get_client() as client:
