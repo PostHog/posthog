@@ -1450,11 +1450,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ): RecordingUniversalFilters => {
                 const filters: UniversalFiltersGroupValue[] = [...webAnalyticsFilters]
                 if (conversionGoal) {
-                    const actionId = (conversionGoal as ActionConversionGoal).actionId
-                    const customEventName = (conversionGoal as CustomEventConversionGoal).customEventName
-                    const id = actionId || customEventName
-
-                    filters.push({ id, name: String(id), type: customEventName ? 'events' : 'actions' })
+                    if ('actionId' in conversionGoal) {
+                        filters.push({
+                            id: conversionGoal.actionId,
+                            name: String(conversionGoal.actionId),
+                            type: 'actions',
+                        })
+                    } else if ('customEventName' in conversionGoal) {
+                        filters.push({
+                            id: conversionGoal.customEventName,
+                            name: conversionGoal.customEventName,
+                            type: 'events',
+                        })
+                    }
                 }
 
                 return {
