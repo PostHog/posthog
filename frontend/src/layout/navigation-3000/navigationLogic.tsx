@@ -385,15 +385,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   },
                               },
                           },
-                          featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]
-                              ? {
-                                    identifier: Scene.FeatureManagement,
-                                    label: 'Features',
-                                    icon: <IconFeatures />,
-                                    logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
-                                    to: isUsingSidebar ? undefined : urls.featureManagement(),
-                                }
-                              : null,
                           {
                               identifier: Scene.Notebooks,
                               label: 'Notebooks',
@@ -420,7 +411,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               icon: <IconLive />,
                               to: urls.activity(),
                           },
-                      ].filter(isNotNil)
+                      ]
                     : [
                           {
                               identifier: Scene.Products,
@@ -436,6 +427,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         label: 'Max AI',
                         icon: <IconSparkles />,
                         to: urls.max(),
+                    })
+                }
+
+                if (featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]) {
+                    sectionOne.splice(4, 0, {
+                        identifier: Scene.FeatureManagement,
+                        label: 'Features',
+                        icon: <IconFeatures />,
+                        logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
+                        to: isUsingSidebar ? undefined : urls.featureManagement(),
                     })
                 }
 
