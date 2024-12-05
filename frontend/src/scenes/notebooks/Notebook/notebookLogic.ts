@@ -348,9 +348,9 @@ export const notebookLogic = kea<notebookLogicType>([
         mode: [() => [(_, props) => props], (props): NotebookLogicMode => props.mode ?? 'notebook'],
         isTemplate: [(s) => [s.shortId], (shortId): boolean => shortId.startsWith('template-')],
         isLocalOnly: [
-            () => [(_, props) => props],
-            (props): boolean => {
-                return props.shortId === 'scratchpad' || props.mode === 'canvas'
+            (s) => [(_, props) => props, s.isTemplate],
+            (props, isTemplate): boolean => {
+                return props.shortId === 'scratchpad' || props.mode === 'canvas' || isTemplate
             },
         ],
         notebookMissing: [
