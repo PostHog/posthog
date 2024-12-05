@@ -9,7 +9,14 @@ from sentry_sdk import capture_exception
 import structlog
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.plugin import PluginConfig, PluginSourceFile
+from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel, execute_with_timeout
+
+from django.db.models.signals import post_save
+from django.dispatch.dispatcher import receiver
 
 
 CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
@@ -256,3 +263,36 @@ class RemoteConfig(UUIDModel):
 
     def __str__(self):
         return f"RemoteConfig {self.team_id}"
+
+
+def _update_team_remote_config(team_id: int):
+    from posthog.tasks.remote_config import update_team_remote_config
+
+    update_team_remote_config.delay(team_id)
+
+
+@receiver(post_save, sender=Team)
+def team_saved(sender, instance: "Team", created, **kwargs):
+    _update_team_remote_config(instance.id)
+
+
+@receiver(post_save, sender=FeatureFlag)
+def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
+    _update_team_remote_config(instance.team.id)
+
+
+@receiver(post_save, sender=PluginConfig)
+def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
+    if (
+        instance.team
+        and instance.enabled
+        and instance.plugin.pluginsourcefile.filename == "site.ts"
+        and instance.plugin.pluginsourcefile.status == PluginSourceFile.Status.TRANSPILED
+    ):
+        _update_team_remote_config(instance.team.id)
+
+
+@receiver(post_save, sender=HogFunction)
+def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
+    if instance.enabled and instance.type in ("site_destination", "site_app") and instance.transpiled:
+        _update_team_remote_config(instance.team.id)
