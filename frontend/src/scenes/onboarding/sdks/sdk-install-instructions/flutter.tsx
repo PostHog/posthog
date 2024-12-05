@@ -25,24 +25,24 @@ function InstallFlutterSessionReplay(props: FlutterInstallProps): JSX.Element {
 import 'package:posthog_flutter/posthog_flutter.dart';
 
 Future<void> main() async {
-// init WidgetsFlutterBinding if not yet
-WidgetsFlutterBinding.ensureInitialized();
-final config = PostHogConfig('${props.apiToken}');
-config.host = '${apiHostOrigin()}';
-config.debug = true;
-config.captureApplicationLifecycleEvents = true;
+  // init WidgetsFlutterBinding if not yet
+  WidgetsFlutterBinding.ensureInitialized();
+  final config = PostHogConfig('${props.apiToken}');
+  config.host = '${apiHostOrigin()}';
+  config.debug = true;
+  config.captureApplicationLifecycleEvents = true;
 
-// check https://posthog.com/docs/session-replay/android#installation
-// for more config and to learn about how we capture sessions on mobile
-// and what to expect
-config.sessionReplay = true;
-// choose whether to mask images or text
-config.sessionReplayConfig.maskAllTexts = false;
-config.sessionReplayConfig.maskAllImages = false;
+  // check https://posthog.com/docs/session-replay/android#installation
+  // for more config and to learn about how we capture sessions on mobile
+  // and what to expect
+  config.sessionReplay = true;
+  // choose whether to mask images or text
+  config.sessionReplayConfig.maskAllTexts = false;
+  config.sessionReplayConfig.maskAllImages = false;
 
-// Setup PostHog with the given Context and Config
-await Posthog().setup(config);
-runApp(MyApp());
+  // Setup PostHog with the given Context and Config
+  await Posthog().setup(config);
+  runApp(MyApp());
 }`}
         </CodeSnippet>
     )
