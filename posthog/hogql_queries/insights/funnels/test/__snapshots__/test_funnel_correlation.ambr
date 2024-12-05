@@ -482,7 +482,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -673,7 +675,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -864,7 +868,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1055,7 +1061,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1408,7 +1416,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1599,7 +1609,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1790,7 +1802,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1981,7 +1995,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2520,7 +2536,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2635,7 +2653,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2750,7 +2770,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2865,7 +2887,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3128,7 +3152,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3243,7 +3269,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3490,7 +3518,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3605,7 +3635,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3720,7 +3752,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3835,7 +3869,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4098,7 +4134,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4213,7 +4251,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4482,7 +4522,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4604,7 +4646,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4726,7 +4770,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4848,7 +4894,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -5264,7 +5312,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -5386,7 +5436,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -5508,7 +5560,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -5630,7 +5684,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -6046,7 +6102,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -6168,7 +6226,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -6290,7 +6350,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -6412,7 +6474,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -6828,7 +6892,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -6950,7 +7016,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -7072,7 +7140,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -7194,7 +7264,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
