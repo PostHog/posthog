@@ -9,19 +9,20 @@ from langgraph.checkpoint.base import (
     create_checkpoint,
     empty_checkpoint,
 )
+from langgraph.checkpoint.base.id import uuid6
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.models.assistant import AssistantThread
+from ee.models.assistant import AssistantThread, Checkpoint as ThreadCheckpoint
 from posthog.test.base import BaseTest
 
 
 class TestDjangoCheckpointer(BaseTest):
     def setUp(self):
         super().setUp()
-
         self.thread1 = AssistantThread.objects.create(user=self.user, team=self.team)
         self.thread2 = AssistantThread.objects.create(user=self.user, team=self.team)
 
+    def test_saver(self):
         config_1: RunnableConfig = {
             "configurable": {
                 "thread_id": self.thread1.id,
@@ -61,15 +62,13 @@ class TestDjangoCheckpointer(BaseTest):
         }
         metadata_3: CheckpointMetadata = {}
 
-        self.test_data = {
+        test_data = {
             "configs": [config_1, config_2, config_3],
             "checkpoints": [chkpnt_1, chkpnt_2, chkpnt_3],
             "metadata": [metadata_1, metadata_2, metadata_3],
         }
 
-    def test_saver(self):
         saver = DjangoCheckpointer()
-        test_data = self.test_data
 
         configs = test_data["configs"]
         checkpoints = test_data["checkpoints"]
@@ -109,3 +108,49 @@ class TestDjangoCheckpointer(BaseTest):
             search_results_5[0].config["configurable"]["checkpoint_ns"],
             search_results_5[1].config["configurable"]["checkpoint_ns"],
         } == {"", "inner"}
+
+    def test_channel_versions(self):
+        chkpnt = {
+            "v": 1,
+            "ts": "2024-07-31T20:14:19.804150+00:00",
+            "id": str(uuid6(clock_seq=-2)),
+            "channel_values": {
+                "post": "hog",
+                "node": "node",
+            },
+            "channel_versions": {
+                "__start__": 2,
+                "my_key": 3,
+                "start:node": 3,
+                "node": 3,
+            },
+            "versions_seen": {
+                "__input__": {},
+                "__start__": {"__start__": 1},
+                "node": {"start:node": 2},
+            },
+            "pending_sends": [],
+        }
+        metadata = {"meta": "key"}
+
+        write_config = {"configurable": {"thread_id": self.thread1.id, "checkpoint_ns": ""}}
+        read_config = {"configurable": {"thread_id": self.thread1.id}}
+
+        saver = DjangoCheckpointer()
+        saver.put(write_config, chkpnt, metadata, {})
+
+        checkpoint = ThreadCheckpoint.objects.first()
+        self.assertIsNotNone(checkpoint)
+        self.assertEqual(checkpoint.thread, self.thread1)
+        self.assertEqual(checkpoint.checkpoint_ns, "")
+        self.assertEqual(str(checkpoint.id), chkpnt["id"])
+        self.assertIsNone(checkpoint.parent_checkpoint)
+        chkpnt.pop("channel_values")
+        self.assertEqual(checkpoint.checkpoint, chkpnt)
+        self.assertEqual(checkpoint.metadata, metadata)
+
+        checkpoints = list(saver.list(read_config))
+        self.assertEqual(len(checkpoints), 1)
+
+        checkpoint = saver.get(read_config)
+        self.assertEqual(checkpoint, checkpoints[0].checkpoint)
