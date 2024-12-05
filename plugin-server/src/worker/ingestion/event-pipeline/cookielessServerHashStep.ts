@@ -117,7 +117,7 @@ function getProperties(
     userAgent: string | undefined
     ip: string | undefined
     host: string | undefined
-    timezone: string | undefined
+    timezone: string
     timestampMs: number
     teamId: number
 } {
