@@ -163,15 +163,18 @@ def get_transpiled_function_v2(hog_function: HogFunction) -> str:
 
     response += (
         """
-    function processEvent(globals) {
-        if (!('onEvent' in source)) { return; };
-        const inputs = buildInputs(globals);
-        const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
-        let __getGlobal = (key) => filterGlobals[key];
-        const filterMatches = """
+    let processEvent = undefined;
+    if ('onEvent' in source) {
+        processEvent = function processEvent(globals) {
+            if (!('onEvent' in source)) { return; };
+            const inputs = buildInputs(globals);
+            const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
+            let __getGlobal = (key) => filterGlobals[key];
+            const filterMatches = """
         + filters_code
         + """;
-        if (filterMatches) { source.onEvent({ ...globals, inputs, posthog }); }
+            if (filterMatches) { source.onEvent({ ...globals, inputs, posthog }); }
+        }
     }
 
     function init(config) {
