@@ -293,6 +293,19 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
     ).result()
 
 
+def check_index_exists(client: Client, table: str, index: str) -> bool:
+    match client.execute(
+        "SELECT count() FROM system.data_skipping_indices WHERE table = %(table)s AND name = %(name)s",
+        {"table": table, "name": index},
+    ):
+        case [(1,)]:
+            return True
+        case [(0,)]:
+            return False
+        case _:
+            raise Exception("received unexpected response")
+
+
 @dataclass
 class DropColumnTask:
     table: str
@@ -303,19 +316,13 @@ class DropColumnTask:
         if self.try_drop_index:
             # XXX: copy/pasted from create task
             index_name = f"minmax_{self.column_name}"
-            match client.execute(
-                "SELECT count() FROM system.data_skipping_indices WHERE table = %(table)s AND name = %(name)s",
-                {"table": self.table, "name": index_name},
-            ):
-                case [(1,)]:
-                    client.execute(
-                        f"ALTER TABLE {self.table} DROP INDEX IF EXISTS {index_name}",
-                        settings={"alter_sync": 2 if TEST else 1},
-                    )
-                case [(0,)]:
-                    logger.info("Skipping DROP INDEX for %r, nothing to do...", index_name)
-                case _:
-                    raise Exception("received unexpected response")
+            if check_index_exists(client, self.table, index_name):
+                client.execute(
+                    f"ALTER TABLE {self.table} DROP INDEX IF EXISTS {index_name}",
+                    settings={"alter_sync": 2 if TEST else 1},
+                )
+            else:
+                logger.info("Skipping DROP INDEX for %r, nothing to do...", index_name)
 
         client.execute(
             f"ALTER TABLE {self.table} DROP COLUMN IF EXISTS {self.column_name}",
