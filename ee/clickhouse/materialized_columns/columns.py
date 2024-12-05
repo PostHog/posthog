@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable, Iterator
 from copy import copy
@@ -21,6 +22,9 @@ from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_PER_TEAM_SETTINGS, TEST
+
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -296,13 +300,22 @@ class DropColumnTask:
     try_drop_index: bool
 
     def execute(self, client: Client) -> None:
-        # XXX: copy/pasted from create task
         if self.try_drop_index:
+            # XXX: copy/pasted from create task
             index_name = f"minmax_{self.column_name}"
-            client.execute(
-                f"ALTER TABLE {self.table} DROP INDEX IF EXISTS {index_name}",
-                settings={"alter_sync": 2 if TEST else 1},
-            )
+            match client.execute(
+                "SELECT count() FROM system.data_skipping_indices WHERE table = %(table)s AND name = %(name)s",
+                {"table": self.table, "name": index_name},
+            ):
+                case [(1,)]:
+                    client.execute(
+                        f"ALTER TABLE {self.table} DROP INDEX IF EXISTS {index_name}",
+                        settings={"alter_sync": 2 if TEST else 1},
+                    )
+                case [(0,)]:
+                    logger.info("Skipping DROP INDEX for %r, nothing to do...", index_name)
+                case _:
+                    raise Exception("received unexpected response")
 
         client.execute(
             f"ALTER TABLE {self.table} DROP COLUMN IF EXISTS {self.column_name}",
