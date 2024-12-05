@@ -8,7 +8,7 @@ import { Breadcrumb } from '~/types'
 import type { providersLogicType } from './providersLogicType'
 
 export const providersLogic = kea<providersLogicType>([
-    path(['scenes', 'messaging', 'providersLogic']),
+    path(['products', 'messaging', 'frontend', 'providersLogic']),
     actions({
         editProvider: (id: string | null, template: string | null) => ({ id, template }),
     }),
@@ -33,21 +33,21 @@ export const providersLogic = kea<providersLogicType>([
                     },
                     ...(providerId === 'new' || templateId
                         ? [
-                              {
-                                  key: 'new-provider',
-                                  name: 'New provider',
-                                  path: urls.messagingProviderNew(),
-                              },
-                          ]
+                            {
+                                key: 'new-provider',
+                                name: 'New provider',
+                                path: urls.messagingProviderNew(),
+                            },
+                        ]
                         : providerId
-                        ? [
-                              {
-                                  key: 'edit-provider',
-                                  name: 'Edit provider',
-                                  path: urls.messagingProvider(providerId),
-                              },
-                          ]
-                        : []),
+                            ? [
+                                {
+                                    key: 'edit-provider',
+                                    name: 'Edit provider',
+                                    path: urls.messagingProvider(providerId),
+                                },
+                            ]
+                            : []),
                 ]
             },
         ],

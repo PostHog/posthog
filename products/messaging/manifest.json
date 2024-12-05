@@ -1,0 +1,11 @@
+{
+    "name": "Messaging",
+    "projectBased": true,
+    "routes": {
+        "/messaging/broadcasts": "./frontend/Broadcasts.tsx",
+        "/messaging/providers": "./frontend/Providers.tsx"
+    },
+    "redirects": {
+        "/messaging": "/messaging/broadcasts"
+    }
+}
