@@ -399,6 +399,8 @@ class FeatureFlagSerializer(
             aggregation_group_type_index = validated_data["filters"].get("aggregation_group_type_index")
 
             for experiment in instance.experiment_set.all():
+                if experiment.parameters is None:
+                    experiment.parameters = {}
                 experiment.parameters["feature_flag_variants"] = variants
                 if aggregation_group_type_index is not None:
                     experiment.parameters["aggregation_group_type_index"] = aggregation_group_type_index
