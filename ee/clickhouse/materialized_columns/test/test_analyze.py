@@ -49,9 +49,9 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
         materialize_properties_task()
         patch_materialize.assert_has_calls(
             [
-                call("events", "materialize_me", table_column="properties"),
-                call("events", "materialize_me2", table_column="properties"),
-                call("events", "materialize_person_prop", table_column="person_properties"),
-                call("events", "materialize_me3", table_column="properties"),
+                call("events", "materialize_me", table_column="properties", is_nullable=False),
+                call("events", "materialize_me2", table_column="properties", is_nullable=False),
+                call("events", "materialize_person_prop", table_column="person_properties", is_nullable=False),
+                call("events", "materialize_me3", table_column="properties", is_nullable=False),
             ]
         )
