@@ -352,7 +352,7 @@ SELECT
     any(session.$is_bounce) AS is_bounce,
     min(session.$start_timestamp) as start_timestamp
 FROM events
-WHERE and(timestamp >= {date_from}, timestamp < {date_to}, events.event == '$pageview', {all_properties}, {where_breakdown})
+WHERE and(timestamp >= {date_from}, timestamp < {date_to}, {event_where}, {all_properties}, {where_breakdown})
 GROUP BY session_id, breakdown_value
 """,
             timings=self.timings,
@@ -360,6 +360,7 @@ GROUP BY session_id, breakdown_value
                 "breakdown_value": breakdown,
                 "date_from": self._date_from_previous_period(),
                 "date_to": self._date_to(),
+                "event_where": self.event_type_expr,
                 "all_properties": self._all_properties(),
                 "where_breakdown": self.where_breakdown(),
             },
@@ -438,6 +439,19 @@ GROUP BY session_id, breakdown_value
             )
         else:
             return None
+
+    # Reproduction from `web_analytics/web_overview.py`
+    # Update in both places
+    @cached_property
+    def event_type_expr(self) -> ast.Expr:
+        pageview_expr = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
+        )
+
+        if self.conversion_goal_expr:
+            return ast.Call(name="or", args=[pageview_expr, self.conversion_goal_expr])
+        else:
+            return pageview_expr
 
     def _event_properties(self) -> ast.Expr:
         properties = [

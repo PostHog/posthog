@@ -1353,11 +1353,13 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self._run_web_stats_table_query(
-            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, custom_event="custom_event"
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,  # Allow the breakdown value to be non-null
+            custom_event="custom_event",
         )
 
-        # TODO: It's returning empty, I don't know why
-        assert [["https://www.example.com/foo", (1, 0), (0, 0), (0, 0), (0, None)]] == response.results
+        assert [[None, (1, 0), (1, 0), (1, 0), (1, None)]] == response.results
         assert [
             "context.columns.breakdown_value",
             "context.columns.visitors",
@@ -1386,11 +1388,13 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self._run_web_stats_table_query(
-            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,  # Allow the breakdown value to be non-null
+            action=action,
         )
 
-        # TODO: It's returning empty for some reason, check why
-        assert [["https://www.example.com/foo", (1, 0), (0, 0), (0, 0), (0, None)]] == response.results
+        assert [[None, (1, 0), (1, 0), (1, 0), (1, None)]] == response.results
         assert [
             "context.columns.breakdown_value",
             "context.columns.visitors",
@@ -1421,11 +1425,13 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self._run_web_stats_table_query(
-            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,  # Allow the breakdown value to be non-null
+            action=action,
         )
 
-        # TODO: It's returning empty I don't know why, fix this
-        assert [["https://www.example.com/foo", (1, 0), (0, 0), (0, 0), (0, None)]] == response.results
+        assert [[None, (1, 0), (1, 0), (1, 0), (1, None)]] == response.results
         assert [
             "context.columns.breakdown_value",
             "context.columns.visitors",
