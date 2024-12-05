@@ -6,6 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql_queries.insights.funnels import FunnelTrends
+from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql_str
 from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP, relative_date_parse
@@ -195,7 +196,9 @@ class FunnelTrendsUDF(FunnelTrends):
             """,
                 {"fill_query": fill_query, "inner_select": inner_select},
             )
-        return cast(ast.SelectQuery, s)
+        s = cast(ast.SelectQuery, s)
+        s.settings = HogQLQuerySettings(join_algorithm=JOIN_ALGOS)
+        return s
 
     def _matching_events(self):
         if (
@@ -254,4 +257,5 @@ class FunnelTrendsUDF(FunnelTrends):
             select_from=select_from,
             order_by=order_by,
             where=where,
+            settings=HogQLQuerySettings(join_algorithm=JOIN_ALGOS),
         )

@@ -114,6 +114,26 @@ SETTINGS
 """
 )
 
+SELECT_FROM_EVENTS_VIEW_RECENT = Template(
+    """
+SELECT
+    $fields
+FROM
+    events_batch_export_recent(
+        team_id={team_id},
+        interval_start={interval_start},
+        interval_end={interval_end},
+        include_events={include_events}::Array(String),
+        exclude_events={exclude_events}::Array(String)
+    ) AS events
+FORMAT ArrowStream
+SETTINGS
+    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
+    max_bytes_before_external_sort=50000000000,
+    max_replica_delay_for_distributed_queries=1
+"""
+)
+
 SELECT_FROM_EVENTS_VIEW_UNBOUNDED = Template(
     """
 SELECT
