@@ -2,7 +2,7 @@ from typing import cast
 
 from django.core.management.base import BaseCommand
 
-from posthog.models import FeatureFlag, Team, User
+from posthog.models import FeatureFlag, Project, User
 
 INACTIVE_FLAGS = [
     "cloud-announcement",
@@ -12,7 +12,7 @@ INACTIVE_FLAGS = [
 
 
 class Command(BaseCommand):
-    help = "Add and enable all feature flags in frontend/src/lib/constants.tsx for all teams"
+    help = "Add and enable all feature flags in frontend/src/lib/constants.tsx for all projects"
 
     def handle(self, *args, **options):
         flags: dict[str, str] = {}
@@ -37,23 +37,27 @@ class Command(BaseCommand):
                     parsing_flags = True
 
         first_user = cast(User, User.objects.first())
-        for team in Team.objects.all():
-            existing_flags = FeatureFlag.objects.filter(team=team).values_list("key", flat=True)
-            deleted_flags = FeatureFlag.objects.filter(team=team, deleted=True).values_list("key", flat=True)
+        for project in Project.objects.all():
+            existing_flags = FeatureFlag.objects.filter(team__project_id=project.id).values_list("key", flat=True)
+            deleted_flags = FeatureFlag.objects.filter(team__project_id=project.id, deleted=True).values_list(
+                "key", flat=True
+            )
             for flag in flags.keys():
                 flag_type = flags[flag]
                 is_enabled = flag not in INACTIVE_FLAGS
 
                 if flag in deleted_flags:
-                    ff = FeatureFlag.objects.filter(team=team, key=flag)[0]
+                    ff = FeatureFlag.objects.filter(team__project_id=project.id, key=flag)[0]
                     ff.deleted = False
                     ff.active = is_enabled
                     ff.save()
-                    print(f"Undeleted feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}")
+                    print(
+                        f"Undeleted feature flag '{flag} for project {project.id} {' - ' + project.name if project.name else ''}"
+                    )
                 elif flag not in existing_flags:
                     if flag_type == "multivariate":
                         FeatureFlag.objects.create(
-                            team=team,
+                            team=project.teams.first(),
                             rollout_percentage=100,
                             name=flag,
                             key=flag,
@@ -79,11 +83,13 @@ class Command(BaseCommand):
                         )
                     else:
                         FeatureFlag.objects.create(
-                            team=team,
+                            team=project.teams.first(),
                             rollout_percentage=100,
                             name=flag,
                             key=flag,
                             created_by=first_user,
                             active=is_enabled,
                         )
-                    print(f"Created feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}")
+                    print(
+                        f"Created feature flag '{flag} for project {project.id} {' - ' + project.name if project.name else ''}"
+                    )
