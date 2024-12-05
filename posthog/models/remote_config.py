@@ -11,7 +11,7 @@ import structlog
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.plugin import PluginConfig, PluginSourceFile
+from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel, execute_with_timeout
 
@@ -284,13 +284,7 @@ def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
 
 @receiver(post_save, sender=PluginConfig)
 def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
-    if (
-        instance.team
-        and instance.enabled
-        and instance.plugin.pluginsourcefile.filename == "site.ts"
-        and instance.plugin.pluginsourcefile.status == PluginSourceFile.Status.TRANSPILED
-    ):
-        _update_team_remote_config(instance.team.id)
+    _update_team_remote_config(instance.team.id)
 
 
 @receiver(post_save, sender=HogFunction)

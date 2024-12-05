@@ -139,9 +139,9 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-            window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
-            window._POSTHOG_SITE_APPS = [];
-        })();\
+  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
+  window._POSTHOG_JS_APPS = [];
+})();\
 """
         )
 
@@ -183,8 +183,8 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-            window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
-            window._POSTHOG_SITE_APPS = [{ token: 'tokentoken', load: function(posthog) { (function () { return { inject: (data) => console.log('injected!', data)}; })().inject({ config:{}, posthog:posthog }) } },{ token: 'tokentoken', load: function(posthog) { (function () { return { inject: (data) => console.log('injected 2!', data)}; })().inject({ config:{}, posthog:posthog }) } },{ token: 'tokentoken', load: function(posthog) { (function () { return { inject: (data) => console.log('injected but disabled!', data)}; })().inject({ config:{}, posthog:posthog }) } }];
-        })();\
+  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
+  window._POSTHOG_JS_APPS = [{ id: 'tokentoken', init: function(config) { (function () { return { inject: (data) => console.log('injected!', data)}; })().inject({ config:{}, posthog:config.posthog }); config.callback();  } },{ id: 'tokentoken', init: function(config) { (function () { return { inject: (data) => console.log('injected 2!', data)}; })().inject({ config:{}, posthog:config.posthog }); config.callback();  } },{ id: 'tokentoken', init: function(config) { (function () { return { inject: (data) => console.log('injected but disabled!', data)}; })().inject({ config:{}, posthog:config.posthog }); config.callback();  } }];
+})();\
 """
         )

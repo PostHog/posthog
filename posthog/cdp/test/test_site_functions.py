@@ -98,7 +98,7 @@ function onLoad() {
     }
 
     return { init: init };
-    
+
 })\
 """
         )

@@ -38,7 +38,6 @@ from posthog.models import (
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.group.group import Group
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person import PersonDistinctId
 from posthog.models.personal_api_key import hash_key_value
