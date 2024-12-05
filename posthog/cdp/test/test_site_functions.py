@@ -1,3 +1,5 @@
+import subprocess
+import tempfile
 from inline_snapshot import snapshot
 import pytest
 from django.test import TestCase
@@ -31,10 +33,23 @@ class TestSiteFunctions(TestCase):
             inputs={},
         )
 
-    def test_get_transpiled_function_basic(self):
+    def compile_and_run(self):
         result = get_transpiled_function(self.hog_function)
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(result.encode("utf-8"))
+            f.flush()
+            # NOTE: Nodejs isn't the right environment as it is really for the browser but we are only checking the output is valid, not that it actually runs
+            # More of a sanity check that our templating isn't broken
+            output = subprocess.check_output(["node", f.name])
+            assert output == b""
+
+        return result
+
+    def test_get_transpiled_function_basic(self):
+        result = self.compile_and_run()
         assert isinstance(result, str)
         assert 'console.log("Hello, World!")' in result
+
         # NOTE: We do one inlne snapshot here so we can have an easy glance at what it generally looks like - all other tests we should just check specific parts
         assert result == snapshot(
             """\
@@ -92,7 +107,7 @@ function onLoad() {
         self.hog_function.hog = "export function onLoad() { console.log(inputs.message); }"
         self.hog_function.inputs = {"message": {"value": "Hello, Inputs!"}}
 
-        result = get_transpiled_function(self.hog_function)
+        result = self.compile_and_run()
 
         assert "console.log(inputs.message);" in result
         assert "inputs = {" in result
@@ -101,7 +116,7 @@ function onLoad() {
     def test_get_transpiled_function_with_template_input(self):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.greeting); }"
         self.hog_function.inputs = {"greeting": {"value": "Hello, {person.properties.name}!"}}
-        result = get_transpiled_function(self.hog_function)
+        result = self.compile_and_run()
 
         assert "console.log(inputs.greeting);" in result
         assert "function getInputsKey" in result
@@ -113,7 +128,7 @@ function onLoad() {
         self.hog_function.hog = "export function onEvent(event) { console.log(event.event); }"
         self.hog_function.filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
 
-        result = get_transpiled_function(self.hog_function)
+        result = self.compile_and_run()
 
         assert "console.log(event.event);" in result
         assert "const filterMatches = " in result
@@ -124,7 +139,7 @@ function onLoad() {
         self.hog_function.hog = "export function onLoad() { console.log(inputs.greeting); }"
         self.hog_function.inputs = {"greeting": {"value": "Hello, {person.properties.nonexistent_property}!"}}
 
-        result = get_transpiled_function(self.hog_function)
+        result = self.compile_and_run()
 
         assert "console.log(inputs.greeting);" in result
 
@@ -145,7 +160,7 @@ function onLoad() {
             }
         }
 
-        result = get_transpiled_function(self.hog_function)
+        result = self.compile_and_run()
 
         assert "console.log(inputs.complexInput);" in result
         assert "function getInputsKey" in result
@@ -155,7 +170,7 @@ function onLoad() {
         self.hog_function.hog = 'export function onLoad() { console.log("No inputs"); }'
         self.hog_function.inputs = {}
 
-        result = get_transpiled_function(self.hog_function)
+        result = self.compile_and_run()
 
         assert 'console.log("No inputs");' in result
         assert "let inputs = {\n};" in result
@@ -164,7 +179,7 @@ function onLoad() {
         self.hog_function.hog = "export function onLoad() { console.log(inputs.staticMessage); }"
         self.hog_function.inputs = {"staticMessage": {"value": "This is a static message."}}
 
-        result = get_transpiled_function(self.hog_function)
+        result = self.compile_and_run()
 
         assert "console.log(inputs.staticMessage);" in result
         assert '"staticMessage": "This is a static message."' in result
@@ -174,7 +189,7 @@ function onLoad() {
         self.hog_function.hog = "export function onLoad() { console.log(inputs.messages); }"
         self.hog_function.inputs = {"messages": {"value": ["Hello", "World", "{person.properties.name}"]}}
 
-        result = get_transpiled_function(self.hog_function)
+        result = self.compile_and_run()
 
         assert "console.log(inputs.messages);" in result
         assert "function getInputsKey" in result
@@ -192,7 +207,7 @@ function onLoad() {
         ]
         self.team.save()
 
-        result = get_transpiled_function(self.hog_function)
+        result = self.compile_and_run()
 
         assert "console.log(event.properties.url);" in result
         assert "const filterMatches = " in result
@@ -208,7 +223,7 @@ function onLoad() {
 
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=0, project=self.project)
 
-        result = get_transpiled_function(self.hog_function)
+        result = self.compile_and_run()
 
         assert "console.log(inputs.groupInfo);" in result
         assert 'inputs["groupInfo"] = getInputsKey("groupInfo");' in result
@@ -218,7 +233,7 @@ function onLoad() {
         self.hog_function.hog = "export function onLoad() { console.log(inputs.groupInfo); }"
         self.hog_function.inputs = {"groupInfo": {"value": "{groups['nonexistent']}"}}
 
-        result = get_transpiled_function(self.hog_function)
+        result = self.compile_and_run()
 
         assert "console.log(inputs.groupInfo);" in result
         assert 'inputs["groupInfo"] = getInputsKey("groupInfo");' in result
@@ -236,7 +251,7 @@ function onLoad() {
             "filter_test_accounts": True,
         }
 
-        result = get_transpiled_function(self.hog_function)
+        result = self.compile_and_run()
 
         assert "console.log(event.event);" in result
         assert "const filterMatches = " in result
