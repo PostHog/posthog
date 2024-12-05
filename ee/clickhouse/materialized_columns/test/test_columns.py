@@ -1,5 +1,6 @@
 from datetime import timedelta
 from time import sleep
+from collections.abc import Iterable
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -336,3 +337,70 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         assert key not in get_materialized_columns(table, exclude_disabled_columns=True)
         with self.assertRaises(ValueError):
             MaterializedColumn.get(table, destination_column)
+
+    def _get_latest_mutation_id(self, table: str) -> str:
+        [(mutation_id,)] = sync_execute(
+            """
+            SELECT max(mutation_id)
+            FROM system.mutations
+            WHERE
+                database = currentDatabase()
+                AND table = %(table)s
+            """,
+            {"table": table},
+        )
+        return mutation_id
+
+    def _get_mutations_since_id(self, table: str, id: str) -> Iterable[str]:
+        return [
+            command
+            for (command,) in sync_execute(
+                """
+                SELECT command
+                FROM system.mutations
+                WHERE
+                    database = currentDatabase()
+                    AND table = %(table)s
+                    AND mutation_id > %(mutation_id)s
+                ORDER BY mutation_id
+                """,
+                {"table": table, "mutation_id": id},
+            )
+        ]
+
+    def test_drop_optimized_no_index(self):
+        table: TablesWithMaterializedColumns = (
+            "person"  # little bit easier than events because no shard awareness needed
+        )
+        property: PropertyName = "myprop"
+        source_column: TableColumn = "properties"
+
+        destination_column = materialize(table, property, table_column=source_column, create_minmax_index=False)
+        assert destination_column is not None
+
+        latest_mutation_id_before_drop = self._get_latest_mutation_id(table)
+
+        drop_column(table, destination_column)
+
+        mutations_ran = self._get_mutations_since_id(table, latest_mutation_id_before_drop)
+        assert not any("DROP INDEX" in mutation for mutation in mutations_ran)
+
+    def test_drop_optimized_no_column(self):
+        table: TablesWithMaterializedColumns = (
+            "person"  # little bit easier than events because no shard awareness needed
+        )
+        property: PropertyName = "myprop"
+        source_column: TableColumn = "properties"
+
+        # create the materialized column
+        destination_column = materialize(table, property, table_column=source_column, create_minmax_index=False)
+        assert destination_column is not None
+
+        sync_execute(f"ALTER TABLE {table} DROP COLUMN {destination_column}", settings={"alter_sync": 1})
+
+        latest_mutation_id_before_drop = self._get_latest_mutation_id(table)
+
+        drop_column(table, destination_column)
+
+        mutations_ran = self._get_mutations_since_id(table, latest_mutation_id_before_drop)
+        assert not any("DROP COLUMN" in mutation for mutation in mutations_ran)
