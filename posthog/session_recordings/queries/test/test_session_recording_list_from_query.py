@@ -3,7 +3,6 @@ from typing import Literal
 from unittest.mock import ANY
 from uuid import uuid4
 
-import pytest
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -50,7 +49,7 @@ class TestSessionRecordingQueryDateRange(TestBase):
             interval=None,
             now=datetime.now(UTC),
         )
-        assert query_date_range is not None
+
         assert query_date_range.date_from() == datetime(2020, 12, 29, 0, 0, 0, 0, UTC)
         assert query_date_range.date_to() == datetime(
             year=2020, month=12, day=31, hour=13, minute=46, second=23, tzinfo=UTC
@@ -58,16 +57,14 @@ class TestSessionRecordingQueryDateRange(TestBase):
 
     def test_with_string_dates(self) -> None:
         query_date_range = QueryDateRange(
-            date_range=DateRange(date_from="2020-12-29", date_to="2021-01-01"),
+            date_range=DateRange(date_from="2020-12-29", date_to="2021-01-01", explicitDate=True),
             team=self.team,
             interval=None,
             now=datetime.now(UTC),
         )
-        assert query_date_range is not None
+
         assert query_date_range.date_from() == datetime(2020, 12, 29, 0, 0, 0, 0, UTC)
-        assert query_date_range.date_to() == datetime(
-            year=2021, month=1, day=1, hour=23, minute=59, second=59, microsecond=999999, tzinfo=UTC
-        )
+        assert query_date_range.date_to() == datetime(year=2021, month=1, day=1, hour=0, minute=0, second=0, tzinfo=UTC)
 
     def test_with_string_date_times(self) -> None:
         query_date_range = QueryDateRange(
@@ -1949,7 +1946,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == "storage is not past ttl"
 
-    @pytest.mark.skip("because the behaviour is different between legacy filters and query date range")
     @snapshot_clickhouse_queries
     def test_date_to_filter(self):
         user = "test_date_to_filter-user"
@@ -1974,8 +1970,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
         assert session_recordings == []
 
+        # we have to change this test because the behavior of the API did change 🙈
         (session_recordings, _, _) = self._filter_recordings_by(
-            {"date_to": (self.an_hour_ago - relativedelta(days=3)).strftime("%Y-%m-%d")}
+            {"date_to": (self.an_hour_ago - relativedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S")}
         )
 
         assert [s["session_id"] for s in session_recordings] == ["three days before base time"]
