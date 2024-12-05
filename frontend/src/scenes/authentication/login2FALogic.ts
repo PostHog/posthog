@@ -54,7 +54,7 @@ export const login2FALogic = kea<login2FALogicType>([
             submit: async ({ token }, breakpoint) => {
                 breakpoint()
                 try {
-                    return await api.create('api/login/token', { token })
+                    return await api.create<any>('api/login/token', { token })
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     actions.setGeneralError(code, detail)

@@ -52,10 +52,10 @@ export const projectLogic = kea<projectLogicType>([
                         throw new Error('Current project has not been loaded yet, so it cannot be updated!')
                     }
 
-                    const patchedProject = (await api.update(
+                    const patchedProject = await api.update<ProjectType>(
                         `api/projects/${values.currentProject.id}`,
                         payload
-                    )) as ProjectType
+                    )
                     breakpoint()
 
                     // We need to reload current org (which lists its projects) in organizationLogic AND in userLogic

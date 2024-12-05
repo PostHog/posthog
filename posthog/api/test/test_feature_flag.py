@@ -1259,7 +1259,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(7, 8)):
+        with self.assertNumQueries(FuzzyInt(8, 9)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2229,7 +2229,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(16):
+        with self.assertNumQueries(18):
             # 1. SAVEPOINT
             # 2. SELECT "posthog_personalapikey"."id",
             # 3. RELEASE SAVEPOINT
@@ -2242,10 +2242,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # 10. SELECT "posthog_organizationmembership"."id",
             # 11. SELECT "posthog_cohort"."id"  -- all cohorts
             # 12. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", -- all flags
-            # 13. SELECT "posthog_cohort". id = 99999
-            # 14. SELECT "posthog_cohort". id = deleted cohort
-            # 15. SELECT "posthog_cohort". id = cohort from other team
-            # 16. SELECT "posthog_grouptypemapping"."id", -- group type mapping
+            # 13. SELECT "posthog_team"."id", "posthog_team"."uuid",
+            # 14. SELECT "posthog_cohort". id = 99999
+            # 15. SELECT "posthog_team"."id", "posthog_team"."uuid",
+            # 16. SELECT "posthog_cohort". id = deleted cohort
+            # 17. SELECT "posthog_cohort". id = cohort from other team
+            # 18. SELECT "posthog_grouptypemapping"."id", -- group type mapping
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
@@ -4230,7 +4232,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
 
         cohort.refresh_from_db()
@@ -4268,7 +4270,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -4307,7 +4309,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature3", self.team.pk)
 
         cohort.refresh_from_db()
@@ -4339,7 +4341,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -4357,7 +4359,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
