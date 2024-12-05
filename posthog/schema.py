@@ -763,7 +763,7 @@ class ErrorTrackingIssue(BaseModel):
     volume: Optional[Any] = None
 
 
-class Order(StrEnum):
+class OrderBy(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
     OCCURRENCES = "occurrences"
@@ -5558,6 +5558,7 @@ class AnyResponseType(
             HogQLAutocompleteResponse,
             Any,
             EventsQueryResponse,
+            ErrorTrackingQueryResponse,
         ]
     ]
 ):
@@ -5569,6 +5570,7 @@ class AnyResponseType(
         HogQLAutocompleteResponse,
         Any,
         EventsQueryResponse,
+        ErrorTrackingQueryResponse,
     ]
 
 
@@ -5660,7 +5662,7 @@ class RecordingsQuery(BaseModel):
     )
     actions: Optional[list[dict[str, Any]]] = None
     console_log_filters: Optional[list[LogEntryPropertyFilter]] = None
-    date_from: Optional[str] = None
+    date_from: Optional[str] = "-3d"
     date_to: Optional[str] = None
     events: Optional[list[dict[str, Any]]] = None
     filter_test_accounts: Optional[bool] = None
@@ -5689,8 +5691,8 @@ class RecordingsQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
-    operand: Optional[FilterLogicalOperator] = None
-    order: Optional[RecordingOrder] = None
+    operand: Optional[FilterLogicalOperator] = FilterLogicalOperator.AND_
+    order: Optional[RecordingOrder] = RecordingOrder.START_TIME
     person_uuid: Optional[str] = None
     properties: Optional[
         list[
@@ -5920,7 +5922,8 @@ class ErrorTrackingQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    order: Optional[Order] = None
+    offset: Optional[int] = None
+    orderBy: Optional[OrderBy] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
     select: Optional[list[str]] = None
@@ -6918,6 +6921,7 @@ class HogQLAutocomplete(BaseModel):
             ErrorTrackingQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
+            RecordingsQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -6961,6 +6965,7 @@ class HogQLMetadata(BaseModel):
             ErrorTrackingQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
+            RecordingsQuery,
         ]
     ] = Field(
         default=None,

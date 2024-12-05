@@ -1,9 +1,9 @@
 from typing import cast, Optional
 
 from posthog.hogql import ast
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
 from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql_queries.insights.funnels.base import FunnelBase
+from posthog.hogql_queries.insights.funnels.base import FunnelBase, JOIN_ALGOS
 from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP
 
@@ -169,8 +169,10 @@ class FunnelUDF(FunnelBase):
         )
 
         # Weird: unless you reference row_number in this outer block, it doesn't work correctly
-        s = parse_select(
-            f"""
+        s = cast(
+            ast.SelectQuery,
+            parse_select(
+                f"""
             SELECT
                 {step_results2},
                 {mean_conversion_times},
@@ -182,10 +184,11 @@ class FunnelUDF(FunnelBase):
             GROUP BY final_prop
             LIMIT {self.get_breakdown_limit() + 1 if use_breakdown_limit else DEFAULT_RETURNED_ROWS}
         """,
-            {"s": s},
+                {"s": s},
+            ),
         )
-
-        return cast(ast.SelectQuery, s)
+        s.settings = HogQLQuerySettings(join_algorithm=JOIN_ALGOS)
+        return s
 
     def _get_funnel_person_step_condition(self) -> ast.Expr:
         actorsQuery, breakdownType = (
@@ -294,4 +297,5 @@ class FunnelUDF(FunnelBase):
             select_from=select_from,
             order_by=order_by,
             where=where,
+            settings=HogQLQuerySettings(join_algorithm=JOIN_ALGOS),
         )
