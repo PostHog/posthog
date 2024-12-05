@@ -11,11 +11,13 @@ from ee.clickhouse.materialized_columns.columns import (
     MaterializedColumnDetails,
     backfill_materialized_columns,
     drop_column,
+    get_enabled_materialized_columns,
     get_materialized_columns,
     materialize,
     update_column_is_disabled,
 )
-from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_enabled_materialized_columns
+from ee.tasks.materialized_columns import mark_all_materialized
+from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
@@ -143,11 +145,11 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 ("$foO();ääsqlinject", "properties"): "mat_$foO_____sqlinject_YYYY",
                 ("$foO_____sqlinject", "properties"): "mat_$foO_____sqlinject_ZZZZ",
             },
-            get_materialized_columns("events"),
+            {k: column.name for k, column in get_materialized_columns("events").items()},
         )
 
         self.assertEqual(
-            get_materialized_columns("person"),
+            {k: column.name for k, column in get_materialized_columns("person").items()},
             {("SoMePrOp", "properties"): "pmat_SoMePrOp"},
         )
 
@@ -242,20 +244,26 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
     def test_column_types(self):
         materialize("events", "myprop", create_minmax_index=True)
+        materialize("events", "myprop_nullable", create_minmax_index=True, is_nullable=True)
 
-        expr = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
-        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+        expr_nonnullable = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
+        expr_nullable = "JSONExtract(properties, 'myprop_nullable', 'Nullable(String)')"
+        self.assertEqual(("String", "MATERIALIZED", expr_nonnullable), self._get_column_types("mat_myprop"))
+        self.assertEqual(
+            ("Nullable(String)", "MATERIALIZED", expr_nullable), self._get_column_types("mat_myprop_nullable")
+        )
 
-        backfill_materialized_columns("events", [("myprop", "properties")], timedelta(days=50))
-        self.assertEqual(("DEFAULT", expr), self._get_column_types("mat_myprop"))
+        backfill_materialized_columns(
+            "events", [("myprop", "properties"), ("myprop_nullable", "properties")], timedelta(days=50)
+        )
+        self.assertEqual(("String", "DEFAULT", expr_nonnullable), self._get_column_types("mat_myprop"))
+        self.assertEqual(("Nullable(String)", "DEFAULT", expr_nullable), self._get_column_types("mat_myprop_nullable"))
 
-        try:
-            from ee.tasks.materialized_columns import mark_all_materialized
-        except ImportError:
-            pass
-        else:
-            mark_all_materialized()
-            self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+        mark_all_materialized()
+        self.assertEqual(("String", "MATERIALIZED", expr_nonnullable), self._get_column_types("mat_myprop"))
+        self.assertEqual(
+            ("Nullable(String)", "MATERIALIZED", expr_nullable), self._get_column_types("mat_myprop_nullable")
+        )
 
     def _count_materialized_rows(self, column):
         return sync_execute(
@@ -285,7 +293,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
     def _get_column_types(self, column: str):
         return sync_execute(
             """
-            SELECT default_kind, default_expression
+            SELECT type, default_kind, default_expression
             FROM system.columns
             WHERE database = %(database)s AND table = %(table)s AND name = %(column)s
             """,
@@ -307,34 +315,34 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         # ensure it exists everywhere
         key = (property, source_column)
-        assert get_materialized_columns(table)[key] == destination_column
+        assert get_materialized_columns(table)[key].name == destination_column
         assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
             destination_column,
             MaterializedColumnDetails(source_column, property, is_disabled=False),
+            is_nullable=False,
         )
 
         # disable it and ensure updates apply as needed
         update_column_is_disabled(table, destination_column, is_disabled=True)
-        assert get_materialized_columns(table)[key] == destination_column
-        assert key not in get_materialized_columns(table, exclude_disabled_columns=True)
+        assert get_materialized_columns(table)[key].name == destination_column
         assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
             destination_column,
             MaterializedColumnDetails(source_column, property, is_disabled=True),
+            is_nullable=False,
         )
 
         # re-enable it and ensure updates apply as needed
         update_column_is_disabled(table, destination_column, is_disabled=False)
-        assert get_materialized_columns(table, exclude_disabled_columns=False)[key] == destination_column
-        assert get_materialized_columns(table, exclude_disabled_columns=True)[key] == destination_column
+        assert get_materialized_columns(table)[key].name == destination_column
         assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
             destination_column,
             MaterializedColumnDetails(source_column, property, is_disabled=False),
+            is_nullable=False,
         )
 
         # drop it and ensure updates apply as needed
         drop_column(table, destination_column)
-        assert key not in get_materialized_columns(table, exclude_disabled_columns=False)
-        assert key not in get_materialized_columns(table, exclude_disabled_columns=True)
+        assert key not in get_materialized_columns(table)
         with self.assertRaises(ValueError):
             MaterializedColumn.get(table, destination_column)
 

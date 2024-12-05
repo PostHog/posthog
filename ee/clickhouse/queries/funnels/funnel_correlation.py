@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns
+from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
 from posthog.constants import (
     AUTOCAPTURE_EVENT,
     TREND_FILTER_TYPE_ACTIONS,
@@ -156,8 +156,6 @@ class FunnelCorrelation:
         ):
             # When dealing with properties, make sure funnel response comes with properties
             # so we don't have to join on persons/groups to get these properties again
-            mat_event_cols = get_enabled_materialized_columns("events")
-
             for property_name in cast(list, self._filter.correlation_property_names):
                 if self._filter.aggregation_group_type_index is not None:
                     continue  # We don't support group properties on events at this time
@@ -165,10 +163,11 @@ class FunnelCorrelation:
                     if "$all" == property_name:
                         return [f"person_properties"]
 
-                    possible_mat_col = mat_event_cols.get((property_name, "person_properties"))
-
-                    if possible_mat_col is not None:
-                        props_to_include.append(possible_mat_col)
+                    possible_mat_col = get_materialized_column_for_property(
+                        "events", "person_properties", property_name
+                    )
+                    if possible_mat_col is not None and not possible_mat_col.is_nullable:
+                        props_to_include.append(possible_mat_col.name)
                     else:
                         props_to_include.append(f"person_properties")
 
