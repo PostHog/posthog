@@ -96,8 +96,7 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
         }
     }
 
-    return { init: init };
-    """
+    return { init: init };"""
     )
 
     response += "\n})"
