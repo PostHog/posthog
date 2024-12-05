@@ -123,11 +123,16 @@ def sqla_col_to_column_schema(
         col["data_type"] = "date"
     elif isinstance(sql_t, sqltypes.Time):
         col["data_type"] = "time"
-    elif isinstance(sql_t, sqltypes.JSON) or isinstance(sql_t, BigQueryJSON) or isinstance(sql_t, BigQueryStruct):
+    elif (
+        isinstance(sql_t, sqltypes.JSON)
+        or isinstance(sql_t, BigQueryJSON)
+        or isinstance(sql_t, BigQueryStruct)
+        or isinstance(sql_t, ARRAY)
+    ):
         col["data_type"] = "json"
     elif isinstance(sql_t, sqltypes.Boolean):
         col["data_type"] = "bool"
-    elif isinstance(sql_t, sqltypes.Interval) or isinstance(sql_t, INTERVAL) or isinstance(sql_t, ARRAY):
+    elif isinstance(sql_t, sqltypes.Interval) or isinstance(sql_t, INTERVAL):
         # No support for interval columns yet - we filter out binary columns, so reusing the DLT type for interval columns to be removed
         col["data_type"] = "interval"  # type: ignore
     else:
