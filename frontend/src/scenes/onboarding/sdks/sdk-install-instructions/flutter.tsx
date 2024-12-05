@@ -32,7 +32,7 @@ Future<void> main() async {
   config.debug = true;
   config.captureApplicationLifecycleEvents = true;
 
-  // check https://posthog.com/docs/session-replay/android#installation
+  // check https://posthog.com/docs/session-replay/installation?tab=Flutter
   // for more config and to learn about how we capture sessions on mobile
   // and what to expect
   config.sessionReplay = true;
