@@ -58,6 +58,7 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
 
         all_filters_exprs.append(ast.And(exprs=exprs))
 
+    final_expr: ast.Expr
     if all_filters_exprs:
         final_expr = ast.Or(exprs=all_filters_exprs)
     else:
