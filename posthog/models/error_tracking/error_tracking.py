@@ -44,15 +44,16 @@ class ErrorTrackingIssue(UUIDModel):
     def split(self, fingerprints: list[str]) -> None:
         override_inserts: list[tuple[str, int, str]] = []
 
-        for fingerprint in fingerprints:
-            new_issue = ErrorTrackingIssue.objects.create(team=self.team)
-            override_inserts.append(
-                update_error_tracking_issue_fingerprint(
-                    team_id=self.team.pk, issue_id=new_issue.id, fingerprint=fingerprint
+        with transaction.atomic():
+            for fingerprint in fingerprints:
+                new_issue = ErrorTrackingIssue.objects.create(team=self.team)
+                override_inserts.append(
+                    update_error_tracking_issue_fingerprint(
+                        team_id=self.team.pk, issue_id=new_issue.id, fingerprint=fingerprint
+                    )
                 )
-            )
 
-        update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, override_inserts=override_inserts)
+            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, override_inserts=override_inserts)
 
 
 class ErrorTrackingIssueAssignment(UUIDModel):

@@ -84,7 +84,6 @@ export type NewDestinationFilters = {
     kind?: PipelineBackend
 }
 
-// Legacy: Site apps
 export interface SiteApp extends PluginBasedNode {
     stage: PipelineStage.SiteApp
 }
@@ -132,7 +131,9 @@ export function convertToPipelineNode<S extends PipelineStage>(
             backend: PipelineBackend.HogFunction,
             interval: 'realtime',
             id:
-                candidate.type === 'destination' || candidate.type === 'site_destination'
+                candidate.type === 'destination' ||
+                candidate.type === 'site_destination' ||
+                candidate.type === 'site_app'
                     ? `hog-${candidate.id}`
                     : candidate.id,
             name: candidate.name,
