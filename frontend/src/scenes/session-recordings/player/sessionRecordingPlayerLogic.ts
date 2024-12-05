@@ -192,8 +192,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         reportMessageTooLargeWarningSeen: (sessionRecordingId: string) => ({ sessionRecordingId }),
         setDebugSnapshotTypes: (types: EventType[]) => ({ types }),
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
+        setPlayNextAnimationInterrupted: (interrupted: boolean) => ({ interrupted }),
     }),
     reducers(() => ({
+        playNextAnimationInterrupted: [
+            false,
+            {
+                setPlayNextAnimationInterrupted: (_, { interrupted }) => interrupted,
+            },
+        ],
         reportedReplayerErrors: [
             new Set<string>(),
             {

@@ -2,6 +2,7 @@ import { IconEllipsis } from '@posthog/icons'
 import { IconClock, IconSort } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 
 import { RecordingUniversalFilters } from '~/types'
 
@@ -17,12 +18,6 @@ const SortingKeyToLabel = {
     click_count: 'Clicks',
     keypress_count: 'Keystrokes',
     mouse_activity_count: 'Mouse activity',
-}
-
-const TimestampFormatToLabel = {
-    relative: 'Relative',
-    utc: 'UTC',
-    device: 'Device',
 }
 
 function SortedBy({
@@ -92,7 +87,7 @@ function SortedBy({
                     ],
                 },
             ]}
-            icon={<IconSort />}
+            icon={<IconSort className="text-lg" />}
             label={SortingKeyToLabel[filters.order || 'start_time']}
         />
     )
