@@ -32,7 +32,6 @@ from posthog.schema import (
     EventPropertyFilter,
     GroupPropertyFilter,
     HogQLPropertyFilter,
-    IntervalType,
 )
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 
@@ -248,10 +247,9 @@ class SessionRecordingListFromQuery:
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=DateRange(date_from=self._query.date_from, date_to=self._query.date_to),
+            date_range=DateRange(date_from=self._query.date_from, date_to=self._query.date_to, explicitDate=True),
             team=self._team,
-            # we don't want the ranger to ceiling to the end of the day for date_to
-            interval=IntervalType.MINUTE,
+            interval=None,
             now=datetime.now(),
         )
 
