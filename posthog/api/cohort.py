@@ -238,9 +238,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
-            relevant_team_ids = (
-                Team.objects.order_by("id").filter(project_id=cohort.team.project_id).values_list("id", flat=True)
-            )
+            relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("id", flat=True)
             cohort.deleted = deleted_state
             if deleted_state:
                 # De-attach from experiments
