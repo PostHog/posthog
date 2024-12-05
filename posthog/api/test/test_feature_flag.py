@@ -6122,7 +6122,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         self.assert_expected_response(fifty_percent_super_group_flag.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for flag that has super group rolled out to 100% and specific properties
-        fully_enabled_super_group_flag_with_properties = FeatureFlag.objects.create(
+        fully_rolled_out_super_group_flag_with_properties = FeatureFlag.objects.create(
             name="100 percent super group with properties flag",
             key="100-percent-super-group-with-properties-flag",
             team=self.team,
@@ -6143,11 +6143,11 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ]
             },
         )
-        self.create_feature_flag_called_event(fully_enabled_super_group_flag_with_properties.key)
-        self.assert_expected_response(fully_enabled_super_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
+        self.create_feature_flag_called_event(fully_rolled_out_super_group_flag_with_properties.key)
+        self.assert_expected_response(fully_rolled_out_super_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for flag that has super group rolled out to 100% and has no specific properties
-        fully_enabled_super_group_flag = FeatureFlag.objects.create(
+        fully_rolled_out_super_group_flag = FeatureFlag.objects.create(
             name="100 percent super group flag",
             key="100-percent-super-group-flag",
             team=self.team,
@@ -6162,7 +6162,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assert_expected_response(
-            fully_enabled_super_group_flag.id, FeatureFlagStatus.STALE, "Super group is rolled out to 100%"
+            fully_rolled_out_super_group_flag.id, FeatureFlagStatus.STALE, "Super group is rolled out to 100%"
         )
 
         # Request status for flag that has holdout group rolled out to <100%
@@ -6177,7 +6177,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         self.assert_expected_response(fifty_percent_holdout_group_flag.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for flag that has holdout group rolled out to 100% and specific properties
-        fully_enabled_holdout_group_flag_with_properties = FeatureFlag.objects.create(
+        fully_rolled_out_holdout_group_flag_with_properties = FeatureFlag.objects.create(
             name="100 percent holdout group with properties flag",
             key="100-percent-holdout-group-with-properties-flag",
             team=self.team,
@@ -6198,11 +6198,11 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ]
             },
         )
-        self.create_feature_flag_called_event(fully_enabled_holdout_group_flag_with_properties.key)
-        self.assert_expected_response(fully_enabled_holdout_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
+        self.create_feature_flag_called_event(fully_rolled_out_holdout_group_flag_with_properties.key)
+        self.assert_expected_response(fully_rolled_out_holdout_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for flag that has holdout group rolled out to 100% and has no specific properties
-        fully_enabled_holdout_group_flag = FeatureFlag.objects.create(
+        fully_rolled_out_holdout_group_flag = FeatureFlag.objects.create(
             name="100 percent holdout group flag",
             key="100-percent-holdout-group-flag",
             team=self.team,
@@ -6217,13 +6217,13 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assert_expected_response(
-            fully_enabled_holdout_group_flag.id, FeatureFlagStatus.STALE, "Holdout group is rolled out to 100%"
+            fully_rolled_out_holdout_group_flag.id, FeatureFlagStatus.STALE, "Holdout group is rolled out to 100%"
         )
 
         # Request status for multivariate flag with no variants set to 100%
-        multivariate_flag_no_enabled_variants = FeatureFlag.objects.create(
+        multivariate_flag_no_rolled_out_variants = FeatureFlag.objects.create(
             name="Multivariate flag with no variants set to 100%",
-            key="multivariate-no-enabled-variants-flag",
+            key="multivariate-no-rolled-out-variants-flag",
             team=self.team,
             active=True,
             filters={
@@ -6235,13 +6235,13 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 }
             },
         )
-        self.create_feature_flag_called_event(multivariate_flag_no_enabled_variants.key)
-        self.assert_expected_response(multivariate_flag_no_enabled_variants.id, FeatureFlagStatus.ACTIVE)
+        self.create_feature_flag_called_event(multivariate_flag_no_rolled_out_variants.key)
+        self.assert_expected_response(multivariate_flag_no_rolled_out_variants.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for multivariate flag with no variants set to 100%
-        multivariate_flag_enabled_variant = FeatureFlag.objects.create(
+        multivariate_flag_rolled_out_variant = FeatureFlag.objects.create(
             name="Multivariate flag with variant set to 100%",
-            key="multivariate-enabled-variant-flag",
+            key="multivariate-rolled-out-variant-flag",
             team=self.team,
             active=True,
             filters={
@@ -6255,15 +6255,15 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assert_expected_response(
-            multivariate_flag_enabled_variant.id,
+            multivariate_flag_rolled_out_variant.id,
             FeatureFlagStatus.STALE,
             'This flag will always use the variant "test"',
         )
 
         # Request status for multivariate flag with a variant set to 100% but no release condition set to 100%
-        multivariate_flag_enabled_variant_no_enabled_release = FeatureFlag.objects.create(
+        multivariate_flag_rolled_out_variant_no_rolled_out_release = FeatureFlag.objects.create(
             name="Multivariate flag with variant set to 100%, no release condition set to 100%",
-            key="multivariate-enabled-variant-no-release-enabled-flag",
+            key="multivariate-rolled-out-variant-no-release-rolled-out-flag",
             team=self.team,
             active=True,
             filters={
@@ -6279,16 +6279,16 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ],
             },
         )
-        self.create_feature_flag_called_event(multivariate_flag_enabled_variant_no_enabled_release.key)
+        self.create_feature_flag_called_event(multivariate_flag_rolled_out_variant_no_rolled_out_release.key)
         self.assert_expected_response(
-            multivariate_flag_enabled_variant_no_enabled_release.id,
+            multivariate_flag_rolled_out_variant_no_rolled_out_release.id,
             FeatureFlagStatus.ACTIVE,
         )
 
         # Request status for multivariate flag with variants set to 100% and a filtered release condition
-        multivariate_flag_enabled_variant_enabled_filtered_release = FeatureFlag.objects.create(
+        multivariate_flag_rolled_out_variant_rolled_out_filtered_release = FeatureFlag.objects.create(
             name="Multivariate flag with variant and release condition set to 100%",
-            key="multivariate-enabled-variant-and-release-condition-with-properties-flag",
+            key="multivariate-rolled-out-variant-and-release-condition-with-properties-flag",
             team=self.team,
             active=True,
             filters={
@@ -6314,16 +6314,16 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ],
             },
         )
-        self.create_feature_flag_called_event(multivariate_flag_enabled_variant_enabled_filtered_release.key)
+        self.create_feature_flag_called_event(multivariate_flag_rolled_out_variant_rolled_out_filtered_release.key)
         self.assert_expected_response(
-            multivariate_flag_enabled_variant_enabled_filtered_release.id,
+            multivariate_flag_rolled_out_variant_rolled_out_filtered_release.id,
             FeatureFlagStatus.ACTIVE,
         )
 
-        # Request status for multivariate flag with no variants set to 100%, but a filtered and fully enabled release condition has variant override
-        multivariate_flag_filtered_enabled_release_with_override = FeatureFlag.objects.create(
+        # Request status for multivariate flag with no variants set to 100%, but a filtered and fully rolled out release condition has variant override
+        multivariate_flag_filtered_rolled_out_release_with_override = FeatureFlag.objects.create(
             name="Multivariate flag with release condition set to 100% and override",
-            key="multivariate-enabled-filtered-release-condition-and-override-flag",
+            key="multivariate-rolled-out-filtered-release-condition-and-override-flag",
             team=self.team,
             active=True,
             filters={
@@ -6349,16 +6349,16 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ],
             },
         )
-        self.create_feature_flag_called_event(multivariate_flag_filtered_enabled_release_with_override.key)
+        self.create_feature_flag_called_event(multivariate_flag_filtered_rolled_out_release_with_override.key)
         self.assert_expected_response(
-            multivariate_flag_filtered_enabled_release_with_override.id,
+            multivariate_flag_filtered_rolled_out_release_with_override.id,
             FeatureFlagStatus.ACTIVE,
         )
 
-        # Request status for multivariate flag with no variants set to 100%, but fully enabled release condition has variant override
-        multivariate_flag_enabled_release_with_override = FeatureFlag.objects.create(
+        # Request status for multivariate flag with no variants set to 100%, but fully rolled out release condition has variant override
+        multivariate_flag_rolled_out_release_with_override = FeatureFlag.objects.create(
             name="Multivariate flag with release condition set to 100% and override",
-            key="multivariate-enabled-release-condition-and-override-flag",
+            key="multivariate-rolled-out-release-condition-and-override-flag",
             team=self.team,
             active=True,
             filters={
@@ -6378,7 +6378,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assert_expected_response(
-            multivariate_flag_enabled_release_with_override.id,
+            multivariate_flag_rolled_out_release_with_override.id,
             FeatureFlagStatus.STALE,
             'This flag will always use the variant "test"',
         )
@@ -6397,10 +6397,10 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             'This boolean flag will always evaluate to "true"',
         )
 
-        # Request status for boolean flag with no fully enabled release conditions
-        boolean_flag_no_enabled_release_conditions = FeatureFlag.objects.create(
+        # Request status for boolean flag with no fully rolled out release conditions
+        boolean_flag_no_rolled_out_release_conditions = FeatureFlag.objects.create(
             name="Boolean flag with no release condition set to 100%",
-            key="boolean-no-enabled-release-conditions-flag",
+            key="boolean-no-rolled-out-release-conditions-flag",
             team=self.team,
             active=True,
             filters={
@@ -6427,16 +6427,16 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ],
             },
         )
-        self.create_feature_flag_called_event(boolean_flag_no_enabled_release_conditions.key)
+        self.create_feature_flag_called_event(boolean_flag_no_rolled_out_release_conditions.key)
         self.assert_expected_response(
-            boolean_flag_no_enabled_release_conditions.id,
+            boolean_flag_no_rolled_out_release_conditions.id,
             FeatureFlagStatus.ACTIVE,
         )
 
-        # Request status for boolean flag with a fully enabled release condition
-        boolean_flag_enabled_release_condition = FeatureFlag.objects.create(
+        # Request status for boolean flag with a fully rolled out release condition
+        boolean_flag_rolled_out_release_condition = FeatureFlag.objects.create(
             name="Boolean flag with a release condition set to 100%",
-            key="boolean-enabled-release-condition-flag",
+            key="boolean-rolled-out-release-condition-flag",
             team=self.team,
             active=True,
             filters={
@@ -6460,14 +6460,14 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assert_expected_response(
-            boolean_flag_enabled_release_condition.id,
+            boolean_flag_rolled_out_release_condition.id,
             FeatureFlagStatus.STALE,
             'This boolean flag will always evaluate to "true"',
         )
 
-        # Request status for a boolean flag with no enabled release conditions and has
+        # Request status for a boolean flag with no rolled out release conditions and has
         # been called recently
-        boolean_flag_no_enabled_release_condition_recently_evaluated = FeatureFlag.objects.create(
+        boolean_flag_no_rolled_out_release_condition_recently_evaluated = FeatureFlag.objects.create(
             name="Boolean flag with a release condition set to 100%",
             key="boolean-recently-evaluated-flag",
             team=self.team,
@@ -6488,14 +6488,14 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ],
             },
         )
-        self.create_feature_flag_called_event(boolean_flag_no_enabled_release_condition_recently_evaluated.key)
+        self.create_feature_flag_called_event(boolean_flag_no_rolled_out_release_condition_recently_evaluated.key)
         self.assert_expected_response(
-            boolean_flag_no_enabled_release_condition_recently_evaluated.id, FeatureFlagStatus.ACTIVE
+            boolean_flag_no_rolled_out_release_condition_recently_evaluated.id, FeatureFlagStatus.ACTIVE
         )
 
-        # Request status for a boolean flag with no enabled release conditions, and has
+        # Request status for a boolean flag with no rolled out release conditions, and has
         # been called, but not recently
-        boolean_flag_enabled_release_condition_not_recently_evaluated = FeatureFlag.objects.create(
+        boolean_flag_rolled_out_release_condition_not_recently_evaluated = FeatureFlag.objects.create(
             name="Boolean flag with a release condition set to 100%",
             key="boolean-not-recently-evaluated-flag",
             team=self.team,
@@ -6517,10 +6517,10 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.create_feature_flag_called_event(
-            boolean_flag_enabled_release_condition_not_recently_evaluated.key, True, now() - relativedelta(days=31)
+            boolean_flag_rolled_out_release_condition_not_recently_evaluated.key, True, now() - relativedelta(days=31)
         )
         self.assert_expected_response(
-            boolean_flag_enabled_release_condition_not_recently_evaluated.id,
+            boolean_flag_rolled_out_release_condition_not_recently_evaluated.id,
             FeatureFlagStatus.INACTIVE,
             "Flag has not been evaluated recently",
         )
