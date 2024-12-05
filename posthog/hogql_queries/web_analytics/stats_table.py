@@ -48,7 +48,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         if self.query.breakdownBy == WebStatsBreakdown.PAGE:
-            if self.query.includeScrollDepth and self.query.includeBounceRate:
+            if self.query.conversionGoal:
+                return self.to_main_query(self._counts_breakdown_value())
+            elif self.query.includeScrollDepth and self.query.includeBounceRate:
                 return self.to_path_scroll_bounce_query()
             elif self.query.includeBounceRate:
                 return self.to_path_bounce_query()
