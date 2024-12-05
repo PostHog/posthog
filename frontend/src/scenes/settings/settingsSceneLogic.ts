@@ -51,6 +51,7 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
 
             // As of middle of September 2024, `details` and `danger-zone` are the only sections present
             // at both Environment and Project levels. Others we want to redirect based on the feature flag.
+            // This is just for URLs, since analogous logic for _rendering_ settings is already in settingsLogic.
             if (!section.endsWith('-details') && !section.endsWith('-danger-zone')) {
                 if (values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
                     section = section.replace(/^project/, 'environment')
