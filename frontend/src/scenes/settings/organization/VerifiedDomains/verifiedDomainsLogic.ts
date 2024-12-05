@@ -78,9 +78,12 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     (await api.get(`api/organizations/${values.currentOrganization?.id}/domains`))
                         .results as OrganizationDomainType[],
                 addVerifiedDomain: async (domain: string) => {
-                    const response = await api.create(`api/organizations/${values.currentOrganization?.id}/domains`, {
-                        domain,
-                    })
+                    const response = await api.create<OrganizationDomainType>(
+                        `api/organizations/${values.currentOrganization?.id}/domains`,
+                        {
+                            domain,
+                        }
+                    )
                     return [response, ...values.verifiedDomains]
                 },
                 deleteVerifiedDomain: async (id: string) => {
@@ -93,18 +96,18 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             false,
             {
                 updateDomain: async (payload: OrganizationDomainUpdatePayload) => {
-                    const response = await api.update(
+                    const response = await api.update<OrganizationDomainType>(
                         `api/organizations/${values.currentOrganization?.id}/domains/${payload.id}`,
                         { ...payload, id: undefined }
                     )
                     lemonToast.success('Domain updated successfully! Changes will take immediately.')
-                    actions.replaceDomain(response as OrganizationDomainType)
+                    actions.replaceDomain(response)
                     return false
                 },
                 verifyDomain: async () => {
-                    const response = (await api.create(
+                    const response = await api.create<OrganizationDomainType>(
                         `api/organizations/${values.currentOrganization?.id}/domains/${values.verifyModal}/verify`
-                    )) as OrganizationDomainType
+                    )
                     if (response.is_verified) {
                         lemonToast.success('Domain verified successfully.')
                     } else {
@@ -158,12 +161,12 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 if (!id) {
                     return
                 }
-                const response = (await api.update(
+                const response = await api.update<OrganizationDomainType>(
                     `api/organizations/${values.currentOrganization?.id}/domains/${payload.id}`,
                     {
                         ...updateParams,
                     }
-                )) as OrganizationDomainType
+                )
                 breakpoint()
                 actions.replaceDomain(response)
                 actions.setConfigureSAMLModalId(null)
