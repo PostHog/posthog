@@ -97,10 +97,10 @@ class HogQLContext:
             self.errors.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
 
     @cached_property
-    def project_id(self) -> Optional[int]:
+    def project_id(self) -> int:
         from posthog.models import Team
 
         if not self.team and not self.team_id:
-            return None
+            raise ValueError("Either team or team_id must be set to determine project_id")
         team = self.team or Team.objects.only("project_id").get(id=self.team_id)
         return team.project_id

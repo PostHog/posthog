@@ -52,7 +52,7 @@ class TestCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0], random_uuid)
 
@@ -72,7 +72,7 @@ class TestCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0], random_uuid)
 
@@ -89,7 +89,7 @@ class TestCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -105,7 +105,7 @@ class TestCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_in_cohort_error(self):
