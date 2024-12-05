@@ -355,6 +355,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^api/projects/@current/feature_flags/my_flags/?$",
                 "^/?api/projects/\\d+/query/?$",
                 "^/?api/instance_status/?$",
+                "^/array/.*$",
             ]
         ),
     )
