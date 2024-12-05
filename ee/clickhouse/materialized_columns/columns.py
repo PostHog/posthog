@@ -295,7 +295,11 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
 
 def check_index_exists(client: Client, table: str, index: str) -> bool:
     match client.execute(
-        "SELECT count() FROM system.data_skipping_indices WHERE table = %(table)s AND name = %(name)s",
+        """
+        SELECT count()
+        FROM system.data_skipping_indices
+        WHERE database = currentDatabase() AND table = %(table)s AND name = %(name)s
+        """,
         {"table": table, "name": index},
     ):
         case [(1,)]:
@@ -308,7 +312,11 @@ def check_index_exists(client: Client, table: str, index: str) -> bool:
 
 def check_column_exists(client: Client, table: str, column: str) -> bool:
     match client.execute(
-        "SELECT count() FROM system.columns WHERE table = %(table)s AND name = %(name)s",
+        """
+        SELECT count()
+        FROM system.columns
+        WHERE database = currentDatabase() AND table = %(table)s AND name = %(name)s
+        """,
         {"table": table, "name": column},
     ):
         case [(1,)]:
