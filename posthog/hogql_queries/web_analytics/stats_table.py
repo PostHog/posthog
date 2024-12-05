@@ -371,7 +371,13 @@ GROUP BY session_id, breakdown_value
         assert isinstance(query, ast.SelectQuery)
 
         if include_session_properties:
-            query.where.args.append(self._session_properties())  # query.where is an `ast.Call`
+            # Append session properties to the where clause if it exists
+            #
+            # We know `query.where` is an `ast.Call` because it's a `WHERE` clause
+            # and `ast.Call` is the only kind of expression that `query.where` can be
+            # but we need to convince mypy
+            if query.where is not None and isinstance(query.where, ast.Call):
+                query.where.args.append(self._session_properties())
 
         if self.conversion_count_expr and self.conversion_person_id_expr:
             query.select.append(ast.Alias(alias="conversion_count", expr=self.conversion_count_expr))
