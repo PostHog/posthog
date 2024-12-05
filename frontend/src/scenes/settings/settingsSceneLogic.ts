@@ -73,16 +73,20 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
+        // Replacing history item instead of pushing, so that the environments<>project redirect doesn't affect history
         selectLevel({ level }) {
-            return [urls.settings(level), router.values.searchParams, router.values.hashParams]
+            return [urls.settings(level), router.values.searchParams, router.values.hashParams, { replace: true }]
         },
         selectSection({ section }) {
-            return [urls.settings(section), router.values.searchParams, router.values.hashParams]
+            return [urls.settings(section), router.values.searchParams, router.values.hashParams, { replace: true }]
         },
         selectSetting({ setting }) {
-            const url = urls.settings(values.selectedSectionId ?? values.selectedLevel, setting)
-
-            return [url]
+            return [
+                urls.settings(values.selectedSectionId ?? values.selectedLevel, setting),
+                undefined,
+                undefined,
+                { replace: true },
+            ]
         },
     })),
 ])
