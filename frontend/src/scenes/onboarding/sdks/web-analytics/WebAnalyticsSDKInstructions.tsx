@@ -1,6 +1,5 @@
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
-import { FlutterInstructions } from '../session-replay/flutter'
 import {
     AndroidInstructions,
     AngularInstructions,
@@ -19,6 +18,7 @@ import {
     WebAnalyticsRNInstructions,
     WebflowInstructions,
 } from '.'
+import { FlutterInstructions } from './flutter'
 
 export const WebAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
