@@ -117,6 +117,12 @@ export function GoogleAdsCustomerIdPicker({
         [googleAdsAccessibleAccounts]
     )
 
+    useEffect(() => {
+        if (!disabled) {
+            loadGoogleAdsAccessibleAccounts()
+        }
+    }, [loadGoogleAdsAccessibleAccounts, disabled])
+
     return (
         <>
             <LemonInputSelect
