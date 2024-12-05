@@ -7,6 +7,9 @@ import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { HotKeyOrModifier } from '~/types'
+
 import { playerSettingsLogic, TimestampFormat } from '../playerSettingsLogic'
 import { seekbarLogic } from './seekbarLogic'
 
@@ -44,10 +47,14 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
 
     const altKeyHeld = useKeyHeld('Alt')
     const jumpTimeSeconds = altKeyHeld ? 1 : jumpTimeMs / 1000
-    const altKeyName = navigator.platform.includes('Mac') ? '⌥' : 'Alt'
 
-    const arrowSymbol = direction === 'forward' ? '→' : '←'
-    const arrowName = direction === 'forward' ? 'right' : 'left'
+    const arrowKey: Partial<Record<HotKeyOrModifier, true>> = {}
+    if (direction === 'forward') {
+        arrowKey.arrowright = true
+    }
+    if (direction === 'backward') {
+        arrowKey.arrowleft = true
+    }
 
     return (
         <Tooltip
@@ -56,18 +63,12 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                 <div className="text-center">
                     {!altKeyHeld ? (
                         <>
-                            {capitalizeFirstLetter(direction)} {jumpTimeSeconds}s (
-                            <kbd>
-                                {arrowSymbol} {arrowName} arrow
-                            </kbd>
-                            ) <br />
+                            {capitalizeFirstLetter(direction)} {jumpTimeSeconds}s <KeyboardShortcut {...arrowKey} />
+                            <br />
                         </>
                     ) : null}
-                    {capitalizeFirstLetter(direction)} 1 frame ({ONE_FRAME_MS}ms) (
-                    <kbd>
-                        {altKeyName} + {arrowSymbol}
-                    </kbd>
-                    )
+                    {capitalizeFirstLetter(direction)} 1 frame ({ONE_FRAME_MS}ms){' '}
+                    <KeyboardShortcut option {...arrowKey} />
                 </div>
             }
         >
