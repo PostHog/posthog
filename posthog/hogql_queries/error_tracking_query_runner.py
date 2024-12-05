@@ -29,6 +29,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
             limit=self.query.limit if self.query.limit else None,
+            offset=self.query.offset,
         )
 
     def to_query(self) -> ast.SelectQuery:
@@ -184,11 +185,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return (
             [
                 ast.OrderExpr(
-                    expr=ast.Field(chain=[self.query.order]),
-                    order="ASC" if self.query.order == "first_seen" else "DESC",
+                    expr=ast.Field(chain=[self.query.orderBy]),
+                    order="ASC" if self.query.orderBy == "first_seen" else "DESC",
                 )
             ]
-            if self.query.order
+            if self.query.orderBy
             else None
         )
 

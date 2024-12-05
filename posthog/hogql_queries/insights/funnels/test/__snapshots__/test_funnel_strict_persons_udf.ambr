@@ -44,7 +44,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -122,7 +122,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 1), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -200,7 +200,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(equals(step_reached, 1), 0)
-     ORDER BY aggregation_target ASC) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
