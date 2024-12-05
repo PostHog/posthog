@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -44,5 +44,8 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 }
             },
         ],
+    }),
+    afterMount(({ actions }) => {
+        actions.loadSlackChannels()
     }),
 ])
