@@ -1,5 +1,14 @@
-import { IconCheck, IconPlus, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconCheck, IconInfo, IconPlus, IconX } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonSwitch,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -9,41 +18,80 @@ import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { objectsEqual } from 'lib/utils'
+import { isObject, objectsEqual } from 'lib/utils'
+import { ReactNode } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SessionRecordingAIConfig } from '~/types'
 
-function PlatformSupported(props: {
-    web?: boolean
-    android?: boolean
-    ios?: boolean
-    reactNative?: boolean
-    flutter?: boolean
+interface SupportedPlatformProps {
+    note?: ReactNode
+    label: string
+    supported: boolean
+}
+
+function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
+    const node = (
+        <div
+            className={clsx(
+                props.supported ? 'bg-success-highlight' : 'bg-danger-highlight',
+                'px-1 py-0.5',
+                props.note && 'cursor-pointer'
+            )}
+        >
+            {props.note ? <IconInfo /> : props.supported ? <IconCheck /> : <IconX />} {props.label}
+        </div>
+    )
+    if (props.note) {
+        return <Tooltip title={props.note}>{node}</Tooltip>
+    }
+    return node
+}
+
+function SupportedPlatforms(props: {
+    web?: boolean | { note?: ReactNode }
+    android?: boolean | { note?: ReactNode }
+    ios?: boolean | { note?: ReactNode }
+    reactNative?: boolean | { note?: ReactNode }
+    flutter?: boolean | { note?: ReactNode }
 }): JSX.Element {
     return (
-        <div className="text-xs inline-flex flex-row bg-bg-3000 rounded items-center border overflow-hidden">
+        <div className="text-xs inline-flex flex-row bg-bg-3000 rounded items-center border overflow-hidden mb-2">
             <span className="px-1 py-0.5">Supported platforms</span>
             <LemonDivider vertical className="h-full" />
-            <div className={clsx(props.web ? 'bg-success-highlight' : 'bg-danger-highlight', 'px-1 py-0.5')}>
-                {props.web ? <IconCheck /> : <IconX />} Web
-            </div>
+            <SupportedPlatform
+                note={isObject(props.web) ? props.web.note : undefined}
+                label="Web"
+                supported={!!props.web}
+            />
+
             <LemonDivider vertical className="h-full" />
-            <div className={clsx(props.android ? 'bg-success-highlight' : 'bg-danger-highlight', 'px-1 py-0.5')}>
-                {props.android ? <IconCheck /> : <IconX />} Android
-            </div>
+            <SupportedPlatform
+                note={isObject(props.android) ? props.android.note : undefined}
+                label="Android"
+                supported={!!props.android}
+            />
+
             <LemonDivider vertical className="h-full" />
-            <div className={clsx(props.ios ? 'bg-success-highlight' : 'bg-danger-highlight', 'px-1 py-0.5')}>
-                {props.ios ? <IconCheck /> : <IconX />} iOS
-            </div>
+            <SupportedPlatform
+                note={isObject(props.ios) ? props.ios.note : undefined}
+                label="iOS"
+                supported={!!props.ios}
+            />
+
             <LemonDivider vertical className="h-full" />
-            <div className={clsx(props.reactNative ? 'bg-success-highlight' : 'bg-danger-highlight', 'px-1 py-0.5')}>
-                {props.reactNative ? <IconCheck /> : <IconX />} React Native
-            </div>
+            <SupportedPlatform
+                note={isObject(props.reactNative) ? props.reactNative.note : undefined}
+                label="React Native"
+                supported={!!props.reactNative}
+            />
+
             <LemonDivider vertical className="h-full" />
-            <div className={clsx(props.flutter ? 'bg-success-highlight' : 'bg-danger-highlight', 'px-1 py-0.5')}>
-                {props.flutter ? <IconCheck /> : <IconX />} Flutter
-            </div>
+            <SupportedPlatform
+                note={isObject(props.flutter) ? props.flutter.note : undefined}
+                label="Flutter"
+                supported={!!props.flutter}
+            />
         </div>
     )
 }
@@ -55,7 +103,7 @@ function LogCaptureSettings(): JSX.Element {
     return (
         <div>
             <h3>Log capture</h3>
-            <PlatformSupported android={true} ios={true} flutter={true} web={true} reactNative={true} />
+            <SupportedPlatforms android={true} ios={true} flutter={true} web={true} reactNative={true} />
             <p>
                 This setting controls if browser console logs will be captured as a part of recordings. The console logs
                 will be shown in the recording player to help you debug any issues.
@@ -88,7 +136,19 @@ function CanvasCaptureSettings(): JSX.Element | null {
     return (
         <div>
             <h3>Canvas capture</h3>
-            <PlatformSupported android={false} ios={false} flutter={false} web={true} reactNative={false} />
+            <SupportedPlatforms
+                android={false}
+                ios={false}
+                flutter={{
+                    note: (
+                        <>
+                            If you're using the `canvaskit` renderer on Flutter Web, you must also enable canvas capture
+                        </>
+                    ),
+                }}
+                web={true}
+                reactNative={false}
+            />
             <p>
                 This setting controls if browser canvas elements will be captured as part of recordings.{' '}
                 <b>
@@ -148,7 +208,7 @@ export function NetworkCaptureSettings(): JSX.Element {
 
     return (
         <>
-            <PlatformSupported android={true} ios={true} flutter={false} web={true} reactNative={false} />
+            <SupportedPlatforms android={true} ios={true} flutter={false} web={true} reactNative={false} />
             <p>
                 This setting controls if performance and network information will be captured alongside recordings. The
                 network requests and timings will be shown in the recording player to help you debug any issues.
@@ -171,7 +231,6 @@ export function NetworkCaptureSettings(): JSX.Element {
                 disabledReason={!currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined}
             />
             <div className="mt-4">
-                <PlatformSupported android={false} ios={false} flutter={false} web={true} reactNative={false} />
                 <p>
                     When network capture is enabled, we always capture network timings. Use these switches to choose
                     whether to also capture headers and payloads of requests.{' '}
@@ -179,7 +238,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                         Learn how to mask header and payload values in our docs
                     </Link>
                 </p>
-                <p>Capture headers and body are only available for JavaScript Web.</p>
+                <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
                 <LemonBanner type="info" className="mb-4">
                     <PayloadWarning />
                 </LemonBanner>
@@ -259,7 +318,7 @@ export function NetworkCaptureSettings(): JSX.Element {
 export function ReplayAuthorizedDomains(): JSX.Element {
     return (
         <div className="space-y-2">
-            <PlatformSupported android={false} ios={false} flutter={false} web={true} reactNative={false} />
+            <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
             <p>
                 Use the settings below to restrict the domains where recordings will be captured. If no domains are
                 selected, then there will be no domain restriction.
@@ -439,7 +498,7 @@ export function ReplayGeneral(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <div>
-                <PlatformSupported android={true} ios={true} flutter={true} web={true} reactNative={true} />
+                <SupportedPlatforms android={true} ios={true} flutter={true} web={true} reactNative={true} />
                 <p>
                     Watch recordings of how users interact with your web app to see what can be improved.{' '}
                     <Link
