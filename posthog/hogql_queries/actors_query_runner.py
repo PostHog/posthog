@@ -262,13 +262,12 @@ class ActorsQueryRunner(QueryRunner):
             else:
                 assert self.source_query_runner is not None  # For type checking
                 source_query = self.source_query_runner.to_actors_query()
+                source_id_chain = self.source_id_column(source_query)
                 if isinstance(source_query, ast.SelectQuery):  #:  # typing fun
-                    source_query.select.append(parse_expr("actor_id as id"))
+                    source_query.select.append(ast.Alias(alias="id", expr=ast.Field(chain=source_id_chain)))
                     source_query.order_by = order_by
                     return source_query
-                source_query = self.source_query_runner.to_actors_query()
 
-                source_id_chain = self.source_id_column(source_query)
                 source_alias = "source"
 
                 origin = self.strategy.origin

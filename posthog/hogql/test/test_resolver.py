@@ -435,7 +435,7 @@ class TestResolver(BaseTest):
         query = """
             select id, email from (
                 <ActorsQuery
-                    select={['id', 'properties.email as email']}
+                    select={['properties.email as email']}
                     source={
                         <HogQLQuery query='select distinct person_id from events' />
                     }

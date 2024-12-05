@@ -1546,6 +1546,7 @@
                     pdi: {},
                     person: {},
                     person_id: {},
+                    poe: {},
                     properties: {},
                     session: {},
                     session_id: {},
