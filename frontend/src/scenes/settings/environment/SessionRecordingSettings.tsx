@@ -48,7 +48,7 @@ function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
     return node
 }
 
-function SupportedPlatforms(props: {
+export function SupportedPlatforms(props: {
     web?: boolean | { note?: ReactNode }
     android?: boolean | { note?: ReactNode }
     ios?: boolean | { note?: ReactNode }
@@ -57,7 +57,7 @@ function SupportedPlatforms(props: {
 }): JSX.Element {
     return (
         <div className="text-xs inline-flex flex-row bg-bg-3000 rounded items-center border overflow-hidden mb-2">
-            <span className="px-1 py-0.5">Supported platforms</span>
+            <span className="px-1 py-0.5 font-semibold">Supported platforms:</span>
             <LemonDivider vertical className="h-full" />
             <SupportedPlatform
                 note={isObject(props.web) ? props.web.note : undefined}
