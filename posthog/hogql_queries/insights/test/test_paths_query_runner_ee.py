@@ -4347,7 +4347,7 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual([p1.uuid, p2.uuid], [row[0]["id"] for row in results])
-        matched_recordings = [list(row[3]) for row in results]
+        matched_recordings = [list(row[1]) for row in results]
 
         self.assertCountEqual(
             [
@@ -4429,7 +4429,7 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([p1.uuid], [row[0]["id"] for row in results])
-        self.assertEqual([[]], [list(row[3]) for row in results])
+        self.assertEqual([[]], [list(row[1]) for row in results])
 
     @snapshot_clickhouse_queries
     @freeze_time("2012-01-01T03:21:34.000Z")
@@ -4532,7 +4532,7 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                     }
                 ]
             ],
-            [list(row[3]) for row in results],
+            [list(row[1]) for row in results],
         )
 
     @snapshot_clickhouse_queries
@@ -4664,7 +4664,7 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                     }
                 ]
             ],
-            [list(row[3]) for row in results],
+            [list(row[1]) for row in results],
         )
 
     @skip("TODO: Funnels")
