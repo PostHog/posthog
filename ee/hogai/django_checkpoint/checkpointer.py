@@ -16,19 +16,11 @@ from langgraph.checkpoint.base import (
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.serde.types import TASKS
 
-import ee.hogai.models.checkpoint as models
+import ee.models.assistant as models
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
     jsonplus_serde = JsonPlusSerializer()
-
-    def _dump_checkpoint(self, checkpoint: Checkpoint) -> dict[str, Any]:
-        return {**checkpoint, "pending_sends": []}
-
-    def _dump_metadata(self, metadata: CheckpointMetadata) -> str:
-        serialized_metadata = self.jsonplus_serde.dumps(metadata)
-        # NOTE: we're using JSON serializer (not msgpack), so we need to remove null characters before writing
-        return serialized_metadata.decode().replace("\\u0000", "")
 
     def _load_writes(self, writes: Sequence[models.CheckpointWrite]) -> list[tuple[str, str, Any]]:
         return (
@@ -53,17 +45,17 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         filter: Optional[dict[str, Any]],
         before: Optional[RunnableConfig],
     ):
-        thread_id = config["configurable"]["thread_id"]
         query = Q()
 
         # construct predicate for config filter
-        if config:
+        if config and "configurable" in config:
+            thread_id = config["configurable"].get("thread_id")
             query &= Q(thread_id=thread_id)
             checkpoint_ns = config["configurable"].get("checkpoint_ns")
             if checkpoint_ns is not None:
                 query &= Q(checkpoint_ns=checkpoint_ns)
             if checkpoint_id := get_checkpoint_id(config):
-                query &= Q(checkpoint_id=checkpoint_id)
+                query &= Q(id=checkpoint_id)
 
         # construct predicate for metadata filter
         if filter:
@@ -71,9 +63,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
 
         # construct predicate for `before`
         if before is not None:
-            query &= Q(checkpoint_id__lt=get_checkpoint_id(before))
+            query &= Q(id__lt=get_checkpoint_id(before))
 
-        return models.Checkpoint.objects.filter(query).order_by("-checkpoint_id")
+        return models.Checkpoint.objects.filter(query).order_by("-id")
 
     def list(
         self,
@@ -107,15 +99,19 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 for channel, version in checkpoint.checkpoint["channel_versions"].items():
                     query |= Q(channel=channel, version=version)
                 channel_values = models.CheckpointBlob.objects.filter(
-                    Q(thread_id=checkpoint.thread_id, checkpoint_ns=checkpoint.checkpoint_ns) & query
+                    Q(thread=checkpoint.thread, checkpoint_ns=checkpoint.checkpoint_ns) & query
                 )
             else:
                 channel_values = []
 
             pending_writes = checkpoint.writes.filter(checkpoint_ns=checkpoint.checkpoint_ns).order_by("idx", "task_id")
-            pending_sends = checkpoint.parent_checkpoint.writes.filter(
-                checkpoint_ns=checkpoint.checkpoint_ns, thread_id=checkpoint.thread_id, channel=TASKS
-            ).order_by("task_id", "idx")
+
+            if checkpoint.parent_checkpoint is not None:
+                pending_sends = checkpoint.parent_checkpoint.writes.filter(
+                    checkpoint_ns=checkpoint.checkpoint_ns, channel=TASKS
+                ).order_by("task_id", "idx")
+            else:
+                pending_sends = []
 
             checkpoint_dict = {
                 **checkpoint.checkpoint,
@@ -207,20 +203,30 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         }
 
         with transaction.atomic():
-            checkpoint, updated = models.Checkpoint.objects.update_or_create(
+            checkpoint, _ = models.Checkpoint.objects.update_or_create(
+                id=checkpoint["id"],
                 thread_id=thread_id,
                 checkpoint_ns=checkpoint_ns,
-                checkpoint_id=checkpoint_id,
-                checkpoint=self._dump_checkpoint(checkpoint_copy),
-                metadata=self._dump_metadata(metadata),
+                parent_checkpoint_id=checkpoint_id,
+                defaults={
+                    "checkpoint": {**checkpoint_copy, "pending_sends": []},
+                    "metadata": metadata,
+                },
             )
 
             blobs = []
-            for k, v in new_versions.items():
-                type, blob = self.serde.dumps_typed(channel_values[k]) if k in channel_values else ("empty", None)
+            for channel, version in new_versions.items():
+                type, blob = (
+                    self.serde.dumps_typed(channel_values[channel]) if channel in channel_values else ("empty", None)
+                )
                 blobs.append(
                     models.CheckpointBlob(
-                        checkpoint=checkpoint, checkpoint_ns=checkpoint_ns, channel=k, version=v, type=type, blob=blob
+                        checkpoint=checkpoint,
+                        checkpoint_ns=checkpoint_ns,
+                        channel=channel,
+                        version=version,
+                        type=type,
+                        blob=blob,
                     )
                 )
 

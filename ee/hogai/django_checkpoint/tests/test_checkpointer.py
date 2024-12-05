@@ -11,37 +11,40 @@ from langgraph.checkpoint.base import (
 )
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.models.assistant import AssistantThread
 from posthog.test.base import BaseTest
 
 
 class TestDjangoCheckpointer(BaseTest):
     def setUp(self):
         super().setUp()
+
+        self.thread1 = AssistantThread.objects.create(user=self.user, team=self.team)
+        self.thread2 = AssistantThread.objects.create(user=self.user, team=self.team)
+
         config_1: RunnableConfig = {
             "configurable": {
-                "thread_id": "thread-1",
-                # for backwards compatibility testing
-                "thread_ts": "1",
+                "thread_id": self.thread1.id,
                 "checkpoint_ns": "",
             }
         }
+        chkpnt_1: Checkpoint = empty_checkpoint()
+
         config_2: RunnableConfig = {
             "configurable": {
-                "thread_id": "thread-2",
-                "checkpoint_id": "2",
+                "thread_id": self.thread2.id,
                 "checkpoint_ns": "",
             }
         }
+        chkpnt_2: Checkpoint = create_checkpoint(chkpnt_1, {}, 1)
+
         config_3: RunnableConfig = {
             "configurable": {
-                "thread_id": "thread-2",
-                "checkpoint_id": "2-inner",
+                "thread_id": self.thread2.id,
+                "checkpoint_id": chkpnt_2["id"],
                 "checkpoint_ns": "inner",
             }
         }
-
-        chkpnt_1: Checkpoint = empty_checkpoint()
-        chkpnt_2: Checkpoint = create_checkpoint(chkpnt_1, {}, 1)
         chkpnt_3: Checkpoint = empty_checkpoint()
 
         metadata_1: CheckpointMetadata = {
@@ -100,20 +103,9 @@ class TestDjangoCheckpointer(BaseTest):
         assert len(search_results_4) == 0
 
         # search by config (defaults to checkpoints across all namespaces)
-        search_results_5 = list(saver.list({"configurable": {"thread_id": "thread-2"}}))
+        search_results_5 = list(saver.list({"configurable": {"thread_id": self.thread2.id}}))
         assert len(search_results_5) == 2
         assert {
             search_results_5[0].config["configurable"]["checkpoint_ns"],
             search_results_5[1].config["configurable"]["checkpoint_ns"],
         } == {"", "inner"}
-
-    def test_null_characters(self):
-        saver = DjangoCheckpointer()
-        config = saver.put(
-            self.test_data["configs"][0],
-            self.test_data["checkpoints"][0],
-            {"my_key": "\x00abc"},
-            {},
-        )
-        assert saver.get_tuple(config).metadata["my_key"] == "abc"  # type: ignore
-        assert next(saver.list(None, filter={"my_key": "abc"})).metadata["my_key"] == "abc"
