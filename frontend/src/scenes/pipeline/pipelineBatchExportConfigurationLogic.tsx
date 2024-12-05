@@ -10,6 +10,7 @@ import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { humanizeBatchExportName } from './batch-exports/utils'
+import { DESTINATION_TYPES } from './destinations/constants'
 import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
@@ -410,7 +411,9 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             // Reset so that form doesn't think there are unsaved changes.
             actions.resetConfiguration(getConfigurationFromBatchExportConfig(batchExportConfig))
 
-            pipelineDestinationsLogic.findMounted()?.actions.updateBatchExportConfig(batchExportConfig)
+            pipelineDestinationsLogic
+                .findMounted({ types: DESTINATION_TYPES })
+                ?.actions.updateBatchExportConfig(batchExportConfig)
         },
         setConfigurationValue: async ({ name, value }) => {
             if (name[0] === 'json_config_file' && value) {

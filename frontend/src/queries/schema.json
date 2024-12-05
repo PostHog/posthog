@@ -366,6 +366,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentTrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RecordingsQuery"
                 }
             ]
         },
@@ -480,6 +483,9 @@
                 },
                 {
                     "$ref": "#/definitions/EventsQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingQueryResponse"
                 }
             ]
         },
@@ -5458,7 +5464,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
-                "order": {
+                "offset": {
+                    "type": "integer"
+                },
+                "orderBy": {
                     "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
@@ -11212,6 +11221,7 @@
                     "type": "array"
                 },
                 "date_from": {
+                    "default": "-3d",
                     "type": ["string", "null"]
                 },
                 "date_to": {
@@ -11247,10 +11257,12 @@
                     "type": "integer"
                 },
                 "operand": {
-                    "$ref": "#/definitions/FilterLogicalOperator"
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "default": "AND"
                 },
                 "order": {
-                    "$ref": "#/definitions/RecordingOrder"
+                    "$ref": "#/definitions/RecordingOrder",
+                    "default": "start_time"
                 },
                 "person_uuid": {
                     "type": "string"

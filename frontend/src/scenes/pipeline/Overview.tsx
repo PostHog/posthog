@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { PipelineStage, PipelineTab } from '~/types'
 
+import { DESTINATION_TYPES } from './destinations/constants'
 import { DestinationsTable } from './destinations/Destinations'
 import { TransformationsTable } from './Transformations'
 
@@ -72,7 +73,7 @@ export function Overview(): JSX.Element {
                         Send your data to destinations in real time or with batch exports. Only active Destinations are
                         shown here. <Link to={urls.pipeline(PipelineTab.Destinations)}>See all.</Link>
                     </p>
-                    <DestinationsTable hideFeedback={true} hideAddDestinationButton={false} />
+                    <DestinationsTable types={DESTINATION_TYPES} hideFeedback={true} hideAddDestinationButton={false} />
                 </div>
             </div>
         </>

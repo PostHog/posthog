@@ -6,6 +6,7 @@ import collections.abc
 import contextlib
 import csv
 import datetime as dt
+import enum
 import gzip
 import json
 import tempfile
@@ -466,6 +467,48 @@ class BatchExportWriter(abc.ABC):
         self.end_at_since_last_flush = None
 
 
+class WriterFormat(enum.StrEnum):
+    JSONL = enum.auto()
+    PARQUET = enum.auto()
+    CSV = enum.auto()
+
+    @staticmethod
+    def from_str(format_str: str, destination: str):
+        match format_str.upper():
+            case "JSONL" | "JSONLINES":
+                return WriterFormat.JSONL
+            case "PARQUET":
+                return WriterFormat.PARQUET
+            case "CSV":
+                return WriterFormat.CSV
+            case _:
+                raise UnsupportedFileFormatError(format_str, destination)
+
+
+def get_batch_export_writer(writer_format: WriterFormat, flush_callable: FlushCallable, max_bytes: int, **kwargs):
+    match writer_format:
+        case WriterFormat.CSV:
+            return CSVBatchExportWriter(
+                max_bytes=max_bytes,
+                flush_callable=flush_callable,
+                **kwargs,
+            )
+
+        case WriterFormat.JSONL:
+            return JSONLBatchExportWriter(
+                max_bytes=max_bytes,
+                flush_callable=flush_callable,
+                **kwargs,
+            )
+
+        case WriterFormat.PARQUET:
+            return ParquetBatchExportWriter(
+                max_bytes=max_bytes,
+                flush_callable=flush_callable,
+                **kwargs,
+            )
+
+
 class JSONLBatchExportWriter(BatchExportWriter):
     """A `BatchExportWriter` for JSONLines format.
 
@@ -478,6 +521,7 @@ class JSONLBatchExportWriter(BatchExportWriter):
         self,
         max_bytes: int,
         flush_callable: FlushCallable,
+        schema: pa.Schema | None = None,
         compression: None | str = None,
         default: typing.Callable = str,
     ):
@@ -549,6 +593,7 @@ class CSVBatchExportWriter(BatchExportWriter):
         max_bytes: int,
         flush_callable: FlushCallable,
         field_names: collections.abc.Sequence[str],
+        schema: pa.Schema | None = None,
         extras_action: typing.Literal["raise", "ignore"] = "ignore",
         delimiter: str = ",",
         quote_char: str = '"',
