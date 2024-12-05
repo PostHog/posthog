@@ -32,6 +32,9 @@ export interface IFrameBanner {
     message: string | JSX.Element
 }
 
+// team id is always available on window
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+
 export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
@@ -172,7 +175,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
         browserUrl: [
             null as string | null,
-            { persist: true },
+            { persist: true, prefix: `${teamId}__` },
             {
                 setBrowserUrl: (_, { url }) => url,
             },

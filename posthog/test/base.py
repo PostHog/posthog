@@ -263,6 +263,15 @@ def clean_varying_query_parts(query, replace_all_numbers):
         "SELECT distinct_id, 1 as value",
         query,
     )
+
+    # rbac has some varying IDs we can replace
+    # e.g. AND "ee_accesscontrol"."resource_id" = '450'
+    query = re.sub(
+        r"\"resource_id\" = '\d+'",
+        "\"resource_id\" = '99999'",
+        query,
+    )
+
     return query
 
 
@@ -309,7 +318,7 @@ class FuzzyInt(int):
         return self.lowest <= other <= self.highest
 
     def __repr__(self):
-        return "[%d..%d]" % (self.lowest, self.highest)
+        return f"[{self.lowest:d}..{self.highest:d}]"
 
 
 class ErrorResponsesMixin:

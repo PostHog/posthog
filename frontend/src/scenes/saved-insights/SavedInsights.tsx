@@ -296,12 +296,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
-    [NodeKind.WebTopClicksQuery]: {
-        name: 'Top Clicks',
-        description: 'View top clicks for a website',
-        icon: IconPieChart,
-        inMenu: true,
-    },
     [NodeKind.WebGoalsQuery]: {
         name: 'Goals',
         description: 'View goal conversions',
