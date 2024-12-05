@@ -37,6 +37,7 @@ export const activityForSceneLogic = kea<activityForSceneLogicType>([
     connect({
         values: [sceneLogic, ['sceneConfig']],
     }),
+
     selectors({
         sceneActivityFilters: [
             (s) => [
