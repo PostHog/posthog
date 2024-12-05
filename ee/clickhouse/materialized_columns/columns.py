@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable, Iterator
 from copy import copy
@@ -21,6 +22,9 @@ from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_PER_TEAM_SETTINGS, TEST
+
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -161,6 +165,10 @@ tables: dict[str, TableInfo | ShardedTableInfo] = {
 }
 
 
+def get_minmax_index_name(column: str) -> str:
+    return f"minmax_{column}"
+
+
 @dataclass
 class CreateColumnOnDataNodesTask:
     table: str
@@ -182,7 +190,7 @@ class CreateColumnOnDataNodesTask:
             parameters["comment"] = self.column.details.as_column_comment()
 
         if self.create_minmax_index:
-            index_name = f"minmax_{self.column.name}"
+            index_name = get_minmax_index_name(self.column.name)
             actions.append(f"ADD INDEX IF NOT EXISTS {index_name} {self.column.name} TYPE minmax GRANULARITY 1")
 
         client.execute(
@@ -289,6 +297,32 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
     ).result()
 
 
+def check_index_exists(client: Client, table: str, index: str) -> bool:
+    [(count,)] = client.execute(
+        """
+        SELECT count()
+        FROM system.data_skipping_indices
+        WHERE database = currentDatabase() AND table = %(table)s AND name = %(name)s
+        """,
+        {"table": table, "name": index},
+    )
+    assert 1 >= count >= 0
+    return bool(count)
+
+
+def check_column_exists(client: Client, table: str, column: str) -> bool:
+    [(count,)] = client.execute(
+        """
+        SELECT count()
+        FROM system.columns
+        WHERE database = currentDatabase() AND table = %(table)s AND name = %(name)s
+        """,
+        {"table": table, "name": column},
+    )
+    assert 1 >= count >= 0
+    return bool(count)
+
+
 @dataclass
 class DropColumnTask:
     table: str
@@ -296,18 +330,27 @@ class DropColumnTask:
     try_drop_index: bool
 
     def execute(self, client: Client) -> None:
-        # XXX: copy/pasted from create task
+        actions = []
+
         if self.try_drop_index:
-            index_name = f"minmax_{self.column_name}"
+            index_name = get_minmax_index_name(self.column_name)
+            drop_index_action = f"DROP INDEX IF EXISTS {index_name}"
+            if check_index_exists(client, self.table, index_name):
+                actions.append(drop_index_action)
+            else:
+                logger.info("Skipping %r, nothing to do...", drop_index_action)
+
+        drop_column_action = f"DROP COLUMN IF EXISTS {self.column_name}"
+        if check_column_exists(client, self.table, self.column_name):
+            actions.append(drop_column_action)
+        else:
+            logger.info("Skipping %r, nothing to do...", drop_column_action)
+
+        if actions:
             client.execute(
-                f"ALTER TABLE {self.table} DROP INDEX IF EXISTS {index_name}",
+                f"ALTER TABLE {self.table} " + ", ".join(actions),
                 settings={"alter_sync": 2 if TEST else 1},
             )
-
-        client.execute(
-            f"ALTER TABLE {self.table} DROP COLUMN IF EXISTS {self.column_name}",
-            settings={"alter_sync": 2 if TEST else 1},
-        )
 
 
 def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
