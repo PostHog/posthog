@@ -190,6 +190,8 @@ class ActorsQueryRunner(QueryRunner):
             columns = []
             group_by = []
             aggregations = []
+            joinless_fields = ("actor", self.strategy.field, self.strategy.origin_id)
+            requires_join = False
             for expr in self.input_columns():
                 column: ast.Expr = parse_expr(expr)
 
@@ -202,6 +204,10 @@ class ActorsQueryRunner(QueryRunner):
                     # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
                     # we look up valid session ids and match them against the session ids in matching events
                     column = ast.Field(chain=["matching_events"])
+                else:
+                    # Make this more specific ( don't require join for count for example )
+                    if expr not in joinless_fields:
+                        requires_join = True
 
                 columns.append(column)
                 if has_aggregation(column):
@@ -212,6 +218,8 @@ class ActorsQueryRunner(QueryRunner):
 
         with self.timings.measure("filters"):
             filter_conditions = self.strategy.filter_conditions()
+            if filter_conditions:
+                requires_join = True
             where_list = [expr for expr in filter_conditions if not has_aggregation(expr)]
             if len(where_list) == 0:
                 where = None
@@ -233,8 +241,11 @@ class ActorsQueryRunner(QueryRunner):
             if self.query.orderBy is not None:
                 strategy_order_by = self.strategy.order_by()
                 if strategy_order_by is not None:
+                    requires_join = True
                     order_by = strategy_order_by
                 else:
+                    if any(col not in joinless_fields for col in self.query.orderBy):
+                        requires_join = True
                     order_by = [parse_order_expr(col, timings=self.timings) for col in self.query.orderBy]
             elif "count()" in self.input_columns():
                 order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
@@ -253,8 +264,13 @@ class ActorsQueryRunner(QueryRunner):
             else:
                 assert self.source_query_runner is not None  # For type checking
                 source_query = self.source_query_runner.to_actors_query()
-
                 source_id_chain = self.source_id_column(source_query)
+
+                if isinstance(source_query, ast.SelectQuery) and not requires_join:
+                    source_query.select.append(ast.Alias(alias="id", expr=ast.Field(chain=source_id_chain)))
+                    source_query.order_by = order_by
+                    return source_query
+
                 source_alias = "source"
 
                 origin = self.strategy.origin
