@@ -12,6 +12,7 @@ import {
     AngularInstructions,
     AstroInstructions,
     BubbleInstructions,
+    FlutterInstructions,
     FramerInstructions,
     HTMLSnippetInstructions,
     iOSInstructions,
@@ -20,12 +21,11 @@ import {
     NuxtJSInstructions,
     ReactInstructions,
     RemixInstructions,
+    RNInstructions,
     SvelteInstructions,
     VueInstructions,
     WebflowInstructions,
 } from '.'
-import { FlutterInstructions } from './flutter'
-import { RNInstructions } from './react-native'
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
