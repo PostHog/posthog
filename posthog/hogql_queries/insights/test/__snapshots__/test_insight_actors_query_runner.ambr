@@ -66,7 +66,8 @@
                                                               WHERE equals(person.team_id, 99999)
                                                               GROUP BY person.id
                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-     ORDER BY persons.properties___name ASC)
+     ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                     join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -154,7 +155,8 @@
                                                                                                                           and isNull(toStartOfDay(parseDateTime64BestEffortOrNull('2020-01-12', 6, 'US/Pacific')))), ifNull(equals(status, 'returning'), 0))) AS source)))
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-     ORDER BY persons.properties___name ASC)
+     ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                     join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -192,7 +194,8 @@
         WHERE equals(groups.team_id, 99999)
         GROUP BY groups.group_type_index,
                  groups.group_key) AS groups ON equals(groups.key, source.group_key)
-     ORDER BY groups.properties___name ASC)
+     ORDER BY groups.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                    join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -258,7 +261,8 @@
                                                                                                          WHERE ifNull(equals(num_intervals, 2), 0)) AS source)))
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-     ORDER BY persons.properties___name ASC)
+     ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                     join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -291,7 +295,8 @@
         WHERE equals(groups.team_id, 99999)
         GROUP BY groups.group_type_index,
                  groups.group_key) AS groups ON equals(groups.key, source.actor_id)
-     ORDER BY groups.properties___name ASC)
+     ORDER BY groups.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                    join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -357,7 +362,8 @@
                                                           GROUP BY actor_id) AS source)))
         GROUP BY person.id
         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-     ORDER BY persons.properties___name ASC)
+     ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                     join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -432,7 +438,8 @@
                                                                                                          GROUP BY actor_id) AS source)))
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-     ORDER BY persons.properties___name ASC)
+     ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                     join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
