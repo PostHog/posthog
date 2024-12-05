@@ -41,7 +41,7 @@
   GROUP BY entrance_period_start,
            data.breakdown
   ORDER BY entrance_period_start ASC
-  LIMIT 1000 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+  LIMIT 1000 SETTINGS join_algorithm='auto',
                       readonly=2,
                       max_execution_time=60,
                       allow_experimental_object_type=1,
@@ -94,7 +94,7 @@
   GROUP BY entrance_period_start,
            data.breakdown
   ORDER BY entrance_period_start ASC
-  LIMIT 1000 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+  LIMIT 1000 SETTINGS join_algorithm='auto',
                       readonly=2,
                       max_execution_time=60,
                       allow_experimental_object_type=1,
@@ -147,7 +147,7 @@
   GROUP BY entrance_period_start,
            data.breakdown
   ORDER BY entrance_period_start ASC
-  LIMIT 1000 SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge',
+  LIMIT 1000 SETTINGS join_algorithm='auto',
                       readonly=2,
                       max_execution_time=60,
                       allow_experimental_object_type=1,
