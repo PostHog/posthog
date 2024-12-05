@@ -1,14 +1,16 @@
 import { printHogStringOutput } from '@posthog/hogvm'
+import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import React, { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 
-import { hogReplLogic, ReplChunk as ReplChunkType } from './hogReplLogic'
+import { hogReplLogic, isTreeFileNode, ReplChunk as ReplChunkType, TreeNode } from './hogReplLogic'
 
 export interface ReplResultsTableProps {
     response: {
@@ -61,6 +63,10 @@ function printRichHogOutput(arg: any): JSX.Element | string {
         }
     }
     return printHogStringOutput(arg)
+}
+
+function extensionToLanguage(ext: string): string {
+    return { ts: 'typescript', tsx: 'typescript' }[ext] ?? ext
 }
 
 interface ReplChunkProps {
@@ -143,49 +149,101 @@ export function ReplChunk({
 }
 
 export function HogRepl(): JSX.Element {
-    const { replChunks, currentCode, lastLocalGlobals } = useValues(hogReplLogic)
-    const { runCurrentCode, setCurrentCode, editFromHere } = useActions(hogReplLogic)
+    const { fileTree, replChunks, currentCode, currentFile, lastLocalGlobals } = useValues(hogReplLogic)
+    const { runCurrentCode, setCurrentCode, editFromHere, setCurrentFile, newFile, deleteFile } =
+        useActions(hogReplLogic)
+
+    function printTree(fileTree: TreeNode, pastPath: string[]): JSX.Element {
+        return (
+            <>
+                {Object.entries(fileTree).map(([key, subTree]) => {
+                    const fullPath = [...pastPath, key].join('/')
+                    return isTreeFileNode(subTree) ? (
+                        <div key={key} className="flex w-full justify-between">
+                            <LemonButton
+                                size="small"
+                                active={fullPath === currentFile}
+                                className="font-mono"
+                                onClick={() => setCurrentFile(fullPath)}
+                            >
+                                {key}
+                            </LemonButton>
+                            <LemonButton size="xsmall" icon={<IconTrash />} onClick={() => deleteFile(fullPath)} />
+                        </div>
+                    ) : (
+                        <React.Fragment key={key}>
+                            <div className="flex w-full justify-between">
+                                <LemonButton size="small" className="font-mono">
+                                    {key}/
+                                </LemonButton>
+                                <LemonButton size="xsmall" icon={<IconPlus />} onClick={() => newFile(fullPath)} />
+                            </div>
+                            <div className="pl-2">{printTree(subTree, [...pastPath, key])}</div>
+                        </React.Fragment>
+                    )
+                })}
+            </>
+        )
+    }
 
     return (
-        <div className="p-4 bg-white text-black font-mono">
-            <div className="space-y-4">
-                {replChunks.map((chunk, index) => (
-                    <ReplChunk chunk={chunk} key={index} editFromHere={() => editFromHere(index)} />
-                ))}
-                <div className="flex items-start">
-                    <span
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ color: 'blue' }}
-                    >
-                        {'>'}
-                    </span>
-                    <div
-                        className="w-full"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ marginLeft: -10, marginTop: -7, marginRight: -5, marginBottom: -5 }}
-                    >
-                        <CodeEditorInline
-                            language="hog"
-                            embedded
-                            className="flex-1 bg-transparent focus:outline-none resize-none ml-2 p-0"
-                            value={currentCode}
-                            onChange={(value) => setCurrentCode(value ?? '')}
-                            onPressCmdEnter={runCurrentCode}
-                            onPressUpNoValue={() => {
-                                if ((hogReplLogic.findMounted()?.values.replChunks.length ?? 0) > 0) {
-                                    editFromHere(replChunks.length - 1)
-                                }
-                            }}
-                            options={{ fontSize: 14, padding: { top: 0, bottom: 0 } }}
-                            globals={lastLocalGlobals}
-                            autoFocus
-                        />
+        <div
+            className="flex w-full gap-2"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ height: 'calc(100vh - 100px)' }}
+        >
+            <div className="w-[20%] min-w-[175px] max-w-[400px]">{printTree(fileTree, [])}</div>
+            {currentFile.endsWith('.hog') ? (
+                <div className="p-4 bg-white text-black font-mono w-full">
+                    <div className="space-y-4">
+                        {replChunks.map((chunk, index) => (
+                            <ReplChunk chunk={chunk} key={index} editFromHere={() => editFromHere(index)} />
+                        ))}
+                        <div className="flex items-start">
+                            <span
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ color: 'blue' }}
+                            >
+                                {'>'}
+                            </span>
+                            <div
+                                className="w-full"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ marginLeft: -10, marginTop: -7, marginRight: -5, marginBottom: -5 }}
+                            >
+                                <CodeEditorInline
+                                    language="hog"
+                                    embedded
+                                    className="flex-1 bg-transparent focus:outline-none resize-none ml-2 p-0"
+                                    value={currentCode}
+                                    onChange={(value) => setCurrentCode(value ?? '')}
+                                    onPressCmdEnter={runCurrentCode}
+                                    onPressUpNoValue={() => {
+                                        if ((hogReplLogic.findMounted()?.values.replChunks.length ?? 0) > 0) {
+                                            editFromHere(replChunks.length - 1)
+                                        }
+                                    }}
+                                    options={{ fontSize: 14, padding: { top: 0, bottom: 0 } }}
+                                    globals={lastLocalGlobals}
+                                    autoFocus
+                                />
+                            </div>
+                            <LemonButton size="small" type="primary" onClick={runCurrentCode}>
+                                ⌘⏎
+                            </LemonButton>
+                        </div>
                     </div>
-                    <LemonButton size="small" type="primary" onClick={runCurrentCode}>
-                        ⌘⏎
-                    </LemonButton>
                 </div>
-            </div>
+            ) : (
+                <CodeEditor
+                    language={extensionToLanguage(currentFile.split('.').pop() ?? 'hog')}
+                    className="flex-1 bg-transparent focus:outline-none resize-none ml-2 p-0 min-h-[300px]"
+                    value={currentCode}
+                    onChange={(value) => setCurrentCode(value ?? '')}
+                    options={{ fontSize: 14, padding: { top: 0, bottom: 0 } }}
+                    autoFocus
+                />
+            )}
         </div>
     )
 }
