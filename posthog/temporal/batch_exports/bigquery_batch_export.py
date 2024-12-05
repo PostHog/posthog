@@ -541,6 +541,7 @@ class BigQueryConsumer(Consumer):
         self.rows_exported_counter.add(records_since_last_flush)
         self.bytes_exported_counter.add(bytes_since_last_flush)
 
+        self.heartbeat_details.records_completed += records_since_last_flush
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
@@ -717,7 +718,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                             stage_fields_cast_to_json=json_columns,
                         )
 
-        return records_completed
+        return records_completed + details.records_completed
 
 
 @workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])

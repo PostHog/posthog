@@ -504,6 +504,7 @@ class S3Consumer(Consumer):
         self.bytes_exported_counter.add(bytes_since_last_flush)
 
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
+        self.heartbeat_details.records_completed += records_since_last_flush
         self.heartbeat_details.append_upload_state(self.s3_upload.to_state())
 
 
@@ -717,7 +718,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
             await s3_upload.complete()
 
-        return records_completed
+        return records_completed + details.records_completed
 
 
 @workflow.defn(name="s3-export", failure_exception_types=[workflow.NondeterminismError])
