@@ -1,4 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
+import { Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import type { editor as importedEditor } from 'monaco-editor'
@@ -15,107 +16,28 @@ import {
     DataVisualizationLogicProps,
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { DataVisualizationNode, NodeKind } from '~/queries/schema'
 import { ItemMode } from '~/types'
 
-import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../external/dataWarehouseExternalSceneLogic'
-import { multitabEditorLogic } from './multitabEditorLogic'
+import { dataNodeKey, multitabEditorLogic } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
 
-const dataNodeKey = insightVizDataNodeKey({
-    dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
-    cachedInsight: null,
-    doNotLoad: true,
-})
-
 export function QueryWindow(): JSX.Element {
-    const [querySource, localSetQuerySource] = useState({
-        kind: NodeKind.DataVisualizationNode,
-        source: {
-            kind: NodeKind.HogQLQuery,
-            query: '',
-        },
-    } as DataVisualizationNode)
-
-    const dataVisualizationLogicProps: DataVisualizationLogicProps = {
-        key: dataNodeKey,
-        query: querySource,
-        dashboardId: undefined,
-        dataNodeCollectionId: dataNodeKey,
-        insightMode: ItemMode.Edit,
-        loadPriority: undefined,
-        cachedResults: undefined,
-        variablesOverride: undefined,
-        setQuery: localSetQuerySource,
-    }
-
-    const dataNodeLogicProps: DataNodeLogicProps = {
-        query: querySource.source,
-        key: dataNodeKey,
-        cachedResults: undefined,
-        loadPriority: undefined,
-        dataNodeCollectionId: dataNodeKey,
-        variablesOverride: undefined,
-    }
-
-    const variablesLogicProps: VariablesLogicProps = {
-        key: dataVisualizationLogicProps.key,
-        readOnly: false,
-    }
-
-    return (
-        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
-                <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                    <BindLogic logic={variablesLogic} props={variablesLogicProps}>
-                        <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                            <InternalQueryWindow setQuery={localSetQuerySource} query={querySource} />
-                        </BindLogic>
-                    </BindLogic>
-                </BindLogic>
-            </BindLogic>
-        </BindLogic>
-    )
-}
-
-interface InternalQueryWindowProps {
-    setQuery: (query: DataVisualizationNode) => void
-    query: DataVisualizationNode
-}
-
-function InternalQueryWindow({ setQuery, query }: InternalQueryWindowProps): JSX.Element {
-    const [error, setError] = useState<string | null>(null)
-    const [isValidView, setIsValidView] = useState(true)
-
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
     const [monaco, editor] = monacoAndEditor ?? []
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
-    const { setEditorQuery } = useActions(variablesLogic)
-
     const logic = multitabEditorLogic({
         key: codeEditorKey,
         monaco,
         editor,
-        sourceQuery: query,
-        onRunQuery: (query) => {
-            setQuery({
-                kind: NodeKind.DataVisualizationNode,
-                source: query,
-            } as DataVisualizationNode)
-        },
-        onQueryInputChange: (queryInput) => {
-            setEditorQuery(queryInput)
-        },
     })
 
-    const { allTabs, activeModelUri, queryInput, activeQuery, editingView, exportContext } = useValues(logic)
-    const { selectTab, deleteTab, createTab, setQueryInput, runQuery, saveAsView, saveAsInsight } = useActions(logic)
+    const { allTabs, activeModelUri, queryInput, editingView, sourceQuery } = useValues(logic)
+    const { selectTab, deleteTab, createTab, setQueryInput, runQuery, setError, setIsValidView } = useActions(logic)
 
     return (
         <div className="flex flex-1 flex-col h-full">
@@ -133,7 +55,7 @@ function InternalQueryWindow({ setQuery, query }: InternalQueryWindowProps): JSX
             )}
             <QueryPane
                 queryInput={queryInput}
-                sourceQuery={query.source}
+                sourceQuery={sourceQuery.source}
                 promptError={null}
                 codeEditorProps={{
                     queryKey: codeEditorKey,
@@ -156,15 +78,60 @@ function InternalQueryWindow({ setQuery, query }: InternalQueryWindowProps): JSX
                     },
                 }}
             />
-            <OutputPane
-                query={activeQuery ?? ''}
-                onQueryInputChange={runQuery}
-                onQueryChange={setQuery}
-                onSaveView={saveAsView}
-                onSaveInsight={saveAsInsight}
-                exportContext={exportContext}
-                saveDisabledReason={error ? error : !isValidView ? 'Some fields may need an alias' : ''}
-            />
+            <BindLogic logic={multitabEditorLogic} props={{ key: codeEditorKey, monaco, editor }}>
+                <InternalQueryWindow />
+            </BindLogic>
         </div>
+    )
+}
+
+function InternalQueryWindow(): JSX.Element {
+    const { cacheLoading, sourceQuery, queryInput } = useValues(multitabEditorLogic)
+    const { setSourceQuery } = useActions(multitabEditorLogic)
+
+    if (cacheLoading) {
+        return <Spinner className="text-3xl" />
+    }
+
+    const dataVisualizationLogicProps: DataVisualizationLogicProps = {
+        key: dataNodeKey,
+        query: sourceQuery,
+        dashboardId: undefined,
+        dataNodeCollectionId: dataNodeKey,
+        insightMode: ItemMode.Edit,
+        loadPriority: undefined,
+        cachedResults: undefined,
+        variablesOverride: undefined,
+        setQuery: setSourceQuery,
+    }
+
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: sourceQuery.source,
+        key: dataNodeKey,
+        cachedResults: undefined,
+        loadPriority: undefined,
+        dataNodeCollectionId: dataNodeKey,
+        variablesOverride: undefined,
+        autoLoad: false,
+    }
+
+    const variablesLogicProps: VariablesLogicProps = {
+        key: dataVisualizationLogicProps.key,
+        readOnly: false,
+        queryInput,
+    }
+
+    return (
+        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+            <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
+                <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                    <BindLogic logic={variablesLogic} props={variablesLogicProps}>
+                        <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                            <OutputPane />
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </BindLogic>
+        </BindLogic>
     )
 }
