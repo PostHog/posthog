@@ -232,6 +232,7 @@ export const notebookLogic = kea<notebookLogicType>([
                             content: null,
                             text_content: null,
                             version: 0,
+                            user_access_level: 'editor',
                         }
                     } else if (props.shortId.startsWith('template-')) {
                         response =

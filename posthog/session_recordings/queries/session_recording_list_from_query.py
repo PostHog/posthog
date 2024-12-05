@@ -276,21 +276,23 @@ class SessionRecordingListFromQuery:
                 )
             )
 
-        if self._query.date_from:
+        query_date_from = self.query_date_range.date_from()
+        if query_date_from:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=self.query_date_range.date_from()),
+                    right=ast.Constant(value=query_date_from),
                 )
             )
 
-        if self._query.date_to:
+        query_date_to = self.query_date_range.date_to()
+        if query_date_to:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=self.query_date_range.date_to()),
+                    right=ast.Constant(value=query_date_to),
                 )
             )
 
