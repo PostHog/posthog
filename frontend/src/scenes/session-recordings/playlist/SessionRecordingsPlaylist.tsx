@@ -1,10 +1,8 @@
-import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -15,16 +13,11 @@ import { ReplayTabs, SessionRecordingType } from '~/types'
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
-import {
-    DEFAULT_RECORDING_FILTERS,
-    SessionRecordingPlaylistLogicProps,
-    sessionRecordingsPlaylistLogic,
-} from './sessionRecordingsPlaylistLogic'
+import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import {
     SessionRecordingPlaylistBottomSettings,
     SessionRecordingsPlaylistTopSettings,
 } from './SessionRecordingsPlaylistSettings'
-import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
 export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicProps): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
@@ -45,6 +38,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
+    const allowReplayHogQLFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS]
 
     const pinnedDescription = isTestingSaved ? 'Saved' : 'Pinned'
 
@@ -92,7 +86,12 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div className="h-full space-y-2">
                 {!notebookNode && (
-                    <RecordingsUniversalFilters filters={filters} setFilters={setFilters} className="border" />
+                    <RecordingsUniversalFilters
+                        filters={filters}
+                        setFilters={setFilters}
+                        className="border"
+                        allowReplayHogQLFilters={allowReplayHogQLFilters}
+                    />
                 )}
                 <Playlist
                     isCollapsed={!playlistOpen}
@@ -149,62 +148,5 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                 />
             </div>
         </BindLogic>
-    )
-}
-
-const ListEmptyState = (): JSX.Element => {
-    const { filters, sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
-
-    return (
-        <div className="p-3 text-sm text-muted-alt">
-            {sessionRecordingsAPIErrored ? (
-                <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
-            ) : unusableEventsInFilter.length ? (
-                <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
-            ) : (
-                <div className="flex flex-col items-center space-y-2">
-                    {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
-                        <>
-                            <span>No matching recordings found</span>
-                            <LemonButton
-                                type="secondary"
-                                data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
-                                onClick={() => setFilters({ date_from: '-30d' })}
-                            >
-                                Search over the last 30 days
-                            </LemonButton>
-                        </>
-                    ) : (
-                        <SessionRecordingsPlaylistTroubleshooting />
-                    )}
-                </div>
-            )}
-        </div>
-    )
-}
-
-function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX.Element {
-    // TODO add docs on how to enrich custom events with session_id and link to it from here
-    return (
-        <LemonBanner type="warning">
-            <p>Cannot use these events to filter for session recordings:</p>
-            <li className="my-1">
-                {props.unusableEventsInFilter.map((event) => (
-                    <span key={event}>"{event}"</span>
-                ))}
-            </li>
-            <p>
-                Events have to have a <PropertyKeyInfo value="$session_id" /> to be used to filter recordings. This is
-                added automatically by{' '}
-                <Link to="https://posthog.com/docs/libraries/js" target="_blank">
-                    the Web SDK
-                </Link>
-                ,{' '}
-                <Link to="https://posthog.com/docs/libraries" target="_blank">
-                    and the Mobile SDKs (Android, iOS, React Native and Flutter)
-                </Link>
-            </p>
-        </LemonBanner>
     )
 }

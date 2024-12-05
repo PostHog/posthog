@@ -1,6 +1,8 @@
 .SessionReplay__layout {
+    --session-recordings-tabs-height: 62px;
     --session-recordings-panel-height: calc(
-        100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom)
+        100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom) -
+            var(--session-recordings-tabs-height)
     );
     --panel-gap: 0.5rem;
     --panel-playlist-min-width: 200px;

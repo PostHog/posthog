@@ -24,10 +24,8 @@ import { urls } from 'scenes/urls'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
 
-import { SessionRecordingErrors } from './errors/SessionRecordingErrors'
 import { PanelsUI } from './PanelUI'
 import { createPlaylist } from './playlist/playlistUtils'
-import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
@@ -192,13 +190,12 @@ function MainPanel(): JSX.Element {
             {!tab ? (
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
-                <div className="SessionRecordingPlaylistHeightWrapper">
-                    <SessionRecordingsPlaylist updateSearchParams />
-                </div>
-            ) : tab === ReplayTabs.Playlists ? (
+                <PanelsUI />
+            ) : // <div className="SessionRecordingPlaylistHeightWrapper">
+            //     <SessionRecordingsPlaylist updateSearchParams />
+            // </div>
+            tab === ReplayTabs.Playlists ? (
                 <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
-            ) : tab === ReplayTabs.Errors ? (
-                <SessionRecordingErrors />
             ) : tab === ReplayTabs.Templates ? (
                 <SessionRecordingTemplates />
             ) : null}
@@ -233,9 +230,8 @@ export function SessionsRecordings(): JSX.Element {
     return (
         <>
             <Header />
-            <PanelsUI />
-            {/* <PageTabs />
-            <MainPanel /> */}
+            <PageTabs />
+            <MainPanel />
         </>
     )
 }

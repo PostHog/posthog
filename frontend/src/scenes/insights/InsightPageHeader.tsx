@@ -31,8 +31,8 @@ import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -83,7 +83,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { tags } = useValues(tagsModel)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
-    const { currentTeamId } = useValues(teamLogic)
+    const { currentProjectId } = useValues(projectLogic)
     const { push } = useActions(router)
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
@@ -316,7 +316,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 onClick={() =>
                                                     void deleteInsightWithUndo({
                                                         object: insight as QueryBasedInsightModel,
-                                                        endpoint: `projects/${currentTeamId}/insights`,
+                                                        endpoint: `projects/${currentProjectId}/insights`,
                                                         callback: () => {
                                                             loadInsights()
                                                             push(urls.savedInsights())
