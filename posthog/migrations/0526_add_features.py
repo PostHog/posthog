@@ -15,26 +15,13 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("team", models.ForeignKey(on_delete=models.deletion.CASCADE, to="posthog.team")),
-                ("name", models.CharField(blank=True, max_length=400)),
-                ("description", models.TextField(blank=True)),
+                ("name", models.CharField(max_length=400)),
+                ("description", models.TextField(default="")),
                 ("documentation_url", models.URLField(blank=True)),
                 ("issue_url", models.URLField(blank=True)),
                 (
-                    "status",
-                    models.CharField(
-                        choices=[
-                            ("pre_alpha", "Pre-alpha"),
-                            ("alpha", "Alpha"),
-                            ("beta", "Beta"),
-                            ("general_availability", "GA"),
-                        ],
-                        default="pre_alpha",
-                        max_length=32,
-                    ),
-                ),
-                (
-                    "primary_feature_flag",
-                    models.ForeignKey(null=True, on_delete=models.deletion.RESTRICT, to="posthog.featureflag"),
+                    "primary_early_access_feature",
+                    models.ForeignKey(null=True, on_delete=models.deletion.RESTRICT, to="posthog.earlyaccessfeature"),
                 ),
                 ("created_at", models.DateTimeField(default=timezone.now)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
