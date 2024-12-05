@@ -221,12 +221,17 @@ class PropertySwapper(CloningVisitor):
             return ast.Call(name="toFloat", args=[node])
         if field_type == "Boolean":
             return ast.Call(
-                name="transform",
+                name="toBool",
                 args=[
-                    ast.Call(name="toString", args=[node]),
-                    ast.Constant(value=["true", "false"]),
-                    ast.Constant(value=[True, False]),
-                    ast.Constant(value=None),
+                    ast.Call(
+                        name="transform",
+                        args=[
+                            ast.Call(name="toString", args=[node]),
+                            ast.Constant(value=["true", "false"]),
+                            ast.Constant(value=[1, 0]),
+                            ast.Constant(value=None),
+                        ],
+                    )
                 ],
             )
         return node
