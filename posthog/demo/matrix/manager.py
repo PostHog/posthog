@@ -139,7 +139,7 @@ class MatrixManager:
             print(
                 f"Inferred {event_definition_count} event definitions, {property_definition_count} property definitions, and {event_properties_count} event-property pairs."
             )
-        for cohort in Cohort.objects.filter(team=team):
+        for cohort in Cohort.objects.filter(team__project_id=team.project_id):
             cohort.calculate_people_ch(pending_version=0)
         team.project.save()
         team.save()

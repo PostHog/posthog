@@ -256,7 +256,9 @@ class FeatureFlagSerializer(
 
                 if prop.type == "cohort":
                     try:
-                        initial_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
+                        initial_cohort: Cohort = Cohort.objects.get(
+                            pk=prop.value, team__project_id=self.context["project_id"]
+                        )
                         dependent_cohorts = get_dependent_cohorts(initial_cohort)
                         for cohort in [initial_cohort, *dependent_cohorts]:
                             if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
@@ -666,7 +668,7 @@ class FeatureFlagViewSet(
             seen_cohorts_cache = {
                 cohort.pk: cohort
                 for cohort in Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-                    team_id=self.team_id, deleted=False
+                    team__project_id=self.project_id, deleted=False
                 )
             }
 

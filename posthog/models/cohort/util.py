@@ -173,7 +173,7 @@ def get_entity_query(
     if event_id:
         return f"event = %({f'event_{group_idx}'})s", {f"event_{group_idx}": event_id}
     elif action_id:
-        action = Action.objects.get(pk=action_id, team_id=team_id)
+        action = Action.objects.get(pk=action_id)
         action_filter_query, action_params = format_action_filter(
             team_id=team_id,
             action=action,
@@ -545,7 +545,7 @@ def get_dependent_cohorts(
                     continue
             else:
                 current_cohort = Cohort.objects.db_manager(using_database).get(
-                    pk=cohort_id, team_id=cohort.team_id, deleted=False
+                    pk=cohort_id, team__project_id=cohort.team.project_id, deleted=False
                 )
                 seen_cohorts_cache[cohort_id] = current_cohort
             if current_cohort.id not in seen_cohort_ids:

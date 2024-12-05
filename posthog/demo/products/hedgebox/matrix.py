@@ -769,7 +769,7 @@ class HedgeboxMatrix(Matrix):
                             )
                         ),
                     )
-                    for insight in Insight.objects.filter(team=team)
+                    for insight in Insight.objects.filter(team__project_id=team.project_id)
                 ),
             )
         except IntegrityError:
