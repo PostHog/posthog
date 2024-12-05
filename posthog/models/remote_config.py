@@ -3,18 +3,14 @@ import os
 from typing import Optional
 from django.conf import settings
 from django.db import models
-from django.db.models.signals import post_save
-from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from prometheus_client import Counter
 from sentry_sdk import capture_exception
 import structlog
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.utils import UUIDModel, execute_with_timeout
 
-from posthog.models.team import Team
 
 CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
     "posthog_remote_config_sync",
@@ -39,6 +35,12 @@ def get_array_js_content():
             _array_js_content = f.read()
 
     return _array_js_content
+
+
+def indent_js(js_content: str, indent: int = 4) -> str:
+    joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
+
+    return joined
 
 
 class RemoteConfig(UUIDModel):
@@ -179,21 +181,34 @@ class RemoteConfig(UUIDModel):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
+        from posthog.cdp.site_functions import get_transpiled_function_v2
+        from posthog.models import HogFunction
 
         # Add in the site apps as an array of objects
-        site_apps = []
+        site_apps_js = []
         for site_app in get_site_apps_for_team(self.team.id):
             config = get_site_config_from_schema(site_app.config_schema, site_app.config)
-            # NOTE: It is an object as we can later add other properties such as a consent ID
-            site_apps.append(
-                f"{{ token: '{site_app.token}', load: function(posthog) {{ {site_app.source}().inject({{ config:{json.dumps(config)}, posthog:posthog }}) }} }}"
+            site_apps_js.append(
+                f"{{ id: '{site_app.token}', init: function(config) {{ {site_app.source}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }}); config.callback();  }} }}"
             )
 
-        js_content = f"""
-        (function() {{
-            window._POSTHOG_CONFIG = {json.dumps(self.config)};
-            window._POSTHOG_SITE_APPS = [{','.join(site_apps)}];
-        }})();
+        site_functions = HogFunction.objects.filter(
+            team=self.team, enabled=True, type__in=("site_destination", "site_app"), transpiled__isnull=False
+        ).all()
+
+        site_functions_js = []
+
+        for site_function in site_functions:
+            source = indent_js(get_transpiled_function_v2(site_function))
+            # NOTE: It is an object as we can later add other properties such as a consent ID
+            site_functions_js.append(
+                f"{{ id: '{site_function.id}', init: function(config) {{ return {source}().init(config) }} }}"
+            )
+
+        js_content = f"""(function() {{
+  window._POSTHOG_CONFIG = {json.dumps(self.config)};
+  window._POSTHOG_JS_APPS = [{','.join(site_apps_js + site_functions_js)}];
+}})();
         """.strip()
 
         return js_content
@@ -219,6 +234,7 @@ class RemoteConfig(UUIDModel):
 
         logger.info(f"Syncing RemoteConfig for team {self.team_id}")
 
+        # TODO: We might still want to invalidate certain caches here due to site apps changing
         try:
             config = self.build_config()
             # Compare the config to the current one and only update if it has changed
@@ -240,19 +256,3 @@ class RemoteConfig(UUIDModel):
 
     def __str__(self):
         return f"RemoteConfig {self.team_id}"
-
-
-def rebuild_remote_config(team: "Team"):
-    from posthog.tasks.remote_config import update_team_remote_config
-
-    update_team_remote_config.delay(team.id)
-
-
-@receiver(post_save, sender=Team)
-def team_saved(sender, instance: "Team", created, **kwargs):
-    rebuild_remote_config(instance)
-
-
-@receiver(post_save, sender=FeatureFlag)
-def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
-    rebuild_remote_config(instance.team)
