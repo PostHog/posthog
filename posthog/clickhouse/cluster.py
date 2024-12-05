@@ -52,7 +52,9 @@ class FuturesMap(dict[K, Future[V]]):
 
 class ConnectionInfo(NamedTuple):
     address: str
-    port: int
+
+    def make_pool(self) -> ChPool:
+        return make_ch_pool(host=self.address)
 
 
 class HostInfo(NamedTuple):
@@ -67,10 +69,10 @@ T = TypeVar("T")
 class ClickhouseCluster:
     def __init__(self, bootstrap_client: Client, extra_hosts: Sequence[ConnectionInfo] | None = None) -> None:
         self.__hosts = [
-            HostInfo(ConnectionInfo(host_address, port), shard_num, replica_num)
-            for (host_address, port, shard_num, replica_num) in bootstrap_client.execute(
+            HostInfo(ConnectionInfo(host_address), shard_num, replica_num)
+            for (host_address, shard_num, replica_num) in bootstrap_client.execute(
                 """
-                SELECT host_address, port, shard_num, replica_num
+                SELECT host_address, shard_num, replica_num
                 FROM system.clusters
                 WHERE name = %(name)s
                 ORDER BY shard_num, replica_num
@@ -87,7 +89,7 @@ class ClickhouseCluster:
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
         if pool is None:
-            pool = self.__pools[host] = make_ch_pool(host=host.connection_info.address, port=host.connection_info.port)
+            pool = self.__pools[host] = host.connection_info.make_pool()
 
         def task():
             with pool.get_client() as client:
