@@ -193,6 +193,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 # If that's the case, the code just makes sure transpilation doesn't throw. We'll re-transpile after creation.
                 id = str(instance.id) if instance else "__"
                 try:
+                    # NOTE: We technically don't need to save this here as it will never be used directly from the model :thinking:
                     attrs["transpiled"] = get_transpiled_function(
                         id, attrs["hog"], attrs["filters"], attrs["inputs"], team
                     )

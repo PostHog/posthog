@@ -188,7 +188,7 @@ class RemoteConfig(UUIDModel):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
-        from posthog.cdp.site_functions import get_transpiled_function_v2
+        from posthog.cdp.site_functions import get_transpiled_function
         from posthog.models import HogFunction
 
         # Add in the site apps as an array of objects
@@ -206,7 +206,8 @@ class RemoteConfig(UUIDModel):
         site_functions_js = []
 
         for site_function in site_functions:
-            source = indent_js(get_transpiled_function_v2(site_function))
+            # NOTE: Should we keep this on the model as .transpiled or just generate it on the fly?
+            source = indent_js(get_transpiled_function(site_function))
             # NOTE: It is an object as we can later add other properties such as a consent ID
             site_functions_js.append(
                 f"{{ id: '{site_function.id}', init: function(config) {{ return {source}().init(config) }} }}"
