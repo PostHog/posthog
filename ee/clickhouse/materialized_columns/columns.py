@@ -326,24 +326,26 @@ class DropColumnTask:
     try_drop_index: bool
 
     def execute(self, client: Client) -> None:
+        actions = []
+
         if self.try_drop_index:
             # XXX: copy/pasted from create task
             index_name = f"minmax_{self.column_name}"
             if check_index_exists(client, self.table, index_name):
-                client.execute(
-                    f"ALTER TABLE {self.table} DROP INDEX IF EXISTS {index_name}",
-                    settings={"alter_sync": 2 if TEST else 1},
-                )
+                actions.append(f"DROP INDEX IF EXISTS {index_name}")
             else:
                 logger.info("Skipping DROP INDEX for %r, nothing to do...", self)
 
         if check_column_exists(client, self.table, self.column_name):
-            client.execute(
-                f"ALTER TABLE {self.table} DROP COLUMN IF EXISTS {self.column_name}",
-                settings={"alter_sync": 2 if TEST else 1},
-            )
+            actions.append(f"DROP COLUMN IF EXISTS {self.column_name}")
         else:
             logger.info("Skipping DROP COLUMN for %r, nothing to do...", self)
+
+        if actions:
+            client.execute(
+                f"ALTER TABLE {self.table} " + ", ".join(actions),
+                settings={"alter_sync": 2 if TEST else 1},
+            )
 
 
 def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
