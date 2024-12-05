@@ -4,9 +4,14 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SIDE_PANEL_CONTEXT_KEY } from '~/layout/navigation-3000/sidepanel/types'
-import { SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { ActivityScope, Breadcrumb, PipelineNodeTab, PipelineStage } from '~/types'
+// import { SIDE_PANEL_CONTEXT_KEY } from '~/layout/navigation-3000/sidepanel/types'
+// import { SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import {
+    // ActivityScope,
+    Breadcrumb,
+    PipelineNodeTab,
+    PipelineStage,
+} from '~/types'
 
 import type { pipelineNodeLogicType } from './pipelineNodeLogicType'
 import { NODE_STAGE_TO_PIPELINE_TAB } from './pipelineNodeNewLogic'
@@ -79,19 +84,19 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             ],
         ],
 
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.node],
-            (node): SidePanelSceneContext | null => {
-                return node.backend === PipelineBackend.Plugin
-                    ? {
-                          activity_scope: ActivityScope.PLUGIN,
-                          activity_item_id: `${node.id}`,
-                          access_control_resource: 'plugin',
-                          access_control_resource_id: `${node.id}`,
-                      }
-                    : null
-            },
-        ],
+        // [SIDE_PANEL_CONTEXT_KEY]: [
+        //     (s) => [s.node],
+        //     (node): SidePanelSceneContext | null => {
+        //         return node.backend === PipelineBackend.Plugin
+        //             ? {
+        //                   activity_scope: ActivityScope.PLUGIN,
+        //                   activity_item_id: `${node.id}`,
+        //                   access_control_resource: 'plugin',
+        //                   access_control_resource_id: `${node.id}`,
+        //               }
+        //             : null
+        //     },
+        // ],
 
         nodeBackend: [
             (s) => [s.node],

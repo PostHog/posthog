@@ -13,10 +13,10 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+// import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { hogqlQuery } from '~/queries/query'
 import {
-    ActivityScope,
+    // ActivityScope,
     AnyPropertyFilter,
     Breadcrumb,
     CohortType,
@@ -256,16 +256,16 @@ export const personsLogic = kea<personsLogicType>([
             },
         ],
 
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.person],
-            (person): SidePanelSceneContext => {
-                return {
-                    activity_scope: ActivityScope.PERSON,
-                    // TODO: Is this correct? It doesn't seem to work...
-                    activity_item_id: person?.id ? `${person?.id}` : undefined,
-                }
-            },
-        ],
+        // [SIDE_PANEL_CONTEXT_KEY]: [
+        //     (s) => [s.person],
+        //     (person): SidePanelSceneContext => {
+        //         return {
+        //             activity_scope: ActivityScope.PERSON,
+        //             // TODO: Is this correct? It doesn't seem to work...
+        //             activity_item_id: person?.id ? `${person?.id}` : undefined,
+        //         }
+        //     },
+        // ],
 
         exporterProps: [
             (s) => [s.listFilters, (_, { cohort }) => cohort],
