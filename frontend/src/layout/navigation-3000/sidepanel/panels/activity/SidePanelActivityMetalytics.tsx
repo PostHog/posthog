@@ -1,13 +1,8 @@
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
-import { BindLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
-import { insightLogic } from 'scenes/insights/insightLogic'
-
-import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
-import { hogql } from '~/queries/utils'
 
 export function SidePanelActivityMetalytics(): JSX.Element {
     const { scope, instanceId, viewCount, recentUserMembers, viewCountLoading, recentUsersLoading } =
@@ -74,29 +69,6 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                     </div>
                 </Tooltip>
             </div>
-
-            {/* This looks odd but is a weirdness of the Query component it needs to be bound in an insight logic */}
-            <BindLogic logic={insightLogic} props={{ dashboardItemId: '', doNotLoad: true }}>
-                <Query
-                    query={{
-                        display: 'ActionsLineGraph',
-                        chartSettings: {
-                            seriesBreakdownColumn: null,
-                        },
-                        kind: NodeKind.DataVisualizationNode,
-                        source: {
-                            kind: NodeKind.HogQLQuery,
-                            query: hogql`SELECT timestamp, SUM(count) AS number_of_sessions
-                                FROM app_metrics
-                                WHERE app_source = 'metalytics'
-                                AND instance_id = ${instanceId}
-                                AND timestamp >= NOW() - INTERVAL 30 DAY
-                                GROUP BY timestamp
-                                ORDER BY timestamp DESC`,
-                        },
-                    }}
-                />
-            </BindLogic>
         </div>
     )
 }
