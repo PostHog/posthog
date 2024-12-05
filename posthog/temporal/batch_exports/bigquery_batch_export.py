@@ -718,7 +718,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                             stage_fields_cast_to_json=json_columns,
                         )
 
-        return records_completed + details.records_completed
+        return details.records_completed
 
 
 @workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])
