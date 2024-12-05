@@ -81,6 +81,8 @@ describe('CDP API', () => {
         hub = await createHub()
         team = await getFirstTeam(hub)
 
+        hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
+
         processor = new CdpFunctionCallbackConsumer(hub)
 
         await processor.start()
@@ -224,6 +226,63 @@ describe('CDP API', () => {
                     {
                         level: 'debug',
                         message: "Suspending function due to async function call 'fetch'. Payload: 2110 bytes",
+                    },
+                    {
+                        level: 'debug',
+                        message: 'Resuming function',
+                    },
+                    {
+                        level: 'info',
+                        message: 'Fetch response:, {"status":201,"body":{"real":true}}',
+                    },
+                    {
+                        level: 'debug',
+                        message: expect.stringContaining('Function completed in'),
+                    },
+                ],
+            })
+        })
+
+        it('includes enriched values in the request', async () => {
+            mockFetch.mockImplementationOnce(() => {
+                return Promise.resolve({
+                    status: 201,
+                    text: () => Promise.resolve(JSON.stringify({ real: true })),
+                    headers: new Headers({ 'Content-Type': 'application/json' }),
+                })
+            })
+
+            hogFunction = await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_google_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+                .send({ globals, mock_async_functions: false })
+
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://googleads.googleapis.com/',
+                expect.objectContaining({
+                    headers: expect.objectContaining({
+                        'developer-token': 'ADWORDS_TOKEN',
+                    }),
+                })
+            )
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toMatchObject({
+                status: 'success',
+                error: null,
+                logs: [
+                    {
+                        level: 'debug',
+                        message: 'Executing function',
+                    },
+                    {
+                        level: 'debug',
+                        message: "Suspending function due to async function call 'fetch'. Payload: 2108 bytes",
                     },
                     {
                         level: 'debug',
