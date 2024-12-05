@@ -865,6 +865,42 @@
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.10
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.11
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.12
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          count(*) as count
@@ -879,7 +915,7 @@
   OFFSET 0
   '''
 # ---
-# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.13
   '''
   
   SELECT groupArray(day_start) as date,
@@ -931,7 +967,7 @@
   ORDER BY breakdown_value
   '''
 # ---
-# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.14
   '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
@@ -947,7 +983,7 @@
   OFFSET 0
   '''
 # ---
-# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.4
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.15
   '''
   
   SELECT groupArray(day_start) as date,
@@ -997,6 +1033,102 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.4
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.5
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.6
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.7
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.8
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.9
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort
