@@ -42,7 +42,7 @@
         GROUP BY aggregation_target SETTINGS date_time_output_format='iso',
                                              date_time_input_format='best_effort')
      WHERE and(ifNull(equals(success_bool, 1), 0), ifNull(equals(entrance_period_start, toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), 0))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge') AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -118,7 +118,7 @@
         GROUP BY aggregation_target SETTINGS date_time_output_format='iso',
                                              date_time_input_format='best_effort')
      WHERE and(ifNull(notEquals(success_bool, 1), 1), ifNull(equals(entrance_period_start, toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), 0))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge') AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person
@@ -194,7 +194,7 @@
         GROUP BY aggregation_target SETTINGS date_time_output_format='iso',
                                              date_time_input_format='best_effort')
      WHERE and(ifNull(equals(success_bool, 1), 0), ifNull(equals(entrance_period_start, toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), 0))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,full_sorting_merge') AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   INNER JOIN
     (SELECT person.id AS id
      FROM person

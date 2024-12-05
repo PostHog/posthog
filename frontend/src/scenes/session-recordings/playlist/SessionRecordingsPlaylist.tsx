@@ -19,7 +19,10 @@ import {
     SessionRecordingsPlaylistTopSettings,
 } from './SessionRecordingsPlaylistSettings'
 
-export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicProps): JSX.Element {
+export function SessionRecordingsPlaylist({
+    showContent = true,
+    ...props
+}: SessionRecordingPlaylistLogicProps & { showContent?: boolean }): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
@@ -115,7 +118,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                     onSelect={(item) => setSelectedRecordingId(item.id)}
                     activeItemId={activeSessionRecordingId}
                     content={({ activeItem }) =>
-                        activeItem ? (
+                        showContent && activeItem ? (
                             <SessionRecordingPlayer
                                 playerKey={props.logicKey ?? 'playlist'}
                                 sessionRecordingId={activeItem.id}
