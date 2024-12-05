@@ -1,5 +1,6 @@
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
+import { FlutterInstructions } from '../session-replay/flutter'
 import {
     AndroidInstructions,
     AngularInstructions,
@@ -36,4 +37,5 @@ export const WebAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.WEBFLOW]: WebflowInstructions,
     [SDKKey.ANDROID]: AndroidInstructions,
     [SDKKey.REACT_NATIVE]: WebAnalyticsRNInstructions,
+    [SDKKey.FLUTTER]: FlutterInstructions,
 }
