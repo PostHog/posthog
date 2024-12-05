@@ -339,15 +339,17 @@ class DropColumnTask:
         if self.try_drop_index:
             # XXX: copy/pasted from create task
             index_name = f"minmax_{self.column_name}"
+            drop_index_action = f"DROP INDEX IF EXISTS {index_name}"
             if check_index_exists(client, self.table, index_name):
-                actions.append(f"DROP INDEX IF EXISTS {index_name}")
+                actions.append(drop_index_action)
             else:
-                logger.info("Skipping DROP INDEX for %r, nothing to do...", self)
+                logger.info("Skipping %r, nothing to do...", drop_index_action)
 
+        drop_column_action = f"DROP COLUMN IF EXISTS {self.column_name}"
         if check_column_exists(client, self.table, self.column_name):
-            actions.append(f"DROP COLUMN IF EXISTS {self.column_name}")
+            actions.append(drop_column_action)
         else:
-            logger.info("Skipping DROP COLUMN for %r, nothing to do...", self)
+            logger.info("Skipping %r, nothing to do...", drop_column_action)
 
         if actions:
             client.execute(
