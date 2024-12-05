@@ -8,6 +8,7 @@ from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGER
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
+from posthog.models.utils import UUIDT
 
 
 class ErrorTrackingIssue(UUIDModel):
@@ -24,36 +25,28 @@ class ErrorTrackingIssue(UUIDModel):
     description = models.TextField(null=True, blank=True)
 
     def merge(self, issue_ids: list[str]) -> None:
-        override_inserts: list[tuple[str, int, str]] = []
+        fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
 
         with transaction.atomic():
-            for issue_id in issue_ids:
-                fingerprints = resolve_fingerprints_for_issue(team_id=self.team.pk, issue_id=issue_id)
-
-                for fingerprint in fingerprints:
-                    override_inserts.append(
-                        update_error_tracking_issue_fingerprint(
-                            team_id=self.team.pk, issue_id=self.id, fingerprint=fingerprint
-                        )
-                    )
-
+            overrides = update_error_tracking_issue_fingerprints(
+                team_id=self.team.pk, issue_id=self.id, fingerprints=fingerprints
+            )
             ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
-
-        update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, override_inserts=override_inserts)
+            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
     def split(self, fingerprints: list[str]) -> None:
-        override_inserts: list[tuple[str, int, str]] = []
+        overrides: list[ErrorTrackingIssueFingerprintV2] = []
 
-        with transaction.atomic():
-            for fingerprint in fingerprints:
+        for fingerprint in fingerprints:
+            with transaction.atomic():
                 new_issue = ErrorTrackingIssue.objects.create(team=self.team)
-                override_inserts.append(
-                    update_error_tracking_issue_fingerprint(
-                        team_id=self.team.pk, issue_id=new_issue.id, fingerprint=fingerprint
+                overrides.extend(
+                    update_error_tracking_issue_fingerprints(
+                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fingerprint]
                     )
                 )
 
-            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, override_inserts=override_inserts)
+        update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
 
 class ErrorTrackingIssueAssignment(UUIDModel):
@@ -162,35 +155,43 @@ class ErrorTrackingIssueFingerprint(models.Model):
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique fingerprint for team")]
 
 
-def resolve_fingerprints_for_issue(team_id: int, issue_id: str) -> list[str]:
-    override_records = ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=issue_id)
-    return [r.fingerprint for r in override_records]
-
-
-def update_error_tracking_issue_fingerprint(team_id: int, issue_id: str, fingerprint: str) -> tuple[str, int, str]:
-    issue_fingerprint = ErrorTrackingIssueFingerprintV2.objects.select_for_update().get(
-        team_id=team_id, fingerprint=fingerprint
+def resolve_fingerprints_for_issues(team_id: int, issue_ids: list[str]) -> list[str]:
+    return list(
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id__in=issue_ids).values_list(
+            "fingerprint", flat=True
+        )
     )
-    issue_fingerprint.issue_id = issue_id
-    issue_fingerprint.version = (issue_fingerprint.version or 0) + 1
-    issue_fingerprint.save(update_fields=["version", "issue_id"])
 
-    return (fingerprint, issue_fingerprint.version, issue_id)
+
+def update_error_tracking_issue_fingerprints(
+    team_id: int, issue_id: str, fingerprints: list[str]
+) -> list[ErrorTrackingIssueFingerprintV2]:
+    return list(
+        ErrorTrackingIssueFingerprintV2.objects.raw(
+            """
+                UPDATE posthog_errortrackingissuefingerprintv2
+                SET version = version + 1, issue_id = %s
+                WHERE team_id = %s AND fingerprint = ANY(%s)
+                RETURNING fingerprint, version, issue_id, id
+            """,
+            [issue_id, team_id, fingerprints],
+        )
+    )
 
 
 def update_error_tracking_issue_fingerprint_overrides(
-    team_id: int, override_inserts: list[tuple[str, int, str]]
+    team_id: int, overrides: list[ErrorTrackingIssueFingerprintV2]
 ) -> None:
-    for fingerprint, version, issue_id in override_inserts:
+    for override in overrides:
         override_error_tracking_issue_fingerprint(
-            team_id=team_id, fingerprint=fingerprint, issue_id=issue_id, version=version
+            team_id=team_id, fingerprint=override.fingerprint, issue_id=override.issue_id, version=override.version
         )
 
 
 def override_error_tracking_issue_fingerprint(
     team_id: int,
     fingerprint: str,
-    issue_id: str,
+    issue_id: UUIDT,
     version=0,
     is_deleted: bool = False,
     sync: bool = False,
@@ -202,7 +203,7 @@ def override_error_tracking_issue_fingerprint(
         data={
             "team_id": team_id,
             "fingerprint": fingerprint,
-            "issue_id": issue_id,
+            "issue_id": str(issue_id),
             "version": version,
             "is_deleted": int(is_deleted),
         },
