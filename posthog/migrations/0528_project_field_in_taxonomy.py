@@ -9,7 +9,7 @@ from django.db.models.functions.comparison import Coalesce
 
 class Migration(migrations.Migration):
     atomic = False  # Added to support concurrent index creation
-    dependencies = [("posthog", "0526_remoteconfig")]
+    dependencies = [("posthog", "0527_project_name_sync")]
 
     operations = [
         migrations.RunSQL(

@@ -247,7 +247,7 @@ class SessionRecordingListFromQuery:
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=DateRange(date_from=self._query.date_from, date_to=self._query.date_to),
+            date_range=DateRange(date_from=self._query.date_from, date_to=self._query.date_to, explicitDate=True),
             team=self._team,
             interval=None,
             now=datetime.now(),

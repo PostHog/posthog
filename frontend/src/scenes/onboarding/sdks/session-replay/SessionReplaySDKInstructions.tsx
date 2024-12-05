@@ -24,6 +24,7 @@ import {
     VueInstructions,
     WebflowInstructions,
 } from '.'
+import { FlutterInstructions } from './flutter'
 import { RNInstructions } from './react-native'
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
@@ -43,6 +44,7 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.IOS]: iOSInstructions,
     [SDKKey.ANDROID]: AndroidInstructions,
     [SDKKey.REACT_NATIVE]: RNInstructions,
+    [SDKKey.FLUTTER]: FlutterInstructions,
 }
 
 export function AdvertiseMobileReplay({
