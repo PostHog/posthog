@@ -339,7 +339,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             MaterializedColumn.get(table, destination_column)
 
     def _get_latest_mutation_id(self, table: str) -> str:
-        match sync_execute(
+        [(mutation_id,)] = sync_execute(
             """
             SELECT max(mutation_id)
             FROM system.mutations
@@ -348,9 +348,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 AND table = %(table)s
             """,
             {"table": table},
-        ):
-            case [(mutation_id,)]:
-                return mutation_id
+        )
+        return mutation_id
 
     def _get_mutations_since_id(self, table: str, id: str) -> Iterable[str]:
         return [
