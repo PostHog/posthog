@@ -1,0 +1,603 @@
+# serializer version: 1
+# name: TestFOSSRetention.test_day_interval_sampled
+  '''
+  WITH actor_query AS
+    (WITH 'Day' as period,
+          NULL as breakdown_values_filter,
+          NULL as selected_interval,
+          returning_event_query as
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
+               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target
+        FROM events e SAMPLE 1.0
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 99999
+          AND e.event = '$pageview'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC')
+        GROUP BY target,
+                 event_date),
+          target_event_query as
+       (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target,
+                        [
+                          dateDiff(
+                              'Day',
+                              toStartOfDay(toDateTime('2020-06-10 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
+                          )
+                      ] as breakdown_values
+        FROM events e SAMPLE 1.0
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 99999
+          AND e.event = '$pageview'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
+                                                                                                    intervals_from_base,
+                                                                                                    actor_id
+     FROM
+       (SELECT target_event.breakdown_values AS breakdown_values,
+               datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
+               returning_event.target AS actor_id
+        FROM target_event_query AS target_event
+        JOIN returning_event_query AS returning_event ON returning_event.target = target_event.target
+        WHERE returning_event.event_date > target_event.event_date
+        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
+                         0 AS intervals_from_base,
+                         target_event.target AS actor_id
+        FROM target_event_query AS target_event)
+     WHERE (breakdown_values_filter is NULL
+            OR breakdown_values = breakdown_values_filter)
+       AND (selected_interval is NULL
+            OR intervals_from_base = selected_interval) )
+  SELECT actor_activity.breakdown_values AS breakdown_values,
+         actor_activity.intervals_from_base AS intervals_from_base,
+         COUNT(DISTINCT actor_activity.actor_id) AS count
+  FROM actor_query AS actor_activity
+  GROUP BY breakdown_values,
+           intervals_from_base
+  ORDER BY breakdown_values,
+           intervals_from_base
+  '''
+# ---
+# name: TestFOSSRetention.test_month_interval_with_person_on_events_v2
+  '''
+  
+  SELECT DISTINCT person_id
+  FROM events
+  WHERE team_id = 99999
+    AND distinct_id = 'person2'
+  '''
+# ---
+# name: TestFOSSRetention.test_month_interval_with_person_on_events_v2.1
+  '''
+  WITH actor_query AS
+    (WITH 'Month' as period,
+          NULL as breakdown_values_filter,
+          NULL as selected_interval,
+          returning_event_query as
+       (SELECT toStartOfMonth(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
+               if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as target
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+        WHERE team_id = 99999
+          AND e.event = '$pageview'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-01-10 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-12-10 00:00:00', 'UTC')
+          AND notEmpty(e.person_id)
+        GROUP BY target,
+                 event_date),
+          target_event_query as
+       (SELECT DISTINCT toStartOfMonth(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
+                        if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as target,
+                        [
+                          dateDiff(
+                              'Month',
+                              toStartOfMonth(toDateTime('2020-01-10 00:00:00', 'UTC')),
+                              toStartOfMonth(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
+                          )
+                      ] as breakdown_values
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+        WHERE team_id = 99999
+          AND e.event = '$pageview'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-01-10 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-12-10 00:00:00', 'UTC')
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
+     FROM
+       (SELECT target_event.breakdown_values AS breakdown_values,
+               datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
+               returning_event.target AS actor_id
+        FROM target_event_query AS target_event
+        JOIN returning_event_query AS returning_event ON returning_event.target = target_event.target
+        WHERE returning_event.event_date > target_event.event_date
+        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
+                         0 AS intervals_from_base,
+                         target_event.target AS actor_id
+        FROM target_event_query AS target_event)
+     WHERE (breakdown_values_filter is NULL
+            OR breakdown_values = breakdown_values_filter)
+       AND (selected_interval is NULL
+            OR intervals_from_base = selected_interval) )
+  SELECT actor_activity.breakdown_values AS breakdown_values,
+         actor_activity.intervals_from_base AS intervals_from_base,
+         COUNT(DISTINCT actor_activity.actor_id) AS count
+  FROM actor_query AS actor_activity
+  GROUP BY breakdown_values,
+           intervals_from_base
+  ORDER BY breakdown_values,
+           intervals_from_base
+  '''
+# ---
+# name: TestFOSSRetention.test_retention_event_action
+  '''
+  WITH actor_query AS
+    (WITH 'Day' as period,
+          NULL as breakdown_values_filter,
+          NULL as selected_interval,
+          returning_event_query as
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
+               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 99999
+          AND e.event = '$some_event'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00', 'UTC')
+        GROUP BY target,
+                 event_date),
+          target_event_query as
+       (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target,
+                        [
+                          dateDiff(
+                              'Day',
+                              toStartOfDay(toDateTime('2020-06-10 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
+                          )
+                      ] as breakdown_values
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 99999
+          AND ((event = 'sign up'))
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
+                                                                                                    intervals_from_base,
+                                                                                                    actor_id
+     FROM
+       (SELECT target_event.breakdown_values AS breakdown_values,
+               datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
+               returning_event.target AS actor_id
+        FROM target_event_query AS target_event
+        JOIN returning_event_query AS returning_event ON returning_event.target = target_event.target
+        WHERE returning_event.event_date > target_event.event_date
+        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
+                         0 AS intervals_from_base,
+                         target_event.target AS actor_id
+        FROM target_event_query AS target_event)
+     WHERE (breakdown_values_filter is NULL
+            OR breakdown_values = breakdown_values_filter)
+       AND (selected_interval is NULL
+            OR intervals_from_base = selected_interval) )
+  SELECT actor_activity.breakdown_values AS breakdown_values,
+         actor_activity.intervals_from_base AS intervals_from_base,
+         COUNT(DISTINCT actor_activity.actor_id) AS count
+  FROM actor_query AS actor_activity
+  GROUP BY breakdown_values,
+           intervals_from_base
+  ORDER BY breakdown_values,
+           intervals_from_base
+  '''
+# ---
+# name: TestFOSSRetention.test_retention_with_user_properties_via_action
+  '''
+  WITH actor_query AS
+    (WITH 'Day' as period,
+          NULL as breakdown_values_filter,
+          NULL as selected_interval,
+          returning_event_query as
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
+               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id,
+                  argMax(properties, version) as person_props
+           FROM person
+           WHERE team_id = 99999
+           GROUP BY id
+           HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+        WHERE team_id = 99999
+          AND e.event = '$pageview'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00', 'UTC')
+        GROUP BY target,
+                 event_date),
+          target_event_query as
+       (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target,
+                        [
+                          dateDiff(
+                              'Day',
+                              toStartOfDay(toDateTime('2020-06-10 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
+                          )
+                      ] as breakdown_values
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id,
+                  argMax(properties, version) as person_props
+           FROM person
+           WHERE team_id = 99999
+           GROUP BY id
+           HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+        WHERE team_id = 99999
+          AND ((event = '$pageview'
+                AND (has(['person1@test.com'], replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '')))))
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
+                                                                                                    intervals_from_base,
+                                                                                                    actor_id
+     FROM
+       (SELECT target_event.breakdown_values AS breakdown_values,
+               datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
+               returning_event.target AS actor_id
+        FROM target_event_query AS target_event
+        JOIN returning_event_query AS returning_event ON returning_event.target = target_event.target
+        WHERE returning_event.event_date > target_event.event_date
+        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
+                         0 AS intervals_from_base,
+                         target_event.target AS actor_id
+        FROM target_event_query AS target_event)
+     WHERE (breakdown_values_filter is NULL
+            OR breakdown_values = breakdown_values_filter)
+       AND (selected_interval is NULL
+            OR intervals_from_base = selected_interval) )
+  SELECT actor_activity.breakdown_values AS breakdown_values,
+         actor_activity.intervals_from_base AS intervals_from_base,
+         COUNT(DISTINCT actor_activity.actor_id) AS count
+  FROM actor_query AS actor_activity
+  GROUP BY breakdown_values,
+           intervals_from_base
+  ORDER BY breakdown_values,
+           intervals_from_base
+  '''
+# ---
+# name: TestFOSSRetention.test_timezones
+  '''
+  WITH actor_query AS
+    (WITH 'Day' as period,
+          NULL as breakdown_values_filter,
+          NULL as selected_interval,
+          returning_event_query as
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
+               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 99999
+          AND e.event = '$pageview'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC')
+        GROUP BY target,
+                 event_date),
+          target_event_query as
+       (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target,
+                        [
+                          dateDiff(
+                              'Day',
+                              toStartOfDay(toDateTime('2020-06-10 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
+                          )
+                      ] as breakdown_values
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 99999
+          AND e.event = '$pageview'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
+                                                                                                    intervals_from_base,
+                                                                                                    actor_id
+     FROM
+       (SELECT target_event.breakdown_values AS breakdown_values,
+               datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
+               returning_event.target AS actor_id
+        FROM target_event_query AS target_event
+        JOIN returning_event_query AS returning_event ON returning_event.target = target_event.target
+        WHERE returning_event.event_date > target_event.event_date
+        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
+                         0 AS intervals_from_base,
+                         target_event.target AS actor_id
+        FROM target_event_query AS target_event)
+     WHERE (breakdown_values_filter is NULL
+            OR breakdown_values = breakdown_values_filter)
+       AND (selected_interval is NULL
+            OR intervals_from_base = selected_interval) )
+  SELECT actor_activity.breakdown_values AS breakdown_values,
+         actor_activity.intervals_from_base AS intervals_from_base,
+         COUNT(DISTINCT actor_activity.actor_id) AS count
+  FROM actor_query AS actor_activity
+  GROUP BY breakdown_values,
+           intervals_from_base
+  ORDER BY breakdown_values,
+           intervals_from_base
+  '''
+# ---
+# name: TestFOSSRetention.test_timezones.1
+  '''
+  WITH actor_query AS
+    (WITH 'Day' as period,
+          NULL as breakdown_values_filter,
+          NULL as selected_interval,
+          returning_event_query as
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'US/Pacific')) AS event_date,
+               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 99999
+          AND e.event = '$pageview'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'US/Pacific')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'US/Pacific')
+        GROUP BY target,
+                 event_date),
+          target_event_query as
+       (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'US/Pacific')) AS event_date,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target,
+                        [
+                          dateDiff(
+                              'Day',
+                              toStartOfDay(toDateTime('2020-06-10 00:00:00', 'US/Pacific')),
+                              toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'US/Pacific'))
+                          )
+                      ] as breakdown_values
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 99999
+          AND e.event = '$pageview'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'US/Pacific')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'US/Pacific') ) SELECT DISTINCT breakdown_values,
+                                                                                                           intervals_from_base,
+                                                                                                           actor_id
+     FROM
+       (SELECT target_event.breakdown_values AS breakdown_values,
+               datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
+               returning_event.target AS actor_id
+        FROM target_event_query AS target_event
+        JOIN returning_event_query AS returning_event ON returning_event.target = target_event.target
+        WHERE returning_event.event_date > target_event.event_date
+        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
+                         0 AS intervals_from_base,
+                         target_event.target AS actor_id
+        FROM target_event_query AS target_event)
+     WHERE (breakdown_values_filter is NULL
+            OR breakdown_values = breakdown_values_filter)
+       AND (selected_interval is NULL
+            OR intervals_from_base = selected_interval) )
+  SELECT actor_activity.breakdown_values AS breakdown_values,
+         actor_activity.intervals_from_base AS intervals_from_base,
+         COUNT(DISTINCT actor_activity.actor_id) AS count
+  FROM actor_query AS actor_activity
+  GROUP BY breakdown_values,
+           intervals_from_base
+  ORDER BY breakdown_values,
+           intervals_from_base
+  '''
+# ---
+# name: TestFOSSRetention.test_week_interval
+  '''
+  WITH actor_query AS
+    (WITH 'Week' as period,
+          NULL as breakdown_values_filter,
+          NULL as selected_interval,
+          returning_event_query as
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 99999
+          AND e.event = '$pageview'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+        GROUP BY target,
+                 event_date),
+          target_event_query as
+       (SELECT DISTINCT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target,
+                        [
+                          dateDiff(
+                              'Week',
+                              toStartOfWeek(toDateTime('2020-06-07 00:00:00', 'UTC'), 0),
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0)
+                          )
+                      ] as breakdown_values
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 99999
+          AND e.event = '$pageview'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
+                                                                                                    intervals_from_base,
+                                                                                                    actor_id
+     FROM
+       (SELECT target_event.breakdown_values AS breakdown_values,
+               datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
+               returning_event.target AS actor_id
+        FROM target_event_query AS target_event
+        JOIN returning_event_query AS returning_event ON returning_event.target = target_event.target
+        WHERE returning_event.event_date > target_event.event_date
+        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
+                         0 AS intervals_from_base,
+                         target_event.target AS actor_id
+        FROM target_event_query AS target_event)
+     WHERE (breakdown_values_filter is NULL
+            OR breakdown_values = breakdown_values_filter)
+       AND (selected_interval is NULL
+            OR intervals_from_base = selected_interval) )
+  SELECT actor_activity.breakdown_values AS breakdown_values,
+         actor_activity.intervals_from_base AS intervals_from_base,
+         COUNT(DISTINCT actor_activity.actor_id) AS count
+  FROM actor_query AS actor_activity
+  GROUP BY breakdown_values,
+           intervals_from_base
+  ORDER BY breakdown_values,
+           intervals_from_base
+  '''
+# ---
+# name: TestFOSSRetention.test_week_interval.1
+  '''
+  WITH actor_query AS
+    (WITH 'Week' as period,
+          NULL as breakdown_values_filter,
+          NULL as selected_interval,
+          returning_event_query as
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 3) AS event_date,
+               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 99999
+          AND e.event = '$pageview'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-08 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+        GROUP BY target,
+                 event_date),
+          target_event_query as
+       (SELECT DISTINCT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 3) AS event_date,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target,
+                        [
+                          dateDiff(
+                              'Week',
+                              toStartOfWeek(toDateTime('2020-06-08 00:00:00', 'UTC'), 3),
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 3)
+                          )
+                      ] as breakdown_values
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 99999
+          AND e.event = '$pageview'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-08 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
+                                                                                                    intervals_from_base,
+                                                                                                    actor_id
+     FROM
+       (SELECT target_event.breakdown_values AS breakdown_values,
+               datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
+               returning_event.target AS actor_id
+        FROM target_event_query AS target_event
+        JOIN returning_event_query AS returning_event ON returning_event.target = target_event.target
+        WHERE returning_event.event_date > target_event.event_date
+        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
+                         0 AS intervals_from_base,
+                         target_event.target AS actor_id
+        FROM target_event_query AS target_event)
+     WHERE (breakdown_values_filter is NULL
+            OR breakdown_values = breakdown_values_filter)
+       AND (selected_interval is NULL
+            OR intervals_from_base = selected_interval) )
+  SELECT actor_activity.breakdown_values AS breakdown_values,
+         actor_activity.intervals_from_base AS intervals_from_base,
+         COUNT(DISTINCT actor_activity.actor_id) AS count
+  FROM actor_query AS actor_activity
+  GROUP BY breakdown_values,
+           intervals_from_base
+  ORDER BY breakdown_values,
+           intervals_from_base
+  '''
+# ---
