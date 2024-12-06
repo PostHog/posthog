@@ -711,7 +711,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.team.refresh_from_db()
         self.assertTrue(self.team.inject_web_apps)
-        response = self._post_decide(assert_num_queries=5)
+        response = self._post_decide(assert_num_queries=1 if self.use_remote_config else 5)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         injected = response.json()["siteApps"]
         self.assertEqual(len(injected), 1)
