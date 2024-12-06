@@ -67,7 +67,11 @@ def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
 
 def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
     if token in (settings.DECIDE_TOKENS_FOR_REMOTE_CONFIG or []):
-        return RemoteConfig.get_config_via_token(token)
+        response = RemoteConfig.get_config_via_token(token)
+
+        if _session_recording_domain_not_allowed(team, request):
+            # Fallback for sessionRecording domain check - new endpoint will be used differently
+            response["sessionRecording"] = False
 
     response = {
         "config": {"enable_collect_everything": True},
@@ -351,13 +355,15 @@ def get_decide(request: HttpRequest):
     return cors_response(request, JsonResponse(response))
 
 
+def _session_recording_domain_not_allowed(team: Team, request: HttpRequest) -> bool:
+    return team.recording_domains and not on_permitted_recording_domain(team, request)
+
+
 def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:
     session_recording_config_response: bool | dict = False
 
     try:
-        if team.session_recording_opt_in and (
-            on_permitted_recording_domain(team, request) or not team.recording_domains
-        ):
+        if team.session_recording_opt_in and not _session_recording_domain_not_allowed(team, request):
             capture_console_logs = True if team.capture_console_log_opt_in else False
             sample_rate = str(team.session_recording_sample_rate) if team.session_recording_sample_rate else None
             if sample_rate == "1.00":
