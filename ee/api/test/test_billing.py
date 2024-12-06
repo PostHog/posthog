@@ -841,7 +841,7 @@ class TestBillingAPI(APILicensedTest):
         assert self.organization.customer_trust_scores == {"recordings": 0, "events": 15, "rows_synced": 0}
 
     @patch("ee.api.billing.requests.get")
-    def test_billing_with_forecasting(self, mock_get):
+    def test_billing_with_supported_params(self, mock_get):
         """Test that the include_forecasting param is passed through to the billing service."""
 
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
@@ -851,7 +851,9 @@ class TestBillingAPI(APILicensedTest):
             if "api/billing/portal" in url:
                 mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
             elif "api/billing" in url:
-                mock.json.return_value = {"customer": {}}
+                mock.json.return_value = create_billing_response(
+                    customer=create_billing_customer(has_active_subscription=True)
+                )
 
             return mock
 
