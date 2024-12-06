@@ -18,7 +18,6 @@ async fn test_updates(db: PgPool) {
 
     let event_src = json!({
         "team_id": 1,
-        "project_id": 1,
         "event": "update",
         "properties": properties
     });
