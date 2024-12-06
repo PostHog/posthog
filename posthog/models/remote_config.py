@@ -244,22 +244,42 @@ class RemoteConfig(UUIDModel):
 
         return js_content
 
-    def sync(self, force=False):
+    def get_config(self, use_cache: bool = True):
+        # Try to get from cache first
+        # If not in cache, build the config and set in cache
+        # Return the config
+
+        return self.config
+
+    def get_js_config(self, use_cache: bool = True):
+        # Try to get from cache first
+        # If not in cache, build the config and set in cache
+        # Return the config
+
+        return self.build_js_config()
+
+    def get_array_js_config(self, use_cache: bool = True):
+        # Try to get from cache first
+        # If not in cache, build the config and set in cache
+        # Return the config
+
+        return self.build_array_js_config()
+
+    def sync(self):
         """
         When called we sync to any configured CDNs as well as redis for the /decide endpoint
         """
 
         logger.info(f"Syncing RemoteConfig for team {self.team_id}")
 
-        # TODO: We might still want to invalidate certain caches here due to site apps changing
         try:
             config = self.build_config()
-            # Compare the config to the current one and only update if it has changed
-            if config == self.config and not force:
-                logger.info(f"RemoteConfig for team {self.team_id} has not changed. Skipping sync.")
-                return
-
             self.config = config
+
+            # Trigger invalidation of all the items
+            self.get_config(use_cache=False)
+            self.get_js_config(use_cache=False)
+            self.get_array_js_config(use_cache=False)
             # TODO: Invalidate caches - in particular this will be the Cloudflare CDN cache
             self.synced_at = timezone.now()
             self.save()
