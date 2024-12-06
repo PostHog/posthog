@@ -7,24 +7,26 @@ import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { HogFunctionInputSchemaType } from '~/types'
+
 export type IntegrationConfigureProps = {
     value?: number
     onChange?: (value: number | null) => void
     redirectUrl?: string
-    integration?: string
+    schema?: HogFunctionInputSchemaType
     beforeRedirect?: () => void
 }
 
 export function IntegrationChoice({
     onChange,
     value,
-    integration,
+    schema,
     redirectUrl,
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { newGoogleCloudKey } = useActions(integrationsLogic)
-    const kind = integration
+    const kind = schema?.integration
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
 
@@ -124,5 +126,13 @@ export function IntegrationChoice({
         </LemonMenu>
     )
 
-    return <>{integrationKind ? <IntegrationView integration={integrationKind} suffix={button} /> : button}</>
+    return (
+        <>
+            {integrationKind ? (
+                <IntegrationView schema={schema} integration={integrationKind} suffix={button} />
+            ) : (
+                button
+            )}
+        </>
+    )
 }

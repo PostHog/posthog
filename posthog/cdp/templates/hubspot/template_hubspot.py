@@ -307,6 +307,7 @@ if (res.status >= 400) {
             "type": "integration",
             "integration": "hubspot",
             "label": "Hubspot connection",
+            "requiredScopes": "contacts.basic",
             "secret": False,
             "required": True,
         },
