@@ -38,6 +38,7 @@ from posthog.models import (
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.group.group import Group
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person import PersonDistinctId
 from posthog.models.personal_api_key import hash_key_value
@@ -71,6 +72,9 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
         "eventTriggers": [],
         **overrides,
     }
+
+
+# TODO: Add a derived version of decide that covers the new RemoteConfig option
 
 
 @patch(
@@ -663,7 +667,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions in the above mean fewer queries
         # 3 of these queries are just for setting transaction scope
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(8):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
@@ -688,12 +692,51 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.team.refresh_from_db()
         self.assertTrue(self.team.inject_web_apps)
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(9):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
             self.assertEqual(len(injected), 1)
             self.assertTrue(injected[0]["url"].startswith(f"/site_app/{plugin_config.id}/{plugin_config.web_token}/"))
+
+    def test_site_function_injection(self, *args):
+        # yype: site_app
+        site_app = HogFunction.objects.create(
+            team=self.team,
+            name="my_function",
+            hog="function onLoad(){}",
+            type="site_app",
+            transpiled="function onLoad(){}",
+            enabled=True,
+        )
+
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.inject_web_apps)
+        with self.assertNumQueries(9):
+            response = self._post_decide()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            injected = response.json()["siteApps"]
+            self.assertEqual(len(injected), 1)
+            self.assertTrue(injected[0]["url"].startswith(f"/site_function/{site_app.id}/"))
+
+        # yype: site_destination
+        site_destination = HogFunction.objects.create(
+            team=self.team,
+            name="my_function",
+            hog="function onLoad(){}",
+            type="site_destination",
+            transpiled="function onLoad(){}",
+            enabled=True,
+        )
+
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.inject_web_apps)
+        with self.assertNumQueries(8):
+            response = self._post_decide()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            injected = response.json()["siteApps"]
+            self.assertEqual(len(injected), 2)
+            self.assertTrue(injected[1]["url"].startswith(f"/site_function/{site_destination.id}/"))
 
     def test_feature_flags(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -4690,7 +4733,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # update caches
         self._post_decide(api_version=3)
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]

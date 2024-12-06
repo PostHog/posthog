@@ -217,6 +217,9 @@ dependencies:
   fast-deep-equal:
     specifier: ^3.1.3
     version: 3.1.3
+  fastpriorityqueue:
+    specifier: ^0.7.5
+    version: 0.7.5
   fflate:
     specifier: ^0.7.4
     version: 0.7.4
@@ -302,8 +305,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.194.0
-    version: 1.194.0
+    specifier: 1.194.5
+    version: 1.194.5
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -6952,8 +6955,8 @@ packages:
       lodash: 4.17.21
     dev: true
 
-  /@storybook/csf@0.1.11:
-    resolution: {integrity: sha512-dHYFQH3mA+EtnCkHXzicbLgsvzYjcDJ1JWsogbItZogkPHgSJM/Wr71uMkcvw8v9mmCyP4NpXJuu6bPoVsOnzg==}
+  /@storybook/csf@0.1.12:
+    resolution: {integrity: sha512-9/exVhabisyIVL0VxTCxo01Tdm8wefIXKXfltAPTSr8cbLn5JAxGQ6QV3mjdecLGEOucfoVhAKtJfVHxEK1iqw==}
     dependencies:
       type-fest: 2.19.0
     dev: true
@@ -6993,7 +6996,7 @@ packages:
       '@storybook/channels': 7.6.20
       '@storybook/client-logger': 7.6.20
       '@storybook/core-events': 7.6.20
-      '@storybook/csf': 0.1.11
+      '@storybook/csf': 0.1.12
       '@storybook/global': 5.0.0
       '@storybook/router': 7.6.20
       '@storybook/theming': 7.6.20(react-dom@18.2.0)(react@18.2.0)
@@ -7108,7 +7111,7 @@ packages:
       '@storybook/channels': 7.6.20
       '@storybook/client-logger': 7.6.20
       '@storybook/core-events': 7.6.20
-      '@storybook/csf': 0.1.11
+      '@storybook/csf': 0.1.12
       '@storybook/global': 5.0.0
       '@storybook/types': 7.6.20
       '@types/qs': 6.9.17
@@ -12767,6 +12770,10 @@ packages:
     engines: {node: '>= 4.9.1'}
     dev: true
 
+  /fastpriorityqueue@0.7.5:
+    resolution: {integrity: sha512-3Pa0n9gwy8yIbEsT3m2j/E9DXgWvvjfiZjjqcJ+AdNKTAlVMIuFYrYG5Y3RHEM8O6cwv9hOpOWY/NaMfywoQVA==}
+    dev: false
+
   /fastq@1.13.0:
     resolution: {integrity: sha512-YpkpUnK8od0o1hmeSc7UUs/eB/vIPWJYjKck2QKIzAf71Vm1AAQ3EbuZB3g2JIy+pg+ERD0vqI79KyZiB2e2Nw==}
     dependencies:
@@ -14003,7 +14010,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.25.0
+      preact: 10.25.1
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -17822,12 +17829,12 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.194.0:
-    resolution: {integrity: sha512-9yjYjHYlT6hh6/OlEJmz/wEjMZI1cRghxmYirwq60uHK93nbbxFP1VE7LqjWFLM8jSTXRw//lpU23EvU7QjvxQ==}
+  /posthog-js@1.194.5:
+    resolution: {integrity: sha512-bYa20TkwzkDsr2y3iCiJNto/bthkYkmHZopIOXzFEw7KeB581Y1WueaOry5MFHEwnpZuomqEmcMQGBAoWvv8VA==}
     dependencies:
       core-js: 3.39.0
       fflate: 0.4.8
-      preact: 10.25.0
+      preact: 10.25.1
       web-vitals: 4.2.4
     dev: false
 
@@ -17835,8 +17842,8 @@ packages:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.25.0:
-    resolution: {integrity: sha512-6bYnzlLxXV3OSpUxLdaxBmE7PMOu0aR3pG6lryK/0jmvcDFPlcXGQAt5DpK3RITWiDrfYZRI0druyaK/S9kYLg==}
+  /preact@10.25.1:
+    resolution: {integrity: sha512-frxeZV2vhQSohQwJ7FvlqC40ze89+8friponWUFeVEkaCfhC6Eu4V0iND5C9CXz8JLndV07QRDeXzH1+Anz5Og==}
     dev: false
 
   /prelude-ls@1.2.1:

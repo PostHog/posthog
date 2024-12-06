@@ -21,7 +21,6 @@ from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
     calculate_external_data_rows_synced,
-    calculate_replay_embeddings,
     check_async_migration_health,
     check_flags_to_rollback,
     clean_stale_partials,
@@ -298,16 +297,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     if settings.EE_AVAILABLE:
-        # every interval seconds, we calculate N replay embeddings
-        # the goal is to process _enough_ every 24 hours that
-        # there is a meaningful playlist to test with
-        add_periodic_task_with_expiry(
-            sender,
-            settings.REPLAY_EMBEDDINGS_CALCULATION_CELERY_INTERVAL_SECONDS,
-            calculate_replay_embeddings.s(),
-            name="calculate replay embeddings",
-        )
-
         sender.add_periodic_task(
             crontab(hour="0", minute=str(randrange(0, 40))),
             clickhouse_send_license_usage.s(),

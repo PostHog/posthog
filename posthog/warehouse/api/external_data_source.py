@@ -571,8 +571,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
         ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
-        use_ssl_obj = payload.get("use_ssl", {})
-        using_ssl_str = use_ssl_obj.get("enabled", "1")
+        using_ssl_str = payload.get("use_ssl", "1")
         using_ssl = str_to_bool(using_ssl_str)
 
         if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
@@ -641,9 +640,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         database = payload.get("database")
         warehouse = payload.get("warehouse")
         role = payload.get("role")
-        user = payload.get("user")
-        password = payload.get("password")
         schema = payload.get("schema")
+
+        auth_type_obj = payload.get("auth_type", {})
+        auth_type = auth_type_obj.get("selection", None)
+        auth_type_username = auth_type_obj.get("username", None)
+        auth_type_password = auth_type_obj.get("password", None)
+        auth_type_passphrase = auth_type_obj.get("passphrase", None)
+        auth_type_private_key = auth_type_obj.get("private_key", None)
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -657,14 +661,28 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "database": database,
                 "warehouse": warehouse,
                 "role": role,
-                "user": user,
-                "password": password,
                 "schema": schema,
+                "auth_type": auth_type,
+                "user": auth_type_username,
+                "password": auth_type_password,
+                "passphrase": auth_type_passphrase,
+                "private_key": auth_type_private_key,
             },
             prefix=prefix,
         )
 
-        schemas = get_snowflake_schemas(account_id, database, warehouse, user, password, schema, role)
+        schemas = get_snowflake_schemas(
+            account_id=account_id,
+            database=database,
+            warehouse=warehouse,
+            user=auth_type_username,
+            password=auth_type_password,
+            schema=schema,
+            role=role,
+            passphrase=auth_type_passphrase,
+            private_key=auth_type_private_key,
+            auth_type=auth_type,
+        )
 
         return new_source_model, list(schemas.keys())
 
@@ -934,8 +952,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
             ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
-            use_ssl_obj = request.data.get("use_ssl", {})
-            using_ssl_str = use_ssl_obj.get("enabled", "1")
+            using_ssl_str = request.data.get("use_ssl", "1")
             using_ssl = str_to_bool(using_ssl_str)
 
             ssh_tunnel = SSHTunnel(
@@ -1070,20 +1087,48 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             database = request.data.get("database")
             warehouse = request.data.get("warehouse")
             role = request.data.get("role")
-            user = request.data.get("user")
-            password = request.data.get("password")
             schema = request.data.get("schema")
 
-            if not account_id or not warehouse or not database or not user or not password or not schema:
+            auth_type_obj = request.data.get("auth_type", {})
+            auth_type = auth_type_obj.get("selection", None)
+            auth_type_username = auth_type_obj.get("username", None)
+            auth_type_password = auth_type_obj.get("password", None)
+            auth_type_passphrase = auth_type_obj.get("passphrase", None)
+            auth_type_private_key = auth_type_obj.get("private_key", None)
+
+            if not account_id or not warehouse or not database or not schema:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": "Missing required parameters: account id, warehouse, database, user, password, schema"
-                    },
+                    data={"message": "Missing required parameters: account id, warehouse, database, schema"},
+                )
+
+            if auth_type == "password" and (not auth_type_username or not auth_type_password):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required parameters: username, password"},
+                )
+
+            if auth_type == "keypair" and (
+                not auth_type_passphrase or not auth_type_private_key or not auth_type_username
+            ):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required parameters: passphrase, private key"},
                 )
 
             try:
-                result = get_snowflake_schemas(account_id, database, warehouse, user, password, schema, role)
+                result = get_snowflake_schemas(
+                    account_id=account_id,
+                    database=database,
+                    warehouse=warehouse,
+                    user=auth_type_username,
+                    password=auth_type_password,
+                    schema=schema,
+                    role=role,
+                    passphrase=auth_type_passphrase,
+                    private_key=auth_type_private_key,
+                    auth_type=auth_type,
+                )
                 if len(result.keys()) == 0:
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
