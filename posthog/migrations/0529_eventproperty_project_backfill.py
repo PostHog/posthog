@@ -1,0 +1,38 @@
+from django.db import migrations
+
+
+class Migration(migrations.Migration):
+    atomic = False  # As a large backfill, we don't want to run this in a transaction
+    dependencies = [
+        ("posthog", "0528_project_field_in_taxonomy"),
+    ]
+
+    operations = [
+        migrations.RunSQL(
+            sql="""
+            DO $$
+            DECLARE
+                batch_size INTEGER := 10000;
+                num_rows_updated INTEGER;
+            BEGIN
+                LOOP
+                    UPDATE posthog_eventproperty
+                    SET project_id = team_id
+                    WHERE id IN (
+                        SELECT id
+                        FROM posthog_propertydefinition
+                        WHERE project_id IS NULL
+                        ORDER BY id
+                        LIMIT batch_size
+                        FOR UPDATE SKIP LOCKED
+                    );
+                    GET DIAGNOSTICS num_rows_updated = ROW_COUNT;
+                    EXIT WHEN num_rows_updated = 0;
+                    COMMIT;
+                    PERFORM pg_sleep(0.1); -- Sleeping to ease the load
+                END LOOP;
+            END $$;""",
+            reverse_sql=migrations.RunSQL.noop,
+            elidable=True,
+        ),
+    ]
