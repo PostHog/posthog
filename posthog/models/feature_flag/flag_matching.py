@@ -829,6 +829,8 @@ def get_all_feature_flags(
     )
     all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
     cache_hit = True
+
+    print("ALL FEATURE FLAGS", all_feature_flags)
     if all_feature_flags is None:
         cache_hit = False
         all_feature_flags = set_feature_flags_for_team_in_cache(team_id)

@@ -711,12 +711,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.team.refresh_from_db()
         self.assertTrue(self.team.inject_web_apps)
-        with self.assertNumQueries(5):
-            response = self._post_decide()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            injected = response.json()["siteApps"]
-            self.assertEqual(len(injected), 1)
-            self.assertTrue(injected[0]["url"].startswith(f"/site_app/{plugin_config.id}/{plugin_config.web_token}/"))
+        response = self._post_decide(assert_num_queries=5)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        injected = response.json()["siteApps"]
+        self.assertEqual(len(injected), 1)
+        self.assertTrue(injected[0]["url"].startswith(f"/site_app/{plugin_config.id}/{plugin_config.web_token}/"))
 
     def test_feature_flags(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -771,17 +770,15 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(4):
-            response = self._post_decide()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self._post_decide(assert_num_queries=4)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("default-flag", response.json()["featureFlags"])
         self.assertIn("beta-feature", response.json()["featureFlags"])
         self.assertIn("filer-by-property-2", response.json()["featureFlags"])
 
         # caching flag definitions in the above query mean fewer queries
-        with self.assertNumQueries(4):
-            response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"}, assert_num_queries=4)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])
 
     def test_feature_flags_v3_json(self, *args):
@@ -816,9 +813,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(4):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self._post_decide(api_version=3, assert_num_queries=4)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(
             {"color": "blue"},
@@ -879,20 +875,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=2)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertIn("beta-feature", response.json()["featureFlags"])
-            self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
+        response = self._post_decide(api_version=2, assert_num_queries=0)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("beta-feature", response.json()["featureFlags"])
+        self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
 
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
-            self.assertEqual(
-                {"color": "blue"},
-                response.json()["featureFlagPayloads"]["multivariate-flag"],
-            )
+        response = self._post_decide(api_version=3, assert_num_queries=0)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
+        self.assertEqual(
+            {"color": "blue"},
+            response.json()["featureFlagPayloads"]["multivariate-flag"],
+        )
 
     def test_feature_flags_v2(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -946,28 +940,25 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=1)  # v1 functionality should not break
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertIn("beta-feature", response.json()["featureFlags"])
-            self.assertIn("default-flag", response.json()["featureFlags"])
+        response = self._post_decide(api_version=1, assert_num_queries=0)  # v1 functionality should not break
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("beta-feature", response.json()["featureFlags"])
+        self.assertIn("default-flag", response.json()["featureFlags"])
 
         # caching flag definitions in the above query mean fewer queries
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=2)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
+        response = self._post_decide(api_version=2, assert_num_queries=0)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # assigned by distinct_id hash
 
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=2, distinct_id="other_id")
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "third-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # different hash, different variant assigned
+        response = self._post_decide(api_version=2, distinct_id="other_id", assert_num_queries=0)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "third-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # different hash, different variant assigned
 
     def test_feature_flags_v2_with_property_overrides(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1043,16 +1034,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=2, ip=australia_ip)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
+        response = self._post_decide(api_version=2, ip=australia_ip, assert_num_queries=0)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=2, distinct_id="other_id", ip=australia_ip)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
+        response = self._post_decide(api_version=2, distinct_id="other_id", ip=australia_ip, assert_num_queries=0)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
 
     def test_feature_flags_v2_with_geoip_error(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1127,16 +1116,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(4):
-            # One to compute properties for all flags
-            response = self._post_decide(api_version=2, distinct_id="example_id")
-            self.assertTrue("beta-feature" not in response.json()["featureFlags"])
-            self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
+        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=4)
+        self.assertTrue("beta-feature" not in response.json()["featureFlags"])
+        self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
 
-        with self.assertNumQueries(4):
-            response = self._post_decide(api_version=2, distinct_id="other_id")
-            self.assertTrue("beta-feature" not in response.json()["featureFlags"])
-            self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
+        response = self._post_decide(api_version=2, distinct_id="other_id", assert_num_queries=4)
+        self.assertTrue("beta-feature" not in response.json()["featureFlags"])
+        self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
 
     def test_feature_flags_v2_consistent_flags(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1193,33 +1179,32 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(5):
-            response = self._post_decide(api_version=2)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
+        response = self._post_decide(api_version=2, assert_num_queries=5)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
         # person.delete()
         # person2 = Person.objects.create(team=self.team, distinct_ids=["example_id", "other_id"], properties={"email": "tim@posthog.com"})
         person.add_distinct_id("other_id")
 
-        with self.assertNumQueries(13):
-            response = self._post_decide(
-                api_version=2,
-                data={
-                    "token": self.team.api_token,
-                    "distinct_id": "other_id",
-                    "$anon_distinct_id": "example_id",
-                },
-            )
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # different hash, overridden by distinct_id, same variant assigned
+        response = self._post_decide(
+            api_version=2,
+            data={
+                "token": self.team.api_token,
+                "distinct_id": "other_id",
+                "$anon_distinct_id": "example_id",
+            },
+            assert_num_queries=13,
+        )
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # different hash, overridden by distinct_id, same variant assigned
 
     def test_feature_flags_v3_consistent_flags_with_numeric_distinct_ids(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1253,46 +1238,45 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )  # Should be enabled for everyone
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(5):
-            response = self._post_decide(api_version=2)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        response = self._post_decide(api_version=2, assert_num_queries=5)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
 
-        with self.assertNumQueries(13):
-            response = self._post_decide(
-                api_version=2,
-                data={
-                    "token": self.team.api_token,
-                    "distinct_id": 12345,
-                    "$anon_distinct_id": "example_id",
-                },
-            )
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        response = self._post_decide(
+            api_version=2,
+            data={
+                "token": self.team.api_token,
+                "distinct_id": 12345,
+                "$anon_distinct_id": "example_id",
+            },
+            assert_num_queries=13,
+        )
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
 
-        with self.assertNumQueries(9):
-            response = self._post_decide(
-                api_version=2,
-                data={
-                    "token": self.team.api_token,
-                    "distinct_id": "xyz",
-                    "$anon_distinct_id": 12345,
-                },
-            )
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        response = self._post_decide(
+            api_version=2,
+            data={
+                "token": self.team.api_token,
+                "distinct_id": "xyz",
+                "$anon_distinct_id": 12345,
+            },
+            assert_num_queries=9,
+        )
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
 
-        with self.assertNumQueries(9):
-            response = self._post_decide(
-                api_version=2,
-                data={
-                    "token": self.team.api_token,
-                    "distinct_id": 5,
-                    "$anon_distinct_id": 12345,
-                },
-            )
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        response = self._post_decide(
+            api_version=2,
+            data={
+                "token": self.team.api_token,
+                "distinct_id": 5,
+                "$anon_distinct_id": 12345,
+            },
+            assert_num_queries=9,
+        )
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
 
     def test_feature_flags_v2_consistent_flags_with_ingestion_delays(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1347,31 +1331,30 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(4):
-            response = self._post_decide(api_version=2)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
+        response = self._post_decide(api_version=2, assert_num_queries=4)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # assigned by distinct_id hash
 
         # identify event is sent, but again, ingestion delays, so no entry in personDistinctID table
         # person.add_distinct_id("other_id")
         # in which case, we're pretty much trashed
-        with self.assertNumQueries(12):
-            response = self._post_decide(
-                api_version=2,
-                data={
-                    "token": self.team.api_token,
-                    "distinct_id": "other_id",
-                    "$anon_distinct_id": "example_id",
-                },
-            )
-            # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "third-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # different hash, should've been overridden by distinct_id, but ingestion delays mean different variant assigned
+        response = self._post_decide(
+            api_version=2,
+            data={
+                "token": self.team.api_token,
+                "distinct_id": "other_id",
+                "$anon_distinct_id": "example_id",
+            },
+            assert_num_queries=12,
+        )
+        # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "third-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # different hash, should've been overridden by distinct_id, but ingestion delays mean different variant assigned
 
     def test_feature_flags_v2_consistent_flags_with_merged_persons(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1428,13 +1411,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(5):
-            response = self._post_decide(api_version=2)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
+        response = self._post_decide(api_version=2, assert_num_queries=5)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # assigned by distinct_id hash
 
         # new person, created separately before "example_id" came into the picture.
         # on identify, this will trigger a merge with person.id being deleted, and
@@ -1446,20 +1428,20 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(13):
-            response = self._post_decide(
-                api_version=2,
-                data={
-                    "token": self.team.api_token,
-                    "distinct_id": "other_id",
-                    "$anon_distinct_id": "example_id",
-                },
-            )
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # different hash, overridden by distinct_id, same variant assigned
+        response = self._post_decide(
+            api_version=2,
+            data={
+                "token": self.team.api_token,
+                "distinct_id": "other_id",
+                "$anon_distinct_id": "example_id",
+            },
+            assert_num_queries=13,
+        )
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # different hash, overridden by distinct_id, same variant assigned
 
         # now let's say a merge happens with a call like: identify(distinct_id='example_id', anon_distinct_id='other_id')
         # that is, person2 is going to get merged into person. (Could've been vice versa, but the following code assumes this, it's symmetric.)
@@ -1485,16 +1467,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
         person.add_distinct_id("other_id")
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(5):
-            response = self._post_decide(
-                api_version=2,
-                data={"token": self.team.api_token, "distinct_id": "other_id"},
-            )
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # different hash, overridden by distinct_id, same variant assigned
+        response = self._post_decide(
+            api_version=2,
+            data={"token": self.team.api_token, "distinct_id": "other_id"},
+            assert_num_queries=5,
+        )
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # different hash, overridden by distinct_id, same variant assigned
 
     def test_feature_flags_v2_consistent_flags_with_delayed_new_identified_person(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1551,32 +1533,30 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(5):
-            response = self._post_decide(api_version=2)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
+        response = self._post_decide(api_version=2, assert_num_queries=5)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # assigned by distinct_id hash
 
         # new person with "other_id" is yet to be created
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(13):
-            # one extra query to find person_id for $anon_distinct_id
-            response = self._post_decide(
-                api_version=2,
-                data={
-                    "token": self.team.api_token,
-                    "distinct_id": "other_id",
-                    "$anon_distinct_id": "example_id",
-                },
-            )
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # different hash, overridden by distinct_id, same variant assigned
+        response = self._post_decide(
+            api_version=2,
+            data={
+                "token": self.team.api_token,
+                "distinct_id": "other_id",
+                "$anon_distinct_id": "example_id",
+            },
+            assert_num_queries=13,
+        )
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # different hash, overridden by distinct_id, same variant assigned
 
         # calling a simple decide call, while 'other_id' is still missing a person creation.
         # In this case, we are over our grace period for ingestion, and there's
@@ -1584,31 +1564,29 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # So, things appear like a completely new person with distinct-id = other_id.
         # And this person can't have any hash key overrides (since the person doesn't yet exist)
         # So one fewer query to not get overrides.
-        with self.assertNumQueries(4):
-            # caching flag definitions in the above mean fewer queries
-
-            response = self._post_decide(
-                api_version=2,
-                data={"token": self.team.api_token, "distinct_id": "other_id"},
-            )
-            # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual("third-variant", response.json()["featureFlags"]["multivariate-flag"])  # variant changed
+        response = self._post_decide(
+            api_version=2,
+            data={"token": self.team.api_token, "distinct_id": "other_id"},
+            assert_num_queries=4,
+        )
+        # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual("third-variant", response.json()["featureFlags"]["multivariate-flag"])  # variant changed
 
         person.add_distinct_id("other_id")
         # Finally, 'other_id' is merged. The result goes back to its overridden values
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(5):
-            response = self._post_decide(
-                api_version=2,
-                data={"token": self.team.api_token, "distinct_id": "other_id"},
-            )
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # different hash, overridden by distinct_id, same variant assigned
+        response = self._post_decide(
+            api_version=2,
+            data={"token": self.team.api_token, "distinct_id": "other_id"},
+            assert_num_queries=5,
+        )
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # different hash, overridden by distinct_id, same variant assigned
 
     def test_feature_flags_v2_complex(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1671,30 +1649,26 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(4):
-            response = self._post_decide(api_version=2, distinct_id="hosted_id")
-            self.assertIsNone(
-                (response.json()["featureFlags"]).get("multivariate-flag", None)
-            )  # User is does not have realm == "cloud". Value is None.
-            self.assertTrue(
-                (response.json()["featureFlags"]).get("default-flag")
-            )  # User still receives the default flag
+        response = self._post_decide(api_version=2, distinct_id="hosted_id", assert_num_queries=4)
+        self.assertIsNone(
+            (response.json()["featureFlags"]).get("multivariate-flag", None)
+        )  # User is does not have realm == "cloud". Value is None.
+        self.assertTrue((response.json()["featureFlags"]).get("default-flag"))  # User still receives the default flag
 
-        with self.assertNumQueries(4):
-            response = self._post_decide(api_version=2, distinct_id="example_id")
-            self.assertIsNotNone(
-                response.json()["featureFlags"]["multivariate-flag"]
-            )  # User has an 80% chance of being assigned any non-empty value.
-            self.assertEqual(
-                "second-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # If the user falls in the rollout group, they have a 25% chance of being assigned any particular variant.
-            # Their overall probability is therefore 80% * 25% = 20%.
-            # To give another example, if n = 100 Cloud users and rollout_percentage = 80:
-            # None:           20 (100 * (100% - 80%))
-            # first-variant:  20 (100 * 80% * 25% = 20 users)
-            # second-variant: 20 (100 * 80% * 25% = 20 users)
-            # third-variant:  20 (100 * 80% * 25% = 20 users)
-            # fourth-variant: 20 (100 * 80% * 25% = 20 users)
+        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=4)
+        self.assertIsNotNone(
+            response.json()["featureFlags"]["multivariate-flag"]
+        )  # User has an 80% chance of being assigned any non-empty value.
+        self.assertEqual(
+            "second-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # If the user falls in the rollout group, they have a 25% chance of being assigned any particular variant.
+        # Their overall probability is therefore 80% * 25% = 20%.
+        # To give another example, if n = 100 Cloud users and rollout_percentage = 80:
+        # None:           20 (100 * (100% - 80%))
+        # first-variant:  20 (100 * 80% * 25% = 20 users)
+        # second-variant: 20 (100 * 80% * 25% = 20 users)
+        # third-variant:  20 (100 * 80% * 25% = 20 users)
+        # fourth-variant: 20 (100 * 80% * 25% = 20 users)
 
     def test_feature_flags_v3(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1773,23 +1747,21 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._post_decide(api_version=3)
         client.logout()
 
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=3)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        response = self._post_decide(api_version=3, assert_num_queries=0)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # assigned by distinct_id hash
+        self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=3, distinct_id="other_id")
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "third-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # different hash, different variant assigned
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        response = self._post_decide(api_version=3, distinct_id="other_id", assert_num_queries=0)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "third-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # different hash, different variant assigned
+        self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
     def test_feature_flags_v3_with_database_errors(self, mock_counter, *args):
@@ -1884,14 +1856,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         client.logout()
 
-        with self.assertNumQueries(4):
-            response = self._post_decide(api_version=3)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        response = self._post_decide(api_version=3, assert_num_queries=4)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # assigned by distinct_id hash
+        self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
         # now database is down
         with connection.execute_wrapper(QueryTimeoutWrapper()):
@@ -2018,15 +1989,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
             mock_counter.reset_mock()
             mock_hash_key_counter.reset_mock()
 
-            with self.assertNumQueries(9):
-                response = self._post_decide(api_version=3)
-                self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-                self.assertTrue(response.json()["featureFlags"]["default-flag"])
-                self.assertEqual(
-                    "first-variant",
-                    response.json()["featureFlags"]["multivariate-flag"],
-                )  # assigned by distinct_id hash
-                self.assertFalse(response.json()["errorsWhileComputingFlags"])
+            response = self._post_decide(api_version=3, assert_num_queries=9)
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "first-variant",
+                response.json()["featureFlags"]["multivariate-flag"],
+            )  # assigned by distinct_id hash
+            self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
             mock_counter.labels.assert_called_once_with(
                 team_id=str(self.team.pk),
@@ -2073,10 +2043,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # adding team to cache
         self._post_decide(api_version=3)
 
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.json()["featureFlags"], {})
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        response = self._post_decide(api_version=3, assert_num_queries=0)
+        self.assertEqual(response.json()["featureFlags"], {})
+        self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
         # now database is down
         with connection.execute_wrapper(QueryTimeoutWrapper()):
@@ -2142,11 +2111,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         client.logout()
 
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=3, ip=australia_ip)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        response = self._post_decide(api_version=3, ip=australia_ip, assert_num_queries=0)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
         # now database is down
         with connection.execute_wrapper(QueryTimeoutWrapper()):
@@ -2211,21 +2179,20 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # make sure caches are populated
         response = self._post_decide(api_version=3)
 
-        with self.assertNumQueries(5):
-            # effectively 3 queries, wrapped around by an atomic transaction
-            # E   1. SAVEPOINT "s4379526528_x103"
-            # E   2. SET LOCAL statement_timeout = 1000
-            # E   3. SELECT "posthog_persondistinctid"."person_id", "posthog_persondistinctid"."distinct_id" FROM "posthog_persondistinctid"
-            #           WHERE ("posthog_persondistinctid"."distinct_id" IN ('example_id') AND "posthog_persondistinctid"."team_id" = 1)
-            # E   4. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key", "posthog_featureflaghashkeyoverride"."hash_key", "posthog_featureflaghashkeyoverride"."person_id" FROM "posthog_featureflaghashkeyoverride"
-            #            WHERE ("posthog_featureflaghashkeyoverride"."person_id" IN (7) AND "posthog_featureflaghashkeyoverride"."team_id" = 1)
-            # E   5. RELEASE SAVEPOINT "s4379526528_x103"
-            response = self._post_decide(api_version=3)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
+        # effectively 3 queries, wrapped around by an atomic transaction
+        # E   1. SAVEPOINT "s4379526528_x103"
+        # E   2. SET LOCAL statement_timeout = 1000
+        # E   3. SELECT "posthog_persondistinctid"."person_id", "posthog_persondistinctid"."distinct_id" FROM "posthog_persondistinctid"
+        #           WHERE ("posthog_persondistinctid"."distinct_id" IN ('example_id') AND "posthog_persondistinctid"."team_id" = 1)
+        # E   4. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key", "posthog_featureflaghashkeyoverride"."hash_key", "posthog_featureflaghashkeyoverride"."person_id" FROM "posthog_featureflaghashkeyoverride"
+        #            WHERE ("posthog_featureflaghashkeyoverride"."person_id" IN (7) AND "posthog_featureflaghashkeyoverride"."team_id" = 1)
+        # E   5. RELEASE SAVEPOINT "s4379526528_x103"
+        response = self._post_decide(api_version=3, assert_num_queries=5)
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual(
+            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        )  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
         person.add_distinct_id("other_id")
@@ -2270,13 +2237,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(4):
-            response = self._post_decide(api_version=2, distinct_id="example_id")
-            self.assertEqual(response.json()["featureFlags"], {})
+        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=4)
+        self.assertEqual(response.json()["featureFlags"], {})
 
-        with self.assertNumQueries(4):
-            response = self._post_decide(api_version=2, distinct_id="example_id", groups={"organization": "foo"})
-            self.assertEqual(response.json()["featureFlags"], {"groups-flag": True})
+        response = self._post_decide(
+            api_version=2, distinct_id="example_id", groups={"organization": "foo"}, assert_num_queries=4
+        )
+        self.assertEqual(response.json()["featureFlags"], {"groups-flag": True})
 
     def test_feature_flags_with_personal_api_key(self, *args):
         key_value = generate_random_token_personal()
@@ -2348,16 +2315,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(5):
-            response = self._post_decide(api_version=3, distinct_id="example_id_1")
-            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
-            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=5)
+        self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
+        self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
-        with self.assertNumQueries(5):
-            # get cohort, get person filter
-            response = self._post_decide(api_version=3, distinct_id="another_id")
-            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
-            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=5)
+        self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
+        self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
     def test_flag_with_invalid_cohort_filter_condition(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2426,10 +2390,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(5):
-            response = self._post_decide(api_version=3, distinct_id=person1_distinct_id)
-            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
-            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=5)
+        self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
+        self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
     def test_flag_with_invalid_but_safe_cohort_filter_condition(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2497,10 +2460,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(5):
-            response = self._post_decide(api_version=3, distinct_id=person1_distinct_id)
-            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
-            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=5)
+        self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
+        self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
     def test_flag_with_unknown_cohort(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2528,10 +2490,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(6):
-            response = self._post_decide(api_version=3, distinct_id="example_id_1")
-            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False, "simple-flag": True})
-            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=6)
+        self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False, "simple-flag": True})
+        self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
     def test_flag_with_multiple_complex_unknown_cohort(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2675,24 +2636,23 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(8):
-            # Each invalid cohort is queried only once
-            # 1. Select all valid cohorts
-            # 2. Select 99999 cohort
-            # 3. Select deleted cohort
-            # 4. Select cohort from other team
-            response = self._post_decide(api_version=3, distinct_id="example_id_1")
-            self.assertEqual(
-                response.json()["featureFlags"],
-                {
-                    "cohort-flag": False,
-                    "simple-flag": True,
-                    "cohort-flag-2": False,
-                    "cohort-flag-3": False,
-                    "cohort-flag-4": True,
-                },
-            )
-            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+        # Each invalid cohort is queried only once
+        # 1. Select all valid cohorts
+        # 2. Select 99999 cohort
+        # 3. Select deleted cohort
+        # 4. Select cohort from other team
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=8)
+        self.assertEqual(
+            response.json()["featureFlags"],
+            {
+                "cohort-flag": False,
+                "simple-flag": True,
+                "cohort-flag-2": False,
+                "cohort-flag-3": False,
+                "cohort-flag-4": True,
+            },
+        )
+        self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
     @snapshot_postgres_queries
     def test_flag_with_behavioural_cohorts(self, *args):
@@ -2731,15 +2691,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(6):
-            response = self._post_decide(api_version=3, distinct_id="example_id_1")
-            self.assertEqual(response.json()["featureFlags"], {})
-            self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=6)
+        self.assertEqual(response.json()["featureFlags"], {})
+        self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
-        with self.assertNumQueries(6):
-            response = self._post_decide(api_version=3, distinct_id="another_id")
-            self.assertEqual(response.json()["featureFlags"], {})
-            self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
+        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=6)
+        self.assertEqual(response.json()["featureFlags"], {})
+        self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
     def test_personal_api_key_without_project_id(self, *args):
         key_value = generate_random_token_personal()
@@ -2983,9 +2941,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
         )
 
-        with self.assertNumQueries(0):
-            flag_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags=True)
-            self.assertEqual(flag_disabled_res.json()["featureFlags"], {})
+        flag_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags=True, assert_num_queries=0)
+        self.assertEqual(flag_disabled_res.json()["featureFlags"], {})
 
         # test for falsy/truthy values
         flags_not_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags="0")
@@ -3091,44 +3048,41 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._post_decide(api_version=2, distinct_id="a")
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(4):
-            response = self._post_decide(api_version=2, distinct_id=12345)
-            self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
+        response = self._post_decide(api_version=2, distinct_id=12345, assert_num_queries=4)
+        self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
 
-        with self.assertNumQueries(4):
-            response = self._post_decide(
-                api_version=2,
-                distinct_id={
-                    "id": 33040,
-                    "shopify_domain": "xxx.myshopify.com",
-                    "shopify_token": "shpat_xxxx",
-                    "created_at": "2023-04-17T08:55:34.624Z",
-                    "updated_at": "2023-04-21T08:43:34.479",
-                },
-            )
-            self.assertEqual(
-                response.json()["featureFlags"],
-                {"random-flag": True, "filer-by-property": True},
-            )
+        response = self._post_decide(
+            api_version=2,
+            distinct_id={
+                "id": 33040,
+                "shopify_domain": "xxx.myshopify.com",
+                "shopify_token": "shpat_xxxx",
+                "created_at": "2023-04-17T08:55:34.624Z",
+                "updated_at": "2023-04-21T08:43:34.479",
+            },
+            assert_num_queries=4,
+        )
+        self.assertEqual(
+            response.json()["featureFlags"],
+            {"random-flag": True, "filer-by-property": True},
+        )
 
-        with self.assertNumQueries(4):
-            response = self._post_decide(
-                api_version=2,
-                distinct_id="{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'",
-            )
-            self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
+        response = self._post_decide(
+            api_version=2,
+            distinct_id="{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'",
+            assert_num_queries=4,
+        )
+        self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
 
-        with self.assertNumQueries(4):
-            response = self._post_decide(api_version=2, distinct_id={"x": "y"})
-            self.assertEqual(
-                response.json()["featureFlags"],
-                {"random-flag": True, "filer-by-property": True},
-            )
+        response = self._post_decide(api_version=2, distinct_id={"x": "y"}, assert_num_queries=4)
+        self.assertEqual(
+            response.json()["featureFlags"],
+            {"random-flag": True, "filer-by-property": True},
+        )
 
-        with self.assertNumQueries(4):
-            response = self._post_decide(api_version=2, distinct_id={"x": "z"})
-            self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
-            # need to pass in exact string to get the property flag
+        response = self._post_decide(api_version=2, distinct_id={"x": "z"}, assert_num_queries=4)
+        self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
+        # need to pass in exact string to get the property flag
 
     def test_rate_limits(self, *args):
         with self.settings(
