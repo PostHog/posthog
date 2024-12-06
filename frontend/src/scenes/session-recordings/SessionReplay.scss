@@ -45,10 +45,6 @@
     // All panels horizontally stacked
     // var(--panel-playback-min-width) + var(--panel-inspector-min-width) + var(--panel-gap) + var(--panel-gap)
     @container replay-panel-layout (width >= 1040px) {
-        .PanelLayout__primary {
-            height: 100%;
-        }
-
         .PanelLayout__inspector {
             height: 100%;
             overflow-y: auto;
@@ -60,10 +56,6 @@
     @container replay-panel-layout (width < 1040px) {
         .PanelLayout__inspector {
             width: 100%;
-        }
-
-        .PanelLayout__primary {
-            height: 100%;
         }
     }
 

@@ -29,13 +29,26 @@ export function PanelsUI(): JSX.Element {
                     </Panel>
                 </PanelContainer>
 
-                <PanelContainer primary className="PanelLayout__primary">
-                    <Panel primary className="PanelLayout__playback">
-                        <PanelPlayback />
-                    </Panel>
-                    <Panel primary={false} className="PanelLayout__inspector flex flex-col">
-                        <PlayerInspector />
-                    </Panel>
+                <PanelContainer primary className="PanelLayout__primary flex-col">
+                    <PanelContainer primary={false} className="w-full">
+                        <Panel primary className="">
+                            <>
+                                <p>This is a line</p>
+                                <p>This is a line</p>
+                                <p>This is a line</p>
+                                <p>This is a line</p>
+                                <p>This is a line</p>
+                            </>
+                        </Panel>
+                    </PanelContainer>
+                    <PanelContainer primary className="w-full PanelLayout__main">
+                        <Panel primary className="PanelLayout__playback">
+                            <PanelPlayback />
+                        </Panel>
+                        <Panel primary={false} className="PanelLayout__inspector flex flex-col">
+                            <PlayerInspector />
+                        </Panel>
+                    </PanelContainer>
                 </PanelContainer>
             </PanelLayout>
         </BindLogic>
