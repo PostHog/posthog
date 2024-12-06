@@ -37,6 +37,11 @@
         min-width: var(--panel-inspector-min-width);
     }
 
+    .UniversalFilterButton {
+        height: 1.75rem;
+        font-size: smaller;
+    }
+
     // All panels horizontally stacked
     // var(--panel-playback-min-width) + var(--panel-inspector-min-width) + var(--panel-gap) + var(--panel-gap)
     @container replay-panel-layout (width >= 1040px) {
@@ -77,12 +82,9 @@
     @container replay-panel-layout (width > 508px) {
         // var(--container-primary-min-width) + var(--container-secondary-min-width) + var(--panel-gap)
         .PanelLayout__secondary {
-            height: 100%;
-        }
-
-        .PanelLayout__secondary {
             min-width: var(--container-secondary-min-width);
             max-width: var(--container-secondary-max-width);
+            height: 100%;
         }
     }
 

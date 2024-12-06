@@ -3,6 +3,7 @@ import './SessionReplay.scss'
 import clsx from 'clsx'
 import { BindLogic } from 'kea'
 
+import { PanelFilters } from './panels/Filters'
 import { PanelPlayback } from './panels/Playback'
 import { PanelPlaylist } from './panels/Playlist'
 import { PlayerInspector } from './player/inspector/PlayerInspector'
@@ -21,8 +22,8 @@ export function PanelsUI(props: SessionRecordingPlaylistLogicProps): JSX.Element
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <PanelLayout className="SessionReplay__layout">
                 <PanelContainer primary={false} className="PanelLayout__secondary flex-col">
-                    <Panel primary={false} className="bg-[red]">
-                        <>Filters</>
+                    <Panel primary={false}>
+                        <PanelFilters />
                     </Panel>
                     <Panel primary className="PanelLayout__playlist overflow-y-auto flex-1 border w-full">
                         <PanelPlaylist />
