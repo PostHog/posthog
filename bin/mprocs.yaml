@@ -9,10 +9,10 @@ procs:
         shell: './bin/plugin-server'
 
     backend:
-        shell: 'python3 manage.py runserver'
+        shell: './bin/start-backend'
 
     frontend:
-        shell: 'export DEBUG=0 && pnpm install && pnpm start'
+        shell: './bin/start-frontend'
 
     temporal-worker:
         # added a sleep to give the docker stuff time to start
