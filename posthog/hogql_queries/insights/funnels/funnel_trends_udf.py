@@ -7,6 +7,7 @@ from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql_queries.insights.funnels import FunnelTrends
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS
+from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDFMixin
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql_str
 from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP, relative_date_parse
@@ -15,7 +16,7 @@ TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
-class FunnelTrendsUDF(FunnelTrends):
+class FunnelTrendsUDF(FunnelTrends, FunnelUDFMixin):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # In base, these fields only get added if you're running an actors query

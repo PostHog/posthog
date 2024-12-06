@@ -155,9 +155,8 @@ class FunnelBase(ABC):
                     parse_expr(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as prop_{index}")
                 )
 
-            final_select = parse_expr(f"prop_basic as prop")
-            # could set prop here to prop_{funnelsFilter.breakdownAttributionValue} to limit amount, but would need to use it at the top level
-            prop_window = parse_expr(f"groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
+            final_select = parse_expr(f"prop_{funnelsFilter.breakdownAttributionValue} as prop")
+            prop_window = parse_expr("groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
 
             return [prop_basic, *select_columns, final_select, prop_window]
         elif breakdownAttributionType in [
@@ -575,15 +574,13 @@ class FunnelBase(ABC):
                 select_from=ast.JoinExpr(table=inner_query),
             )
 
-        return inner_query
-
         # When breaking down by specific step, each person can have multiple prop values
         # so array join those to each event
         query = ast.SelectQuery(
             select=[ast.Field(chain=["*"]), ast.Field(chain=["prop"])],
             select_from=ast.JoinExpr(table=inner_query),
-            # array_join_op="ARRAY JOIN",
-            # array_join_list=[ast.Alias(alias="prop", expr=ast.Field(chain=["prop_vals"]))],
+            array_join_op="ARRAY JOIN",
+            array_join_list=[ast.Alias(alias="prop", expr=ast.Field(chain=["prop_vals"]))],
         )
 
         if self._query_has_array_breakdown():

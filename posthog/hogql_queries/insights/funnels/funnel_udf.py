@@ -11,7 +11,91 @@ TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
-class FunnelUDF(FunnelBase):
+class FunnelUDFMixin(FunnelBase):
+    def _add_breakdown_attribution_subquery(self, inner_query: ast.SelectQuery) -> ast.SelectQuery:
+        breakdown, breakdownAttributionType = (
+            self.context.breakdown,
+            self.context.breakdownAttributionType,
+        )
+
+        if breakdownAttributionType in [
+            BreakdownAttributionType.FIRST_TOUCH,
+            BreakdownAttributionType.LAST_TOUCH,
+        ]:
+            # When breaking down by first/last touch, each person can only have one prop value
+            # so just select that. Except for the empty case, where we select the default.
+
+            if self._query_has_array_breakdown():
+                assert isinstance(breakdown, list)
+                default_breakdown_value = f"""[{','.join(["''" for _ in range(len(breakdown or []))])}]"""
+                # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
+                breakdown_selector = parse_expr(
+                    f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
+                )
+            else:
+                breakdown_selector = ast.Field(chain=["prop_vals"])
+
+            return ast.SelectQuery(
+                select=[ast.Field(chain=["*"]), ast.Alias(alias="prop", expr=breakdown_selector)],
+                select_from=ast.JoinExpr(table=inner_query),
+            )
+
+        return inner_query
+
+    def _get_breakdown_select_prop(self) -> list[ast.Expr]:
+        breakdown, breakdownAttributionType = (self.context.breakdown, self.context.breakdownAttributionType)
+
+        if not breakdown:
+            return []
+
+        # breakdown prop
+        prop_basic = ast.Alias(alias="prop_basic", expr=self._get_breakdown_expr())
+
+        # breakdown attribution
+        if breakdownAttributionType == BreakdownAttributionType.STEP:
+            select_columns = []
+            default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
+            # get prop value from each step
+            for index, _ in enumerate(self.context.query.series):
+                select_columns.append(
+                    parse_expr(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as prop_{index}")
+                )
+
+            final_select = parse_expr(f"prop_basic as prop")
+            # could set prop here to prop_{funnelsFilter.breakdownAttributionValue} to limit amount, but would need to use it at the top level
+            prop_window = parse_expr(f"groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
+
+            return [prop_basic, *select_columns, final_select, prop_window]
+        elif breakdownAttributionType in [
+            BreakdownAttributionType.FIRST_TOUCH,
+            BreakdownAttributionType.LAST_TOUCH,
+        ]:
+            prop_conditional = (
+                "notEmpty(arrayFilter(x -> notEmpty(x), prop))"
+                if self._query_has_array_breakdown()
+                else "isNotNull(prop)"
+            )
+
+            aggregate_operation = (
+                "argMinIf" if breakdownAttributionType == BreakdownAttributionType.FIRST_TOUCH else "argMaxIf"
+            )
+
+            breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
+            prop_window = parse_expr(f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals")
+            return [
+                prop_basic,
+                ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"])),
+                prop_window,
+            ]
+        else:
+            # all_events
+            return [
+                prop_basic,
+                ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"])),
+            ]
+
+
+class FunnelUDF(FunnelBase, FunnelUDFMixin):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # In base, these fields only get added if you're running an actors query
