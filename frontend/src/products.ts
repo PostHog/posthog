@@ -19,8 +19,32 @@ export const productRoutes: Record<string, string> = {
     '/messaging/broadcasts/new': 'MessagingBroadcasts',
 }
 
-export const productRedirects: Record<string, string> = {
-    '/messaging': '/messaging/broadcasts',
+export const productRedirects: Record<string, string> = { '/messaging': '/messaging/broadcasts' }
+
+export const productConfiguration: Record<string, any> = {
+    EarlyAccessFeatures: {
+        name: 'Early Access Features',
+        projectBased: true,
+        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
+        activityScope: 'EarlyAccessFeature',
+    },
+    EarlyAccessFeature: {
+        name: 'Early Access Features',
+        projectBased: true,
+        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
+        activityScope: 'EarlyAccessFeature',
+    },
+    MessagingBroadcasts: { name: 'Messaging', projectBased: true },
+    MessagingProviders: { name: 'Messaging', projectBased: true },
 }
 
-export const productConfiguration: Record<string, any> = {}
+export const productUrls = {
+    earlyAccessFeatures: (): string => '/early_access_features',
+    earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
+    messagingBroadcasts: (): string => '/messaging/broadcasts',
+    messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
+    messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
+    messagingProviders: (): string => '/messaging/providers',
+    messagingProvider: (id?: string): string => `/messaging/providers/${id}`,
+    messagingProviderNew: (template?: string): string => '/messaging/providers/new' + (template ? `/${template}` : ''),
+}

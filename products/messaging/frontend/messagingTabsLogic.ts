@@ -1,6 +1,6 @@
 import { actions, kea, path, reducers } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
-import { messagingBroadcasts, messagingProviders } from './urls'
+import { urls } from './urls'
 
 import type { messagingTabsLogicType } from './messagingTabsLogicType'
 
@@ -20,9 +20,9 @@ export const messagingTabsLogic = kea<messagingTabsLogicType>([
             if (!fromUrl) {
                 return (
                     {
-                        broadcasts: messagingBroadcasts(),
-                        providers: messagingProviders(),
-                    }[values.currentTab] ?? messagingBroadcasts()
+                        broadcasts: urls.messagingBroadcasts(),
+                        providers: urls.messagingProviders(),
+                    }[values.currentTab] ?? urls.messagingBroadcasts()
                 )
             }
         },

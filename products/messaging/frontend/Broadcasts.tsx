@@ -7,7 +7,7 @@ import { FunctionsTable } from './FunctionsTable'
 import { MessagingTabs } from './MessagingTabs'
 import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
 import { SceneExport } from 'scenes/sceneTypes'
-import { messagingBroadcastNew } from './urls'
+import { urls } from './urls'
 
 export function Broadcasts(): JSX.Element {
     const { broadcastId } = useValues(broadcastsLogic)
@@ -24,7 +24,7 @@ export function Broadcasts(): JSX.Element {
                 buttons={
                     <LemonButton
                         data-attr="new-broadcast"
-                        to={messagingBroadcastNew()}
+                        to={urls.messagingBroadcastNew()}
                         type="primary"
                         icon={<IconPlusSmall />}
                     >

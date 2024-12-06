@@ -30,8 +30,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
-import { earlyAccessFeatures } from 'products/early_access_features/frontend/urls'
-import { messagingBroadcasts } from 'products/messaging/frontend/urls'
 import React from 'react'
 import { editorSidebarLogic } from 'scenes/data-warehouse/editor/editorSidebarLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -502,7 +500,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   identifier: 'EarlyAccessFeatures',
                                   label: 'Early access features',
                                   icon: <IconRocket />,
-                                  to: earlyAccessFeatures(),
+                                  to: urls.earlyAccessFeatures(),
                               }
                             : null,
                         {
@@ -541,7 +539,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   identifier: Scene.MessagingBroadcasts,
                                   label: 'Messaging',
                                   icon: <IconMegaphone />,
-                                  to: messagingBroadcasts(),
+                                  to: urls.messagingBroadcasts(),
                                   tag: 'alpha' as const,
                               }
                             : null,

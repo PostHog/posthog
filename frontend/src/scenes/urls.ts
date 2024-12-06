@@ -3,6 +3,7 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
+import { productUrls } from '~/products'
 import { HogQLFilters, HogQLVariable, Node } from '~/queries/schema'
 import {
     ActionType,
@@ -36,6 +37,7 @@ import { SurveysTabs } from './surveys/surveysLogic'
  */
 
 export const urls = {
+    ...productUrls,
     absolute: (path = ''): string => window.location.origin + path,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,

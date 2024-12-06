@@ -54,7 +54,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMobile, isURL, uniqueBy } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import posthog from 'posthog-js'
-import { earlyAccessFeatures } from 'products/early_access_features/frontend/urls'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightTypeURL } from 'scenes/insights/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -601,7 +600,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         icon: IconRocket,
                         display: 'Go to Early access features',
                         executor: () => {
-                            push(earlyAccessFeatures())
+                            push(urls.earlyAccessFeatures())
                         },
                     },
                     {

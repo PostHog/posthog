@@ -2,7 +2,7 @@ import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
-import { earlyAccessFeature, earlyAccessFeatures } from './urls'
+import { urls } from './urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { EarlyAccessFeatureType } from '~/types'
@@ -137,21 +137,21 @@ const meta: Meta = {
 export default meta
 export function FeaturesList(): JSX.Element {
     useEffect(() => {
-        router.actions.push(earlyAccessFeatures())
+        router.actions.push(urls.earlyAccessFeatures())
     }, [])
     return <App />
 }
 
 export function NewFeatureFlag(): JSX.Element {
     useEffect(() => {
-        router.actions.push(earlyAccessFeature('new'))
+        router.actions.push(urls.earlyAccessFeature('new'))
     }, [])
     return <App />
 }
 
 export function NotFoundEarlyAccess(): JSX.Element {
     useEffect(() => {
-        router.actions.push(earlyAccessFeature('not-found'))
+        router.actions.push(urls.earlyAccessFeature('not-found'))
     }, [])
     return <App />
 }

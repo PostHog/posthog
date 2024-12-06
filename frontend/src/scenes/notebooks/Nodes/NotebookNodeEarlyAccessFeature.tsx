@@ -11,8 +11,7 @@ import {
     earlyAccessFeatureLogic,
 } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 import { PersonList } from 'products/early_access_features/frontend/EarlyAccessFeature'
-import { earlyAccessFeature } from 'products/early_access_features/frontend/urls'
-
+import { urls } from '~/scenes/urls'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
@@ -126,13 +125,13 @@ export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<NotebookNo
     titlePlaceholder: 'Early Access Management',
     Component,
     heightEstimate: '3rem',
-    href: (attrs) => earlyAccessFeature(attrs.id),
+    href: (attrs) => urls.earlyAccessFeature(attrs.id),
     resizeable: false,
     attributes: {
         id: {},
     },
     pasteOptions: {
-        find: earlyAccessFeature(UUID_REGEX_MATCH_GROUPS),
+        find: urls.earlyAccessFeature(UUID_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
             return { id: match[1] }
         },

@@ -1,7 +1,7 @@
 import { afterMount, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { earlyAccessFeatures } from './urls'
+import { urls } from './urls'
 
 import { Breadcrumb, EarlyAccessFeatureType } from '~/types'
 
@@ -25,7 +25,7 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
                 {
                     key: 'EarlyAccessFeatures',
                     name: 'Early access features',
-                    path: earlyAccessFeatures(),
+                    path: urls.earlyAccessFeatures(),
                 },
             ],
         ],

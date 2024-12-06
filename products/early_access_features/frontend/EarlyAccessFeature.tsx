@@ -15,7 +15,6 @@ import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { earlyAccessFeatures } from './urls'
 
 import { Query } from '~/queries/Query/Query'
 import { Node, NodeKind, QuerySchema } from '~/queries/schema'
@@ -108,7 +107,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                             editFeature(false)
                                             loadEarlyAccessFeature()
                                         } else {
-                                            router.actions.push(earlyAccessFeatures())
+                                            router.actions.push(urls.earlyAccessFeatures())
                                         }
                                     }}
                                     disabledReason={isEarlyAccessFeatureSubmitting ? 'Saving…' : undefined}
