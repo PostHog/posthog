@@ -267,9 +267,12 @@ class ActorsQueryRunner(QueryRunner):
                 source_alias = "source"
 
                 # If we aren't joining with the origin, give the source the origin_id
-                source_query.select.append(
-                    ast.Alias(alias=self.strategy.origin_id, expr=ast.Field(chain=source_id_chain))
-                )
+                for source in (
+                    [source_query] if isinstance(source_query, ast.SelectQuery) else source_query.select_queries()
+                ):
+                    source.select.append(
+                        ast.Alias(alias=self.strategy.origin_id, expr=ast.Field(chain=source_id_chain))
+                    )
                 select_query.select_from = ast.JoinExpr(
                     table=source_query,
                     alias=source_alias,
@@ -320,7 +323,11 @@ class ActorsQueryRunner(QueryRunner):
                         ]
                     )
 
-                source_query.select.pop()  # remove id, which now comes from the source
+                # remove id, which now comes from the origin
+                for source in (
+                    [source_query] if isinstance(source_query, ast.SelectQuery) else source_query.select_queries()
+                ):
+                    source.select.pop()
                 select_query.select_from = ast.JoinExpr(
                     table=source_query,
                     alias=source_alias,
