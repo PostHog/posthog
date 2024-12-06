@@ -359,7 +359,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> bool
             on_permitted_recording_domain(team, request) or not team.recording_domains
         ):
             capture_console_logs = True if team.capture_console_log_opt_in else False
-            sample_rate = team.session_recording_sample_rate or None
+            sample_rate = str(team.session_recording_sample_rate) if team.session_recording_sample_rate else None
             if sample_rate == "1.00":
                 sample_rate = None
 
@@ -389,7 +389,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> bool
                 "endpoint": "/s/",
                 "consoleLogRecordingEnabled": capture_console_logs,
                 "recorderVersion": "v2",
-                "sampleRate": str(sample_rate) if sample_rate is not None else None,
+                "sampleRate": sample_rate,
                 "minimumDurationMilliseconds": minimum_duration,
                 "linkedFlag": linked_flag,
                 "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
