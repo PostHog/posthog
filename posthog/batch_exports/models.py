@@ -106,6 +106,13 @@ class BatchExportRun(UUIDModel):
     records_total_count = models.IntegerField(
         null=True, help_text="The total count of records that should be exported in this BatchExportRun."
     )
+    expected_records_count = models.IntegerField(
+        null=True,
+        help_text=(
+            "The total count of records that we expect to be exported in this BatchExportRun. "
+            "This is updated automatically post-batch export by a monitoring job."
+        ),
+    )
 
     @property
     def workflow_id(self) -> str:

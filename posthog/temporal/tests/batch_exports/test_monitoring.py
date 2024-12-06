@@ -3,6 +3,7 @@ import uuid
 
 import pytest
 import pytest_asyncio
+from freezegun.api import freeze_time
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -11,10 +12,8 @@ from posthog import constants
 from posthog.temporal.batch_exports.monitoring import (
     BatchExportMonitoringInputs,
     BatchExportMonitoringWorkflow,
-    compare_counts,
     get_batch_export,
-    get_events_count,
-    get_records_completed,
+    get_event_counts,
 )
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -22,8 +21,6 @@ from posthog.temporal.tests.utils.models import (
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
-
-TEST_TIME = dt.datetime.now(dt.UTC)
 
 
 @pytest_asyncio.fixture
@@ -43,7 +40,7 @@ async def batch_export(ateam, temporal_client):
     batch_export_data = {
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
-        "interval": "hour",
+        "interval": "every 5 minutes",
     }
 
     batch_export = await acreate_batch_export(
@@ -58,7 +55,25 @@ async def batch_export(ateam, temporal_client):
     await adelete_batch_export(batch_export, temporal_client)
 
 
-async def test_monitoring_workflow(batch_export):
+@freeze_time(dt.datetime(2023, 4, 25, 15, 30, 0, tzinfo=dt.UTC))
+@pytest.mark.parametrize(
+    "data_interval_start",
+    # This is hardcoded relative to the `data_interval_end` used in all or most tests, since that's also
+    # passed to `generate_test_data` to determine the timestamp for the generated data.
+    # This will generate 2 hours of data between 13:00 and 15:00.
+    [dt.datetime(2023, 4, 25, 13, 0, 0, tzinfo=dt.UTC)],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "interval",
+    ["every 5 minutes"],
+    indirect=True,
+)
+async def test_monitoring_workflow(batch_export, generate_test_data, data_interval_start, interval):
+    # now = dt.datetime.now(tz=dt.UTC)
+    # interval_end = now.replace(minute=0, second=0, microsecond=0) - dt.timedelta(hours=1)
+    # interval_start = interval_end - dt.timedelta(hours=1)
+
     workflow_id = str(uuid.uuid4())
     inputs = BatchExportMonitoringInputs(team_id=batch_export.team_id)
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -69,9 +84,7 @@ async def test_monitoring_workflow(batch_export):
             workflows=[BatchExportMonitoringWorkflow],
             activities=[
                 get_batch_export,
-                get_records_completed,
-                get_events_count,
-                compare_counts,
+                get_event_counts,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
