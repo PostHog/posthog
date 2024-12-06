@@ -8,6 +8,7 @@ import structlog
 
 from ee.clickhouse.materialized_columns.columns import (
     DEFAULT_TABLE_COLUMN,
+    MaterializedColumn,
     backfill_materialized_columns,
     get_materialized_columns,
     materialize,
@@ -196,18 +197,15 @@ def materialize_properties_task(
     else:
         logger.info("Found no columns to materialize.")
 
-    properties: dict[TableWithProperties, list[tuple[PropertyName, TableColumn]]] = {
-        "events": [],
-        "person": [],
-    }
+    materialized_columns: dict[TableWithProperties, list[MaterializedColumn]] = defaultdict(list)
     for table, table_column, property_name in result[:maximum]:
         logger.info(f"Materializing column. table={table}, property_name={property_name}")
-
         if not dry_run:
-            materialize(table, property_name, table_column=table_column, is_nullable=is_nullable)
-        properties[table].append((property_name, table_column))
+            materialized_columns[table].append(
+                materialize(table, property_name, table_column=table_column, is_nullable=is_nullable)
+            )
 
     if backfill_period_days > 0 and not dry_run:
         logger.info(f"Starting backfill for new materialized columns. period_days={backfill_period_days}")
-        backfill_materialized_columns("events", properties["events"], timedelta(days=backfill_period_days))
-        backfill_materialized_columns("person", properties["person"], timedelta(days=backfill_period_days))
+        for table, columns in materialized_columns.items():
+            backfill_materialized_columns(table, columns, timedelta(days=backfill_period_days))
