@@ -86,7 +86,7 @@ export const setup2FALogic = kea<setup2FALogicType>([
             null as { backup_codes: string[] } | null,
             {
                 generateBackupCodes: async () => {
-                    return await api.create('api/users/@me/two_factor_backup_codes/')
+                    return await api.create<any>('api/users/@me/two_factor_backup_codes/')
                 },
             },
         ],
@@ -95,7 +95,7 @@ export const setup2FALogic = kea<setup2FALogicType>([
             {
                 disable2FA: async () => {
                     try {
-                        await api.create('api/users/@me/two_factor_disable/')
+                        await api.create<any>('api/users/@me/two_factor_disable/')
                         return true
                     } catch (e) {
                         const { code, detail } = e as Record<string, any>
@@ -114,7 +114,7 @@ export const setup2FALogic = kea<setup2FALogicType>([
             submit: async ({ token }, breakpoint) => {
                 breakpoint()
                 try {
-                    return await api.create('api/users/@me/validate_2fa/', { token })
+                    return await api.create<any>('api/users/@me/validate_2fa/', { token })
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     actions.setGeneralError(code, detail)

@@ -34,7 +34,13 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
-from posthog.session_recordings.session_recording_api import list_recordings_response
+from posthog.schema import RecordingsQuery
+from posthog.session_recordings.session_recording_api import (
+    list_recordings_response,
+    list_recordings,
+    query_as_params_to_dict,
+    list_recordings_from_query,
+)
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
@@ -224,10 +230,19 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             .values_list("recording_id", flat=True)
         )
 
-        filter = SessionRecordingsFilter(request=request, team=self.team)
-        filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: json.dumps(playlist_items)})
+        use_query_type = (request.GET.get("as_query", "False")).lower() == "true"
 
-        return list_recordings_response(filter, request, self.get_serializer_context())
+        if use_query_type:
+            data_dict = query_as_params_to_dict(request.GET.dict())
+            query = RecordingsQuery.model_validate(data_dict)
+            query.session_ids = playlist_items
+            return list_recordings_response(
+                list_recordings_from_query(query, request, context=self.get_serializer_context())
+            )
+        else:
+            filter = SessionRecordingsFilter(request=request, team=self.team)
+            filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: json.dumps(playlist_items)})
+            return list_recordings_response(list_recordings(filter, request, context=self.get_serializer_context()))
 
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
     @action(
