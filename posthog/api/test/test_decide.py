@@ -42,6 +42,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person import PersonDistinctId
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.plugin import sync_team_inject_web_apps
+from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
@@ -121,6 +122,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         disable_flags=False,
         user_agent: Optional[str] = None,
     ):
+        if self.use_remote_config:
+            # We test a lot with settings changes so the idea is to refresh the remote config
+            remote_config = RemoteConfig.objects.get(team=self.team)
+            remote_config.sync()
+
         if groups is None:
             groups = {}
         return self.client.post(
