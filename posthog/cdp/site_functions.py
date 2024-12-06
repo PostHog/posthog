@@ -9,7 +9,7 @@ from posthog.models.plugin import transpile
 
 def get_transpiled_function(hog_function: HogFunction) -> str:
     # Wrap in IIFE = Immediately Invoked Function Expression = to avoid polluting global scope
-    response = "(function() {\n\n"
+    response = "(function() {\n"
 
     # Build the inputs in three parts:
     # 1) a simple object with constants/scalars

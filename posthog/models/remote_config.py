@@ -200,18 +200,25 @@ class RemoteConfig(UUIDModel):
             )
 
         site_functions = HogFunction.objects.filter(
-            team=self.team, enabled=True, type__in=("site_destination", "site_app"), transpiled__isnull=False
+            team=self.team, enabled=True, type__in=("site_destination", "site_app")
         ).all()
 
         site_functions_js = []
 
         for site_function in site_functions:
-            # NOTE: Should we keep this on the model as .transpiled or just generate it on the fly?
-            source = indent_js(get_transpiled_function(site_function))
-            # NOTE: It is an object as we can later add other properties such as a consent ID
-            site_functions_js.append(
-                f"{{ id: '{site_function.id}', init: function(config) {{ return {source}().init(config) }} }}"
-            )
+            try:
+                # NOTE: Should we keep this on the model as .transpiled or just generate it on the fly?
+                source = get_transpiled_function(site_function)
+                # NOTE: It is an object as we can later add other properties such as a consent ID
+                site_functions_js.append(
+                    indent_js(
+                        f"\n{{\n  id: '{site_function.id}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
+                    )
+                )
+            except Exception:
+                # TODO: Should we track this to somewhere?
+                logger.exception(f"Failed to build JS for site function {site_function.id}")
+                pass
 
         js_content = f"""(function() {{
   window._POSTHOG_CONFIG = {json.dumps(self.config)};
