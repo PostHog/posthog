@@ -310,12 +310,13 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         source_column: TableColumn = "properties"
 
         # create materialized columns
-        materialized_columns = {
-            property_name: materialize(table, property_name, table_column=source_column, create_minmax_index=True)
-            for property_name in property_names
-        }
+        materialized_columns = {}
+        for property_name in property_names:
+            destination_column = materialize(table, property_name, table_column=source_column, create_minmax_index=True)
+            if destination_column is not None:
+                materialized_columns[property_name] = destination_column
+
         assert set(property_names) == materialized_columns.keys()
-        assert None not in materialized_columns.values()
 
         # ensure they exist everywhere
         for property_name, destination_column in materialized_columns.items():

@@ -382,6 +382,7 @@ class DropColumnTask:
 def drop_column(table: TablesWithMaterializedColumns, column_names: Iterable[str]) -> None:
     cluster = get_cluster()
     table_info = tables[table]
+    column_names = [*column_names]
 
     if isinstance(table_info, ShardedTableInfo):
         cluster.map_all_hosts(
