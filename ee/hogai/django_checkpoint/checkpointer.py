@@ -1,4 +1,5 @@
 import json
+import threading
 from collections.abc import Iterator, Sequence
 from typing import Any, Optional
 
@@ -22,12 +23,17 @@ import ee.models.assistant as models
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
     jsonplus_serde = JsonPlusSerializer()
+    _lock: threading.Lock
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._lock = threading.Lock()
 
     def _load_writes(self, writes: Sequence[models.CheckpointWrite]) -> list[tuple[str, str, Any]]:
         return (
             [
                 (
-                    checkpoint_write.task_id,
+                    str(checkpoint_write.task_id),
                     checkpoint_write.channel,
                     self.serde.loads_typed((checkpoint_write.type, checkpoint_write.blob)),
                 )
@@ -108,8 +114,10 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 query = Q()
                 for channel, version in loaded_checkpoint["channel_versions"].items():
                     query |= Q(channel=channel, version=version)
-                channel_values = models.CheckpointBlob.objects.filter(
-                    Q(thread=checkpoint.thread, checkpoint_ns=checkpoint.checkpoint_ns) & query
+                channel_values = list(
+                    models.CheckpointBlob.objects.filter(
+                        Q(thread=checkpoint.thread, checkpoint_ns=checkpoint.checkpoint_ns) & query
+                    )
                 )
 
             pending_writes = checkpoint.writes.filter(checkpoint_ns=checkpoint.checkpoint_ns).order_by("idx", "task_id")
@@ -200,7 +208,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         checkpoint_ns = configurable.pop("checkpoint_ns")
         checkpoint_id = configurable.pop("checkpoint_id", configurable.pop("thread_ts", None))
 
-        checkpoint_copy = checkpoint.copy()
+        checkpoint_copy: dict = checkpoint.copy()
         channel_values = checkpoint_copy.pop("channel_values")
         next_config: RunnableConfig = {
             "configurable": {
@@ -210,7 +218,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             }
         }
 
-        with transaction.atomic():
+        with self._lock, transaction.atomic():
             checkpoint, _ = models.Checkpoint.objects.update_or_create(
                 id=checkpoint["id"],
                 thread_id=thread_id,
@@ -232,7 +240,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                         thread=checkpoint.thread,
                         checkpoint_ns=checkpoint_ns,
                         channel=channel,
-                        version=version,
+                        version=str(version),
                         type=type,
                         blob=blob,
                     )
@@ -272,9 +280,10 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 )
             )
 
-        models.CheckpointWrite.objects.bulk_create(
-            writes_to_create,
-            update_conflicts=all(w[0] in WRITES_IDX_MAP for w in writes),
-            unique_fields=["checkpoint_id", "checkpoint_ns", "task_id", "idx"],
-            update_fields=["channel", "type", "blob"],
-        )
+        with self._lock:
+            models.CheckpointWrite.objects.bulk_create(
+                writes_to_create,
+                update_conflicts=all(w[0] in WRITES_IDX_MAP for w in writes),
+                unique_fields=["checkpoint_id", "checkpoint_ns", "task_id", "idx"],
+                update_fields=["channel", "type", "blob"],
+            )
