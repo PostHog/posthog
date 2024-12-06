@@ -1685,7 +1685,7 @@ async def test_s3_export_workflow_with_request_timeouts(
     assert run.records_completed is None
     assert (
         run.latest_error
-        == "RecordBatchConsumerRetryableExceptionGroup: At least one unhandled retryable errors in a RecordBatch consumer TaskGroup (1 sub-exception)"
+        == "IntermittentUploadPartTimeoutError: An intermittent `RequestTimeout` was raised while attempting to upload part 1"
     )
 
     run = runs[1]

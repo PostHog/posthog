@@ -364,39 +364,7 @@ async def run_consumer_loop(
         if consumer_task_exception is not None:
             raise consumer_task_exception
 
-    await logger.adebug("Finished producing, now waiting on any pending consumer tasks")
-    if consumer_tasks_pending:
-        await asyncio.wait(consumer_tasks_pending)
-
-    retryable = []
-    non_retryable = []
-    for task in consumer_tasks_done:
-        try:
-            await raise_on_task_failure(task)
-
-        except Exception as e:
-            # TODO: Handle exception types instead of checking for exception names.
-            # We are losing some precision by not handling exception types with
-            # `except`, but using a sequence of strings keeps us in line with
-            # Temporal. Not a good reason though, but right now we would need to
-            # search for a handful of exception types, so this is a quicker tradeoff
-            # as we already have the list of strings for each destination.
-            if e.__class__.__name__ in non_retryable_error_types:
-                await logger.aexception("Consumer task %s has failed with a non-retryable %s", task, e, exc_info=e)
-                non_retryable.append(e)
-
-            else:
-                await logger.aexception("Consumer task %s has failed with a retryable %s", task, e, exc_info=e)
-                retryable.append(e)
-
-    if retryable:
-        raise RecordBatchConsumerRetryableExceptionGroup(
-            "At least one unhandled retryable errors in a RecordBatch consumer TaskGroup", retryable + non_retryable
-        )
-    elif non_retryable:
-        raise RecordBatchConsumerNonRetryableExceptionGroup(
-            "Unhandled non-retryable errors in a RecordBatch consumer TaskGroup", retryable + non_retryable
-        )
+    await logger.adebug("Finished consuming record batches")
 
     await raise_on_task_failure(producer_task)
     await logger.adebug("Successfully consumed all record batches")
