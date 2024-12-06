@@ -1,4 +1,3 @@
-from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.response import Response
 from posthog.api.utils import action
 from rest_framework import (
@@ -82,9 +81,8 @@ class OrganizationFeatureFlagView(
 
         for target_project_id in target_project_ids:
             # Target project does not exist
-            try:
-                target_team = Team.objects.filter(project_id=target_project_id).first()
-            except ObjectDoesNotExist:
+            target_team = Team.objects.filter(project_id=target_project_id).first()
+            if target_team is None:
                 failed_projects.append(
                     {
                         "project_id": target_project_id,
