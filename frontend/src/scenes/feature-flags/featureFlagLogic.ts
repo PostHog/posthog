@@ -97,6 +97,7 @@ const NEW_FLAG: FeatureFlagType = {
     surveys: null,
     performed_rollback: false,
     can_edit: true,
+    user_access_level: 'editor',
     tags: [],
 }
 const NEW_VARIANT = {

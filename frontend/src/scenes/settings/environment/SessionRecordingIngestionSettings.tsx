@@ -21,6 +21,7 @@ import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/cons
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
 import { sessionReplayIngestionControlLogic } from 'scenes/settings/environment/sessionReplayIngestionControlLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -377,6 +378,8 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                         Learn more in our docs.
                     </Link>
                 </p>
+
+                <SupportedPlatforms web={true} />
 
                 {samplingControlFeatureEnabled && (
                     <>

@@ -3,12 +3,15 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
+import { HogQLQuery } from '~/queries/schema'
+
 import { editorSizingLogic } from './editorSizingLogic'
 
 interface QueryPaneProps {
     queryInput: string
     promptError: string | null
     codeEditorProps: Partial<CodeEditorProps>
+    sourceQuery: HogQLQuery
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
@@ -31,6 +34,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                 className="border"
                                 language="hogQL"
                                 value={props.queryInput}
+                                sourceQuery={props.sourceQuery}
                                 height={height}
                                 width={width}
                                 {...props.codeEditorProps}

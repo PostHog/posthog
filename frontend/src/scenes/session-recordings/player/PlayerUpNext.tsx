@@ -50,9 +50,13 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
         if (endReached && nextSessionRecording?.id) {
             setAnimate(true)
             setPlayNextAnimationInterrupted(false)
-            timeoutRef.current = setTimeout(() => {
-                goToRecording(true)
-            }, 30000) // NOTE: Keep in sync with SCSS
+            timeoutRef.current = setTimeout(
+                () => {
+                    goToRecording(true)
+                },
+                // NOTE: Keep in sync with SCSS
+                3000
+            )
         }
 
         return () => clearTimeout(timeoutRef.current)

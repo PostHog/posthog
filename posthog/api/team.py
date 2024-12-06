@@ -234,7 +234,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
-        return GroupTypeMapping.objects.filter(team_id=team.id).exists()
+        return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()
 
     def get_live_events_token(self, team: Team) -> Optional[str]:
         return encode_jwt(
