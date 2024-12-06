@@ -42,12 +42,16 @@
         font-size: smaller;
     }
 
-    // All panels horizontally stacked
+    // All primary panels horizontally stacked
     // var(--panel-playback-min-width) + var(--panel-inspector-min-width) + var(--panel-gap) + var(--panel-gap)
     @container replay-panel-layout (width >= 1040px) {
         .PanelLayout__inspector {
             height: 100%;
             overflow-y: auto;
+        }
+
+        .PanelLayout__primary {
+            flex-direction: column;
         }
     }
 
@@ -80,8 +84,9 @@
         }
     }
 
-    @container replay-panel-layout (508px < width < 716px) {
+    @container replay-panel-layout (508px < width < 1040px) {
         .PanelLayout__primary {
+            height: 100%;
             overflow-y: auto;
         }
     }

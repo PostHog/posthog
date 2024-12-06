@@ -29,7 +29,7 @@ export function PanelsUI(): JSX.Element {
                     </Panel>
                 </PanelContainer>
 
-                <PanelContainer primary className="PanelLayout__primary flex-col">
+                <PanelContainer primary className="PanelLayout__primary">
                     <PanelContainer primary={false} className="w-full">
                         <Panel primary className="">
                             <>
