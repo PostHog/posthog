@@ -20,7 +20,7 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
-import { earlyAccessFeature } from 'products/earlyAccessFeatures/frontend/urls'
+import { earlyAccessFeature } from 'products/early_access_features/frontend/urls'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'

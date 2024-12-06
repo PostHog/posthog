@@ -61,7 +61,7 @@ from . import (
     uploaded_media,
     user,
 )
-import products.earlyAccessFeatures.backend.api as early_access_feature
+import products.early_access_features.backend.api as early_access_feature
 
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet

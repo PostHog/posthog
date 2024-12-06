@@ -9,9 +9,9 @@ import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import {
     EarlyAccessFeatureLogicProps,
     earlyAccessFeatureLogic,
-} from 'products/earlyAccessFeatures/frontend/earlyAccessFeatureLogic'
-import { PersonList } from 'products/earlyAccessFeatures/frontend/EarlyAccessFeature'
-import { earlyAccessFeature } from 'products/earlyAccessFeatures/frontend/urls'
+} from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import { PersonList } from 'products/early_access_features/frontend/EarlyAccessFeature'
+import { earlyAccessFeature } from 'products/early_access_features/frontend/urls'
 
 import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'

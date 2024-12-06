@@ -498,6 +498,9 @@ export function gatherProductManifests() {
     let productScenes = ''
 
     for (const product of fse.readdirSync('products')) {
+        if (product === '__pycache__') {
+            continue
+        }
         try {
             const manifest = JSON.parse(fse.readFileSync(`products/${product}/manifest.json`, 'utf-8'))
             Object.assign(scenes, manifest.scenes ?? {})

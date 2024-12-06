@@ -173,7 +173,7 @@ class FeatureFlagSerializer(
         )
 
     def get_features(self, feature_flag: FeatureFlag) -> dict:
-        from products.earlyAccessFeatures.backend.api import MinimalEarlyAccessFeatureSerializer
+        from products.early_access_features.backend.api import MinimalEarlyAccessFeatureSerializer
 
         return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data
 
