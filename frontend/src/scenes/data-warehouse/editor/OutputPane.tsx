@@ -4,7 +4,6 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
@@ -25,45 +24,23 @@ import { VariablesForInsight } from '~/queries/nodes/DataVisualization/Component
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema'
-import { ChartDisplayType, ExportContext, ExporterFormat } from '~/types'
+import { HogQLQueryResponse } from '~/queries/schema'
+import { ChartDisplayType, ExporterFormat } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 
-interface OutputPaneProps {
-    onSaveInsight: () => void
-    onSaveView: () => void
-    saveDisabledReason?: string
-    onQueryInputChange: () => void
-    onQueryChange: (query: DataVisualizationNode) => void
-    query: string
-    exportContext?: ExportContext
-}
-
-export function OutputPane({
-    onQueryInputChange,
-    onQueryChange,
-    onSaveView,
-    onSaveInsight,
-    saveDisabledReason,
-    query,
-    exportContext,
-}: OutputPaneProps): JSX.Element {
+export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
     const { variablesForInsight } = useValues(variablesLogic)
 
-    const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
-
-    const { editingView, queryInput } = useValues(
-        multitabEditorLogic({
-            key: codeEditorKey,
-        })
-    )
+    const { editingView, sourceQuery, exportContext, isValidView } = useValues(multitabEditorLogic)
+    const { saveAsInsight, saveAsView, setSourceQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading } = useValues(dataNodeLogic)
+    const { loadData } = useActions(dataNodeLogic)
     const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { visualizationType } = useValues(dataVisualizationLogic)
@@ -112,25 +89,17 @@ export function OutputPane({
 
         if (activeTab === OutputTab.Visualization) {
             return !response ? (
-                <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
-                    <span className="text-muted mt-3">Query results will visualized here</span>
-                </div>
+                <span className="text-muted mt-3">Query be results will be visualized here</span>
             ) : (
                 <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
                     <InternalDataTableVisualization
                         uniqueKey={vizKey}
-                        query={{
-                            kind: NodeKind.DataVisualizationNode,
-                            source: {
-                                kind: NodeKind.HogQLQuery,
-                                query,
-                            },
-                        }}
-                        setQuery={onQueryChange}
+                        query={sourceQuery}
+                        setQuery={setSourceQuery}
                         context={{}}
                         cachedResults={undefined}
                         exportContext={exportContext}
-                        onSaveInsight={onSaveInsight}
+                        onSaveInsight={saveAsInsight}
                     />
                 </div>
             )
@@ -192,10 +161,7 @@ export function OutputPane({
                                 onClick={() =>
                                     updateDataWarehouseSavedQuery({
                                         id: editingView.id,
-                                        query: {
-                                            kind: NodeKind.HogQLQuery,
-                                            query: queryInput,
-                                        },
+                                        query: sourceQuery.source,
                                         types: response?.types ?? [],
                                     })
                                 }
@@ -204,11 +170,15 @@ export function OutputPane({
                             </LemonButton>
                         </>
                     ) : (
-                        <LemonButton type="secondary" onClick={() => onSaveView()} disabledReason={saveDisabledReason}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => saveAsView()}
+                            disabledReason={isValidView ? '' : 'Some fields may need an alias'}
+                        >
                             Save as view
                         </LemonButton>
                     )}
-                    <LemonButton loading={responseLoading} type="primary" onClick={() => onQueryInputChange()}>
+                    <LemonButton loading={responseLoading} type="primary" onClick={() => loadData(true)}>
                         <span className="mr-1">Run</span>
                         <KeyboardShortcut command enter />
                     </LemonButton>
