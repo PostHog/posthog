@@ -1,7 +1,9 @@
 from decimal import Decimal
 from inline_snapshot import snapshot
 import pytest
+from posthog.models.action.action import Action
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.feedback.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
@@ -15,6 +17,7 @@ class _RemoteConfigBase(BaseTest):
 
     def setUp(self):
         super().setUp()
+
         project, team = Project.objects.create_with_team(
             initiating_user=self.user,
             organization=self.organization,
@@ -107,6 +110,213 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.team.save()
         self.remote_config.refresh_from_db()
         assert self.remote_config.config["sessionRecording"]["sampleRate"] == "0.50"
+
+
+class TestRemoteConfigSurveys(_RemoteConfigBase):
+    # Largely copied from TestSurveysAPIList
+    def setUp(self):
+        super().setUp()
+
+        self.team.save()
+
+    def test_includes_survey_config(self):
+        survey_appearance = {
+            "thankYouMessageHeader": "Thanks for your feedback!",
+            "thankYouMessageDescription": "We'll use it to make notebooks better",
+        }
+
+        self.team.survey_config = {"appearance": survey_appearance}
+        self.team.save()
+
+        self.remote_config.refresh_from_db()
+        assert self.remote_config.config["surveys"] == snapshot(
+            {
+                "surveys": [],
+                "survey_config": {
+                    "appearance": {
+                        "thankYouMessageHeader": "Thanks for your feedback!",
+                        "thankYouMessageDescription": "We'll use it to make notebooks better",
+                    }
+                },
+            }
+        )
+
+    def test_includes_surveys_with_actions(self):
+        action = Action.objects.create(
+            team=self.team,
+            name="user subscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        survey_with_actions = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="survey with actions",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+        survey_with_actions.actions.set(Action.objects.filter(name="user subscribed"))
+        survey_with_actions.save()
+
+        self.remote_config.refresh_from_db()
+        assert self.remote_config.config["surveys"]
+        # TODO: Fix this - there is _waaaay_ too much data in here
+        assert self.remote_config.config["surveys"] == snapshot(
+            {
+                "surveys": [
+                    {
+                        "id": "01939c7b-cb0b-0000-1678-6c1f4d8fdb10",
+                        "name": "survey with actions",
+                        "type": "popover",
+                        "end_date": None,
+                        "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
+                        "appearance": None,
+                        "conditions": {
+                            "actions": {
+                                "values": [
+                                    {
+                                        "id": 42,
+                                        "name": "user subscribed",
+                                        "tags": [],
+                                        "steps": [
+                                            {
+                                                "url": "docs",
+                                                "href": None,
+                                                "text": None,
+                                                "event": "$pageview",
+                                                "selector": None,
+                                                "tag_name": None,
+                                                "properties": None,
+                                                "url_matching": "contains",
+                                                "href_matching": None,
+                                                "text_matching": None,
+                                            }
+                                        ],
+                                        "deleted": False,
+                                        "team_id": 1028,
+                                        "is_action": True,
+                                        "pinned_at": None,
+                                        "created_at": "2024-12-06T14:59:38.886069Z",
+                                        "created_by": None,
+                                        "description": "",
+                                        "post_to_slack": False,
+                                        "bytecode_error": None,
+                                        "is_calculating": False,
+                                        "creation_context": None,
+                                        "last_calculated_at": "2024-12-06T14:59:38.879836Z",
+                                        "slack_message_format": "",
+                                    }
+                                ]
+                            }
+                        },
+                        "start_date": None,
+                        "current_iteration": None,
+                        "current_iteration_start_date": None,
+                    }
+                ],
+                "survey_config": None,
+            }
+        )
+
+    # @snapshot_postgres_queries
+    # def test_list_surveys(self):
+    #     basic_survey = Survey.objects.create(
+    #         team=self.team,
+    #         created_by=self.user,
+    #         name="Survey 1",
+    #         type="popover",
+    #         questions=[{"type": "open", "question": "What's a survey?"}],
+    #     )
+    #     linked_flag = FeatureFlag.objects.create(team=self.team, key="linked-flag", created_by=self.user)
+    #     targeting_flag = FeatureFlag.objects.create(team=self.team, key="targeting-flag", created_by=self.user)
+    #     internal_targeting_flag = FeatureFlag.objects.create(
+    #         team=self.team, key="custom-targeting-flag", created_by=self.user
+    #     )
+
+    #     survey_with_flags = Survey.objects.create(
+    #         team=self.team,
+    #         created_by=self.user,
+    #         name="Survey 2",
+    #         type="popover",
+    #         linked_flag=linked_flag,
+    #         targeting_flag=targeting_flag,
+    #         internal_targeting_flag=internal_targeting_flag,
+    #         questions=[{"type": "open", "question": "What's a hedgehog?"}],
+    #     )
+
+    #     self.client.logout()
+
+    #     with self.assertNumQueries(3):
+    #         response = self._get_surveys()
+    #         assert response.status_code == status.HTTP_200_OK
+    #         assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
+    #         surveys = response.json()["surveys"]
+    #         self.assertIn(
+    #             {
+    #                 "id": str(survey_with_flags.id),
+    #                 "name": "Survey 2",
+    #                 "type": "popover",
+    #                 "conditions": None,
+    #                 "appearance": None,
+    #                 "questions": [{"type": "open", "question": "What's a hedgehog?"}],
+    #                 "linked_flag_key": "linked-flag",
+    #                 "targeting_flag_key": "targeting-flag",
+    #                 "current_iteration": None,
+    #                 "current_iteration_start_date": None,
+    #                 "internal_targeting_flag_key": "custom-targeting-flag",
+    #                 "start_date": None,
+    #                 "end_date": None,
+    #             },
+    #             surveys,
+    #         )
+    #         self.assertIn(
+    #             {
+    #                 "id": str(basic_survey.id),
+    #                 "name": "Survey 1",
+    #                 "type": "popover",
+    #                 "questions": [{"type": "open", "question": "What's a survey?"}],
+    #                 "conditions": None,
+    #                 "appearance": None,
+    #                 "start_date": None,
+    #                 "end_date": None,
+    #                 "current_iteration": None,
+    #                 "current_iteration_start_date": None,
+    #             },
+    #             surveys,
+    #         )
+
+    # def test_list_surveys_excludes_description(self):
+    #     Survey.objects.create(
+    #         team=self.team,
+    #         created_by=self.user,
+    #         name="Survey 1",
+    #         description="This description should not be returned",
+    #         type="popover",
+    #         questions=[{"type": "open", "question": "What's a survey?"}],
+    #     )
+    #     Survey.objects.create(
+    #         team=self.team,
+    #         created_by=self.user,
+    #         name="Survey 2",
+    #         description="Another description that should be excluded",
+    #         type="popover",
+    #         questions=[{"type": "open", "question": "What's a hedgehog?"}],
+    #     )
+    #     self.client.logout()
+
+    #     with self.assertNumQueries(3):
+    #         response = self._get_surveys()
+    #         assert response.status_code == status.HTTP_200_OK
+    #         assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
+
+    #         surveys = response.json()["surveys"]
+    #         assert len(surveys) == 2
+
+    #         for survey in surveys:
+    #             assert "description" not in survey, f"Description field should not be present in survey: {survey}"
+
+    #         assert surveys[0]["name"] == "Survey 1"
+    #         assert surveys[1]["name"] == "Survey 2"
 
 
 class TestRemoteConfigCaching(_RemoteConfigBase):
