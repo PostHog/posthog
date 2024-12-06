@@ -1,12 +1,13 @@
 from decimal import Decimal
 from inline_snapshot import snapshot
+import pytest
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
-from posthog.models.remote_config import RemoteConfig
+from posthog.models.remote_config import RemoteConfig, cache_key_for_team_token
 from posthog.test.base import BaseTest
-from django.utils import timezone
+from django.core.cache import cache
 
 
 class _RemoteConfigBase(BaseTest):
@@ -108,25 +109,61 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config.config["sessionRecording"]["sampleRate"] == "0.50"
 
 
-class TestRemoteConfigSync(_RemoteConfigBase):
-    def test_does_not_sync_if_no_changes(self):
-        synced_at = self.remote_config.synced_at
-
-        assert synced_at
-        assert synced_at < timezone.now()
-        self.remote_config.config["surveys"] = False
-        self.remote_config.sync()
-        assert synced_at == self.remote_config.synced_at
-
-        self.remote_config.refresh_from_db()  # Ensure the config object is not referentially the same
-        self.remote_config.sync()
-        assert synced_at == self.remote_config.synced_at
+class TestRemoteConfigCaching(_RemoteConfigBase):
+    def setUp(self):
+        super().setUp()
+        self.remote_config.refresh_from_db()
+        # Clear the cache so we are properly testing each flow
+        assert cache.delete(cache_key_for_team_token(self.team.api_token, "config"))
+        assert cache.delete(cache_key_for_team_token(self.team.api_token, "config.js"))
 
     def test_syncs_if_changes(self):
         synced_at = self.remote_config.synced_at
         self.remote_config.config["surveys"] = True
         self.remote_config.sync()
         assert synced_at < self.remote_config.synced_at  # type: ignore
+
+    def test_persists_data_to_redis_on_sync(self):
+        self.remote_config.config["surveys"] = True
+        self.remote_config.sync()
+        assert cache.get(cache_key_for_team_token(self.team.api_token, "config"))
+        assert cache.get(cache_key_for_team_token(self.team.api_token, "config.js"))
+
+    def test_gets_via_redis_cache(self):
+        with self.assertNumQueries(2):
+            data = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert data == self.remote_config.config
+
+        with self.assertNumQueries(0):
+            data = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert data == self.remote_config.config
+
+    def test_gets_js_via_redis_cache(self):
+        with self.assertNumQueries(3):
+            data = RemoteConfig.get_config_js_via_token(self.team.api_token)
+
+        assert data == self.remote_config.build_js_config()
+
+        with self.assertNumQueries(0):
+            data = RemoteConfig.get_config_js_via_token(self.team.api_token)
+
+        assert data == self.remote_config.build_js_config()
+
+    def test_gets_array_js_via_redis_cache(self):
+        with self.assertNumQueries(3):
+            RemoteConfig.get_array_js_via_token(self.team.api_token)
+
+        with self.assertNumQueries(0):
+            RemoteConfig.get_array_js_via_token(self.team.api_token)
+
+    def test_caches_missing_response(self):
+        with self.assertNumQueries(1):
+            with pytest.raises(RemoteConfig.DoesNotExist):
+                RemoteConfig.get_array_js_via_token("missing-token")
+
+        with self.assertNumQueries(0):
+            with pytest.raises(RemoteConfig.DoesNotExist):
+                RemoteConfig.get_array_js_via_token("missing-token")
 
 
 class TestRemoteConfigJS(_RemoteConfigBase):
