@@ -73,6 +73,8 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
             # Fallback for sessionRecording domain check - new endpoint will be used differently
             response["sessionRecording"] = False
 
+        return response
+
     response = {
         "config": {"enable_collect_everything": True},
         "toolbarParams": {},
