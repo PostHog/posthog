@@ -393,6 +393,23 @@ class FeatureFlagSerializer(
 
         instance = super().update(instance, validated_data)
 
+        # Propagate the new variants and aggregation group type index to the linked experiments
+        if "filters" in validated_data:
+            filters = validated_data["filters"] or {}
+            multivariate = filters.get("multivariate") or {}
+            variants = multivariate.get("variants", [])
+            aggregation_group_type_index = filters.get("aggregation_group_type_index")
+
+            for experiment in instance.experiment_set.all():
+                if experiment.parameters is None:
+                    experiment.parameters = {}
+                experiment.parameters["feature_flag_variants"] = variants
+                if aggregation_group_type_index is not None:
+                    experiment.parameters["aggregation_group_type_index"] = aggregation_group_type_index
+                else:
+                    experiment.parameters.pop("aggregation_group_type_index", None)
+                experiment.save()
+
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
 
         return instance
@@ -729,7 +746,7 @@ class FeatureFlagViewSet(
                 "group_type_mapping": {
                     str(row.group_type_index): row.group_type
                     for row in GroupTypeMapping.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-                        team_id=self.team_id
+                        project_id=self.project_id
                     )
                 },
                 "cohorts": cohorts,

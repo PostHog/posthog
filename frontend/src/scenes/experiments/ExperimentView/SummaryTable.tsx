@@ -323,6 +323,13 @@ export function SummaryTable(): JSX.Element {
                                 ],
                             },
                         ]
+                        if (experiment.filters.insight === InsightType.FUNNELS) {
+                            if (experiment.filters?.events?.[0]) {
+                                filters.push(experiment.filters.events[0])
+                            } else if (experiment.filters?.actions?.[0]) {
+                                filters.push(experiment.filters.actions[0])
+                            }
+                        }
                         const filterGroup: Partial<RecordingUniversalFilters> = {
                             filter_group: {
                                 type: FilterLogicalOperator.And,
