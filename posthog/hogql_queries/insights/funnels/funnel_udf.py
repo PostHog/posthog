@@ -11,7 +11,7 @@ TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
-class FunnelUDFMixin(FunnelBase):
+class FunnelUDFMixin:
     def _add_breakdown_attribution_subquery(self, inner_query: ast.SelectQuery) -> ast.SelectQuery:
         breakdown, breakdownAttributionType = (
             self.context.breakdown,
