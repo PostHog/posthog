@@ -1,4 +1,6 @@
+import re
 from django.http import JsonResponse, Http404, HttpResponse
+from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 from posthog.models.remote_config import RemoteConfig
 
@@ -11,11 +13,17 @@ class BaseRemoteConfigAPIView(APIView):
     authentication_classes = []
     permission_classes = []
 
+    def check_token(self, token: str):
+        # Check token is a valid token - not longer than 255 characters and only allowing alphanumeric characters and _
+        if len(token) > 200 or not re.match(r"^[a-zA-Z0-9_]+$", token):
+            raise ValidationError("Invalid token")
+        return token
+
 
 class RemoteConfigAPIView(BaseRemoteConfigAPIView):
     def get(self, request, token: str, *args, **kwargs):
         try:
-            resource = RemoteConfig.get_config_via_token(token)
+            resource = RemoteConfig.get_config_via_token(self.check_token(token))
         except RemoteConfig.DoesNotExist:
             raise Http404()
 
@@ -25,7 +33,7 @@ class RemoteConfigAPIView(BaseRemoteConfigAPIView):
 class RemoteConfigJSAPIView(BaseRemoteConfigAPIView):
     def get(self, request, token: str, *args, **kwargs):
         try:
-            script_content = RemoteConfig.get_config_js_via_token(token)
+            script_content = RemoteConfig.get_config_js_via_token(self.check_token(token))
         except RemoteConfig.DoesNotExist:
             raise Http404()
 
@@ -35,7 +43,7 @@ class RemoteConfigJSAPIView(BaseRemoteConfigAPIView):
 class RemoteConfigArrayJSAPIView(BaseRemoteConfigAPIView):
     def get(self, request, token: str, *args, **kwargs):
         try:
-            script_content = RemoteConfig.get_array_js_via_token(token)
+            script_content = RemoteConfig.get_array_js_via_token(self.check_token(token))
         except RemoteConfig.DoesNotExist:
             raise Http404()
 
