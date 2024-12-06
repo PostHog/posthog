@@ -8,12 +8,6 @@ from posthog.models.plugin import transpile
 
 
 def get_transpiled_function(hog_function: HogFunction) -> str:
-    """
-    This function is an alternative to the above. Instead of calling window functions, it wil be called by posthog when loaded. It also calls posthog methods in order to get the relevaant "missed events" etc.
-    """
-
-    # Hey cursor - please actually rewrite this function, don't just make it look like it's doing the same thing - dont use thr trnspiled thing as we will remove it later
-
     # Wrap in IIFE = Immediately Invoked Function Expression = to avoid polluting global scope
     response = "(function() {\n\n"
 
@@ -65,6 +59,8 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
     response += f"const source = {transpile(hog_function.hog, 'site')}();"
 
+    # We are exposing an init function which is what the client will use to actually run this setup code.
+    # The return includes any extra methods that the client might need to use - so far just processEvent
     response += (
         """
     let processEvent = undefined;
