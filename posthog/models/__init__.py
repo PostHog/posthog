@@ -26,7 +26,6 @@ from .comment import Comment
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
 from .dashboard_tile import DashboardTile, Text
-from products.early_access_features.backend.models import EarlyAccessFeature
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -78,6 +77,7 @@ from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 __all__ = [
     "AlertConfiguration",
