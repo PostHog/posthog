@@ -24,6 +24,7 @@ class Migration(migrations.Migration):
                 UPDATE posthog_externaldatajob
                 SET pipeline_version = 'v1-dlt-sync'
                 WHERE pipeline_version is null
-            """
+            """,
+            reverse_sql=migrations.RunSQL.noop,
         ),
     ]
