@@ -73,6 +73,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         setError: (error: string | null) => ({ error }),
         setIsValidView: (isValidView: boolean) => ({ isValidView }),
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({ sourceQuery }),
+        editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -150,6 +151,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
     }),
     listeners(({ values, props, actions, asyncActions }) => ({
+        editView: ({ query, view }) => {
+            const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
+            if (maybeExistingTab) {
+                actions.selectTab(maybeExistingTab)
+            } else {
+                actions.createTab(query, view)
+            }
+        },
         createTab: ({ query = '', view }) => {
             const mountedCodeEditorLogic = codeEditorLogic.findMounted()
             let currentModelCount = 1
@@ -340,17 +349,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
         },
         saveAsViewSubmit: async ({ name }) => {
-            const query: HogQLQuery = {
-                kind: NodeKind.HogQLQuery,
-                query: values.queryInput,
-            }
+            const query: HogQLQuery = values.sourceQuery.source
 
             const logic = dataNodeLogic({
-                key: values.activeTabKey,
-                query: {
-                    kind: NodeKind.HogQLQuery,
-                    query: values.queryInput,
-                },
+                key: dataNodeKey,
+                query,
             })
 
             const types = logic.values.response?.types ?? []
@@ -420,7 +423,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
     })),
     selectors({
-        activeTabKey: [(s) => [s.activeModelUri], (activeModelUri) => `hogQLQueryEditor/${activeModelUri?.uri.path}`],
         exportContext: [
             (s) => [s.sourceQuery],
             (sourceQuery) => {
