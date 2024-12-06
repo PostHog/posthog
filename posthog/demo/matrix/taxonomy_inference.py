@@ -7,18 +7,19 @@ from posthog.models import EventDefinition, EventProperty, PropertyDefinition
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property_definition import PropertyType
+from posthog.models.team.team import Team
 
 
-def infer_taxonomy_for_team(team_id: int) -> tuple[int, int, int]:
+def infer_taxonomy_for_team(team: Team) -> tuple[int, int, int]:
     """Infer event and property definitions based on ClickHouse data.
 
     In production, the plugin server is responsible for this - but in demo data we insert directly to ClickHouse.
     """
     # Event definitions, with `last_seen_at`
-    events_last_seen_at = _get_events_last_seen_at(team_id)
+    events_last_seen_at = _get_events_last_seen_at(team.id)
     event_definitions = EventDefinition.objects.bulk_create(
         [
-            EventDefinition(team_id=team_id, name=event, last_seen_at=last_seen_at)
+            EventDefinition(team_id=team.id, project_id=team.project_id, last_seen_at=last_seen_at)
             for event, last_seen_at in events_last_seen_at.items()
         ],
         batch_size=1000,
@@ -26,11 +27,12 @@ def infer_taxonomy_for_team(team_id: int) -> tuple[int, int, int]:
     )
 
     # Property definitions, with types
-    property_types = _get_property_types(team_id)
+    property_types = _get_property_types(team.id)
     property_definitions = PropertyDefinition.objects.bulk_create(
         [
             PropertyDefinition(
-                team_id=team_id,
+                team_id=team.id,
+                project_id=team.project_id,
                 name=name,
                 property_type=property_type,
                 is_numerical=property_type == PropertyType.Numeric,
@@ -44,10 +46,10 @@ def infer_taxonomy_for_team(team_id: int) -> tuple[int, int, int]:
     )
 
     # (event, property) pairs
-    event_property_pairs = _get_event_property_pairs(team_id)
+    event_property_pairs = _get_event_property_pairs(team.id)
     event_properties = EventProperty.objects.bulk_create(
         [
-            EventProperty(team_id=team_id, event=event, property=property_key)
+            EventProperty(team_id=team.id, project_id=team.project_id, event=event, property=property_key)
             for event, property_key in event_property_pairs
         ],
         batch_size=1000,

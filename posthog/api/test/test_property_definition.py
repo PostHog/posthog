@@ -87,7 +87,10 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     def test_pagination_of_property_definitions(self):
         PropertyDefinition.objects.bulk_create(
-            [PropertyDefinition(team=self.team, name="z_property_{}".format(i)) for i in range(1, 301)]
+            [
+                PropertyDefinition(team=self.team, project=self.project, name="z_property_{}".format(i))
+                for i in range(1, 301)
+            ]
         )
         expected_property_count = 310
 

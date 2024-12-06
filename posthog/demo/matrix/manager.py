@@ -134,7 +134,7 @@ class MatrixManager:
         self.matrix.set_project_up(team, user)
         if self.print_steps:
             print(f"Inferring taxonomy for data management...")
-        event_definition_count, property_definition_count, event_properties_count = infer_taxonomy_for_team(team.pk)
+        event_definition_count, property_definition_count, event_properties_count = infer_taxonomy_for_team(team)
         if self.print_steps:
             print(
                 f"Inferred {event_definition_count} event definitions, {property_definition_count} property definitions, and {event_properties_count} event-property pairs."
