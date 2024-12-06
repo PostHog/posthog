@@ -439,6 +439,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     })
                 }
 
+                if (featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]) {
+                    sectionOne.splice(4, 0, {
+                        identifier: Scene.FeatureManagement,
+                        label: 'Features',
+                        icon: <IconFeatures />,
+                        logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
+                        to: isUsingSidebar ? undefined : urls.featureManagement(),
+                    })
+                }
+
                 return [
                     sectionOne,
                     [
@@ -522,7 +532,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         featureFlags[FEATURE_FLAGS.SQL_EDITOR]
                             ? {
                                   identifier: Scene.SQLEditor,
-                                  label: 'Data warehouse 3000',
+                                  label: 'SQL Editor',
                                   icon: <IconServer />,
                                   to: urls.sqlEditor(),
                                   logic: editorSidebarLogic,

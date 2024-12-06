@@ -4,6 +4,7 @@ import { FieldNamePath, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -211,7 +212,13 @@ export const billingLogic = kea<billingLogicType>([
             null as BillingType | null,
             {
                 loadBilling: async () => {
-                    const response = await api.get('api/billing')
+                    // Note: this is a temporary flag to skip forecasting in the billing page
+                    // for customers running into performance issues until we have a more permanent fix
+                    // of splitting the billing and forecasting data.
+                    const skipForecasting = values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]
+                    const response = await api.get(
+                        'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
+                    )
 
                     return parseBillingResponse(response)
                 },
