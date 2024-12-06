@@ -16,7 +16,7 @@ jobs:
     # we skip each step individually, so   they are still reported as success
     # because many of them are required for CI checks to be green
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run frontend checks
         outputs:
@@ -54,7 +54,7 @@ jobs:
         name: Code quality checks
         needs: changes
         # kea typegen and typescript:check need some more oomph
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         steps:
             # we need at least one thing to run to make sure we include everything for required jobs
             - uses: actions/checkout@v3
@@ -121,7 +121,7 @@ jobs:
                   minimum-change-threshold: 1000
 
     jest:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         needs: changes
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
 
