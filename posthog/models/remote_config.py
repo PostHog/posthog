@@ -196,7 +196,9 @@ class RemoteConfig(UUIDModel):
         for site_app in get_site_apps_for_team(self.team.id):
             config = get_site_config_from_schema(site_app.config_schema, site_app.config)
             site_apps_js.append(
-                f"{{ id: '{site_app.token}', init: function(config) {{ {site_app.source}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }}); config.callback();  }} }}"
+                indent_js(
+                    f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback();\n  }}\n}}"
+                )
             )
 
         site_functions = HogFunction.objects.filter(
@@ -207,9 +209,9 @@ class RemoteConfig(UUIDModel):
 
         for site_function in site_functions:
             try:
-                # NOTE: Should we keep this on the model as .transpiled or just generate it on the fly?
                 source = get_transpiled_function(site_function)
                 # NOTE: It is an object as we can later add other properties such as a consent ID
+                # Indentation to make it more readable (and therefore debuggable)
                 site_functions_js.append(
                     indent_js(
                         f"\n{{\n  id: '{site_function.id}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"

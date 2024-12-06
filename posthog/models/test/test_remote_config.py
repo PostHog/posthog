@@ -185,9 +185,30 @@ class TestRemoteConfigJS(_RemoteConfigBase):
             """\
 (function() {
   window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
-  window._POSTHOG_JS_APPS = [{ id: 'tokentoken', init: function(config) { (function () { return { inject: (data) => console.log('injected!', data)}; })().inject({ config:{}, posthog:config.posthog }); config.callback();  } },{ id: 'tokentoken', init: function(config) { (function () { return { inject: (data) => console.log('injected 2!', data)}; })().inject({ config:{}, posthog:config.posthog }); config.callback();  } },{ id: 'tokentoken', init: function(config) { (function () { return { inject: (data) => console.log('injected but disabled!', data)}; })().inject({ config:{}, posthog:config.posthog }); config.callback();  } }];
+  window._POSTHOG_JS_APPS = [    
+    {
+      id: 'tokentoken',
+      init: function(config) {
+            (function () { return { inject: (data) => console.log('injected!', data)}; })().inject({ config:{}, posthog:config.posthog });
+        config.callback();
+      }
+    },    
+    {
+      id: 'tokentoken',
+      init: function(config) {
+            (function () { return { inject: (data) => console.log('injected 2!', data)}; })().inject({ config:{}, posthog:config.posthog });
+        config.callback();
+      }
+    },    
+    {
+      id: 'tokentoken',
+      init: function(config) {
+            (function () { return { inject: (data) => console.log('injected but disabled!', data)}; })().inject({ config:{}, posthog:config.posthog });
+        config.callback();
+      }
+    }];
 })();\
-"""
+"""  # noqa: W291, W293
         )
 
     def test_renders_js_including_site_functions(self):
@@ -416,5 +437,5 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         })().init(config) } 
     }];
 })();\
-"""  # noqa: W293
+"""  # noqa: W291, W293
         )
