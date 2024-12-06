@@ -55,7 +55,6 @@ class TestSiteFunctions(TestCase):
             """\
 (function() {
 
-
 function buildInputs(globals, initial) {
 let inputs = {
 };
