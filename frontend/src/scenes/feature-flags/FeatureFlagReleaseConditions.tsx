@@ -20,6 +20,7 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
+import { earlyAccessFeature } from 'products/earlyAccessFeatures/frontend/urls'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -432,7 +433,7 @@ export function FeatureFlagReleaseConditions({
                             size="small"
                             onClick={() =>
                                 hasEarlyAccessFeatures &&
-                                router.actions.push(urls.earlyAccessFeature(earlyAccessFeaturesList[0].id))
+                                router.actions.push(earlyAccessFeature(earlyAccessFeaturesList[0].id))
                             }
                         >
                             {hasMatchingEarlyAccessFeature ? 'View Early Access Feature' : 'No Early Access Feature'}

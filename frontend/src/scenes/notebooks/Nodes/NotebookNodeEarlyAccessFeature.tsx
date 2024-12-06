@@ -2,15 +2,17 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
+
 import {
     EarlyAccessFeatureLogicProps,
     earlyAccessFeatureLogic,
-} from 'scenes/early-access-features/earlyAccessFeatureLogic'
-import { PersonList } from 'scenes/early-access-features/EarlyAccessFeature'
+} from 'products/earlyAccessFeatures/frontend/earlyAccessFeatureLogic'
+import { PersonList } from 'products/earlyAccessFeatures/frontend/EarlyAccessFeature'
+import { earlyAccessFeature } from 'products/earlyAccessFeatures/frontend/urls'
+
 import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
@@ -124,13 +126,13 @@ export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<NotebookNo
     titlePlaceholder: 'Early Access Management',
     Component,
     heightEstimate: '3rem',
-    href: (attrs) => urls.earlyAccessFeature(attrs.id),
+    href: (attrs) => earlyAccessFeature(attrs.id),
     resizeable: false,
     attributes: {
         id: {},
     },
     pasteOptions: {
-        find: urls.earlyAccessFeature(UUID_REGEX_MATCH_GROUPS),
+        find: earlyAccessFeature(UUID_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
             return { id: match[1] }
         },

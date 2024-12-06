@@ -16,6 +16,7 @@
         "/messaging/providers": "MessagingProviders",
         "/messaging/providers/:id": "MessagingProviders",
         "/messaging/providers/new": "MessagingProviders",
+        "/messaging/providers/new/*": "MessagingProviders",
         "/messaging/broadcasts": "MessagingBroadcasts",
         "/messaging/broadcasts/:id": "MessagingBroadcasts",
         "/messaging/broadcasts/new": "MessagingBroadcasts"

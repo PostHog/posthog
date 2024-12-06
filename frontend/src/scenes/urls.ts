@@ -153,9 +153,6 @@ export const urls = {
     experiments: (): string => '/experiments',
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-    earlyAccessFeatures: (): string => '/early_access_features',
-    /** @param id A UUID or 'new'. ':id' for routing. */
-    earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     errorTracking: (): string => '/error_tracking',
     errorTrackingConfiguration: (): string => '/error_tracking/configuration',
     errorTrackingIssue: (id: string): string => `/error_tracking/${id}`,

@@ -5,7 +5,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
+import { earlyAccessFeature } from './urls'
 
 import { EarlyAccessFeatureType, ProductKey } from '~/types'
 
@@ -33,7 +33,7 @@ export function EarlyAccessFeatures(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>
+                    <LemonButton type="primary" to={earlyAccessFeature('new')}>
                         New feature
                     </LemonButton>
                 }
@@ -46,7 +46,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                 description="Allow your users to individually enable or disable features that are in public beta."
                 isEmpty={shouldShowEmptyState}
                 docsURL="https://posthog.com/docs/feature-flags/early-access-feature-management"
-                action={() => router.actions.push(urls.earlyAccessFeature('new'))}
+                action={() => router.actions.push(earlyAccessFeature('new'))}
             />
             {!shouldShowEmptyState && (
                 <LemonTable
@@ -60,7 +60,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                                     <LemonTableLink
                                         title={feature.name}
                                         description={feature.description}
-                                        to={urls.earlyAccessFeature(feature.id)}
+                                        to={earlyAccessFeature(feature.id)}
                                     />
                                 )
                             },
@@ -76,8 +76,8 @@ export function EarlyAccessFeatures(): JSX.Element {
                                             stage === 'beta'
                                                 ? 'warning'
                                                 : stage === 'general-availability'
-                                                ? 'success'
-                                                : 'default'
+                                                    ? 'success'
+                                                    : 'default'
                                         }
                                         className="uppercase cursor-default"
                                     >

@@ -6,7 +6,7 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
+import { earlyAccessFeature, earlyAccessFeatures } from './urls'
 
 import {
     Breadcrumb,
@@ -33,7 +33,7 @@ export interface EarlyAccessFeatureLogicProps {
 }
 
 export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
-    path(['scenes', 'features', 'featureLogic']),
+    path(['products', 'earlyAccessFeatures', 'frontend', 'earlyAccessFeatureLogic']),
     props({} as EarlyAccessFeatureLogicProps),
     key(({ id }) => id),
     connect(() => ({
@@ -70,7 +70,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     result = await api.earlyAccessFeatures.create(
                         updatedEarlyAccessFeature as NewEarlyAccessFeatureType
                     )
-                    router.actions.replace(urls.earlyAccessFeature(result.id))
+                    router.actions.replace(earlyAccessFeature(result.id))
                 } else {
                     result = await api.earlyAccessFeatures.update(
                         props.id,
@@ -126,7 +126,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 {
                     key: Scene.EarlyAccessFeatures,
                     name: 'Early Access Management',
-                    path: urls.earlyAccessFeatures(),
+                    path: earlyAccessFeatures(),
                 },
                 {
                     key: [Scene.EarlyAccessFeature, earlyAccessFeature.id || 'new'],
@@ -145,10 +145,10 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             actions.loadEarlyAccessFeature()
             actions.loadEarlyAccessFeatures()
         },
-        saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature }) => {
+        saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature: _earlyAccessFeature }) => {
             lemonToast.success('Early Access Feature saved')
             actions.loadEarlyAccessFeatures()
-            earlyAccessFeature.id && router.actions.replace(urls.earlyAccessFeature(earlyAccessFeature.id))
+            _earlyAccessFeature.id && router.actions.replace(earlyAccessFeature(_earlyAccessFeature.id))
             actions.editFeature(false)
         },
         deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {
@@ -160,14 +160,14 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 actions.loadEarlyAccessFeaturesSuccess(
                     values.earlyAccessFeatures.filter((feature) => feature.id !== earlyAccessFeatureId)
                 )
-                router.actions.push(urls.earlyAccessFeatures())
+                router.actions.push(earlyAccessFeatures())
             } catch (e) {
                 lemonToast.error(`Error deleting Early Access Feature: ${e}`)
             }
         },
     })),
     urlToAction(({ actions, props }) => ({
-        [urls.earlyAccessFeature(props.id ?? 'new')]: (_, __, ___, { method }) => {
+        [earlyAccessFeature(props.id ?? 'new')]: (_, __, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {

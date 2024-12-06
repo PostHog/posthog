@@ -549,8 +549,6 @@ export const routes: Record<string, Scene | string> = {
     [urls.cohorts()]: Scene.PersonsManagement,
     [urls.experiments()]: Scene.Experiments,
     [urls.experiment(':id')]: Scene.Experiment,
-    [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
-    [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.errorTracking()]: Scene.ErrorTracking,
     [urls.errorTrackingConfiguration()]: Scene.ErrorTrackingConfiguration,
     [urls.errorTrackingIssue(':id')]: Scene.ErrorTrackingIssue,

@@ -505,7 +505,7 @@ export function gatherProductManifests() {
             Object.assign(redirects, manifest.redirects ?? {})
 
             productScenes +=
-                Object.entries(scenes)
+                Object.entries(manifest.scenes ?? {})
                     .map(
                         ([key, value]) =>
                             `${JSON.stringify(key)}: (): any => import(${JSON.stringify(
