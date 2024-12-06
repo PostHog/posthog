@@ -320,15 +320,20 @@ CREATE OR REPLACE VIEW events_batch_export_backfill ON CLUSTER {settings.CLICKHO
 """
 
 # TODO: is this the best query to use?
-EVENT_COUNT_FROM_UNBOUNDED_VIEW = """
+EVENT_COUNT_BY_INTERVAL = """
 SELECT
-    count()
+    toStartOfInterval(_inserted_at, INTERVAL {interval}) AS interval_start,
+    interval_start + INTERVAL {interval} AS interval_end,
+    COUNT(*) as total_count
 FROM
-    events_batch_export_unbounded(
+    events_batch_export_recent(
         team_id={team_id},
-        interval_start={interval_start},
-        interval_end={interval_end},
+        interval_start={overall_interval_start},
+        interval_end={overall_interval_end},
         include_events={include_events}::Array(String),
         exclude_events={exclude_events}::Array(String)
     ) AS events
+GROUP BY interval_start
+ORDER BY interval_start desc
+SETTINGS max_replica_delay_for_distributed_queries=1
 """
