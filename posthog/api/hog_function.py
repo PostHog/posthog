@@ -235,11 +235,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         validated_data["created_by"] = request.user
         hog_function = super().create(validated_data=validated_data)
 
-        if validated_data.get("type") in TYPES_WITH_JAVASCRIPT_SOURCE:
-            # Re-run the transpilation with the actual saved instance
-            hog_function.transpiled = get_transpiled_function(hog_function)
-            hog_function.save()
-
         return hog_function
 
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
