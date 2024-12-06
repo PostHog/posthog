@@ -676,10 +676,22 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_result = next(variant for variant in trend_result.variants if variant.key == "control")
         test_result = next(variant for variant in trend_result.variants if variant.key == "test")
 
+        control_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "control")
+        test_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "test")
+
         self.assertEqual(control_result.count, 100)
         self.assertEqual(test_result.count, 205)
         self.assertEqual(control_result.absolute_exposure, 1)
         self.assertEqual(test_result.absolute_exposure, 3)
+
+        self.assertEqual(
+            control_insight["data"],
+            [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+        )
+        self.assertEqual(
+            test_insight["data"],
+            [0.0, 50.0, 125.0, 125.0, 125.0, 205.0, 205.0, 205.0, 205.0, 205.0],
+        )
 
     def test_query_runner_with_invalid_data_warehouse_table_name(self):
         # parquet file isn't created, so we'll get an error
