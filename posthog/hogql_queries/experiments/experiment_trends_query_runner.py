@@ -104,22 +104,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             breakdown_type="data_warehouse",
         )
 
-    def _get_data_warehouse_properties(self) -> list[DataWarehousePropertyFilter]:
-        return [
-            DataWarehousePropertyFilter(
-                key="events.event",
-                value="$feature_flag_called",
-                operator=PropertyOperator.EXACT,
-                type="data_warehouse",
-            ),
-            DataWarehousePropertyFilter(
-                key=f"events.properties.{self.breakdown_key}",
-                value=self.variants,
-                operator=PropertyOperator.EXACT,
-                type="data_warehouse",
-            ),
-        ]
-
     def _prepare_count_query(self) -> TrendsQuery:
         """
         This method takes the raw trend query and adapts it
@@ -145,7 +129,20 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         prepared_count_query.dateRange = self._get_insight_date_range()
         if self._is_data_warehouse_query(prepared_count_query):
             prepared_count_query.breakdownFilter = self._get_data_warehouse_breakdown_filter()
-            prepared_count_query.properties = self._get_data_warehouse_properties()
+            prepared_count_query.properties = [
+                DataWarehousePropertyFilter(
+                    key="events.event",
+                    value="$feature_flag_called",
+                    operator=PropertyOperator.EXACT,
+                    type="data_warehouse",
+                ),
+                DataWarehousePropertyFilter(
+                    key=f"events.properties.{self.breakdown_key}",
+                    value=self.variants,
+                    operator=PropertyOperator.EXACT,
+                    type="data_warehouse",
+                ),
+            ]
         else:
             prepared_count_query.breakdownFilter = self._get_event_breakdown_filter()
             prepared_count_query.properties = [
@@ -186,7 +183,20 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 prepared_exposure_query.series[0].math = BaseMathType.DAU
                 prepared_exposure_query.series[0].math_property = None
                 prepared_exposure_query.series[0].math_property_type = None
-                prepared_exposure_query.properties = self._get_data_warehouse_properties()
+                prepared_exposure_query.properties = [
+                    DataWarehousePropertyFilter(
+                        key="events.event",
+                        value="$feature_flag_called",
+                        operator=PropertyOperator.EXACT,
+                        type="data_warehouse",
+                    ),
+                    DataWarehousePropertyFilter(
+                        key=f"events.properties.{self.breakdown_key}",
+                        value=self.variants,
+                        operator=PropertyOperator.EXACT,
+                        type="data_warehouse",
+                    ),
+                ]
             else:
                 count_event = self.query.count_query.series[0]
                 if hasattr(count_event, "event"):
