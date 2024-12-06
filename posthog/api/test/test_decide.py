@@ -2895,20 +2895,21 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
         )
 
-        with self.assertNumQueries(4):
-            geoip_not_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable=False)
-            geoip_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable=True)
+        geoip_not_disabled_res = self._post_decide(
+            api_version=3, ip=australia_ip, geoip_disable=False, assert_num_queries=0
+        )
+        geoip_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable=True, assert_num_queries=4)
 
-            # person has geoip_country_name set to India, but australia-feature is true, because geoip resolution of current IP is enabled
-            self.assertEqual(
-                geoip_not_disabled_res.json()["featureFlags"],
-                {"australia-feature": True, "india-feature": False},
-            )
-            # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
-            self.assertEqual(
-                geoip_disabled_res.json()["featureFlags"],
-                {"australia-feature": False, "india-feature": True},
-            )
+        # person has geoip_country_name set to India, but australia-feature is true, because geoip resolution of current IP is enabled
+        self.assertEqual(
+            geoip_not_disabled_res.json()["featureFlags"],
+            {"australia-feature": True, "india-feature": False},
+        )
+        # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
+        self.assertEqual(
+            geoip_disabled_res.json()["featureFlags"],
+            {"australia-feature": False, "india-feature": True},
+        )
 
         # test for falsy/truthy values
         geoip_not_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable="0")
