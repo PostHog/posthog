@@ -121,6 +121,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ip="127.0.0.1",
         disable_flags=False,
         user_agent: Optional[str] = None,
+        assert_num_queries: Optional[int] = None,
     ):
         if self.use_remote_config:
             # We test a lot with settings changes so the idea is to refresh the remote config
@@ -129,24 +130,32 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         if groups is None:
             groups = {}
-        return self.client.post(
-            f"/decide/?v={api_version}",
-            {
-                "data": self._dict_to_b64(
-                    data
-                    or {
-                        "token": self.team.api_token,
-                        "distinct_id": distinct_id,
-                        "groups": groups,
-                        "geoip_disable": geoip_disable,
-                        "disable_flags": disable_flags,
-                    },
-                )
-            },
-            HTTP_ORIGIN=origin,
-            REMOTE_ADDR=ip,
-            HTTP_USER_AGENT=user_agent or "PostHog test",
-        )
+
+        def do_request():
+            return self.client.post(
+                f"/decide/?v={api_version}",
+                {
+                    "data": self._dict_to_b64(
+                        data
+                        or {
+                            "token": self.team.api_token,
+                            "distinct_id": distinct_id,
+                            "groups": groups,
+                            "geoip_disable": geoip_disable,
+                            "disable_flags": disable_flags,
+                        },
+                    )
+                },
+                HTTP_ORIGIN=origin,
+                REMOTE_ADDR=ip,
+                HTTP_USER_AGENT=user_agent or "PostHog test",
+            )
+
+        if assert_num_queries:
+            with self.assertNumQueries(assert_num_queries):
+                return do_request()
+        else:
+            return do_request()
 
     def _update_team(self, data, expected_status_code: int = status.HTTP_200_OK):
         # use a non-csrf client to make requests
@@ -655,9 +664,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_web_app_queries(self, *args):
-        with self.assertNumQueries(2):
-            response = self._post_decide()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self._post_decide(assert_num_queries=2)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
         PluginSourceFile.objects.create(
@@ -679,11 +687,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions in the above mean fewer queries
         # 3 of these queries are just for setting transaction scope
-        with self.assertNumQueries(4):
-            response = self._post_decide()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            injected = response.json()["siteApps"]
-            self.assertEqual(len(injected), 1)
+        response = self._post_decide(assert_num_queries=4)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        injected = response.json()["siteApps"]
+        self.assertEqual(len(injected), 1)
 
     def test_site_app_injection(self, *args):
         plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
