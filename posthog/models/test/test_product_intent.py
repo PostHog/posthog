@@ -5,6 +5,7 @@ from freezegun import freeze_time
 
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.feedback.survey import Survey
 from posthog.models.insight import Insight
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
@@ -153,17 +154,19 @@ class TestProductIntent(BaseTest):
         self.product_intent.save()
 
         # Create excluded feature flags
-        FeatureFlag.objects.create(
+        feature_flag = FeatureFlag.objects.create(
             team=self.team,
             key="feature-flag-for-experiment-test",
             name="Feature Flag for Experiment Test",
             filters={"groups": [{"properties": [{"key": "email", "value": "test@test.com"}]}]},
         )
-        FeatureFlag.objects.create(
+        Experiment.objects.create(team=self.team, name="Experiment Test", feature_flag=feature_flag)
+        survey_flag = FeatureFlag.objects.create(
             team=self.team,
             key="targeting-flag-for-survey-test",
             name="Targeting flag for survey Test",
             filters={"groups": [{"properties": [{"key": "country", "value": "US"}]}]},
         )
+        Survey.objects.create(team=self.team, name="Survey Test", targeting_flag=survey_flag)
 
         self.assertFalse(self.product_intent.has_activated_feature_flags())

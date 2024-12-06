@@ -5,6 +5,7 @@ from django.db import models
 
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.feedback.survey import Survey
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
@@ -85,14 +86,17 @@ class ProductIntent(UUIDModel):
         return Experiment.objects.filter(team=self.team, start_date__isnull=False).exists()
 
     def has_activated_feature_flags(self) -> bool:
-        # Get feature flags that have at least one filter group
+        # Get feature flags that have at least one filter group, excluding ones used by experiments and surveys
+        experiment_flags = Experiment.objects.filter(team=self.team).values_list("feature_flag_id", flat=True)
+        survey_flags = Survey.objects.filter(team=self.team).values_list("targeting_flag_id", flat=True)
+
         feature_flags = (
             FeatureFlag.objects.filter(
                 team=self.team,
                 filters__groups__0__properties__isnull=False,
             )
-            .exclude(name__istartswith="Feature Flag for Experiment")
-            .exclude(name__istartswith="Targeting flag for survey")
+            .exclude(id__in=experiment_flags)
+            .exclude(id__in=survey_flags)
             .only("id", "filters")
         )
 
