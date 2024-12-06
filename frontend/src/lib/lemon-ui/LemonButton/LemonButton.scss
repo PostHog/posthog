@@ -1,5 +1,5 @@
 @mixin secondary-variables {
-    --button-border-color: var(--secondary-3000-button-border);
+    --lemon-button-border-color: var(--secondary-3000-button-border);
     --lemon-button-bg-color-active: var(--bg-light);
     --lemon-button-border-color-hover: var(--secondary-3000-button-border-hover);
     --lemon-button-frame-bg-color: var(--secondary-3000-frame-bg);
@@ -47,7 +47,7 @@
     --lemon-button-transition: opacity 200ms ease, transform 200ms ease;
     --lemon-button-border-width: 0;
     --lemon-button-bg-color: transparent;
-    --button-border-color: none;
+    --lemon-button-border-color: none;
     --lemon-button-border-color-hover: none;
     --lemon-button-frame-bg-color: none;
     --lemon-button-font-size: 0.875rem;
@@ -191,7 +191,7 @@
     &.LemonButton--primary {
         --lemon-button-bg-color: var(--primary-3000-button-bg);
         --lemon-button-bg-color-active: var(--primary-3000-button-bg);
-        --button-border-color: var(--primary-3000-button-border);
+        --lemon-button-border-color: var(--primary-3000-button-border);
         --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
         --lemon-button-frame-bg-color: var(--primary-3000-frame-bg);
         --lemon-button-color: var(--content-primary);
@@ -199,7 +199,7 @@
         &.LemonButton--status-alt {
             --lemon-button-bg-color: var(--primary-3000-frame-bg-light);
             --lemon-button-bg-color-active: var(--lemon-button-bg-color);
-            --button-border-color: var(--primary-3000-button-border);
+            --lemon-button-border-color: var(--primary-3000-button-border);
             --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
             --lemon-button-frame-bg-color: var(--primary-3000-button-bg-dark);
             --lemon-button-color: var(--content-primary);
@@ -216,7 +216,7 @@
     &.LemonButton--primary.LemonButton--status-danger,
     &.LemonButton--secondary.LemonButton--status-danger {
         --lemon-button-color: var(--content-danger);
-        --button-border-color: var(--danger-3000-button-border);
+        --lemon-button-border-color: var(--danger-3000-button-border);
         --lemon-button-border-color-hover: var(--danger-3000-button-border-hover);
         --lemon-button-frame-bg-color: var(--danger-3000-frame-bg);
         --lemon-button-icon-opacity: 1;
@@ -269,7 +269,7 @@
                 inset: -1px;
                 z-index: 0;
                 content: '';
-                border: 1px solid var(--button-border-color);
+                border: 1px solid var(--lemon-button-border-color);
                 border-radius: var(--radius);
             }
 
@@ -279,7 +279,7 @@
                 z-index: 0;
                 content: '';
                 background: var(--lemon-button-bg-color);
-                border: 1px solid var(--button-border-color);
+                border: 1px solid var(--lemon-button-border-color);
                 border-radius: var(--radius);
                 box-shadow: 0 var(--lemon-button-chrome-depth) 0 -1px var(--lemon-button-frame-bg-color);
                 transition: opacity 200ms ease;
