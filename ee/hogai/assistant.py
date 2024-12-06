@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator, Generator, Iterator
-from functools import cached_property, partial
+from functools import partial
 from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union
 
 from asgiref.sync import sync_to_async
@@ -19,6 +19,7 @@ from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
 )
 from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation, ReplaceMessages
+from ee.models import AssistantThread
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.schema import (
@@ -111,8 +112,12 @@ class Assistant:
                 break
 
     def _stream(self) -> Generator[str, None, None]:
-        state = self._get_saved_state()
-        config = self._config
+        thread, _ = AssistantThread.objects.get_or_create(
+            id=self._conversation.session_id, team=self._team, user=self._user
+        )
+        state = self._get_saved_state(thread)
+        config = self._get_config(thread)
+
         generator: Iterator[Any] = self._graph.stream(
             state, config=config, stream_mode=["messages", "values", "updates", "debug"]
         )
@@ -144,18 +149,17 @@ class Assistant:
         messages = [message.root for message in self._conversation.messages]
         return {"messages": messages, "intermediate_steps": None, "plan": None}
 
-    @cached_property
-    def _config(self) -> RunnableConfig:
+    def _get_config(self, thread: AssistantThread) -> RunnableConfig:
         callbacks = [langfuse_handler] if langfuse_handler else []
         config: RunnableConfig = {
             "recursion_limit": 24,
             "callbacks": callbacks,
-            "configurable": {"thread_id": self._conversation.session_id},
+            "configurable": {"thread_id": thread.id},
         }
         return config
 
-    def _get_saved_state(self):
-        config = self._config
+    def _get_saved_state(self, thread: AssistantThread):
+        config = self._get_config(thread)
         saved_state = self._graph.get_state(config)
         if saved_state.next:
             intermediate_steps = saved_state.values.get("intermediate_steps", []).copy()
