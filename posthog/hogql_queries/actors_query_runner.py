@@ -4,7 +4,9 @@ from collections.abc import Sequence, Iterator
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_order_expr
+from posthog.hogql.printer import print_ast
 from posthog.hogql.property import has_aggregation
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
@@ -190,8 +192,6 @@ class ActorsQueryRunner(QueryRunner):
             columns = []
             group_by = []
             aggregations = []
-            joinless_fields = ("actor", self.strategy.field, self.strategy.origin_id)
-            requires_join = False
             for expr in self.input_columns():
                 column: ast.Expr = parse_expr(expr)
 
@@ -204,10 +204,6 @@ class ActorsQueryRunner(QueryRunner):
                     # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
                     # we look up valid session ids and match them against the session ids in matching events
                     column = ast.Field(chain=["matching_events"])
-                else:
-                    # Make this more specific ( don't require join for count for example )
-                    if expr not in joinless_fields:
-                        requires_join = True
 
                 columns.append(column)
                 if has_aggregation(column):
@@ -218,8 +214,6 @@ class ActorsQueryRunner(QueryRunner):
 
         with self.timings.measure("filters"):
             filter_conditions = self.strategy.filter_conditions()
-            if filter_conditions:
-                requires_join = True
             where_list = [expr for expr in filter_conditions if not has_aggregation(expr)]
             if len(where_list) == 0:
                 where = None
@@ -241,11 +235,8 @@ class ActorsQueryRunner(QueryRunner):
             if self.query.orderBy is not None:
                 strategy_order_by = self.strategy.order_by()
                 if strategy_order_by is not None:
-                    requires_join = True
                     order_by = strategy_order_by
                 else:
-                    if any(col not in joinless_fields for col in self.query.orderBy):
-                        requires_join = True
                     order_by = [parse_order_expr(col, timings=self.timings) for col in self.query.orderBy]
             elif "count()" in self.input_columns():
                 order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
@@ -259,19 +250,45 @@ class ActorsQueryRunner(QueryRunner):
                 order_by = []
 
         with self.timings.measure("select"):
+            select_query = ast.SelectQuery(
+                select=columns,
+                where=where,
+                having=having,
+                group_by=group_by if has_any_aggregation else None,
+                order_by=order_by,
+                settings=HogQLQuerySettings(join_algorithm="auto", optimize_aggregation_in_order=True),
+            )
             if not self.query.source:
-                join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+                select_query.select_from = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
             else:
                 assert self.source_query_runner is not None  # For type checking
                 source_query = self.source_query_runner.to_actors_query()
                 source_id_chain = self.source_id_column(source_query)
-
-                if isinstance(source_query, ast.SelectQuery) and not requires_join:
-                    source_query.select.append(ast.Alias(alias="id", expr=ast.Field(chain=source_id_chain)))
-                    source_query.order_by = order_by
-                    return source_query
-
                 source_alias = "source"
+
+                # If we aren't joining with the origin, give the source the origin_id
+                source_query.select.append(
+                    ast.Alias(alias=self.strategy.origin_id, expr=ast.Field(chain=source_id_chain))
+                )
+                select_query.select_from = ast.JoinExpr(
+                    table=source_query,
+                    alias=source_alias,
+                )
+
+                try:
+                    print_ast(
+                        select_query,
+                        context=HogQLContext(
+                            team=self.team,
+                            enable_select_queries=True,
+                            timings=self.timings,
+                            modifiers=self.modifiers,
+                        ),
+                        dialect="clickhouse",
+                    )
+                    return select_query
+                except Exception:
+                    pass
 
                 origin = self.strategy.origin
 
@@ -293,7 +310,7 @@ class ActorsQueryRunner(QueryRunner):
                         exprs=[
                             join_on,
                             ast.CompareOperation(
-                                left=ast.Field(chain=[origin, "id"]),
+                                left=ast.Field(chain=[origin, self.strategy.origin_id]),
                                 right=ast.SelectQuery(
                                     select=[ast.Field(chain=[source_alias, *self.source_id_column(source_query)])],
                                     select_from=ast.JoinExpr(table=source_query, alias=source_alias),
@@ -303,7 +320,8 @@ class ActorsQueryRunner(QueryRunner):
                         ]
                     )
 
-                join_expr = ast.JoinExpr(
+                source_query.select.pop()  # remove id, which now comes from the source
+                select_query.select_from = ast.JoinExpr(
                     table=source_query,
                     alias=source_alias,
                     next_join=ast.JoinExpr(
@@ -316,15 +334,7 @@ class ActorsQueryRunner(QueryRunner):
                     ),
                 )
 
-        return ast.SelectQuery(
-            select=columns,
-            select_from=join_expr,
-            where=where,
-            having=having,
-            group_by=group_by if has_any_aggregation else None,
-            order_by=order_by,
-            settings=HogQLQuerySettings(join_algorithm="auto", optimize_aggregation_in_order=True),
-        )
+        return select_query
 
     def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()
