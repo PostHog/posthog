@@ -189,3 +189,26 @@ export function SDKInstallFlutterInstructions(props: FlutterSetupProps): JSX.Ele
         </>
     )
 }
+
+export function SDKInstallFlutterTrackScreenInstructions(): JSX.Element {
+    return (
+        <>
+            <p>
+                With the <Link to="https://posthog.com/docs/libraries/flutter#example">PosthogObserver</Link> Observer,
+                PostHog will try to record all screen changes automatically.
+            </p>
+            <p>
+                If you want to manually send a new screen capture event, use the <code>screen</code> function.
+            </p>
+            <CodeSnippet language={Language.Dart}>{`import 'package:posthog_flutter/posthog_flutter.dart';
+
+await Posthog().screen(
+    screenName: 'Dashboard',
+    properties: {
+      'background': 'blue',
+      'hero': 'superhog'
+    });
+`}</CodeSnippet>
+        </>
+    )
+}

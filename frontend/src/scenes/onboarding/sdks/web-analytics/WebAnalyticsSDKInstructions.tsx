@@ -1,11 +1,11 @@
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
-import { FlutterInstructions } from '../session-replay/flutter'
 import {
     AndroidInstructions,
     AngularInstructions,
     AstroInstructions,
     BubbleInstructions,
+    FlutterInstructions,
     FramerInstructions,
     HTMLSnippetInstructions,
     iOSInstructions,

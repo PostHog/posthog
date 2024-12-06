@@ -738,7 +738,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings.24
@@ -865,7 +865,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings.28
@@ -1637,7 +1637,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.100
@@ -1788,7 +1788,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.105
@@ -1915,7 +1915,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.109
@@ -2543,7 +2543,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.125
@@ -2670,7 +2670,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.129
@@ -3234,7 +3234,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.145
@@ -3361,7 +3361,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.149
@@ -3988,7 +3988,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.165
@@ -4115,7 +4115,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.169
@@ -4706,7 +4706,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.185
@@ -4833,7 +4833,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.189
@@ -5506,7 +5506,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.205
@@ -5633,7 +5633,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.209
@@ -5940,7 +5940,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.25
@@ -6067,7 +6067,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.29
@@ -6671,7 +6671,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.45
@@ -6798,7 +6798,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.49
@@ -7214,7 +7214,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.60
@@ -7365,7 +7365,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.65
@@ -7492,7 +7492,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.69
@@ -8116,7 +8116,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.85
@@ -8243,7 +8243,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.89
