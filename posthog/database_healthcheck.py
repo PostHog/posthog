@@ -49,13 +49,17 @@ class DatabaseHealthcheck:
         return round(time.time() / self.time_interval)
 
     def is_postgres_connected_check(self) -> bool:
-        try:
-            with connections[DATABASE_FOR_FLAG_MATCHING].cursor() as cursor:
-                cursor.execute("SELECT 1")
-            return True
-        except Exception:
-            logger.exception("postgres_connection_failure")
-            return False
+        for i in range(3):
+            try:
+                with connections[DATABASE_FOR_FLAG_MATCHING].cursor() as cursor:
+                    cursor.execute("SELECT 1")
+                return True
+            except Exception:
+                logger.exception("failed to connect to postgres attempt %s of 3", i + 1)
+                time.sleep(0.3)
+
+        logger.exception("postgres_connection_failure")
+        return False
 
 
 postgres_healthcheck = DatabaseHealthcheck(time_interval=10)
