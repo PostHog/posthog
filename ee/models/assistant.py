@@ -42,7 +42,7 @@ class CheckpointBlob(models.Model):
     )
     version = models.TextField(help_text="Monotonically increasing version of the channel.")
     type = models.TextField(null=True, help_text="Type of the serialized blob. For example, `json`.")
-    blob = models.BinaryField()
+    blob = models.BinaryField(null=True)
 
     class Meta:
         constraints = [
@@ -67,7 +67,7 @@ class CheckpointWrite(models.Model):
         help_text="An arbitrary string defining the channel name. For example, it can be a node name or a reserved LangGraph's enum."
     )
     type = models.TextField(null=True, help_text="Type of the serialized blob. For example, `json`.")
-    blob = models.BinaryField()
+    blob = models.BinaryField(null=True)
 
     class Meta:
         constraints = [

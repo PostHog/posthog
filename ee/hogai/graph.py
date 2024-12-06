@@ -1,9 +1,9 @@
 from collections.abc import Hashable
 from typing import Optional, cast
 
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph.state import StateGraph
 
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.funnels.nodes import (
     FunnelGeneratorNode,
     FunnelGeneratorToolsNode,
@@ -21,7 +21,7 @@ from ee.hogai.trends.nodes import (
 from ee.hogai.utils import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
 
-graph_memory = MemorySaver()
+checkpointer = DjangoCheckpointer()
 
 
 class AssistantGraph:
@@ -42,7 +42,7 @@ class AssistantGraph:
     def compile(self):
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
-        return self._graph.compile(checkpointer=graph_memory)
+        return self._graph.compile(checkpointer=checkpointer)
 
     def add_start(self):
         return self.add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)

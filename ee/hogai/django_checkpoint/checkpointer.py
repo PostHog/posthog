@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator, Sequence
 from typing import Any, Optional
 
@@ -36,8 +37,14 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             else []
         )
 
-    def _load_metadata(self, metadata: dict[str, Any]) -> CheckpointMetadata:
-        return self.jsonplus_serde.loads(self.jsonplus_serde.dumps(metadata))
+    def _load_json(self, obj: Any):
+        return self.jsonplus_serde.loads(self.jsonplus_serde.dumps(obj))
+
+    def _dump_json(self, obj: Any) -> dict[str, Any]:
+        serialized_metadata = self.jsonplus_serde.dumps(obj)
+        # NOTE: we're using JSON serializer (not msgpack), so we need to remove null characters before writing
+        nulls_removed = serialized_metadata.decode().replace("\\u0000", "")
+        return json.loads(nulls_removed)
 
     def _get_checkpoint_qs(
         self,
@@ -94,15 +101,16 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             qs = qs[:limit]
 
         for checkpoint in qs:
-            if checkpoint.checkpoint and "channel_versions" in checkpoint.checkpoint:
+            channel_values = []
+
+            loaded_checkpoint = self._load_json(checkpoint.checkpoint)
+            if "channel_versions" in loaded_checkpoint:
                 query = Q()
-                for channel, version in checkpoint.checkpoint["channel_versions"].items():
+                for channel, version in loaded_checkpoint["channel_versions"].items():
                     query |= Q(channel=channel, version=version)
                 channel_values = models.CheckpointBlob.objects.filter(
                     Q(thread=checkpoint.thread, checkpoint_ns=checkpoint.checkpoint_ns) & query
                 )
-            else:
-                channel_values = []
 
             pending_writes = checkpoint.writes.filter(checkpoint_ns=checkpoint.checkpoint_ns).order_by("idx", "task_id")
 
@@ -114,7 +122,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 pending_sends = []
 
             checkpoint_dict = {
-                **checkpoint.checkpoint,
+                **loaded_checkpoint,
                 "pending_sends": [
                     self.serde.loads_typed((checkpoint_write.type, checkpoint_write.blob))
                     for checkpoint_write in pending_sends
@@ -135,7 +143,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     }
                 },
                 checkpoint_dict,
-                self._load_metadata(checkpoint.metadata),
+                self._load_json(checkpoint.metadata),
                 (
                     {
                         "configurable": {
@@ -209,8 +217,8 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 checkpoint_ns=checkpoint_ns,
                 parent_checkpoint_id=checkpoint_id,
                 defaults={
-                    "checkpoint": {**checkpoint_copy, "pending_sends": []},
-                    "metadata": metadata,
+                    "checkpoint": self._dump_json({**checkpoint_copy, "pending_sends": []}),
+                    "metadata": self._dump_json(metadata),
                 },
             )
 
@@ -221,7 +229,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 )
                 blobs.append(
                     models.CheckpointBlob(
-                        checkpoint=checkpoint,
+                        thread=checkpoint.thread,
                         checkpoint_ns=checkpoint_ns,
                         channel=channel,
                         version=version,
