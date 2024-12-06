@@ -103,8 +103,10 @@ class RemoteConfig(UUIDModel):
                 if team.autocapture_exceptions_opt_in
                 else False
             ),
-            "analytics": {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT},
         }
+
+        if str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):
+            config["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
         if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
             config["elementsChainAsString"] = True

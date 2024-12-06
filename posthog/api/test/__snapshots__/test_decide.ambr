@@ -519,7 +519,7 @@
   '''
   SELECT 1 AS "a"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   LIMIT 1
   '''
 # ---

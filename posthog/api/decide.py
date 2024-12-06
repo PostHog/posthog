@@ -105,10 +105,8 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         else False
     )
 
-    if str(team.id) not in settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS:
-        if "*" in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS or str(team.id) in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS:
-            if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
-                response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
+    if str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):
+        response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
     if (
         "*" in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS
