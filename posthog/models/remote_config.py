@@ -15,8 +15,12 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel, execute_with_timeout
 
+from django.core.cache import cache
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
+
+
+CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 
 
 CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
@@ -29,8 +33,6 @@ logger = structlog.get_logger(__name__)
 
 
 # Load the JS content from the frontend build
-
-
 _array_js_content: Optional[str] = None
 
 
@@ -48,6 +50,10 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
 
     return joined
+
+
+def cache_key_for_team_token(team_token: str, suffix: str) -> str:
+    return f"remote_config/{team_token}/{suffix}"
 
 
 class RemoteConfig(UUIDModel):
@@ -230,40 +236,44 @@ class RemoteConfig(UUIDModel):
 
         return js_content
 
-    def build_array_js_config(self):
-        # NOTE: This is the JS that will be loaded by the SDK.
-        # It includes the dist JS for the frontend and the JSON config
+    @classmethod
+    def get_config_via_token(cls, token: str) -> dict:
+        key = cache_key_for_team_token(token, "config")
 
-        js_content = self.build_js_config()
+        data = cache.get(key)
+        if data:
+            return data
 
-        js_content = f"""
+        remote_config = cls.objects.get(team__api_token=token)
+        data = remote_config.build_config()
+        cache.set(key, data, timeout=CACHE_TIMEOUT)
+
+        return data
+
+    @classmethod
+    def get_config_js_via_token(cls, token: str) -> str:
+        key = cache_key_for_team_token(token, "config.js")
+
+        data = cache.get(key)
+        if data:
+            return data
+
+        remote_config = cls.objects.get(team__api_token=token)
+        data = remote_config.build_js_config()
+        cache.set(key, data, timeout=CACHE_TIMEOUT)
+
+        return data
+
+    @classmethod
+    def get_array_js_via_token(cls, token: str) -> str:
+        # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
+        data = cls.get_config_js_via_token(token)
+
+        return f"""
         {get_array_js_content()}
 
-        {js_content}
+        {data}
         """
-
-        return js_content
-
-    def get_config(self, use_cache: bool = True):
-        # Try to get from cache first
-        # If not in cache, build the config and set in cache
-        # Return the config
-
-        return self.config
-
-    def get_js_config(self, use_cache: bool = True):
-        # Try to get from cache first
-        # If not in cache, build the config and set in cache
-        # Return the config
-
-        return self.build_js_config()
-
-    def get_array_js_config(self, use_cache: bool = True):
-        # Try to get from cache first
-        # If not in cache, build the config and set in cache
-        # Return the config
-
-        return self.build_array_js_config()
 
     def sync(self):
         """
@@ -276,10 +286,13 @@ class RemoteConfig(UUIDModel):
             config = self.build_config()
             self.config = config
 
-            # Trigger invalidation of all the items
-            self.get_config(use_cache=False)
-            self.get_js_config(use_cache=False)
-            self.get_array_js_config(use_cache=False)
+            cache.set(cache_key_for_team_token(self.team.api_token, "config"), config, timeout=CACHE_TIMEOUT)
+            cache.set(
+                cache_key_for_team_token(self.team.api_token, "config.js"),
+                self.build_js_config(),
+                timeout=CACHE_TIMEOUT,
+            )
+
             # TODO: Invalidate caches - in particular this will be the Cloudflare CDN cache
             self.synced_at = timezone.now()
             self.save()
