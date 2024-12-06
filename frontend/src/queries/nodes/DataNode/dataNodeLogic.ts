@@ -16,6 +16,7 @@ import {
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { shouldCancelQuery, uuid } from 'lib/utils'
@@ -468,7 +469,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
     })),
-    selectors(({ cache }) => ({
+    selectors(({ cache, values }) => ({
         variableOverridesAreSet: [
             (_, p) => [p.variablesOverride ?? (() => ({}))],
             (variablesOverride) => !!variablesOverride,
@@ -629,24 +630,33 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         getInsightRefreshButtonDisabledReason: [
             (s) => [s.nextAllowedRefresh, s.lastRefresh],
             (nextAllowedRefresh: string | null, lastRefresh: string | null) => (): string => {
-                const now = dayjs()
-                let disabledReason = ''
-                if (!!nextAllowedRefresh && now.isBefore(dayjs(nextAllowedRefresh))) {
-                    // If this is a saved insight, the result will contain nextAllowedRefresh, and we use that to disable the button
-                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).from(now)}`
-                } else if (
-                    !!lastRefresh &&
-                    now.subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes').isBefore(lastRefresh)
-                ) {
-                    // Unsaved insights don't get cached and get refreshed on every page load, but we avoid allowing users to click
-                    // 'refresh' more than once every UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES. This can be bypassed by simply
-                    // refreshing the page though, as there's no cache layer on the backend
-                    disabledReason = `You can refresh this insight again ${dayjs(lastRefresh)
-                        .add(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES, 'minutes')
-                        .from(now)}`
+                // No rate limit if feature flag is on
+                if (values.featureFlags[FEATURE_FLAGS.BYPASS_INSIGHT_REFRESH_RATE_LIMIT]) {
+                    return ''
                 }
 
-                return disabledReason
+                const now = dayjs()
+
+                // Saved insights has a nextAllowedRefresh we use to check if the user can refresh again
+                if (nextAllowedRefresh) {
+                    const nextRefreshTime = dayjs(nextAllowedRefresh)
+                    if (now.isBefore(nextRefreshTime)) {
+                        return `You can refresh this insight again ${nextRefreshTime.from(now)}`
+                    }
+                }
+
+                // For unsaved insights we check the last refresh time
+                if (lastRefresh) {
+                    const earliestRefresh = dayjs(lastRefresh).add(
+                        UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES,
+                        'minutes'
+                    )
+                    if (now.isBefore(earliestRefresh)) {
+                        return `You can refresh this insight again ${earliestRefresh.from(now)}`
+                    }
+                }
+
+                return ''
             },
         ],
         timings: [
