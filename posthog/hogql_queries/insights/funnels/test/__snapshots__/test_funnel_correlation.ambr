@@ -7006,7 +7006,8 @@
   SELECT source.actor_id AS actor_id
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
-            any(funnel_actors.matching_events) AS matching_events
+            any(funnel_actors.matching_events) AS matching_events,
+            actor_id AS key
      FROM
        (SELECT aggregation_target AS actor_id,
                final_matching_events AS matching_events,
@@ -7105,13 +7106,6 @@
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
-  INNER JOIN
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
@@ -7130,7 +7124,8 @@
   SELECT source.actor_id AS actor_id
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
-            any(funnel_actors.matching_events) AS matching_events
+            any(funnel_actors.matching_events) AS matching_events,
+            actor_id AS key
      FROM
        (SELECT aggregation_target AS actor_id,
                final_matching_events AS matching_events,
@@ -7229,13 +7224,6 @@
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
-  INNER JOIN
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
@@ -7254,7 +7242,8 @@
   SELECT source.actor_id AS actor_id
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
-            any(funnel_actors.matching_events) AS matching_events
+            any(funnel_actors.matching_events) AS matching_events,
+            actor_id AS key
      FROM
        (SELECT aggregation_target AS actor_id,
                final_matching_events AS matching_events,
@@ -7353,13 +7342,6 @@
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
-  INNER JOIN
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
@@ -7378,7 +7360,8 @@
   SELECT source.actor_id AS actor_id
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
-            any(funnel_actors.matching_events) AS matching_events
+            any(funnel_actors.matching_events) AS matching_events,
+            actor_id AS key
      FROM
        (SELECT aggregation_target AS actor_id,
                final_matching_events AS matching_events,
@@ -7477,13 +7460,6 @@
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
-  INNER JOIN
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
