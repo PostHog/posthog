@@ -40,7 +40,7 @@ export interface FrequentMistakeAdvice {
 export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect(() => ({
-        actions: [userLogic, ['loadUser', 'switchTeam']],
+        actions: [userLogic, ['loadUser', 'switchTeam'], organizationLogic, ['loadCurrentOrganization']],
         values: [projectLogic, ['currentProject'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
@@ -103,6 +103,8 @@ export const teamLogic = kea<teamLogicType>([
                     const [patchedTeam] = await Promise.all(promises)
                     breakpoint()
 
+                    // We need to reload current org (which lists its teams) in organizationLogic AND in userLogic
+                    actions.loadCurrentOrganization()
                     actions.loadUser()
 
                     /* Notify user the update was successful  */

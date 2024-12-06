@@ -31,7 +31,7 @@ from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.utils import execute_with_timeout
-from posthog.plugins.site import get_decide_site_apps
+from posthog.plugins.site import get_decide_site_apps, get_decide_site_functions
 from posthog.utils import (
     get_ip_address,
     label_for_team_id_to_track,
@@ -263,10 +263,7 @@ def get_decide(request: HttpRequest):
                 if random() < settings.NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE:
                     response["__preview_ingestion_endpoints"] = True
 
-            if (
-                settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS
-                and str(team.id) not in settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS
-            ):
+            if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
                 response["elementsChainAsString"] = True
 
             response["sessionRecording"] = _session_recording_config_response(request, team, token)
@@ -300,6 +297,8 @@ def get_decide(request: HttpRequest):
                 try:
                     with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
                         site_apps = get_decide_site_apps(team, using_database=DATABASE_FOR_FLAG_MATCHING)
+                    with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
+                        site_apps += get_decide_site_functions(team, using_database=DATABASE_FOR_FLAG_MATCHING)
                 except Exception:
                     pass
 
@@ -359,6 +358,16 @@ def _session_recording_config_response(request: HttpRequest, team: Team, token: 
                 else:
                     linked_flag = linked_flag_key
 
+            rrweb_script_config = None
+
+            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
+                "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
+                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
+            ):
+                rrweb_script_config = {
+                    "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
+                }
+
             session_recording_config_response = {
                 "endpoint": "/s/",
                 "consoleLogRecordingEnabled": capture_console_logs,
@@ -370,6 +379,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team, token: 
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
+                "scriptConfig": rrweb_script_config,
             }
 
             if isinstance(team.session_replay_config, dict):

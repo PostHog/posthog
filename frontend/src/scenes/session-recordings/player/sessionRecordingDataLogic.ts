@@ -727,14 +727,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
-        similarRecordings: [
-            null as [string, number][] | null,
-            {
-                fetchSimilarRecordings: async () => {
-                    return await api.recordings.similarRecordings(props.sessionRecordingId)
-                },
-            },
-        ],
     })),
     listeners(({ values, actions, cache, props }) => ({
         loadSnapshots: () => {
@@ -988,11 +980,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 const eventStart = meta?.start_time ? dayjs(meta.start_time) : null
                 const snapshotStart = firstSnapshot ? dayjs(firstSnapshot.timestamp) : null
 
-                // whichever is earliest
-                if (eventStart && snapshotStart) {
-                    return eventStart.isBefore(snapshotStart) ? eventStart : snapshotStart
+                if (snapshotStart && eventStart) {
+                    return snapshotStart
                 }
-                return eventStart || snapshotStart
+
+                return snapshotStart || eventStart
             },
         ],
 
@@ -1004,7 +996,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                 // whichever is latest
                 if (eventEnd && snapshotEnd) {
-                    return eventEnd.isAfter(snapshotEnd) ? eventEnd : snapshotEnd
+                    return snapshotEnd
                 }
                 return eventEnd || snapshotEnd
             },

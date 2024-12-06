@@ -6,7 +6,11 @@ from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
-from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_enabled_materialized_columns
+from posthog.clickhouse.materialized_columns import (
+    MaterializedColumn,
+    TablesWithMaterializedColumns,
+    get_materialized_column_for_property,
+)
 from posthog.clickhouse.property_groups import property_groups
 from posthog.hogql import ast
 from posthog.hogql.base import AST, _T_AST
@@ -72,7 +76,9 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: Optional[HogQLQuery
         clone_expr(query),
         dialect="hogql",
         context=HogQLContext(
-            team_id=team.pk, enable_select_queries=True, modifiers=create_default_modifiers_for_team(team, modifiers)
+            team_id=team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(team, modifiers),
         ),
         pretty=True,
     )
@@ -195,6 +201,7 @@ class JoinExprResponse:
 class PrintableMaterializedColumn:
     table: Optional[str]
     column: str
+    is_nullable: bool
 
     def __str__(self) -> str:
         if self.table is None:
@@ -1319,10 +1326,11 @@ class _Printer(Visitor):
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
             materialized_column = self._get_materialized_column(table_name, property_name, field_name)
-            if materialized_column:
+            if materialized_column is not None:
                 yield PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
-                    self._print_identifier(materialized_column),
+                    self._print_identifier(materialized_column.name),
+                    is_nullable=materialized_column.is_nullable,
                 )
 
             if self.context.modifiers.propertyGroupsMode in (
@@ -1350,8 +1358,12 @@ class _Printer(Visitor):
                 materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
                 materialized_column = self._get_materialized_column("person", property_name, "properties")
-            if materialized_column:
-                yield PrintableMaterializedColumn(None, self._print_identifier(materialized_column))
+            if materialized_column is not None:
+                yield PrintableMaterializedColumn(
+                    None,
+                    self._print_identifier(materialized_column.name),
+                    is_nullable=materialized_column.is_nullable,
+                )
 
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
@@ -1359,7 +1371,10 @@ class _Printer(Visitor):
 
         materialized_property_source = self.__get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
-            if isinstance(materialized_property_source, PrintableMaterializedColumn):
+            if (
+                isinstance(materialized_property_source, PrintableMaterializedColumn)
+                and not materialized_property_source.is_nullable
+            ):
                 # TODO: rematerialize all columns to properly support empty strings and "null" string values.
                 if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
                     materialized_property_sql = f"nullIf({materialized_property_source}, '')"
@@ -1509,9 +1524,10 @@ class _Printer(Visitor):
 
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> Optional[str]:
-        materialized_columns = get_enabled_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
-        return materialized_columns.get((property_name, field_name), None)
+    ) -> MaterializedColumn | None:
+        return get_materialized_column_for_property(
+            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
+        )
 
     def _get_timezone(self) -> str:
         return self.context.database.get_timezone() if self.context.database else "UTC"

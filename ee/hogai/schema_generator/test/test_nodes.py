@@ -9,9 +9,11 @@ from langchain_core.runnables import RunnableLambda
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
 from posthog.schema import (
+    AssistantMessage,
     AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
+    RouterMessage,
     VisualizationMessage,
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -168,6 +170,71 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Answer to this question:", history[5].content)
         self.assertNotIn("{{question}}", history[5].content)
         self.assertIn("Follow\nUp", history[5].content)
+
+    def test_agent_reconstructs_typical_conversation(self):
+        node = DummyGeneratorNode(self.team)
+        history = node._construct_messages(
+            {
+                "messages": [
+                    HumanMessage(content="Question 1"),
+                    RouterMessage(content="trends"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1"),
+                    AssistantMessage(content="Summary 1"),
+                    HumanMessage(content="Question 2"),
+                    RouterMessage(content="funnel"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2"),
+                    AssistantMessage(content="Summary 2"),
+                    HumanMessage(content="Question 3"),
+                    RouterMessage(content="funnel"),
+                ],
+                "plan": "Plan 3",
+            }
+        )
+        self.assertEqual(len(history), 8)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("mapping", history[0].content)
+        self.assertEqual(history[1].type, "human")
+        self.assertIn("Plan 1", history[1].content)
+        self.assertEqual(history[2].type, "human")
+        self.assertIn("Question 1", history[2].content)
+        self.assertEqual(history[3].type, "human")
+        self.assertIn("Plan 2", history[3].content)
+        self.assertEqual(history[4].type, "human")
+        self.assertIn("Question 2", history[4].content)
+        self.assertEqual(history[5].type, "ai")
+        self.assertEqual(history[6].type, "human")
+        self.assertIn("Plan 3", history[6].content)
+        self.assertEqual(history[7].type, "human")
+        self.assertIn("Question 3", history[7].content)
+
+    def test_prompt(self):
+        node = DummyGeneratorNode(self.team)
+        state = {
+            "messages": [
+                HumanMessage(content="Question 1"),
+                RouterMessage(content="trends"),
+                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1"),
+                AssistantMessage(content="Summary 1"),
+                HumanMessage(content="Question 2"),
+                RouterMessage(content="funnel"),
+                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2"),
+                AssistantMessage(content="Summary 2"),
+                HumanMessage(content="Question 3"),
+                RouterMessage(content="funnel"),
+            ],
+            "plan": "Plan 3",
+        }
+        with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
+
+            def assert_prompt(prompt):
+                self.assertEqual(len(prompt), 4)
+                self.assertEqual(prompt[0].type, "system")
+                self.assertEqual(prompt[1].type, "human")
+                self.assertEqual(prompt[2].type, "ai")
+                self.assertEqual(prompt[3].type, "human")
+
+            generator_model_mock.return_value = RunnableLambda(assert_prompt)
+            node.run(state, {})
 
     def test_failover_with_incorrect_schema(self):
         node = DummyGeneratorNode(self.team)

@@ -144,6 +144,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ssh_tunnel_auth_type_passphrase = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_passphrase")
             ssh_tunnel_auth_type_private_key = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_private_key")
 
+            using_ssl = str(model.pipeline.job_inputs.get("using_ssl", True)) == "True"
+
             ssh_tunnel = SSHTunnel(
                 enabled=using_ssh_tunnel,
                 host=ssh_tunnel_host,
@@ -177,6 +179,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         if schema.is_incremental
                         else None,
                         team_id=inputs.team_id,
+                        using_ssl=using_ssl,
                     )
 
                     return _run(
@@ -203,6 +206,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 if schema.is_incremental
                 else None,
                 team_id=inputs.team_id,
+                using_ssl=using_ssl,
             )
 
             return _run(
@@ -224,17 +228,24 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 )
 
             account_id = model.pipeline.job_inputs.get("account_id")
-            user = model.pipeline.job_inputs.get("user")
-            password = model.pipeline.job_inputs.get("password")
             database = model.pipeline.job_inputs.get("database")
             warehouse = model.pipeline.job_inputs.get("warehouse")
             sf_schema = model.pipeline.job_inputs.get("schema")
             role = model.pipeline.job_inputs.get("role")
 
+            auth_type = model.pipeline.job_inputs.get("auth_type", "password")
+            auth_type_username = model.pipeline.job_inputs.get("user")
+            auth_type_password = model.pipeline.job_inputs.get("password")
+            auth_type_passphrase = model.pipeline.job_inputs.get("passphrase")
+            auth_type_private_key = model.pipeline.job_inputs.get("private_key")
+
             source = snowflake_source(
                 account_id=account_id,
-                user=user,
-                password=password,
+                auth_type=auth_type,
+                user=auth_type_username,
+                password=auth_type_password,
+                private_key=auth_type_private_key,
+                passphrase=auth_type_passphrase,
                 database=database,
                 schema=sf_schema,
                 warehouse=warehouse,
@@ -351,7 +362,14 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             client_email = model.pipeline.job_inputs.get("client_email")
             token_uri = model.pipeline.job_inputs.get("token_uri")
 
-            destination_table = f"{project_id}.{dataset_id}.__posthog_import_{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
+            temporary_dataset_id = model.pipeline.job_inputs.get("temporary_dataset_id")
+            using_temporary_dataset = (
+                model.pipeline.job_inputs.get("using_temporary_dataset", False) and temporary_dataset_id is not None
+            )
+
+            destination_table_dataset_id = temporary_dataset_id if using_temporary_dataset else dataset_id
+            destination_table = f"{project_id}.{destination_table_dataset_id}.__posthog_import_{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
+
             try:
                 source = bigquery_source(
                     dataset_id=dataset_id,

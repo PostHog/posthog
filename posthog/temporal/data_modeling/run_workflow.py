@@ -23,6 +23,7 @@ from deltalake import DeltaTable
 from django.conf import settings
 from dlt.common.libs.deltalake import get_delta_tables
 
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
@@ -262,9 +263,11 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             await materialize_model(model.label, team)
-    except Exception:
+    except Exception as err:
+        await logger.aexception("Failed to materialize model %s due to error: %s", model.label, str(err))
         await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label))
     else:
+        await logger.ainfo("Materialized model %s", model.label)
         await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
     finally:
         queue.task_done()
@@ -342,7 +345,11 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
     """A dlt source representing a HogQL table given by a HogQL query."""
 
     async def get_hogql_rows():
-        response = await asyncio.to_thread(execute_hogql_query, query, team)
+        settings = HogQLGlobalSettings(max_execution_time=60 * 10)  # 10 mins, same as the /query endpoint async workers
+
+        response = await asyncio.to_thread(
+            execute_hogql_query, query, team, settings=settings, limit_context=LimitContext.SAVED_QUERY
+        )
 
         if not response.columns:
             raise EmptyHogQLResponseColumnsError()
