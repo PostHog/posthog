@@ -403,18 +403,10 @@ async def test_insert_into_s3_activity_puts_splitted_parquet_data_into_s3(
     model: BatchExportModel | BatchExportSchema | None,
     ateam,
 ):
-    """Test that the insert_into_s3_activity function ends up with data into S3.
+    """Test that the insert_into_s3_activity function exports uncorrupted parquet data.
 
-    We use the generate_test_events_in_clickhouse function to generate several sets
-    of events. Some of these sets are expected to be exported, and others not. Expected
-    events are those that:
-    * Are created for the team_id of the batch export.
-    * Are created in the date range of the batch export.
-    * Are not duplicates of other events that are in the same batch.
-    * Do not have an event name contained in the batch export's exclude_events.
-
-    Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
-    that they appear in the expected S3 bucket and key.
+    More specifically, we are interested in what happens when there is the need to split
+    up a parquet file into multiple parts, so we generate a lot of data for this test.
     """
     prefix = str(uuid.uuid4())
 
