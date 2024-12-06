@@ -475,21 +475,20 @@ async def test_insert_into_s3_activity_puts_splitted_parquet_data_into_s3(
 
     assert records_exported == len(events_to_export_created)
 
-    await assert_clickhouse_records_in_s3(
+    # Takes a long time to re-read this data from ClickHouse, so we just make sure that:
+    # 1. The file exists in S3.
+    # 2. We can read it (so, it's a valid parquet).
+    # 3. It has the same length as the events we have created.
+    s3_data = await assert_file_in_s3(
         s3_compatible_client=minio_client,
-        clickhouse_client=clickhouse_client,
         bucket_name=bucket_name,
         key_prefix=prefix,
-        team_id=ateam.pk,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        batch_export_model=model,
-        exclude_events=exclude_events,
-        include_events=None,
-        compression=compression,
         file_format=file_format,
-        is_backfill=False,
+        compression=compression,
+        json_columns=("properties", "person_properties", "set", "set_once"),
     )
+
+    assert len(s3_data) == len(events_to_export_created)
 
 
 @pytest.mark.parametrize("model", [model for model in TEST_S3_MODELS if model is not None])
