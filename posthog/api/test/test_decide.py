@@ -86,6 +86,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
     We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
     """
 
+    use_remote_config = False
+
     def setUp(self, *args):
         cache.clear()
 
@@ -98,6 +100,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
         self.client.force_login(self.user)
+
+        if self.use_remote_config:
+            settings.DECIDE_TOKENS_FOR_REMOTE_CONFIG = [self.team.api_token]
+        else:
+            settings.DECIDE_TOKENS_FOR_REMOTE_CONFIG = []
 
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
@@ -3669,6 +3676,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, 200)
             self.assertTrue(response.json()["defaultIdentifiedOnly"])
+
+
+class TestDecideRemoteConfig(TestDecide):
+    use_remote_config = True
 
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
