@@ -12,9 +12,9 @@ export function HubSpotScopesWarning({
     schema?: HogFunctionInputSchemaType
 }): JSX.Element {
     const requiredScopes = schema?.requiredScopes?.split(' ') || []
-    const missingScopes = requiredScopes.filter((scope: string) => !integration?.config.scopes.includes(scope))
+    const missingScopes = requiredScopes.filter((scope: string) => !integration.config.scopes?.includes(scope))
 
-    if (missingScopes.length === 0) {
+    if (missingScopes.length === 0 || integration.config.scopes === undefined) {
         return <></>
     }
     return (
