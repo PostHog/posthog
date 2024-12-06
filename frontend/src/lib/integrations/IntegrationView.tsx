@@ -39,7 +39,7 @@ export function IntegrationView({
                 {suffix}
             </div>
 
-            {errors.length > 0 && (
+            {errors.length > 0 ? (
                 <div className="p-2">
                     <LemonBanner
                         type="error"
@@ -57,9 +57,9 @@ export function IntegrationView({
                             : `There was an error with this integration: ${errors[0]}`}
                     </LemonBanner>
                 </div>
+            ) : (
+                <HubSpotScopesWarning integration={integration} schema={schema} />
             )}
-
-            {integration.kind === 'hubspot' && <HubSpotScopesWarning integration={integration} schema={schema} />}
         </div>
     )
 }

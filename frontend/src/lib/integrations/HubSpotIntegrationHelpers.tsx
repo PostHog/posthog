@@ -14,7 +14,7 @@ export function HubSpotScopesWarning({
     const requiredScopes = schema?.requiredScopes?.split(' ') || []
     const missingScopes = requiredScopes.filter((scope: string) => !integration.config.scopes?.includes(scope))
 
-    if (missingScopes.length === 0 || integration.config.scopes === undefined) {
+    if (integration.kind !== 'hubspot' || missingScopes.length === 0 || integration.config.scopes === undefined) {
         return <></>
     }
     return (
