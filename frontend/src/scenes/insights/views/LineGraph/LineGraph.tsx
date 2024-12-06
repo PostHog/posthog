@@ -38,6 +38,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getTrendResultCustomizationColorToken } from 'scenes/insights/utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -290,9 +291,8 @@ export function LineGraph_({
     const { getTheme } = useValues(dataThemeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter, resultCustomizations, resultCustomizationBy } = useValues(
-        insightVizDataLogic(insightProps)
-    )
+    const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { resultCustomizations, resultCustomizationBy } = useValues(trendsDataLogic(insightProps))
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()

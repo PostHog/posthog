@@ -1,33 +1,40 @@
-import { IconFlag } from '@posthog/icons'
+import { IconFlag, IconGear } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { formatBreakdownLabel, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
+import { resultCustomizationsModalLogic } from '../../../../queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns } = useValues(funnelDataLogic(insightProps))
+    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, resultCustomizations } = useValues(
+        funnelDataLogic(insightProps)
+    )
     const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility } = useActions(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
+    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
+    const { getTheme } = useValues(dataThemeLogic)
 
     const isOnlySeries = flattenedBreakdowns.length <= 1
 
@@ -73,11 +80,28 @@ export function FunnelStepsTable(): JSX.Element | null {
                             breakdown.breakdown_value?.length == 1
                                 ? breakdown.breakdown_value[0]
                                 : breakdown.breakdown_value
-                        const label = formatBreakdownLabel(
-                            value,
-                            breakdownFilter,
-                            cohorts,
-                            formatPropertyValueForDisplay
+                        const label = (
+                            <>
+                                {formatBreakdownLabel(value, breakdownFilter, cohorts, formatPropertyValueForDisplay)}
+                                {/** :HACKY: We don't want to allow changing of colors in experiments (they can't be
+                                saved there). Therefore we use the `disable_baseline` prop on the cached insight passed
+                                in by experiments as a measure of detecting wether we are in an experiment context.
+                                Likely this can be done in a better way once experiments are re-written to use their own
+                                queries. */}
+                                {hasInsightColors && !insightProps.cachedInsight?.disable_baseline && (
+                                    <Link
+                                        className="align-middle"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+
+                                            openModal(breakdown)
+                                        }}
+                                    >
+                                        <IconGear fontSize={16} />
+                                    </Link>
+                                )}
+                            </>
                         )
                         return isOnlySeries ? (
                             <span className="font-medium">{label}</span>
@@ -283,6 +307,8 @@ export function FunnelStepsTable(): JSX.Element | null {
         })),
     ] as LemonTableColumnGroup<FlattenedFunnelStepByBreakdown>[]
 
+    const theme = getTheme('posthog')
+
     return (
         <LemonTable
             dataSource={flattenedBreakdowns}
@@ -290,7 +316,10 @@ export function FunnelStepsTable(): JSX.Element | null {
             loading={insightLoading}
             rowKey="breakdownIndex"
             rowStatus={(record) => (record.significant ? 'highlighted' : null)}
-            rowRibbonColor={(series) => getSeriesColor(series?.breakdownIndex ?? 0)}
+            rowRibbonColor={(series) => {
+                const colorToken = getFunnelResultCustomizationColorToken(resultCustomizations, theme, series)
+                return theme[colorToken]
+            }}
             firstColumnSticky
         />
     )

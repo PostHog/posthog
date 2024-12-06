@@ -208,6 +208,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         hiddenLegendBreakdowns: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.hiddenLegendBreakdowns],
+        resultCustomizations: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.resultCustomizations],
         visibleStepsWithConversionMetrics: [
             (s) => [s.stepsWithConversionMetrics, s.funnelsFilter, s.flattenedBreakdowns],
             (steps, funnelsFilter, flattenedBreakdowns): FunnelStepWithConversionMetrics[] => {

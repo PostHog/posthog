@@ -9,7 +9,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { TrendResult } from '~/types'
 
-import { resultCustomizationsModalLogic } from '../resultCustomizationsModalLogic'
+import { resultCustomizationsModalLogic } from '../../../../../queries/nodes/InsightViz/resultCustomizationsModalLogic'
 
 type SeriesColumnItemProps = {
     item: IndexedTrendResult
