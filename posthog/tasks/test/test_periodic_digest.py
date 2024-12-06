@@ -6,6 +6,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.models import Dashboard, EventDefinition, Experiment, FeatureFlag, Survey
+from posthog.models.messaging import MessagingRecord
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
 )
@@ -265,3 +266,84 @@ class TestPeriodicDigestReport(APIBaseTest):
             full_report_dict=expected_properties,
             send_for_all_members=True,
         )
+
+    @freeze_time("2024-01-20T00:01:00Z")
+    @patch("posthog.tasks.periodic_digest.capture_report")
+    def test_periodic_digest_report_idempotency(self, mock_capture: MagicMock) -> None:
+        # Create test data
+        Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+        )
+
+        # First run - should send the digest
+        send_all_periodic_digest_reports()
+
+        # Verify first call
+        mock_capture.delay.assert_called_once()
+        mock_capture.delay.reset_mock()
+
+        # Check that messaging record was created
+        record = MessagingRecord.objects.get(
+            raw_email=f"team_{self.team.id}", campaign_key="periodic_digest_2024-01-20_7d"
+        )
+        self.assertIsNotNone(record.sent_at)
+
+        # Second run - should not send the digest again
+        send_all_periodic_digest_reports()
+        mock_capture.delay.assert_not_called()
+
+        # Verify only one record exists
+        self.assertEqual(MessagingRecord.objects.count(), 1)
+
+    @freeze_time("2024-01-20T00:01:00Z")
+    @patch("posthog.tasks.periodic_digest.capture_report")
+    def test_periodic_digest_different_periods(self, mock_capture: MagicMock) -> None:
+        # Create test data
+        Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+        )
+
+        # Send weekly digest
+        send_all_periodic_digest_reports()
+        mock_capture.delay.assert_called_once()
+        mock_capture.delay.reset_mock()
+
+        # Send monthly digest (different period length)
+        send_all_periodic_digest_reports(
+            begin_date=(datetime.now() - timedelta(days=30)).isoformat(), end_date=datetime.now().isoformat()
+        )
+        mock_capture.delay.assert_called_once()
+
+        # Verify two different records exist
+        records = MessagingRecord.objects.filter(raw_email=f"team_{self.team.id}")
+        self.assertEqual(records.count(), 2)
+        campaign_keys = sorted([r.campaign_key for r in records])
+        self.assertEqual(campaign_keys, ["periodic_digest_2024-01-20_30d", "periodic_digest_2024-01-20_7d"])
+
+    @freeze_time("2024-01-20T00:01:00Z")
+    @patch("posthog.tasks.periodic_digest.capture_report")
+    def test_periodic_digest_empty_report_no_record(self, mock_capture: MagicMock) -> None:
+        # Run without any data (empty digest)
+        send_all_periodic_digest_reports()
+
+        # Verify no capture call and no messaging record
+        mock_capture.delay.assert_not_called()
+        self.assertEqual(MessagingRecord.objects.count(), 0)
+
+    @freeze_time("2024-01-20T00:01:00Z")
+    @patch("posthog.tasks.periodic_digest.capture_report")
+    def test_periodic_digest_dry_run_no_record(self, mock_capture: MagicMock) -> None:
+        # Create test data
+        Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+        )
+
+        # Run in dry_run mode
+        send_all_periodic_digest_reports(dry_run=True)
+
+        # Verify no capture call and no messaging record
+        mock_capture.delay.assert_not_called()
+        self.assertEqual(MessagingRecord.objects.count(), 0)

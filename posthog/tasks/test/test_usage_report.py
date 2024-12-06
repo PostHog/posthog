@@ -815,10 +815,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
-        # # make a dashboard for the team created within the last 7 days
-        # with freeze_time("2022-01-08T00:01:00Z"):
-        #     Dashboard.objects.create(name="Test Dashboard", team=self.team)
-
         all_reports = self._test_usage_report()
         with self.settings(SITE_URL="http://test.posthog.com"):
             send_all_org_usage_reports()

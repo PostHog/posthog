@@ -6,6 +6,7 @@ import structlog
 from celery import shared_task
 from dateutil import parser
 from django.db.models import QuerySet
+from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from posthog.models.dashboard import Dashboard
@@ -13,6 +14,7 @@ from posthog.models.event_definition import EventDefinition
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
+from posthog.models.messaging import MessagingRecord
 from posthog.models.team.team import Team
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
@@ -183,8 +185,28 @@ def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> p
 
 @shared_task(queue=CeleryQueue.USAGE_REPORTS.value, ignore_result=True, max_retries=3)
 def send_periodic_digest_report(
-    *, team_id: int, team_name: str, periodic_digest_report: dict[str, Any], instance_metadata: dict[str, Any]
+    *,
+    team_id: int,
+    team_name: str,
+    periodic_digest_report: dict[str, Any],
+    instance_metadata: dict[str, Any],
+    period_end: datetime,
+    period_start: datetime,
 ) -> None:
+    period_str = period_end.strftime("%Y-%m-%d")
+    days = (period_end - period_start).days
+    campaign_key = f"periodic_digest_{period_str}_{days}d"
+
+    # Use a consistent identifier for the team
+    team_identifier = f"team_{team_id}"
+
+    # Check if we've already sent this digest using get_or_create
+    record, created = MessagingRecord.objects.get_or_create(raw_email=team_identifier, campaign_key=campaign_key)
+
+    if not created and record.sent_at:
+        logger.info(f"Skipping duplicate periodic digest for team {team_id} for period ending {period_str}")
+        return
+
     full_report_dict = {
         "team_id": team_id,
         "team_name": team_name,
@@ -192,12 +214,17 @@ def send_periodic_digest_report(
         **periodic_digest_report,
         **instance_metadata,
     }
+
     capture_report.delay(
         capture_event_name="transactional email",
         team_id=team_id,
         full_report_dict=full_report_dict,
         send_for_all_members=True,
     )
+
+    # Mark as sent
+    record.sent_at = timezone.now()
+    record.save()
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
@@ -225,6 +252,8 @@ def send_all_periodic_digest_reports(
                     team_name=team.name,
                     periodic_digest_report=full_report_dict,
                     instance_metadata=instance_metadata,
+                    period_end=period_end,
+                    period_start=period_start,
                 )
         time_since = datetime.now() - time_now
         logger.debug(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
