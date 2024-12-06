@@ -1353,6 +1353,7 @@ class QueryResponseAlternative7(BaseModel):
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
+    table_names: Optional[list[str]] = None
     warnings: list[HogQLNotice]
 
 
@@ -2285,6 +2286,7 @@ class HogQLMetadataResponse(BaseModel):
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
+    table_names: Optional[list[str]] = None
     warnings: list[HogQLNotice]
 
 

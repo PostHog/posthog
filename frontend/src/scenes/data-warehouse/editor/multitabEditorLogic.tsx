@@ -66,20 +66,20 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         initialize: true,
         saveAsView: true,
         saveAsViewSubmit: (name: string) => ({ name }),
-        setMetadata: (query: string, metadata: HogQLMetadataResponse) => ({ query, metadata }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
         setCacheLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
         setIsValidView: (isValidView: boolean) => ({ isValidView }),
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({ sourceQuery }),
+        setMetadata: (metadata: HogQLMetadataResponse) => ({ metadata }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
             actions.initialize()
         }
     }),
-    reducers({
+    reducers(({ props }) => ({
         cacheLoading: [
             true,
             {
@@ -148,7 +148,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 setIsValidView: (_, { isValidView }) => isValidView,
             },
         ],
-    }),
+        metadata: [
+            null as HogQLMetadataResponse | null,
+            {
+                setMetadata: (_, { metadata }) => metadata,
+            },
+        ],
+        editorKey: [
+            props.key,
+        ],
+    })),
     listeners(({ values, props, actions, asyncActions }) => ({
         createTab: ({ query = '', view }) => {
             const mountedCodeEditorLogic = codeEditorLogic.findMounted()

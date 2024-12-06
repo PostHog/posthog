@@ -7245,6 +7245,12 @@
                 "query": {
                     "type": "string"
                 },
+                "table_names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "warnings": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -9405,6 +9411,12 @@
                         },
                         "query": {
                             "type": "string"
+                        },
+                        "table_names": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
                         },
                         "warnings": {
                             "items": {

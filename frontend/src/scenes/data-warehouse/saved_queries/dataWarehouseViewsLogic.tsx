@@ -92,6 +92,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 )
             },
         ],
+        dataWarehouseSavedQueryMap: [
+            (s) => [s.dataWarehouseSavedQueries],
+            (dataWarehouseSavedQueries) => {
+                return dataWarehouseSavedQueries?.reduce((acc, cur) => {
+                    acc[cur.name] = cur
+                    return acc
+                }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+            },
+        ],
     }),
     events(({ actions, cache }) => ({
         afterMount: () => {
