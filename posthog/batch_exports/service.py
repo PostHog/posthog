@@ -808,15 +808,15 @@ async def aget_active_event_batch_exports(team_id: int) -> list[BatchExport]:
 
 async def aupdate_expected_records_count(
     batch_export_id: UUID, interval_start: dt.datetime, interval_end: dt.datetime, count: int
-):
+) -> int:
     """Update the expected records count for a set of batch export runs.
 
     Typically, there is one batch export run per batch export interval, however
     there could be multiple if data has been backfilled.
     """
-    # TODO - handle cases where it doesnt exist
-    await BatchExportRun.objects.filter(
+    rows_updated = await BatchExportRun.objects.filter(
         batch_export_id=batch_export_id,
         data_interval_start=interval_start,
         data_interval_end=interval_end,
     ).aupdate(expected_records_count=count)
+    return rows_updated
