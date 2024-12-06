@@ -36,7 +36,12 @@ class TestWarehouse(APIBaseTest):
 
         with freeze_time("2023-11-07T16:50:49Z"):
             job = ExternalDataJob.objects.create(
-                pipeline=source, workflow_id="fake_workflow_id", team=self.team, status="Running", rows_synced=100000
+                pipeline=source,
+                workflow_id="fake_workflow_id",
+                team=self.team,
+                status="Running",
+                rows_synced=100000,
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
             )
 
         capture_workspace_rows_synced_by_team(self.team.pk)
@@ -86,12 +91,22 @@ class TestWarehouse(APIBaseTest):
 
         with freeze_time("2023-10-30T18:32:41Z"):
             ExternalDataJob.objects.create(
-                pipeline=source, workflow_id="fake_workflow_id", team=self.team, status="Completed", rows_synced=97747
+                pipeline=source,
+                workflow_id="fake_workflow_id",
+                team=self.team,
+                status="Completed",
+                rows_synced=97747,
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
             )
 
         with freeze_time("2023-11-07T16:50:49Z"):
             job2 = ExternalDataJob.objects.create(
-                pipeline=source, workflow_id="fake_workflow_id", team=self.team, status="Completed", rows_synced=93353
+                pipeline=source,
+                workflow_id="fake_workflow_id",
+                team=self.team,
+                status="Completed",
+                rows_synced=93353,
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
             )
 
         capture_workspace_rows_synced_by_team(self.team.pk)

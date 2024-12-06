@@ -1,15 +1,22 @@
+import asyncio
 import dataclasses
 import datetime as dt
 import json
 import re
 
+from django.conf import settings
 from django.db import close_old_connections
 import posthoganalytics
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
+
 # TODO: remove dependency
+from posthog.settings.base_variables import TEST
 from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.data_imports.util import is_posthog_team
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
@@ -131,6 +138,30 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
     )
 
 
+@activity.defn
+def trigger_pipeline_v2(inputs: ExternalDataWorkflowInputs):
+    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    logger.debug("Triggering V2 pipeline")
+
+    temporal = sync_connect()
+
+    asyncio.run(
+        temporal.start_workflow(
+            workflow="external-data-job",
+            arg=dataclasses.asdict(inputs),
+            id=f"{inputs.external_data_schema_id}-V2",
+            task_queue=str(DATA_WAREHOUSE_TASK_QUEUE_V2),
+            retry_policy=RetryPolicy(
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=1,
+                non_retryable_error_types=["NondeterminismError"],
+            ),
+        )
+    )
+
+    logger.debug("V2 pipeline triggered")
+
+
 @dataclasses.dataclass
 class CreateSourceTemplateInputs:
     team_id: int
@@ -153,6 +184,18 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: ExternalDataWorkflowInputs):
         assert inputs.external_data_schema_id is not None
+
+        if (
+            settings.TEMPORAL_TASK_QUEUE != DATA_WAREHOUSE_TASK_QUEUE_V2
+            and not TEST
+            and is_posthog_team(inputs.team_id)
+        ):
+            await workflow.execute_activity(
+                trigger_pipeline_v2,
+                inputs,
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
 
         update_inputs = UpdateExternalDataJobStatusInputs(
             job_id=None,
