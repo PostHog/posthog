@@ -166,186 +166,195 @@ def get_decide(request: HttpRequest):
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": 1}))
 
-    response = {
-        "config": {"enable_collect_everything": True},
-        "toolbarParams": {},
-        "isAuthenticated": False,
-        # gzip and gzip-js are aliases for the same compression algorithm
-        "supportedCompression": ["gzip", "gzip-js"],
-        "featureFlags": [],
-        "sessionRecording": False,
-    }
-
-    if request.method == "POST":
-        try:
-            data = load_data_from_request(request)
-            api_version_string = request.GET.get("v")
-            # NOTE: This does not support semantic versioning e.g. 2.1.0
-            api_version = int(api_version_string) if api_version_string else 1
-        except ValueError:
-            # default value added because of bug in posthog-js 1.19.0
-            # see https://sentry.io/organizations/posthog2/issues/2738865125/?project=1899813
-            # as a tombstone if the below statsd counter hasn't seen errors for N days
-            # then it is likely that no clients are running posthog-js 1.19.0
-            # and this defaulting could be removed
-            statsd.incr(
-                f"posthog_cloud_decide_defaulted_api_version_on_value_error",
-                tags={"endpoint": "decide", "api_version_string": api_version_string},
-            )
-            api_version = 2
-        except UnspecifiedCompressionFallbackParsingError as error:
-            # Notably don't capture this exception as it's not caused by buggy behavior,
-            # it's just a fallback for when we can't parse the request due to a missing header
-            # that we attempted to kludge by manually setting the compression type to gzip
-            # If this kludge fails, though all we need to do is return a 400 and move on
-            return cors_response(
-                request,
-                generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
-            )
-        except RequestParsingError as error:
-            capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
-            return cors_response(
-                request,
-                generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
-            )
-
-        token = get_token(data, request)
-        team = Team.objects.get_team_from_cache_or_token(token)
-        if team is None and token:
-            project_id = get_project_id(data, request)
-
-            if not project_id:
-                return cors_response(
-                    request,
-                    generate_exception_response(
-                        "decide",
-                        "Project API key invalid. You can find your project API key in PostHog project settings.",
-                        code="invalid_api_key",
-                        type="authentication_error",
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                    ),
-                )
-
-            user = User.objects.get_from_personal_api_key(token)
-            if user is None:
-                return cors_response(
-                    request,
-                    generate_exception_response(
-                        "decide",
-                        "Invalid Personal API key.",
-                        code="invalid_personal_key",
-                        type="authentication_error",
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                    ),
-                )
-            team = user.teams.get(id=project_id)
-
-        if team:
-            if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
-                return cors_response(
-                    request,
-                    generate_exception_response(
-                        "decide",
-                        f"Team with ID {team.id} cannot access the /decide endpoint."
-                        f"Please contact us at hey@posthog.com",
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    ),
-                )
-
-            token = cast(str, token)  # we know it's not None if we found a team
-
-            structlog.contextvars.bind_contextvars(team_id=team.id)
-
-            disable_flags = process_bool(data.get("disable_flags")) is True
-            feature_flags = None
-            errors = False
-            if not disable_flags:
-                distinct_id = data.get("distinct_id")
-                if distinct_id is None:
-                    return cors_response(
-                        request,
-                        generate_exception_response(
-                            "decide",
-                            "Decide requires a distinct_id.",
-                            code="missing_distinct_id",
-                            type="validation_error",
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                        ),
-                    )
-                else:
-                    distinct_id = str(distinct_id)
-
-                property_overrides = {}
-                geoip_enabled = process_bool(data.get("geoip_disable")) is False
-
-                if geoip_enabled:
-                    property_overrides = get_geoip_properties(get_ip_address(request))
-
-                all_property_overrides: dict[str, Union[str, int]] = {
-                    **property_overrides,
-                    **(data.get("person_properties") or {}),
+    if request.method != "POST":
+        statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
+        return cors_response(
+            request,
+            JsonResponse(
+                {
+                    "config": {"enable_collect_everything": True},
+                    "toolbarParams": {},
+                    "isAuthenticated": False,
+                    # gzip and gzip-js are aliases for the same compression algorithm
+                    "supportedCompression": ["gzip", "gzip-js"],
+                    "featureFlags": [],
+                    "sessionRecording": False,
                 }
+            ),
+        )
 
-                feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
-                    team.pk,
-                    distinct_id,
-                    data.get("groups") or {},
-                    hash_key_override=data.get("$anon_distinct_id"),
-                    property_value_overrides=all_property_overrides,
-                    group_property_value_overrides=(data.get("group_properties") or {}),
-                )
+    try:
+        data = load_data_from_request(request)
+        api_version_string = request.GET.get("v")
+        # NOTE: This does not support semantic versioning e.g. 2.1.0
+        api_version = int(api_version_string) if api_version_string else 1
+    except ValueError:
+        # default value added because of bug in posthog-js 1.19.0
+        # see https://sentry.io/organizations/posthog2/issues/2738865125/?project=1899813
+        # as a tombstone if the below statsd counter hasn't seen errors for N days
+        # then it is likely that no clients are running posthog-js 1.19.0
+        # and this defaulting could be removed
+        statsd.incr(
+            f"posthog_cloud_decide_defaulted_api_version_on_value_error",
+            tags={"endpoint": "decide", "api_version_string": api_version_string},
+        )
+        api_version = 2
+    except UnspecifiedCompressionFallbackParsingError as error:
+        # Notably don't capture this exception as it's not caused by buggy behavior,
+        # it's just a fallback for when we can't parse the request due to a missing header
+        # that we attempted to kludge by manually setting the compression type to gzip
+        # If this kludge fails, though all we need to do is return a 400 and move on
+        return cors_response(
+            request,
+            generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
+        )
+    except RequestParsingError as error:
+        capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
+        return cors_response(
+            request,
+            generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
+        )
 
-                active_flags = {key: value for key, value in feature_flags.items() if value}
+    token = get_token(data, request)
+    team = Team.objects.get_team_from_cache_or_token(token)
+    if team is None and token:
+        project_id = get_project_id(data, request)
 
-                if api_version == 2:
-                    response["featureFlags"] = active_flags
-                elif api_version >= 3:
-                    # v3 returns all flags, not just active ones, as well as if there was an error computing all flags
-                    response["featureFlags"] = feature_flags
-                    response["errorsWhileComputingFlags"] = errors
-                    response["featureFlagPayloads"] = feature_flag_payloads
-                else:
-                    # default v1
-                    response["featureFlags"] = list(active_flags.keys())
-
-                # metrics for feature flags
-                team_id_label = label_for_team_id_to_track(team.pk)
-                FLAG_EVALUATION_COUNTER.labels(
-                    team_id=team_id_label,
-                    errors_computing=errors,
-                    has_hash_key_override=bool(data.get("$anon_distinct_id")),
-                ).inc()
-            else:
-                response["featureFlags"] = {}
-
-            # NOTE: Changed code - everything not feature flags goes in here
-            response.update(get_base_config(token, team, request, skip_db=errors))
-
-            # NOTE: Whenever you add something to decide response, update this test:
-            # `test_decide_doesnt_error_out_when_database_is_down`
-            # which ensures that decide doesn't error out when the database is down
-
-            if feature_flags:
-                # Billing analytics for decide requests with feature flags
-                # Don't count if all requests are for survey targeting flags only.
-                if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
-                    # Sample no. of decide requests with feature flags
-                    if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
-                        count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
-                        increment_request_count(team.pk, count)
-
-        else:
-            # no auth provided
+        if not project_id:
             return cors_response(
                 request,
                 generate_exception_response(
                     "decide",
-                    "No project API key provided. You can find your project API key in PostHog project settings.",
-                    code="no_api_key",
+                    "Project API key invalid. You can find your project API key in PostHog project settings.",
+                    code="invalid_api_key",
                     type="authentication_error",
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 ),
             )
+
+        user = User.objects.get_from_personal_api_key(token)
+        if user is None:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "decide",
+                    "Invalid Personal API key.",
+                    code="invalid_personal_key",
+                    type="authentication_error",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
+        team = user.teams.get(id=project_id)
+
+    if team:
+        if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "decide",
+                    f"Team with ID {team.id} cannot access the /decide endpoint."
+                    f"Please contact us at hey@posthog.com",
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                ),
+            )
+
+        token = cast(str, token)  # we know it's not None if we found a team
+
+        structlog.contextvars.bind_contextvars(team_id=team.id)
+
+        disable_flags = process_bool(data.get("disable_flags")) is True
+        feature_flags = None
+        errors = False
+        flags_response = {}
+
+        if not disable_flags:
+            distinct_id = data.get("distinct_id")
+            if distinct_id is None:
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "decide",
+                        "Decide requires a distinct_id.",
+                        code="missing_distinct_id",
+                        type="validation_error",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    ),
+                )
+            else:
+                distinct_id = str(distinct_id)
+
+            property_overrides = {}
+            geoip_enabled = process_bool(data.get("geoip_disable")) is False
+
+            if geoip_enabled:
+                property_overrides = get_geoip_properties(get_ip_address(request))
+
+            all_property_overrides: dict[str, Union[str, int]] = {
+                **property_overrides,
+                **(data.get("person_properties") or {}),
+            }
+
+            feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
+                team.pk,
+                distinct_id,
+                data.get("groups") or {},
+                hash_key_override=data.get("$anon_distinct_id"),
+                property_value_overrides=all_property_overrides,
+                group_property_value_overrides=(data.get("group_properties") or {}),
+            )
+
+            active_flags = {key: value for key, value in feature_flags.items() if value}
+
+            if api_version == 2:
+                flags_response["featureFlags"] = active_flags
+            elif api_version >= 3:
+                # v3 returns all flags, not just active ones, as well as if there was an error computing all flags
+                flags_response["featureFlags"] = feature_flags
+                flags_response["errorsWhileComputingFlags"] = errors
+                flags_response["featureFlagPayloads"] = feature_flag_payloads
+            else:
+                # default v1
+                flags_response["featureFlags"] = list(active_flags.keys())
+
+            # metrics for feature flags
+            team_id_label = label_for_team_id_to_track(team.pk)
+            FLAG_EVALUATION_COUNTER.labels(
+                team_id=team_id_label,
+                errors_computing=errors,
+                has_hash_key_override=bool(data.get("$anon_distinct_id")),
+            ).inc()
+        else:
+            flags_response["featureFlags"] = {}
+
+        # NOTE: Changed code - everything not feature flags goes in here
+        response = get_base_config(token, team, request, skip_db=errors)
+        response.update(flags_response)
+
+        # NOTE: Whenever you add something to decide response, update this test:
+        # `test_decide_doesnt_error_out_when_database_is_down`
+        # which ensures that decide doesn't error out when the database is down
+
+        if feature_flags:
+            # Billing analytics for decide requests with feature flags
+            # Don't count if all requests are for survey targeting flags only.
+            if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
+                # Sample no. of decide requests with feature flags
+                if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
+                    count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+                    increment_request_count(team.pk, count)
+
+    else:
+        # no auth provided
+        return cors_response(
+            request,
+            generate_exception_response(
+                "decide",
+                "No project API key provided. You can find your project API key in PostHog project settings.",
+                code="no_api_key",
+                type="authentication_error",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))
