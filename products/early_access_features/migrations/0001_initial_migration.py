@@ -71,7 +71,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AlterModelOptions(
             name="earlyaccessfeature",
-            options={"managed": True},
+            options={},
         ),
     ]
 
