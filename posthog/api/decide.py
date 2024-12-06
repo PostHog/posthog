@@ -30,6 +30,7 @@ from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.filters.mixins.utils import process_bool
+from posthog.models.remote_config import RemoteConfig
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import (
@@ -62,6 +63,100 @@ def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
     )
 
     return is_authorized_web_client or is_authorized_mobile_client
+
+
+def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
+    if token in (settings.DECIDE_TOKENS_FOR_REMOTE_CONFIG or []):
+        return RemoteConfig.get_config_via_token(token)
+
+    response = {
+        "config": {"enable_collect_everything": True},
+        "toolbarParams": {},
+        "isAuthenticated": False,
+        # gzip and gzip-js are aliases for the same compression algorithm
+        "supportedCompression": ["gzip", "gzip-js"],
+        "featureFlags": [],
+        "sessionRecording": False,
+    }
+
+    response["captureDeadClicks"] = True if team.capture_dead_clicks else False
+
+    capture_network_timing = True if team.capture_performance_opt_in else False
+    capture_web_vitals = True if team.autocapture_web_vitals_opt_in else False
+    autocapture_web_vitals_allowed_metrics = None
+    if capture_web_vitals:
+        autocapture_web_vitals_allowed_metrics = team.autocapture_web_vitals_allowed_metrics
+    response["capturePerformance"] = (
+        {
+            "network_timing": capture_network_timing,
+            "web_vitals": capture_web_vitals,
+            "web_vitals_allowed_metrics": autocapture_web_vitals_allowed_metrics,
+        }
+        if capture_network_timing or capture_web_vitals
+        else False
+    )
+
+    response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
+    response["autocaptureExceptions"] = (
+        {
+            "endpoint": "/e/",
+        }
+        if team.autocapture_exceptions_opt_in
+        else False
+    )
+
+    if str(team.id) not in settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS:
+        if "*" in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS or str(team.id) in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS:
+            if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
+                response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
+
+    if (
+        "*" in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS
+        or str(team.id) in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS
+    ):
+        if random() < settings.NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE:
+            response["__preview_ingestion_endpoints"] = True
+
+    if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
+        response["elementsChainAsString"] = True
+
+    response["sessionRecording"] = _session_recording_config_response(request, team, token)
+
+    if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
+        from ee.billing.quota_limiting import (
+            QuotaLimitingCaches,
+            QuotaResource,
+            list_limited_team_attributes,
+        )
+
+        limited_tokens_recordings = list_limited_team_attributes(
+            QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+        if token in limited_tokens_recordings:
+            response["quotaLimited"] = ["recordings"]
+            response["sessionRecording"] = False
+
+    response["surveys"] = True if team.surveys_opt_in else False
+    response["heatmaps"] = True if team.heatmaps_opt_in else False
+    try:
+        default_identified_only = team.pk >= int(settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN)
+    except Exception:
+        default_identified_only = False
+    response["defaultIdentifiedOnly"] = bool(default_identified_only)
+
+    site_apps = []
+    # errors mean the database is unavailable, bail in this case
+    if team.inject_web_apps and not skip_db:
+        try:
+            with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
+                site_apps = get_decide_site_apps(team, using_database=DATABASE_FOR_FLAG_MATCHING)
+        except Exception:
+            pass
+
+    response["siteApps"] = site_apps
+
+    return response
 
 
 @csrf_exempt
@@ -158,6 +253,7 @@ def get_decide(request: HttpRequest):
                 )
 
             token = cast(str, token)  # we know it's not None if we found a team
+
             structlog.contextvars.bind_contextvars(team_id=team.id)
 
             disable_flags = process_bool(data.get("disable_flags")) is True
@@ -222,85 +318,8 @@ def get_decide(request: HttpRequest):
             else:
                 response["featureFlags"] = {}
 
-            response["captureDeadClicks"] = True if team.capture_dead_clicks else False
-
-            capture_network_timing = True if team.capture_performance_opt_in else False
-            capture_web_vitals = True if team.autocapture_web_vitals_opt_in else False
-            autocapture_web_vitals_allowed_metrics = None
-            if capture_web_vitals:
-                autocapture_web_vitals_allowed_metrics = team.autocapture_web_vitals_allowed_metrics
-            response["capturePerformance"] = (
-                {
-                    "network_timing": capture_network_timing,
-                    "web_vitals": capture_web_vitals,
-                    "web_vitals_allowed_metrics": autocapture_web_vitals_allowed_metrics,
-                }
-                if capture_network_timing or capture_web_vitals
-                else False
-            )
-
-            response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
-            response["autocaptureExceptions"] = (
-                {
-                    "endpoint": "/e/",
-                }
-                if team.autocapture_exceptions_opt_in
-                else False
-            )
-
-            if str(team.id) not in settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS:
-                if (
-                    "*" in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS
-                    or str(team.id) in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS
-                ):
-                    if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
-                        response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
-
-            if (
-                "*" in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS
-                or str(team.id) in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS
-            ):
-                if random() < settings.NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE:
-                    response["__preview_ingestion_endpoints"] = True
-
-            if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
-                response["elementsChainAsString"] = True
-
-            response["sessionRecording"] = _session_recording_config_response(request, team, token)
-
-            if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
-                from ee.billing.quota_limiting import (
-                    QuotaLimitingCaches,
-                    QuotaResource,
-                    list_limited_team_attributes,
-                )
-
-                limited_tokens_recordings = list_limited_team_attributes(
-                    QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-                )
-
-                if token in limited_tokens_recordings:
-                    response["quotaLimited"] = ["recordings"]
-                    response["sessionRecording"] = False
-
-            response["surveys"] = True if team.surveys_opt_in else False
-            response["heatmaps"] = True if team.heatmaps_opt_in else False
-            try:
-                default_identified_only = team.pk >= int(settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN)
-            except Exception:
-                default_identified_only = False
-            response["defaultIdentifiedOnly"] = bool(default_identified_only)
-
-            site_apps = []
-            # errors mean the database is unavailable, bail in this case
-            if team.inject_web_apps and not errors:
-                try:
-                    with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
-                        site_apps = get_decide_site_apps(team, using_database=DATABASE_FOR_FLAG_MATCHING)
-                except Exception:
-                    pass
-
-            response["siteApps"] = site_apps
+            # NOTE: Changed code - everything not feature flags goes in here
+            response.update(get_base_config(token, team, request, skip_db=errors))
 
             # NOTE: Whenever you add something to decide response, update this test:
             # `test_decide_doesnt_error_out_when_database_is_down`
