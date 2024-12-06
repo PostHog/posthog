@@ -1,14 +1,16 @@
 import datetime as dt
 import json
 from dataclasses import dataclass
+from uuid import UUID
 
-from django.db.models import Max, Sum
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import aget_active_event_batch_exports
-from posthog.batch_exports.sql import EVENT_COUNT_FROM_UNBOUNDED_VIEW
+from posthog.batch_exports.service import (
+    aget_active_event_batch_exports,
+    aupdate_expected_records_count,
+)
+from posthog.batch_exports.sql import EVENT_COUNT_BY_INTERVAL
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 
@@ -18,6 +20,13 @@ class NoActiveBatchExportsFoundError(Exception):
 
     def __init__(self, team_id: int):
         super().__init__(f"No active events batch exports found for team {team_id}")
+
+
+class NoValidBatchExportsFoundError(Exception):
+    """Exception raised when no valid events batch exports are found for a given team."""
+
+    def __init__(self, message: str = "No valid events batch exports found for team"):
+        super().__init__(message)
 
 
 @dataclass
@@ -34,7 +43,8 @@ class BatchExportMonitoringInputs:
 
 @dataclass
 class BatchExportDetails:
-    id: str
+    id: UUID
+    interval: str
     exclude_events: list[str]
     include_events: list[str]
 
@@ -48,63 +58,61 @@ async def get_batch_export(team_id: int) -> BatchExportDetails:
     if len(models) > 1:
         activity.logger.warning("More than one active events batch export found; using first one...")
     model = models[0]
+    if model.interval_time_delta != dt.timedelta(minutes=5):
+        raise NoValidBatchExportsFoundError(
+            "Only batch exports with interval of 5 minutes are supported for monitoring at this time."
+        )
     config = model.destination.config
     return BatchExportDetails(
-        id=model.id, exclude_events=config.get("exclude_events", []), include_events=config.get("include_events", [])
+        id=model.id,
+        interval=model.interval,
+        exclude_events=config.get("exclude_events", []),
+        include_events=config.get("include_events", []),
     )
 
 
 @dataclass
-class GetRecordsCompletedInputs:
-    batch_export_id: str
-    interval_start: str
-    interval_end: str
-
-
-@activity.defn
-async def get_records_completed(inputs: GetRecordsCompletedInputs) -> int:
-    """Get the number of records completed for the given batch export and interval.
-
-    There will typically be multiple batch export runs for a given batch export,
-    each with a different data interval, so we need to sum these. In addition, a
-    particular batch export run could have been re-run multiple times (eg
-    manually by the user), so we need to dedupe these (we choose to take the one
-    with the highest records_completed).
-    """
-
-    deduped_batch_export_runs = (
-        BatchExportRun.objects.filter(
-            batch_export_id=inputs.batch_export_id,
-            data_interval_start__gte=inputs.interval_start,
-            data_interval_start__lt=inputs.interval_end,
-        )
-        .values("data_interval_start")
-        .annotate(max_records_completed=Max("records_completed"))
-    )
-
-    result = await deduped_batch_export_runs.aaggregate(records_sum=Sum("max_records_completed"))
-    return result["records_sum"] or 0
-
-
-@dataclass
-class GetEventsCountInputs:
+class GetEventCountsInputs:
     team_id: int
-    interval_start: str
-    interval_end: str
+    interval: str
+    overall_interval_start: str
+    overall_interval_end: str
     exclude_events: list[str]
     include_events: list[str]
 
 
-@activity.defn
-async def get_events_count(inputs: GetEventsCountInputs) -> int:
-    """Get the total number of events for a given team and time interval."""
+@dataclass
+class EventCountsOutput:
+    interval_start: str
+    interval_end: str
+    count: int
 
-    # TODO: is this the best query to use?
-    query = EVENT_COUNT_FROM_UNBOUNDED_VIEW
+
+@dataclass
+class GetEventCountsOutputs:
+    results: list[EventCountsOutput]
+
+
+@activity.defn
+async def get_event_counts(inputs: GetEventCountsInputs) -> GetEventCountsOutputs:
+    """Get the total number of events for a given team over a set of time intervals."""
+
+    query = EVENT_COUNT_BY_INTERVAL
+
+    interval = inputs.interval
+    # we check interval is "every 5 minutes" above but double check here
+    if not interval.startswith("every 5 minutes"):
+        raise NoValidBatchExportsFoundError(
+            "Only intervals of 'every 5 minutes' are supported for monitoring at this time."
+        )
+    _, value, unit = interval.split(" ")
+    interval = f"{value} {unit}"
+
     query_params = {
         "team_id": inputs.team_id,
-        "interval_start": inputs.interval_start,
-        "interval_end": inputs.interval_end,
+        "interval": interval,
+        "overall_interval_start": inputs.overall_interval_start,
+        "overall_interval_end": inputs.overall_interval_end,
         "include_events": inputs.include_events,
         "exclude_events": inputs.exclude_events,
     }
@@ -113,25 +121,52 @@ async def get_events_count(inputs: GetEventsCountInputs) -> int:
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
         response = await client.read_query(query, query_params)
-        line = response.decode("utf-8").splitlines()[0]
-        count_str = line.strip()
-        return int(count_str)
+        # import pdb
+
+        # pdb.set_trace()
+        results = []
+        for line in response.decode("utf-8").splitlines():
+            interval_start, interval_end, count = line.strip().split("\t")
+            results.append(
+                EventCountsOutput(interval_start=interval_start, interval_end=interval_end, count=int(count))
+            )
+
+        return GetEventCountsOutputs(results=results)
 
 
 @dataclass
-class CompareCountsInputs:
-    total_completed_records: int
-    total_events: int
+class UpdateBatchExportRunsInputs:
+    batch_export_id: UUID
+    results: list[EventCountsOutput]
 
 
 @activity.defn
-async def compare_counts(inputs: CompareCountsInputs) -> bool:
-    """Compare the number of events in ClickHouse with the reported number of exported events."""
-    # for now, return True if within 10% of each other
-    if inputs.total_events == 0:
-        return inputs.total_completed_records == 0
-    abs_diff = abs(inputs.total_completed_records - inputs.total_events)
-    return abs_diff / inputs.total_events < 0.1
+async def update_batch_export_runs(inputs: UpdateBatchExportRunsInputs):
+    """Update BatchExportRuns with the expected number of events."""
+
+    for result in inputs.results:
+        await aupdate_expected_records_count(
+            batch_export_id=inputs.batch_export_id,
+            interval_start=dt.datetime.strptime(result.interval_start, "%Y-%m-%d %H:%M:%S"),
+            interval_end=dt.datetime.strptime(result.interval_end, "%Y-%m-%d %H:%M:%S"),
+            count=result.count,
+        )
+
+
+# @dataclass
+# class CompareCountsInputs:
+#     total_completed_records: int
+#     total_events: int
+
+
+# @activity.defn
+# async def compare_counts(inputs: CompareCountsInputs) -> bool:
+#     """Compare the number of events in ClickHouse with the reported number of exported events."""
+#     # for now, return True if within 10% of each other
+#     if inputs.total_events == 0:
+#         return inputs.total_completed_records == 0
+#     abs_diff = abs(inputs.total_completed_records - inputs.total_events)
+#     return abs_diff / inputs.total_events < 0.1
 
 
 @workflow.defn(name="batch-export-monitoring")
@@ -176,24 +211,13 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
         interval_end_str = interval_end.strftime("%Y-%m-%d %H:%M:%S")
         interval_start_str = interval_start.strftime("%Y-%m-%d %H:%M:%S")
 
-        total_completed_records = await workflow.execute_activity(
-            get_records_completed,
-            GetRecordsCompletedInputs(
-                batch_export_id=batch_export_details.id,
-                interval_start=interval_start_str,
-                interval_end=interval_end_str,
-            ),
-            start_to_close_timeout=dt.timedelta(hours=1),
-            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=20)),
-            heartbeat_timeout=dt.timedelta(minutes=1),
-        )
-
         total_events = await workflow.execute_activity(
-            get_events_count,
-            GetEventsCountInputs(
+            get_event_counts,
+            GetEventCountsInputs(
                 team_id=inputs.team_id,
-                interval_start=interval_start_str,
-                interval_end=interval_end_str,
+                interval=batch_export_details.interval,
+                overall_interval_start=interval_start_str,
+                overall_interval_end=interval_end_str,
                 exclude_events=batch_export_details.exclude_events,
                 include_events=batch_export_details.include_events,
             ),
@@ -202,10 +226,18 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
             heartbeat_timeout=dt.timedelta(minutes=1),
         )
 
-        return await workflow.execute_activity(
-            compare_counts,
-            CompareCountsInputs(total_completed_records=total_completed_records, total_events=total_events),
-            start_to_close_timeout=dt.timedelta(minutes=1),
+        await workflow.execute_activity(
+            update_batch_export_runs,
+            UpdateBatchExportRunsInputs(batch_export_id=batch_export_details.id, results=total_events.results),
+            start_to_close_timeout=dt.timedelta(hours=1),
             retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=20)),
             heartbeat_timeout=dt.timedelta(minutes=1),
         )
+
+        # return await workflow.execute_activity(
+        #     compare_counts,
+        #     CompareCountsInputs(total_completed_records=total_completed_records, total_events=total_events),
+        #     start_to_close_timeout=dt.timedelta(minutes=1),
+        #     retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=20)),
+        #     heartbeat_timeout=dt.timedelta(minutes=1),
+        # )
