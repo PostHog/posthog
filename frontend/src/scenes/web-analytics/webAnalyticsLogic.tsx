@@ -790,14 +790,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                         accessed in your application, regardless of when they were
                                                         accessed through the lifetime of a user session.
                                                     </p>
-                                                    <p>
-                                                        The{' '}
-                                                        <Link to="https://posthog.com/docs/web-analytics/dashboard#bounce-rate">
-                                                            bounce rate
-                                                        </Link>{' '}
-                                                        indicates the percentage of users who left your page immediately
-                                                        after visiting without capturing any event.
-                                                    </p>
+                                                    {conversionGoal ? (
+                                                        <p>
+                                                            The conversion rate is the percentage of users who completed
+                                                            the conversion goal in this specific path.
+                                                        </p>
+                                                    ) : (
+                                                        <p>
+                                                            The{' '}
+                                                            <Link to="https://posthog.com/docs/web-analytics/dashboard#bounce-rate">
+                                                                bounce rate
+                                                            </Link>{' '}
+                                                            indicates the percentage of users who left your page
+                                                            immediately after visiting without capturing any event.
+                                                        </p>
+                                                    )}
                                                 </div>
                                             ),
                                         },
@@ -821,8 +828,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             title: 'Entry Path',
                                             description: (
                                                 <div>
-                                                    Entry paths are the paths a user session started, i.e. the first
-                                                    path they saw when they opened your website.
+                                                    <p>
+                                                        Entry paths are the paths a user session started, i.e. the first
+                                                        path they saw when they opened your website.
+                                                    </p>
+                                                    {conversionGoal && (
+                                                        <p>
+                                                            The conversion rate is the percentage of users who completed
+                                                            the conversion goal after the first path in their session
+                                                            being this path.
+                                                        </p>
+                                                    )}
                                                 </div>
                                             ),
                                         },
