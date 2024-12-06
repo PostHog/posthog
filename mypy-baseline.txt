@@ -322,7 +322,7 @@ ee/billing/billing_manager.py:0: error: Incompatible types in assignment (expres
 posthog/models/property/util.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/models/property/util.py:0: error: Argument 3 to "format_filter_query" has incompatible type "HogQLContext | None"; expected "HogQLContext"  [arg-type]
 posthog/models/property/util.py:0: error: Argument 3 to "format_cohort_subquery" has incompatible type "HogQLContext | None"; expected "HogQLContext"  [arg-type]
-posthog/models/property/util.py:0: error: Invalid index type "tuple[str, str]" for "dict[tuple[str, Literal['properties', 'group_properties', 'person_properties']], str]"; expected type "tuple[str, Literal['properties', 'group_properties', 'person_properties']]"  [index]
+posthog/models/property/util.py:0: error: Argument 2 to "get_materialized_column_for_property" has incompatible type "str"; expected "Literal['properties', 'group_properties', 'person_properties']"  [arg-type]
 posthog/models/property/util.py:0: error: Argument 1 to "append" of "list" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/models/property/util.py:0: error: Argument 1 to "append" of "list" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/models/property/util.py:0: error: Argument 1 to "append" of "list" has incompatible type "str | int"; expected "str"  [arg-type]
@@ -332,7 +332,7 @@ posthog/api/documentation.py:0: note: def run_validation(self, data: Any = ...) 
 posthog/api/documentation.py:0: note: Subclass:
 posthog/api/documentation.py:0: note: def run_validation(self, data: Any) -> Any
 posthog/queries/trends/util.py:0: error: Argument 1 to "translate_hogql" has incompatible type "str | None"; expected "str"  [arg-type]
-posthog/queries/column_optimizer/foss_column_optimizer.py:0: error: Argument 1 to "get" of "dict" has incompatible type "tuple[str, str]"; expected "tuple[str, Literal['properties', 'group_properties', 'person_properties']]"  [arg-type]
+posthog/queries/column_optimizer/foss_column_optimizer.py:0: error: Argument 2 to "get_materialized_column_for_property" has incompatible type "str"; expected "Literal['properties', 'group_properties', 'person_properties']"  [arg-type]
 posthog/hogql/property.py:0: error: Incompatible type for lookup 'id': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/hogql/property.py:0: error: Incompatible type for lookup 'pk': (got "str | float", expected "str | int")  [misc]
 posthog/api/utils.py:0: error: Incompatible types in assignment (expression has type "type[EventDefinition]", variable has type "type[EnterpriseEventDefinition]")  [assignment]
