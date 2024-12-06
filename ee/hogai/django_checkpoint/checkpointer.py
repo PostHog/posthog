@@ -1,7 +1,8 @@
 import json
+import random
 import threading
 from collections.abc import Iterator, Sequence
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.db import transaction
 from django.db.models import Q
@@ -16,7 +17,7 @@ from langgraph.checkpoint.base import (
     get_checkpoint_id,
 )
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langgraph.checkpoint.serde.types import TASKS
+from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
 import ee.models.assistant as models
 
@@ -38,6 +39,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     self.serde.loads_typed((checkpoint_write.type, checkpoint_write.blob)),
                 )
                 for checkpoint_write in writes
+                if checkpoint_write.type is not None and checkpoint_write.blob is not None
             ]
             if writes
             else []
@@ -107,9 +109,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             qs = qs[:limit]
 
         for checkpoint in qs:
-            channel_values = []
+            channel_values: list[models.CheckpointBlob] = []
 
-            loaded_checkpoint = self._load_json(checkpoint.checkpoint)
+            loaded_checkpoint: Checkpoint = self._load_json(checkpoint.checkpoint)
             if "channel_versions" in loaded_checkpoint:
                 query = Q()
                 for channel, version in loaded_checkpoint["channel_versions"].items():
@@ -129,7 +131,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             else:
                 pending_sends = []
 
-            checkpoint_dict = {
+            checkpoint_dict: Checkpoint = {
                 **loaded_checkpoint,
                 "pending_sends": [
                     self.serde.loads_typed((checkpoint_write.type, checkpoint_write.blob))
@@ -138,7 +140,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 "channel_values": {
                     checkpoint_blob.channel: self.serde.loads_typed((checkpoint_blob.type, checkpoint_blob.blob))
                     for checkpoint_blob in channel_values
-                    if checkpoint_blob.type != "empty"
+                    if checkpoint_blob.type is not None
+                    and checkpoint_blob.type != "empty"
+                    and checkpoint_blob.blob is not None
                 },
             }
 
@@ -203,23 +207,23 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         Returns:
             RunnableConfig: Updated configuration after storing the checkpoint.
         """
-        configurable = config["configurable"].copy()
-        thread_id = configurable.pop("thread_id")
-        checkpoint_ns = configurable.pop("checkpoint_ns")
-        checkpoint_id = configurable.pop("checkpoint_id", configurable.pop("thread_ts", None))
-
-        checkpoint_copy: dict = checkpoint.copy()
-        channel_values = checkpoint_copy.pop("channel_values")
-        next_config: RunnableConfig = {
-            "configurable": {
-                "thread_id": thread_id,
-                "checkpoint_ns": checkpoint_ns,
-                "checkpoint_id": checkpoint["id"],
-            }
-        }
-
         with self._lock, transaction.atomic():
-            checkpoint, _ = models.Checkpoint.objects.update_or_create(
+            configurable = config["configurable"].copy()
+            thread_id = configurable.pop("thread_id")
+            checkpoint_ns = configurable.pop("checkpoint_ns")
+            checkpoint_id = configurable.pop("checkpoint_id", configurable.pop("thread_ts", None))
+
+            checkpoint_copy = cast(dict[str, Any], checkpoint.copy())
+            channel_values = checkpoint_copy.pop("channel_values")
+            next_config: RunnableConfig = {
+                "configurable": {
+                    "thread_id": thread_id,
+                    "checkpoint_ns": checkpoint_ns,
+                    "checkpoint_id": checkpoint["id"],
+                }
+            }
+
+            updated_checkpoint, _ = models.Checkpoint.objects.update_or_create(
                 id=checkpoint["id"],
                 thread_id=thread_id,
                 checkpoint_ns=checkpoint_ns,
@@ -237,7 +241,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 )
                 blobs.append(
                     models.CheckpointBlob(
-                        thread=checkpoint.thread,
+                        thread=updated_checkpoint.thread,
                         checkpoint_ns=checkpoint_ns,
                         channel=channel,
                         version=str(version),
@@ -265,25 +269,36 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             writes (List[Tuple[str, Any]]): List of writes to store.
             task_id (str): Identifier for the task creating the writes.
         """
-        writes_to_create = []
-        for idx, (channel, value) in enumerate(writes):
-            type, blob = self.serde.dumps_typed(value)
-            writes_to_create.append(
-                models.CheckpointWrite(
-                    checkpoint_id=config["configurable"]["checkpoint_id"],
-                    checkpoint_ns=config["configurable"]["checkpoint_ns"],
-                    task_id=task_id,
-                    idx=idx,
-                    channel=channel,
-                    type=type,
-                    blob=blob,
-                )
-            )
-
         with self._lock:
+            writes_to_create = []
+            for idx, (channel, value) in enumerate(writes):
+                type, blob = self.serde.dumps_typed(value)
+                writes_to_create.append(
+                    models.CheckpointWrite(
+                        checkpoint_id=config["configurable"]["checkpoint_id"],
+                        checkpoint_ns=config["configurable"]["checkpoint_ns"],
+                        task_id=task_id,
+                        idx=idx,
+                        channel=channel,
+                        type=type,
+                        blob=blob,
+                    )
+                )
+
             models.CheckpointWrite.objects.bulk_create(
                 writes_to_create,
                 update_conflicts=all(w[0] in WRITES_IDX_MAP for w in writes),
                 unique_fields=["checkpoint_id", "checkpoint_ns", "task_id", "idx"],
                 update_fields=["channel", "type", "blob"],
             )
+
+    def get_next_version(self, current: Optional[str | int], channel: ChannelProtocol) -> str:
+        if current is None:
+            current_v = 0
+        elif isinstance(current, int):
+            current_v = current
+        else:
+            current_v = int(current.split(".")[0])
+        next_v = current_v + 1
+        next_h = random.random()
+        return f"{next_v:032}.{next_h:016}"
