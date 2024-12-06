@@ -55,7 +55,9 @@ class DatabaseHealthcheck:
                     cursor.execute("SELECT 1")
                 return True
             except Exception:
-                logger.exception("failed to connect to postgres attempt %s of 3", i + 1)
+                logger.exception(
+                    f"failed to connect to postgres {DATABASE_FOR_FLAG_MATCHING} node attempt {i + 1} of 3"
+                )
                 time.sleep(0.3)
 
         logger.exception("postgres_connection_failure")
