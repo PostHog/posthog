@@ -169,8 +169,10 @@ impl AggregateFunnelRow {
                 *step
             }) as usize;
 
+            let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step - 1 == breakdown_step).unwrap_or(false) && *prop_val != event.breakdown;
+
             if step == 1 {
-                if !vars.results.contains_key(&event.interval_start) {
+                if !is_unmatched_step_attribution && !vars.results.contains_key(&event.interval_start) {
                     let entered_timestamp_one = EnteredTimestamp { timestamp: event.timestamp, excluded: false };
                     let interval = vars.interval_start_to_entered_timestamps.get_mut(&event.interval_start);
                     if interval.is_none() || interval.as_ref().map( | interval | interval.max_step.step == 1 && interval.max_step.excluded != Exclusion::Not).unwrap() {
@@ -207,7 +209,6 @@ impl AggregateFunnelRow {
                                 }
                             }
                         } else {
-                            let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
                             if !is_unmatched_step_attribution {
                                 if !previous_step_excluded {
                                     interval_data.entered_timestamp[step] = EnteredTimestamp {

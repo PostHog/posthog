@@ -2359,6 +2359,21 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "timestamp": datetime(2021, 5, 1, 0, 0, 14),
                 "properties": {"$browser": "Chrome"},
             },
+            {
+                "event": "step one",
+                "properties": {"$browser": "Chrome"},
+                "timestamp": datetime(2021, 5, 2, 0, 0, 0),
+            },
+            {
+                "event": "step two",
+                "properties": {"$browser": "Safari"},
+                "timestamp": datetime(2021, 5, 2, 0, 0, 1),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 2, 0, 0, 14),
+                "properties": {"$browser": "Chrome"},
+            },
         ]
         journeys_for(
             {
@@ -2387,16 +2402,16 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         assert 2 == len(results)
-        assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-        assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
 
         filters["breakdown_attribution_type"] = "all_events"
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         assert 4 == len(results)
-        assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-        assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
         assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
         assert [0, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
@@ -2406,8 +2421,8 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         assert 4 == len(results)
-        assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-        assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
         assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
         assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
@@ -2416,9 +2431,11 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        assert 2 == len(results)
+        assert 4 == len(results)
         assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
         assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [0, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
 
 class TestFunnelTrends(BaseTestFunnelTrends):
