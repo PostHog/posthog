@@ -741,7 +741,13 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
 
-        count_query = TrendsQuery(series=[EventsNode(event="$pageview", math="avg")])
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        count_query = TrendsQuery(
+            series=[
+                EventsNode(event="purchase", math="avg", math_property="amount", math_property_type="event_properties")
+            ]
+        )
         exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
 
         experiment_query = ExperimentTrendsQuery(
@@ -758,8 +764,55 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
 
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    properties={feature_flag_property: variant},
+                    timestamp=datetime(2020, 1, i + 1),
+                )
+
+        for variant, count in [("control", 4), ("test", 2)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_{variant}_{i}",
+                    properties={feature_flag_property: variant, "amount": i * 10},
+                    timestamp=datetime(2020, 1, i + 2),
+                )
+
+        flush_persons_and_events()
+
         prepared_count_query = query_runner.prepared_count_query
         self.assertEqual(prepared_count_query.series[0].math, "sum")
+
+        result = query_runner.calculate()
+        trend_result = cast(ExperimentTrendsQueryResponse, result)
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_result = next(variant for variant in trend_result.variants if variant.key == "control")
+        test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+
+        control_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "control")
+        test_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "test")
+
+        self.assertEqual(control_result.count, 60)
+        self.assertEqual(test_result.count, 10)
+        self.assertEqual(control_result.absolute_exposure, 4)
+        self.assertEqual(test_result.absolute_exposure, 2)
+
+        self.assertEqual(
+            control_insight["data"],
+            [0.0, 0.0, 10.0, 30.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0],
+        )
+        self.assertEqual(
+            test_insight["data"],
+            [0.0, 0.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+        )
 
     @flaky(max_runs=10, min_passes=1)
     @freeze_time("2020-01-01T12:00:00Z")
