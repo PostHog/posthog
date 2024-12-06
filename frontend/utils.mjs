@@ -503,12 +503,15 @@ export function gatherProductManifests() {
         }
         try {
             const manifest = JSON.parse(fse.readFileSync(`products/${product}/manifest.json`, 'utf-8'))
-            Object.assign(scenes, manifest.scenes ?? {})
+            const scenes = Object.fromEntries(
+                Object.entries(manifest.scenes ?? {}).map(([key, value]) => [key, { name: manifest.name, ...value }])
+            )
+            Object.assign(scenes, scenes)
             Object.assign(routes, manifest.routes ?? {})
             Object.assign(redirects, manifest.redirects ?? {})
 
             productScenes +=
-                Object.entries(manifest.scenes ?? {})
+                Object.entries(scenes ?? {})
                     .map(
                         ([key, value]) =>
                             `${JSON.stringify(key)}: (): any => import(${JSON.stringify(

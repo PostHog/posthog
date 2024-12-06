@@ -4,7 +4,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { earlyAccessFeature, earlyAccessFeatures } from './urls'
 
@@ -124,12 +123,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             (s) => [s.earlyAccessFeature],
             (earlyAccessFeature: EarlyAccessFeatureType): Breadcrumb[] => [
                 {
-                    key: Scene.EarlyAccessFeatures,
+                    key: 'EarlyAccessFeatures',
                     name: 'Early Access Management',
                     path: earlyAccessFeatures(),
                 },
                 {
-                    key: [Scene.EarlyAccessFeature, earlyAccessFeature.id || 'new'],
+                    key: ['EarlyAccessFeature', earlyAccessFeature.id || 'new'],
                     name: earlyAccessFeature.name,
                 },
             ],

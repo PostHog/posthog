@@ -262,16 +262,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Data warehouse table',
         defaultDocsPath: '/docs/data-warehouse',
     },
-    [Scene.EarlyAccessFeatures]: {
-        projectBased: true,
-        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-        activityScope: ActivityScope.EARLY_ACCESS_FEATURE,
-    },
-    [Scene.EarlyAccessFeature]: {
-        projectBased: true,
-        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-        activityScope: ActivityScope.EARLY_ACCESS_FEATURE,
-    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',

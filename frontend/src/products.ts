@@ -23,17 +23,4 @@ export const productRedirects: Record<string, string> = {
     '/messaging': '/messaging/broadcasts',
 }
 
-export const productConfiguration: Record<string, any> = {
-    EarlyAccessFeatures: {
-        projectBased: true,
-        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-        activityScope: 'EarlyAccessFeature',
-    },
-    EarlyAccessFeature: {
-        projectBased: true,
-        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-        activityScope: 'EarlyAccessFeature',
-    },
-    MessagingBroadcasts: { name: 'Messaging', projectBased: true },
-    MessagingProviders: { name: 'Messaging', projectBased: true },
-}
+export const productConfiguration: Record<string, any> = {}
