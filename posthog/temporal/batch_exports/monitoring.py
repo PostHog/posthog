@@ -38,6 +38,7 @@ class BatchExportMonitoringInputs:
     """
 
     # TODO - make this a list of team ids or single?
+    # or maybe a (list of) batch export id(s) instead?
     team_id: int
 
 
@@ -121,9 +122,6 @@ async def get_event_counts(inputs: GetEventCountsInputs) -> GetEventCountsOutput
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
         response = await client.read_query(query, query_params)
-        # import pdb
-
-        # pdb.set_trace()
         results = []
         for line in response.decode("utf-8").splitlines():
             interval_start, interval_end, count = line.strip().split("\t")
@@ -141,32 +139,19 @@ class UpdateBatchExportRunsInputs:
 
 
 @activity.defn
-async def update_batch_export_runs(inputs: UpdateBatchExportRunsInputs):
+async def update_batch_export_runs(inputs: UpdateBatchExportRunsInputs) -> int:
     """Update BatchExportRuns with the expected number of events."""
 
+    total_rows_updated = 0
     for result in inputs.results:
-        await aupdate_expected_records_count(
+        total_rows_updated += await aupdate_expected_records_count(
             batch_export_id=inputs.batch_export_id,
-            interval_start=dt.datetime.strptime(result.interval_start, "%Y-%m-%d %H:%M:%S"),
-            interval_end=dt.datetime.strptime(result.interval_end, "%Y-%m-%d %H:%M:%S"),
+            interval_start=dt.datetime.strptime(result.interval_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC),
+            interval_end=dt.datetime.strptime(result.interval_end, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC),
             count=result.count,
         )
-
-
-# @dataclass
-# class CompareCountsInputs:
-#     total_completed_records: int
-#     total_events: int
-
-
-# @activity.defn
-# async def compare_counts(inputs: CompareCountsInputs) -> bool:
-#     """Compare the number of events in ClickHouse with the reported number of exported events."""
-#     # for now, return True if within 10% of each other
-#     if inputs.total_events == 0:
-#         return inputs.total_completed_records == 0
-#     abs_diff = abs(inputs.total_completed_records - inputs.total_events)
-#     return abs_diff / inputs.total_events < 0.1
+    activity.logger.info(f"Updated {total_rows_updated} BatchExportRuns")
+    return total_rows_updated
 
 
 @workflow.defn(name="batch-export-monitoring")
@@ -226,18 +211,10 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
             heartbeat_timeout=dt.timedelta(minutes=1),
         )
 
-        await workflow.execute_activity(
+        return await workflow.execute_activity(
             update_batch_export_runs,
             UpdateBatchExportRunsInputs(batch_export_id=batch_export_details.id, results=total_events.results),
             start_to_close_timeout=dt.timedelta(hours=1),
             retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=20)),
             heartbeat_timeout=dt.timedelta(minutes=1),
         )
-
-        # return await workflow.execute_activity(
-        #     compare_counts,
-        #     CompareCountsInputs(total_completed_records=total_completed_records, total_events=total_events),
-        #     start_to_close_timeout=dt.timedelta(minutes=1),
-        #     retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=20)),
-        #     heartbeat_timeout=dt.timedelta(minutes=1),
-        # )
