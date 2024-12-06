@@ -18,7 +18,7 @@ with insight_stats AS (
         posthog_dashboarditem
     WHERE
         NOT created_by_id IS NULL
-        AND date_part('year', created_at) = 2023
+        AND date_part('year', created_at) = 2024
         AND (
             name IS NOT NULL
             OR derived_name IS NOT NULL
@@ -41,7 +41,7 @@ flag_stats AS (
         key not ilike 'survey-targeting%%'
         AND key not ilike 'prompt-%%'
         AND key not ilike 'interview-%%'
-        AND date_part('year', created_at) = 2023
+        AND date_part('year', created_at) = 2024
         AND created_by_id = (select id from posthog_user where uuid = %(user_uuid)s)
     GROUP BY
         created_by_id
@@ -56,7 +56,7 @@ recording_viewed_stats AS (
     FROM
         posthog_sessionrecordingviewed
     WHERE
-        date_part('year', created_at) = 2023
+        date_part('year', created_at) = 2024
         AND user_id = (select id from posthog_user where uuid = %(user_uuid)s)
     GROUP BY
         user_id
@@ -71,7 +71,7 @@ experiments_stats AS (
     FROM
         posthog_experiment
     WHERE
-        date_part('year', created_at) = 2023
+        date_part('year', created_at) = 2024
         AND created_by_id = (select id from posthog_user where uuid = %(user_uuid)s)
     GROUP BY
         created_by_id
@@ -86,7 +86,7 @@ dashboards_created_stats AS (
     FROM
         posthog_dashboard
     WHERE
-        date_part('year', created_at) = 2023
+        date_part('year', created_at) = 2024
         AND created_by_id = (select id from posthog_user where uuid = %(user_uuid)s)
     GROUP BY
         created_by_id
@@ -102,7 +102,7 @@ survey_stats AS (
         posthog_survey
     WHERE
         NOT created_by_id IS NULL
-        AND date_part('year', created_at) = 2023
+        AND date_part('year', created_at) = 2024
         AND created_by_id = (select id from posthog_user where uuid = %(user_uuid)s)
     group by
         created_by_id
@@ -111,7 +111,7 @@ SELECT
     id,
     array_remove(
         ARRAY [
-        case when posthog_user.last_login >= '1-Jan-2023' then 'astronaut' end,
+        case when posthog_user.last_login >= '1-Jan-2024' then 'astronaut' end,
         insight_stats.badge,
         flag_stats.badge,
         recording_viewed_stats.badge,
@@ -147,7 +147,7 @@ def dictfetchall(cursor):
 
 
 @cache_for(timedelta(seconds=0 if settings.DEBUG else 30))
-def calculate_year_in_posthog_2023(user_uuid: str) -> Optional[dict]:
+def calculate_year_in_posthog_2024(user_uuid: str) -> Optional[dict]:
     with connection.cursor() as cursor:
         cursor.execute(query, {"user_uuid": user_uuid})
         rows = dictfetchall(cursor)

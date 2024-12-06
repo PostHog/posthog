@@ -35,7 +35,9 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
         for row in cast(list[dict], request.data):
-            instance = GroupTypeMapping.objects.get(team=self.team, group_type_index=row["group_type_index"])
+            instance = GroupTypeMapping.objects.get(
+                project_id=self.team.project_id, group_type_index=row["group_type_index"]
+            )
             serializer = self.get_serializer(instance, data=row)
             serializer.is_valid(raise_exception=True)
             serializer.save()

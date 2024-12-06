@@ -5,7 +5,6 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonDivider,
-    LemonDropdown,
     LemonInput,
     LemonModal,
     LemonSelect,
@@ -14,12 +13,12 @@ import {
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
-import { DatabaseSchemaField, NodeKind } from '~/queries/schema'
+import { DatabaseSchemaField } from '~/queries/schema'
 
 export function ViewLinkModal(): JSX.Element {
     const { isJoinTableModalOpen } = useValues(viewLinkLogic)
@@ -122,6 +121,7 @@ export function ViewLinkForm(): JSX.Element {
                                 />
                                 {sourceIsUsingHogQLExpression && (
                                     <HogQLDropdown
+                                        className="mt-2"
                                         hogQLValue={selectedSourceKey ?? ''}
                                         onHogQLValueChange={selectSourceKey}
                                         tableName={selectedSourceTableName ?? ''}
@@ -147,6 +147,7 @@ export function ViewLinkForm(): JSX.Element {
                                 />
                                 {joiningIsUsingHogQLExpression && (
                                     <HogQLDropdown
+                                        className="mt-2"
                                         hogQLValue={selectedJoiningKey ?? ''}
                                         onHogQLValueChange={selectJoiningKey}
                                         tableName={selectedJoiningTableName ?? ''}
@@ -244,49 +245,6 @@ export function ViewLinkForm(): JSX.Element {
                 </LemonButton>
             </div>
         </Form>
-    )
-}
-
-const HogQLDropdown = ({
-    hogQLValue,
-    onHogQLValueChange,
-    tableName,
-}: {
-    hogQLValue: string
-    tableName: string
-    onHogQLValueChange: (hogQLValue: string) => void
-}): JSX.Element => {
-    const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
-
-    return (
-        <div className="flex-auto overflow-hidden mt-2">
-            <LemonDropdown
-                visible={isHogQLDropdownVisible}
-                closeOnClickInside={false}
-                onClickOutside={() => setIsHogQLDropdownVisible(false)}
-                overlay={
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
-                        <HogQLEditor
-                            value={hogQLValue}
-                            metadataSource={{ kind: NodeKind.HogQLQuery, query: `SELECT * FROM ${tableName}` }}
-                            onChange={(currentValue) => {
-                                onHogQLValueChange(currentValue)
-                                setIsHogQLDropdownVisible(false)
-                            }}
-                        />
-                    </div>
-                }
-            >
-                <LemonButton
-                    fullWidth
-                    type="secondary"
-                    onClick={() => setIsHogQLDropdownVisible(!isHogQLDropdownVisible)}
-                >
-                    <code>{hogQLValue}</code>
-                </LemonButton>
-            </LemonDropdown>
-        </div>
     )
 }
 

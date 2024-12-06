@@ -4,7 +4,7 @@ import { createParser } from 'eventsource-parser'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
-import { isHumanMessage, isVisualizationMessage } from 'scenes/max/utils'
+import { isHumanMessage, isReasoningMessage, isVisualizationMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import {
@@ -84,6 +84,7 @@ export const maxLogic = kea<maxLogicType>([
                     },
                     ...state.slice(index + 1),
                 ],
+                setThreadLoaded: (state) => state.filter((message) => !isReasoningMessage(message)),
             },
         ],
         threadLoading: [

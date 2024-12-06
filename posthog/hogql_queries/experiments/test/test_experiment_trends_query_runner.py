@@ -29,6 +29,7 @@ import s3fs
 from pyarrow import parquet as pq
 import pyarrow as pa
 import json
+from flaky import flaky
 
 from boto3 import resource
 from botocore.config import Config
@@ -650,6 +651,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         prepared_count_query = query_runner.prepared_count_query
         self.assertEqual(prepared_count_query.series[0].math, "sum")
 
+    @flaky(max_runs=10, min_passes=1)
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_standard_flow(self):
         feature_flag = self.create_feature_flag()

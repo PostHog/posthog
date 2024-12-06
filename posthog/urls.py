@@ -237,6 +237,8 @@ urlpatterns = [
     path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
     path("year_in_posthog/2023/<str:user_uuid>", year_in_posthog.render_2023),
     path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
+    path("year_in_posthog/2024/<str:user_uuid>", year_in_posthog.render_2024),
+    path("year_in_posthog/2024/<str:user_uuid>/", year_in_posthog.render_2024),
 ]
 
 if settings.DEBUG:

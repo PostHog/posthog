@@ -24,6 +24,7 @@ import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
+import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TZLabel } from '../TZLabel'
 
@@ -291,7 +292,20 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             label: column.name + ' (' + column.type + ')',
             value: column.name,
         }))
+        const hogqlOption = { label: 'HogQL Expression', value: '' }
         const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
+
+        const isUsingHogQLExpression = (value: string | undefined): boolean => {
+            if (value === undefined) {
+                return false
+            }
+            const column = Object.values(_definition.fields ?? {}).find((n) => n.name == value)
+            return !column
+        }
+
+        const distinct_id_field_value =
+            'distinct_id_field' in localDefinition ? localDefinition.distinct_id_field : undefined
+        const timestamp_field_value = 'timestamp_field' in localDefinition ? localDefinition.timestamp_field : undefined
 
         return (
             <form className="definition-popover-data-warehouse-schema-form">
@@ -310,23 +324,33 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             <span className="label-text">Distinct ID field</span>
                         </label>
                         <LemonSelect
-                            value={
-                                'distinct_id_field' in localDefinition ? localDefinition.distinct_id_field : undefined
-                            }
-                            options={columnOptions}
+                            value={isUsingHogQLExpression(distinct_id_field_value) ? '' : distinct_id_field_value}
+                            options={[...columnOptions, hogqlOption]}
                             onChange={(value) => setLocalDefinition({ distinct_id_field: value })}
                         />
+                        {isUsingHogQLExpression(distinct_id_field_value) && (
+                            <HogQLDropdown
+                                hogQLValue={distinct_id_field_value || ''}
+                                tableName={_definition.name}
+                                onHogQLValueChange={(value) => setLocalDefinition({ distinct_id_field: value })}
+                            />
+                        )}
 
                         <label className="definition-popover-edit-form-label" htmlFor="Timestamp Field">
                             <span className="label-text">Timestamp field</span>
                         </label>
                         <LemonSelect
-                            value={
-                                ('timestamp_field' in localDefinition && localDefinition.timestamp_field) || undefined
-                            }
-                            options={columnOptions}
+                            value={isUsingHogQLExpression(timestamp_field_value) ? '' : timestamp_field_value}
+                            options={[...columnOptions, hogqlOption]}
                             onChange={(value) => setLocalDefinition({ timestamp_field: value })}
                         />
+                        {isUsingHogQLExpression(timestamp_field_value) && (
+                            <HogQLDropdown
+                                hogQLValue={timestamp_field_value || ''}
+                                tableName={_definition.name}
+                                onHogQLValueChange={(value) => setLocalDefinition({ timestamp_field: value })}
+                            />
+                        )}
                     </DefinitionPopover.Section>
                     <div className="flex justify-end">
                         <LemonButton

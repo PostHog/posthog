@@ -29,14 +29,14 @@ export const settingsLogic = kea<settingsLogicType>([
     }),
 
     reducers(({ props }) => ({
-        selectedLevel: [
+        selectedLevelRaw: [
             (props.settingLevelId ?? 'project') as SettingLevelId,
             {
                 selectLevel: (_, { level }) => level,
                 selectSection: (_, { level }) => level,
             },
         ],
-        selectedSectionId: [
+        selectedSectionIdRaw: [
             (props.sectionId ?? null) as SettingSectionId | null,
             {
                 selectLevel: () => null,
@@ -92,6 +92,40 @@ export const settingsLogic = kea<settingsLogicType>([
                         }))
                 }
                 return sections
+            },
+        ],
+        selectedLevel: [
+            (s) => [s.selectedLevelRaw, s.selectedSectionIdRaw, s.featureFlags],
+            (selectedLevelRaw, selectedSectionIdRaw, featureFlags): SettingLevelId => {
+                // As of middle of September 2024, `details` and `danger-zone` are the only sections present
+                // at both Environment and Project levels. Others we want to redirect based on the feature flag.
+                if (
+                    !selectedSectionIdRaw ||
+                    (!selectedSectionIdRaw.endsWith('-details') && !selectedSectionIdRaw.endsWith('-danger-zone'))
+                ) {
+                    if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
+                        return selectedLevelRaw === 'project' ? 'environment' : selectedLevelRaw
+                    }
+                    return selectedLevelRaw === 'environment' ? 'project' : selectedLevelRaw
+                }
+                return selectedLevelRaw
+            },
+        ],
+        selectedSectionId: [
+            (s) => [s.selectedSectionIdRaw, s.featureFlags],
+            (selectedSectionIdRaw, featureFlags): SettingSectionId | null => {
+                if (!selectedSectionIdRaw) {
+                    return null
+                }
+                // As of middle of September 2024, `details` and `danger-zone` are the only sections present
+                // at both Environment and Project levels. Others we want to redirect based on the feature flag.
+                if (!selectedSectionIdRaw.endsWith('-details') && !selectedSectionIdRaw.endsWith('-danger-zone')) {
+                    if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
+                        return selectedSectionIdRaw.replace(/^project/, 'environment') as SettingSectionId
+                    }
+                    return selectedSectionIdRaw.replace(/^environment/, 'project') as SettingSectionId
+                }
+                return selectedSectionIdRaw
             },
         ],
         selectedSection: [
