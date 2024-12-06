@@ -8,7 +8,7 @@ on:
 
 jobs:
     storybook-deployment:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         if: github.repository == 'PostHog/posthog'
         steps:
             - name: Check out PostHog/posthog repo
