@@ -687,7 +687,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions in the above mean fewer queries
         # 3 of these queries are just for setting transaction scope
-        response = self._post_decide(assert_num_queries=4)
+        response = self._post_decide(assert_num_queries=0 if self.use_remote_config else 4)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         injected = response.json()["siteApps"]
         self.assertEqual(len(injected), 1)
