@@ -14,6 +14,7 @@ export type IntegrationConfigureProps = {
     onChange?: (value: number | null) => void
     redirectUrl?: string
     schema?: HogFunctionInputSchemaType
+    integration?: string
     beforeRedirect?: () => void
 }
 
@@ -21,12 +22,13 @@ export function IntegrationChoice({
     onChange,
     value,
     schema,
+    integration,
     redirectUrl,
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { newGoogleCloudKey } = useActions(integrationsLogic)
-    const kind = schema?.integration
+    const kind = integration
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
 
