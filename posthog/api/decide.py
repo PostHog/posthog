@@ -111,7 +111,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
         response["elementsChainAsString"] = True
 
-    response["sessionRecording"] = _session_recording_config_response(request, team, token)
+    response["sessionRecording"] = _session_recording_config_response(request, team)
 
     if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
         from ee.billing.quota_limiting import (
@@ -351,7 +351,7 @@ def get_decide(request: HttpRequest):
     return cors_response(request, JsonResponse(response))
 
 
-def _session_recording_config_response(request: HttpRequest, team: Team, token: str) -> bool | dict:
+def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:
     session_recording_config_response: bool | dict = False
 
     try:
