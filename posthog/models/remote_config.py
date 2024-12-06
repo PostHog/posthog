@@ -241,10 +241,18 @@ class RemoteConfig(UUIDModel):
         key = cache_key_for_team_token(token, "config")
 
         data = cache.get(key)
+        if data == "404":
+            raise cls.DoesNotExist()
+
         if data:
             return data
 
-        remote_config = cls.objects.get(team__api_token=token)
+        try:
+            remote_config = cls.objects.select_related("team").get(team__api_token=token)
+        except cls.DoesNotExist:
+            cache.set(key, "404", timeout=CACHE_TIMEOUT)
+            raise
+
         data = remote_config.build_config()
         cache.set(key, data, timeout=CACHE_TIMEOUT)
 
@@ -255,10 +263,18 @@ class RemoteConfig(UUIDModel):
         key = cache_key_for_team_token(token, "config.js")
 
         data = cache.get(key)
+        if data == "404":
+            raise cls.DoesNotExist()
+
         if data:
             return data
 
-        remote_config = cls.objects.get(team__api_token=token)
+        try:
+            remote_config = cls.objects.select_related("team").get(team__api_token=token)
+        except cls.DoesNotExist:
+            cache.set(key, "404", timeout=CACHE_TIMEOUT)
+            raise
+
         data = remote_config.build_js_config()
         cache.set(key, data, timeout=CACHE_TIMEOUT)
 
