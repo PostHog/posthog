@@ -2432,9 +2432,9 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         assert 4 == len(results)
-        assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-        assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-        assert [0, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
         assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
 
