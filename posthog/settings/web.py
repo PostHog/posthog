@@ -257,7 +257,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -355,6 +355,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^api/projects/@current/feature_flags/my_flags/?$",
                 "^/?api/projects/\\d+/query/?$",
                 "^/?api/instance_status/?$",
+                "^/array/.*$",
             ]
         ),
     )

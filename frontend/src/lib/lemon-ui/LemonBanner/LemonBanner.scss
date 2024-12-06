@@ -10,6 +10,10 @@
     border: solid 1px var(--border-tertiary);
     border-radius: var(--radius);
 
+    &.LemonBanner--square {
+        border-radius: 0;
+    }
+
     &.LemonBanner--info {
         background-color: var(--background-secondary);
     }

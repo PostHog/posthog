@@ -37,6 +37,8 @@ from posthog.schema import (
 )
 from posthog.types import EntityNode, ExclusionEntityNode
 
+JOIN_ALGOS = "auto"
+
 
 class FunnelBase(ABC):
     context: FunnelQueryContext

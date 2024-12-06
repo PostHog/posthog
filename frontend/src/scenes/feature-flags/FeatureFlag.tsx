@@ -396,7 +396,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </div>
                         </div>
                         <LemonDivider />
-                        <FeatureFlagRollout id={id} />
+                        <FeatureFlagRollout />
                         <LemonDivider />
                         <FeatureFlagReleaseConditions
                             id={`${featureFlag.id}`}
@@ -724,7 +724,7 @@ function variantConcatWithPunctuation(phrases: string[]): string {
     return `${phrases[0]} and ${phrases.length - 1} more sets`
 }
 
-function FeatureFlagRollout({ readOnly, id }: { readOnly?: boolean; id?: string }): JSX.Element {
+function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
     const {
         multivariateEnabled,
         variants,
@@ -989,7 +989,7 @@ function FeatureFlagRollout({ readOnly, id }: { readOnly?: boolean; id?: string 
                             </div>
                         )}
                     </div>
-                    {id !== 'new' && (
+                    {readOnly && (
                         <div>
                             <h3 className="l3">Recordings</h3>
                             <p>Watch recordings of people who have been exposed to the feature flag.</p>

@@ -28,7 +28,13 @@ import { userLogic } from 'scenes/userLogic'
 import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
-import { DashboardFilter, HogQLVariable, QueryStatus } from '~/queries/schema'
+import {
+    DashboardFilter,
+    ErrorTrackingQuery,
+    ErrorTrackingQueryResponse,
+    HogQLVariable,
+    QueryStatus,
+} from '~/queries/schema'
 import {
     ActorsQuery,
     ActorsQueryResponse,
@@ -42,7 +48,14 @@ import {
     PersonsNode,
     QueryTiming,
 } from '~/queries/schema'
-import { isActorsQuery, isEventsQuery, isInsightActorsQuery, isInsightQueryNode, isPersonsNode } from '~/queries/utils'
+import {
+    isActorsQuery,
+    isErrorTrackingQuery,
+    isEventsQuery,
+    isInsightActorsQuery,
+    isInsightQueryNode,
+    isPersonsNode,
+} from '~/queries/utils'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
 
@@ -198,7 +211,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
                     }
-
                     try {
                         const response = await concurrencyController.run({
                             debugTag: query.kind,
@@ -505,11 +517,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return null
                 }
 
-                if ((isEventsQuery(query) || isActorsQuery(query)) && !responseError && !dataLoading) {
-                    if ((response as EventsQueryResponse | ActorsQueryResponse)?.hasMore) {
+                if (
+                    (isEventsQuery(query) || isActorsQuery(query) || isErrorTrackingQuery(query)) &&
+                    !responseError &&
+                    !dataLoading
+                ) {
+                    if ((response as EventsQueryResponse | ActorsQueryResponse | ErrorTrackingQueryResponse)?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
-                        const typedResults = (response as EventsQueryResponse | ActorsQueryResponse)?.results
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
+                            const typedResults = (response as EventsQueryResponse)?.results
                             const sortColumnIndex = query.select
                                 .map((hql) => removeExpressionComment(hql))
                                 .indexOf('timestamp')
@@ -528,11 +544,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 }
                             }
                         } else {
+                            const typedResults = (
+                                response as EventsQueryResponse | ActorsQueryResponse | ErrorTrackingQueryResponse
+                            )?.results
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
                                 limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
-                            } as EventsQuery | ActorsQuery
+                            } as EventsQuery | ActorsQuery | ErrorTrackingQuery
                         }
                     }
                 }

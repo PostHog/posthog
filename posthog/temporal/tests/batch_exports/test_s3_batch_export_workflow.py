@@ -28,10 +28,10 @@ from posthog.temporal.batch_exports.batch_exports import (
 )
 from posthog.temporal.batch_exports.s3_batch_export import (
     FILE_FORMAT_EXTENSIONS,
-    S3HeartbeatDetails,
     IntermittentUploadPartTimeoutError,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
+    S3HeartbeatDetails,
     S3InsertInputs,
     S3MultiPartUpload,
     get_s3_key,
@@ -517,7 +517,7 @@ async def s3_batch_export(
     await adelete_batch_export(batch_export, temporal_client)
 
 
-@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+@pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
@@ -1589,7 +1589,7 @@ async def test_s3_export_workflow_with_request_timeouts(
     assert run.records_completed is None
     assert (
         run.latest_error
-        == "IntermittentUploadPartTimeoutError: An intermittent `RequestTimeout` was raised while attempting to upload part 1"
+        == "RecordBatchConsumerRetryableExceptionGroup: At least one unhandled retryable errors in a RecordBatch consumer TaskGroup (1 sub-exception)"
     )
 
     run = runs[1]

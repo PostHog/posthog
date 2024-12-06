@@ -35,11 +35,13 @@ export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | 
 
     return (
         <div className="bg-bg-3000 p-4 mt-10 rounded-lg">
-            <h3>
-                Current status - {alert.state}
-                {alert.snoozed_until && ` until ${formatDate(dayjs(alert?.snoozed_until), 'MMM D, HH:mm')}`}{' '}
+            <div className="flex flex-row gap-2 items-center mb-2">
+                <h3 className="m-0">Current status: </h3>
                 <AlertStateIndicator alert={alert} />
-            </h3>
+                <h3 className="m-0">
+                    {alert.snoozed_until && ` until ${formatDate(dayjs(alert?.snoozed_until), 'MMM D, HH:mm')}`}
+                </h3>
+            </div>
             <table className="w-full table-auto border-spacing-2 border-collapse">
                 <thead>
                     <tr className="text-left">
@@ -92,7 +94,7 @@ export function EditAlertModal({
     const { setAlertFormValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
-    const { alertSeries, isNonTimeSeriesDisplay, isBreakdownValid } = useValues(trendsLogic)
+    const { alertSeries, isNonTimeSeriesDisplay, isBreakdownValid, formula } = useValues(trendsLogic)
 
     const creatingNewAlert = alertForm.id === undefined
 
@@ -161,13 +163,17 @@ export function EditAlertModal({
                                                     options={alertSeries?.map(({ event }, index) => ({
                                                         label: isBreakdownValid
                                                             ? 'any breakdown value'
+                                                            : formula
+                                                            ? `Formula (${formula})`
                                                             : `${alphabet[index]} - ${event}`,
-                                                        value: index,
+                                                        value: isBreakdownValid || formula ? 0 : index,
                                                     }))}
                                                     disabledReason={
-                                                        isBreakdownValid &&
-                                                        `For trends with breakdown, the alert will fire if any of the breakdown
-                                            values breaches the threshold.`
+                                                        (isBreakdownValid &&
+                                                            `For trends with breakdown, the alert will fire if any of the breakdown
+                                            values breaches the threshold.`) ||
+                                                        (formula &&
+                                                            `When using formula mode, can only alert on formula value`)
                                                     }
                                                 />
                                             </LemonField>
@@ -273,7 +279,7 @@ export function EditAlertModal({
                                                             {
                                                                 value: InsightThresholdType.PERCENTAGE,
                                                                 label: '%',
-                                                                tooltip: 'Percentage',
+                                                                tooltip: 'Percent',
                                                             },
                                                             {
                                                                 value: InsightThresholdType.ABSOLUTE,
