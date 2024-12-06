@@ -306,45 +306,57 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
     def test_lifecycle(self):
         table: TablesWithMaterializedColumns = "events"
-        property: PropertyName = "myprop"
+        property_names = ["foo", "bar"]
         source_column: TableColumn = "properties"
 
-        # create the materialized column
-        destination_column = materialize(table, property, table_column=source_column, create_minmax_index=True)
-        assert destination_column is not None
+        # create materialized columns
+        materialized_columns = {}
+        for property_name in property_names:
+            destination_column = materialize(table, property_name, table_column=source_column, create_minmax_index=True)
+            if destination_column is not None:
+                materialized_columns[property_name] = destination_column
 
-        # ensure it exists everywhere
-        key = (property, source_column)
-        assert get_materialized_columns(table)[key].name == destination_column
-        assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
-            destination_column,
-            MaterializedColumnDetails(source_column, property, is_disabled=False),
-            is_nullable=False,
-        )
+        assert set(property_names) == materialized_columns.keys()
 
-        # disable it and ensure updates apply as needed
-        update_column_is_disabled(table, destination_column, is_disabled=True)
-        assert get_materialized_columns(table)[key].name == destination_column
-        assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
-            destination_column,
-            MaterializedColumnDetails(source_column, property, is_disabled=True),
-            is_nullable=False,
-        )
+        # ensure they exist everywhere
+        for property_name, destination_column in materialized_columns.items():
+            key = (property_name, source_column)
+            assert get_materialized_columns(table)[key].name == destination_column
+            assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
+                destination_column,
+                MaterializedColumnDetails(source_column, property_name, is_disabled=False),
+                is_nullable=False,
+            )
 
-        # re-enable it and ensure updates apply as needed
-        update_column_is_disabled(table, destination_column, is_disabled=False)
-        assert get_materialized_columns(table)[key].name == destination_column
-        assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
-            destination_column,
-            MaterializedColumnDetails(source_column, property, is_disabled=False),
-            is_nullable=False,
-        )
+        # disable them and ensure updates apply as needed
+        update_column_is_disabled(table, materialized_columns.values(), is_disabled=True)
+        for property_name, destination_column in materialized_columns.items():
+            key = (property_name, source_column)
+            assert get_materialized_columns(table)[key].name == destination_column
+            assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
+                destination_column,
+                MaterializedColumnDetails(source_column, property_name, is_disabled=True),
+                is_nullable=False,
+            )
 
-        # drop it and ensure updates apply as needed
-        drop_column(table, destination_column)
-        assert key not in get_materialized_columns(table)
-        with self.assertRaises(ValueError):
-            MaterializedColumn.get(table, destination_column)
+        # re-enable them and ensure updates apply as needed
+        update_column_is_disabled(table, materialized_columns.values(), is_disabled=False)
+        for property_name, destination_column in materialized_columns.items():
+            key = (property_name, source_column)
+            assert get_materialized_columns(table)[key].name == destination_column
+            assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
+                destination_column,
+                MaterializedColumnDetails(source_column, property_name, is_disabled=False),
+                is_nullable=False,
+            )
+
+        # drop them and ensure updates apply as needed
+        drop_column(table, materialized_columns.values())
+        for property_name, destination_column in materialized_columns.items():
+            key = (property_name, source_column)
+            assert key not in get_materialized_columns(table)
+            with self.assertRaises(ValueError):
+                MaterializedColumn.get(table, destination_column)
 
     def _get_latest_mutation_id(self, table: str) -> str:
         [(mutation_id,)] = sync_execute(
