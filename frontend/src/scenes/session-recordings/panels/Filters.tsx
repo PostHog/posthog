@@ -127,12 +127,7 @@ function BottomSettings(): JSX.Element {
             values = [{ ...group, type }]
         }
 
-        setFilters({
-            filter_group: {
-                type: type,
-                values: values,
-            },
-        })
+        setFilters({ filter_group: { type: type, values: values } })
     }
 
     return (

@@ -23,10 +23,8 @@ export function PlayerSidebar(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
-    const { preferredSidebarStacking, isVerticallyStacked } = useValues(playerSettingsLogic)
+    const { sidebarOpen, preferredSidebarStacking, isVerticallyStacked } = useValues(playerSettingsLogic)
     const { setSidebarOpen, setPreferredSidebarStacking } = useActions(playerSettingsLogic)
-
-    const sidebarOpen = true
 
     const logicKey = `player-sidebar-${isVerticallyStacked ? 'vertical' : 'horizontal'}`
 

@@ -12,10 +12,9 @@ import {
     sessionRecordingsPlaylistLogic,
 } from './playlist/sessionRecordingsPlaylistLogic'
 
-export function PanelsUI(props: SessionRecordingPlaylistLogicProps): JSX.Element {
+export function PanelsUI(): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
-        ...props,
-        autoPlay: props.autoPlay ?? true,
+        updateSearchParams: true,
     }
 
     return (
@@ -32,7 +31,7 @@ export function PanelsUI(props: SessionRecordingPlaylistLogicProps): JSX.Element
 
                 <PanelContainer primary className="PanelLayout__primary">
                     <Panel primary className="PanelLayout__playback">
-                        <PanelPlayback logicKey={props.logicKey} />
+                        <PanelPlayback />
                     </Panel>
                     <Panel primary={false} className="PanelLayout__inspector flex flex-col">
                         <PlayerInspector />

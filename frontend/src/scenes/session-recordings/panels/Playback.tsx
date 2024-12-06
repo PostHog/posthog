@@ -1,33 +1,41 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+
+import { SessionRecordingType } from '~/types'
 
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { sessionRecordingsPlaylistLogic } from '../playlist/sessionRecordingsPlaylistLogic'
 
-export const PanelPlayback = ({ logicKey }: { logicKey?: string }): JSX.Element => {
-    const { pinnedRecordings, matchingEventsMatchType, activeSessionRecordingId } =
-        useValues(sessionRecordingsPlaylistLogic)
+export const PanelPlayback = ({
+    logicKey,
+    onPinnedChange,
+}: {
+    logicKey?: string
+    onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
+}): JSX.Element => {
+    const playlistLogic = useMountedLogic(sessionRecordingsPlaylistLogic)
+    const { pinnedRecordings, matchingEventsMatchType, activeSessionRecordingId, activeSessionRecording } =
+        useValues(playlistLogic)
 
     return activeSessionRecordingId ? (
         <SessionRecordingPlayer
             playerKey={logicKey ?? 'playlist'}
             sessionRecordingId={activeSessionRecordingId}
             matchingEventsMatchType={matchingEventsMatchType}
-            playlistLogic={sessionRecordingsPlaylistLogic}
+            playlistLogic={playlistLogic}
             noBorder
             noInspector
             pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecordingId)}
-            // TODO: re-add this
-            // setPinned={
-            //     props.onPinnedChange
-            //         ? (pinned) => {
-            //               if (!activeItem.id) {
-            //                   return
-            //               }
-            //               props.onPinnedChange?.(activeItem, pinned)
-            //           }
-            //         : undefined
-            // }
+            setPinned={
+                onPinnedChange
+                    ? (pinned) => {
+                          if (!activeSessionRecording) {
+                              return
+                          }
+                          onPinnedChange?.(activeSessionRecording, pinned)
+                      }
+                    : undefined
+            }
         />
     ) : (
         <div className="mt-20">
