@@ -16,7 +16,7 @@ import {
     ActionConversionGoal,
     ActionsNode,
     AnyEntityNode,
-    CompareFilter as CompareFilterType,
+    CompareFilter,
     CustomEventConversionGoal,
     EventsNode,
     NodeKind,
@@ -280,7 +280,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             return { tileId, tabId }
         },
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
-        setCompareFilter: (compareFilter: CompareFilterType | null) => ({ compareFilter }),
+        setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -474,7 +474,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         compareFilter: [
-            { compare: true } as CompareFilterType | null,
+            { compare: true } as CompareFilter | null,
             persistConfig,
             {
                 setCompareFilter: (_, { compareFilter }) => compareFilter,
@@ -620,7 +620,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 display: ChartDisplayType.ActionsLineGraph,
                                 ...trendsFilter,
                             },
-                            compareFilter,
+                            compareFilter: compareFilter || { compare: false },
                             filterTestAccounts,
                             properties: webAnalyticsFilters,
                         },
