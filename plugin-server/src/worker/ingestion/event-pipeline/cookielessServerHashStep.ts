@@ -11,6 +11,27 @@ import { now } from '../../../utils/now'
 import { UUID7 } from '../../../utils/utils'
 import { EventPipelineRunner } from './runner'
 
+//---------------------------------------------------------------------
+// This pipeline step is used to get the distinct id and session id for events that are using the cookieless server hash mode.
+// At the most basic level, the new distinct id is hash(daily_salt + team_id + ip + root_domain + user_agent).
+
+// The session ID is a UUIDv7 that's stored in redis, using the timestamp of the first event of the session as the
+// timestamp part of the UUID. We implement our own session inactivity system rather than using redis TTLs, as the
+// session inactivity period is 30 minutes, and it's not impossible for us to have well over 30 minutes of ingestion lag.
+
+// The daily salt is a 128-bit random value that is stored in redis. We use the calendar day of the event in the user's
+// timezone to determine which salt to use. This means that we have more than one salt in use at any point, but once
+// a salt is expired, it is deleted, and it is impossible to recover the PII that was used to generate the hash.
+
+// Due to ingestion lag and time zones, we allow creating the hash for a calendar day that is different to the current
+// UTC calendar day, provided somewhere in the world could be in that calendar day, with some additional buffer in the
+// past for ingestion lag.
+
+// To ensure that a user that logs in and out doesn't collide with themselves, we store the set of identify event UUIDs
+// in redis against the base hash value, and use the number of identifies for that hash to calculate the final hash value.
+// The exact number we append is the number of identifies that happened before this user called identify, which will
+// mean adjusting the number based on whether the event was pre or post identify, or was itself the identify event.
+
 const TIMEZONE_FALLBACK = 'UTC'
 const SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID = '$sentinel_cookieless_server_hash'
 const MAX_NEGATIVE_TIMEZONE_HOURS = 12
@@ -20,21 +41,6 @@ const SALT_TTL_SECONDS =
     (MAX_POSITIVE_TIMEZONE_HOURS + MAX_NEGATIVE_TIMEZONE_HOURS + MAX_INGESTION_LAG_HOURS + 24) * 60 * 60
 const SESSION_TTL_SECONDS = 60 * 60 * 24
 
-//---------------------------------------------------------------------
-// This pipeline step is used to get the distinct id and session id for events that are using the cookieless server hash mode.
-// At the most basic level, the new distinct id is hash(daily_salt + team_id + ip + root_domain + user_agent).
-
-// The daily salt is a 128-bit random value that is stored in redis. We use the calendar day of the event in the user's
-// timezone to determine which salt to use. This means that we have more than one salt in use at any point, but once
-// a salt is expired, it is deleted, and it is impossible to recover the PII that was used to generate the hash.
-
-// Due to ingestion lag and time zones, we allow creating the hash for a calendar day in the future (compared to UTC)
-// provided somewhere in the world could be in that timezone. We also allow creating the hash for days in the past,
-// again taking timezones into account, and an extra buffer for ingestion lag.
-
-// There's an edge case where a user could log in and out in the same day, and we want to avoid collisions, so we store
-// the set of identify event uuids, an suffix this number to the hash value to create the distinct id.
-
 export async function cookielessServerHashStep(
     runner: EventPipelineRunner,
     event: PluginEvent
@@ -43,12 +49,13 @@ export async function cookielessServerHashStep(
     if (event.properties?.['$device_id'] !== SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID) {
         return [event]
     }
-    // if the team isn't using this mode, skip all processing
-    // const team = await runner.hub.teamManager.getTeamForEvent(event)
-    // if (!team?.cookieless_server_hash_opt_in) {
-    //     // TODO log
-    //     return [event]
-    // }
+
+    // if the team isn't allowed to use this mode, drop the event
+    const team = await runner.hub.teamManager.getTeamForEvent(event)
+    if (!team?.cookieless_server_hash_opt_in) {
+        // TODO log
+        return [undefined]
+    }
 
     const timestamp = event.timestamp ?? event.sent_at ?? event.now
 
@@ -77,39 +84,41 @@ export async function cookielessServerHashStep(
         return [undefined]
     }
 
+    // TRICKY: if a user were to log in and out, to avoid collisions, we would want a different hash value, so we store the set of identify event uuids for identifies
+    // ASSUMPTION: all events are processed in order, for this to happen we need them to be in the same kafka topic at this point
+
+    // Find the base hash value, before we take the number of identifies into account
     const baseHashValue = await doHash(runner.hub.db, timestampMs, timezone, teamId, ip, host, userAgent)
     event.properties['$device_id'] = baseHashValue
-
-    // TRICKY: if a user were to log in and out, to avoid collisions, we would want a different hash value, so we store the set of identify event uuids for identifies
-    // ASSUMPTION: all events are processed in order, and are processed exactly once
     const identifiesRedisKey = `cookieless_i:${baseHashValue}`
-    // how many identifies have happened with that hash value?
-    const numIdentifies = await runner.hub.db.redisSCard(identifiesRedisKey)
-    let hashValue: string
 
+    // how many identifies have happened with that base hash value?
+    const numIdentifies = await runner.hub.db.redisSCard(identifiesRedisKey)
+
+    let hashValue: string
     if (event.event === '$identify') {
         // identify event, so the anon_distinct_id must be the sentinel and needs to be replaced
 
         // add this identify event id to redis
         const added = await runner.hub.db.redisSAdd(identifiesRedisKey, event.uuid)
-        await runner.hub.db.redisExpire(identifiesRedisKey, SESSION_TTL_SECONDS) // TODO this is the max but could be less if we calculated how far away midnight is
+        await runner.hub.db.redisExpire(identifiesRedisKey, SESSION_TTL_SECONDS)
 
         // we want the number of identifies excluding this one, but we need to think about idempotency. Redis will have
         // returned 1 if the event was added, and 0 if it was already there. If it was already there, we need to subtract 1
         const numIdentifies2 = numIdentifies + (added ? 0 : -1)
 
-        hashValue = `${baseHashValue}_${numIdentifies2}`
+        hashValue = await doHash(runner.hub.db, timestampMs, timezone, teamId, ip, host, userAgent, numIdentifies2)
 
         // set the distinct id to the new hash value
         event.properties[`$anon_distinct_id`] = hashValue
     } else if (event.distinct_id === SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID) {
-        hashValue = `${baseHashValue}_${numIdentifies}`
+        hashValue = await doHash(runner.hub.db, timestampMs, timezone, teamId, ip, host, userAgent, numIdentifies)
         // event before identify has been called, distinct id is the sentinel and needs to be replaced
         event.distinct_id = hashValue
         event.properties[`$distinct_id`] = hashValue
     } else {
-        // event after identify has been called, so subtract 1 from the numIdentifies
-        hashValue = `${baseHashValue}_${numIdentifies - 1}`
+        // this event is after identify has been called, so subtract 1 from the numIdentifies
+        hashValue = await doHash(runner.hub.db, timestampMs, timezone, teamId, ip, host, userAgent, numIdentifies - 1)
     }
 
     const sessionRedisKey = `cookieless_s:${hashValue}`
@@ -257,12 +266,13 @@ export async function doHash(
     teamId: number,
     ip: string,
     host: string,
-    userAgent: string
+    userAgent: string,
+    n: number = 0
 ) {
     const salt = await getSaltForDay(db, timestamp, timezone)
     const rootDomain = getDomain(host) || host
     // use the 128-bit version of siphash to get the result, with a stripe-style prefix, so we can see what these ids are when debugging
-    return 'cklsh_' + siphashDouble.hash_hex(salt, `${teamId.toString()}-${ip}-${rootDomain}-${userAgent}`)
+    return 'cklsh_' + siphashDouble.hash_hex(salt, `${teamId.toString()}-${ip}-${rootDomain}-${userAgent}-${n}`)
 }
 
 export function isCalendarDateValid(yyyymmdd: string): boolean {
