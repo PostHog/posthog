@@ -312,7 +312,7 @@ class LifecycleQueryRunner(QueryRunner):
             events_query = parse_select(
                 """
                     SELECT
-                        min(events.person.created_at) AS created_at,
+                        max(events.person.created_at) AS created_at,
                         arraySort(groupUniqArray({trunc_timestamp})) AS all_activity,
                         arrayPopBack(arrayPushFront(all_activity, {trunc_created_at})) as previous_activity,
                         arrayPopFront(arrayPushBack(all_activity, {trunc_epoch})) as following_activity,
