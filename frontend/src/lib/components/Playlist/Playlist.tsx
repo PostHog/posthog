@@ -26,7 +26,7 @@ export type PlaylistSection<T> = {
 export type PlaylistProps<T> = {
     sections: PlaylistSection<T>[]
     listEmptyState: JSX.Element
-    content: ({ activeItem }: { activeItem: T | null }) => JSX.Element
+    content: (({ activeItem }: { activeItem: T | null }) => JSX.Element) | null
     title?: string
     notebooksHref?: string
     embedded?: boolean
@@ -149,7 +149,7 @@ export function Playlist<
                     onDoubleClick={() => setListCollapsed(!listCollapsed)}
                 />
             </div>
-            <div className="Playlist__main">{content({ activeItem })}</div>
+            {content && <div className="Playlist__main">{content({ activeItem })}</div>}
         </div>
     )
 }

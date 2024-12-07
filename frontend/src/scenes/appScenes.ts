@@ -33,6 +33,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Experiments]: () => import('./experiments/Experiments'),
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
+    [Scene.FeatureManagement]: () => import('./feature-flags/FeatureManagement'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.ErrorTracking]: () => import('./error-tracking/ErrorTrackingScene'),
     [Scene.ErrorTrackingConfiguration]: () => import('./error-tracking/ErrorTrackingConfigurationScene'),
