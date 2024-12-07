@@ -321,11 +321,11 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.expr)
 
     def visit_return_statement(self, node: ast.ReturnStatement):
-        if node.expr:
+        if node.expr is not None:
             self.visit(node.expr)
 
     def visit_throw_statement(self, node: ast.ThrowStatement):
-        if node.expr:
+        if node.expr is not None:
             self.visit(node.expr)
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement):
@@ -341,7 +341,7 @@ class TraversingVisitor(Visitor[None]):
         raise NotImplementedError("Abstract 'visit_declaration' not implemented")
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration):
-        if node.expr:
+        if node.expr is not None:
             self.visit(node.expr)
 
     def visit_variable_assignment(self, node: ast.VariableAssignment):

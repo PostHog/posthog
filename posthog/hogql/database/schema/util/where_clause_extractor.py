@@ -78,7 +78,7 @@ class WhereClauseExtractor(CloningVisitor):
         if not select_query.where and not select_query.prewhere:
             return None
 
-        if select_query.select_from and select_query.select_from.next_join:
+        if select_query.select_from is not None and select_query.select_from.next_join is not None:
             self.is_join = True
 
         # visit the where clause
@@ -112,7 +112,7 @@ class WhereClauseExtractor(CloningVisitor):
         # extract timestamps from the main query into e.g. the sessions subquery
         if self.capture_timestamp_comparisons:
             result = self.handle_timestamp_comparison(node, is_left_constant, is_right_constant)
-            if result:
+            if result is not None:
                 return result
 
         # if it's a join, and if the comparison is negative, we don't want to filter down as the outer join might end up doing other comparisons that clash
