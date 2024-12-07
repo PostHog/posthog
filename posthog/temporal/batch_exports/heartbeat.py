@@ -1,14 +1,14 @@
-import typing
-import datetime as dt
 import collections.abc
 import dataclasses
+import datetime as dt
+import typing
 
 import structlog
 
 from posthog.temporal.common.heartbeat import (
+    EmptyHeartbeatError,
     HeartbeatDetails,
     HeartbeatParseError,
-    EmptyHeartbeatError,
     NotEnoughHeartbeatValuesError,
 )
 
@@ -99,9 +99,9 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
 
             done_range = (data_interval_start, done_range[1])
 
-        self.insert_done_range(done_range, merge=merge)
+        self.insert_done_range(done_range)
 
-    def insert_done_range(self, done_range: DateRange, merge: bool = True):
+    def insert_done_range(self, done_range: DateRange):
         """Insert a date range into `self.done_ranges` in order."""
         for index, range in enumerate(self.done_ranges, start=0):
             if done_range[0] > range[1]:
@@ -116,35 +116,6 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
         else:
             # Date range should go at the end
             self.done_ranges.append(done_range)
-
-        if merge:
-            self.merge_done_ranges()
-
-    def merge_done_ranges(self):
-        """Merge as many date ranges together as possible in `self.done_ranges`.
-
-        This method looks for ranges whose opposite ends are touching and merges
-        them together. Notice that this method does not have enough information
-        to merge ranges that are not touching.
-        """
-        marked_for_deletion = set()
-        for index, range in enumerate(self.done_ranges, start=0):
-            if index in marked_for_deletion:
-                continue
-            try:
-                next_range = self.done_ranges[index + 1]
-            except IndexError:
-                continue
-
-            if next_range[0] == range[1]:
-                # Touching start of next range with end of range.
-                # End of next range set as end of existing range.
-                # Next range marked for deletion as it's now covered by range.
-                self.done_ranges[index] = (range[0], next_range[1])
-                marked_for_deletion.add(index + 1)
-
-        for index in marked_for_deletion:
-            self.done_ranges.pop(index)
 
     def complete_done_ranges(self, data_interval_end_input: str | dt.datetime):
         """Complete the entire range covered by the batch export.
