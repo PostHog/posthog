@@ -211,7 +211,6 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
-    path("site_function/<str:id>/<str:hash>/", site_app.get_site_function),
     path("array/<str:token>/config", remote_config.RemoteConfigAPIView.as_view()),
     path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
     path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),

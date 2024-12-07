@@ -31,7 +31,7 @@ from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.utils import execute_with_timeout
-from posthog.plugins.site import get_decide_site_apps, get_decide_site_functions
+from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import (
     get_ip_address,
     label_for_team_id_to_track,
@@ -297,8 +297,6 @@ def get_decide(request: HttpRequest):
                 try:
                     with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
                         site_apps = get_decide_site_apps(team, using_database=DATABASE_FOR_FLAG_MATCHING)
-                    with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
-                        site_apps += get_decide_site_functions(team, using_database=DATABASE_FOR_FLAG_MATCHING)
                 except Exception:
                     pass
 
