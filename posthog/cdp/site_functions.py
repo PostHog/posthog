@@ -66,6 +66,18 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, t
     # transpile(source, 'site') == `(function () {let exports={};${code};return exports;})`
     response += f"const response = {transpile(source, 'site')}();"
 
+    match_groups = ""
+    if filters.get("matchGroups"):
+        match_groups += "function getMatchGroups() {"
+        match_groups += "const matchGroups = {};\n"
+        for group in filters["matchGroups"]:
+            group_code = hog_function_filters_to_expr(group.get("filters", {}), team, {})
+            match_groups += f"try {{ matchGroups[{json.dumps(group.get('key', ''))}] = {compiler.visit(group_code)}; }} catch (e) {{ console.error('Matching error', {json.dumps(group.get('key', ''))}, e); }}\n"
+        match_groups += "return matchGroups;\n"
+        match_groups += "}\n"
+    else:
+        match_groups += "function getMatchGroups() { return {}; }\n"
+
     response += (
         """
     function processEvent(globals) {
@@ -75,8 +87,10 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, t
         let __getGlobal = (key) => filterGlobals[key];
         const filterMatches = """
         + filters_code
-        + """;
-        if (filterMatches) { response.onEvent({ ...globals, inputs, posthog }); }
+        + ";\n"
+        + match_groups
+        + """
+        if (filterMatches) { response.onEvent({ ...globals, matchGroups: getMatchGroups(), inputs, posthog }); }
     }
     if ('onLoad' in response) {
         const r = response.onLoad({ inputs: buildInputs({}, true), posthog: posthog });
