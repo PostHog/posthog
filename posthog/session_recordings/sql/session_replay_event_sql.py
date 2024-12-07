@@ -120,7 +120,7 @@ KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: KAFKA_SESSION_REPLAY_EVENTS_TABL
 SESSION_REPLAY_EVENTS_TABLE_MV_SQL = (
     lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER '{cluster}'
-TO {database}.{target_table}
+TO {database}.{target_table} {explictly_specify_columns}
 AS SELECT
 session_id,
 team_id,
@@ -158,6 +158,24 @@ group by session_id, team_id
         target_table="writable_session_replay_events",
         cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
+        # ClickHouse is incorrectly expanding the type of the snapshot source column
+        # Despite it being a LowCardinality(Nullable(String)) in writable_session_replay_events
+        # The column expansion picks only Nullable(String) and so we can't select it
+        explictly_specify_columns="""(
+`session_id` String, `team_id` Int64, `distinct_id` String,
+`min_first_timestamp` DateTime64(6, 'UTC'),
+`max_last_timestamp` DateTime64(6, 'UTC'),
+`first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+`all_urls` AggregateFunction(groupArray, Nullable(VARCHAR)),
+`click_count` Int64, `keypress_count` Int64,
+`mouse_activity_count` Int64, `active_milliseconds` Int64,
+`console_log_count` Int64, `console_warn_count` Int64,
+`console_error_count` Int64, `size` Int64, `message_count` Int64,
+`event_count` Int64,
+`snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+`snapshot_library` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+`_timestamp` Nullable(DateTime)
+)""",
     )
 )
 
