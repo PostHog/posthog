@@ -29,6 +29,7 @@ async fn it_captures_one_recording() -> Result<()> {
             "$session_id": session_id,
             "$window_id": window_id,
             "$snapshot_data": [],
+            "$snapshot_library": "test",
         }
     });
     let res = server.capture_recording(event.to_string()).await;

@@ -216,6 +216,10 @@ pub async fn recording(
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
+    let user_agent = headers
+        .get("user-agent")
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+
     match handle_common(&state, &ip, &meta, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => Ok(Json(CaptureResponse {
             status: CaptureResponseCode::Ok,
@@ -224,7 +228,7 @@ pub async fn recording(
         Err(err) => Err(err),
         Ok((context, events)) => {
             let count = events.len() as u64;
-            if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
+            if let Err(err) = process_replay_events(state.sink.clone(), events, user_agent.parse().unwrap(), &context).await {
                 let cause = match err {
                     CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
@@ -321,6 +325,7 @@ pub async fn process_events<'a>(
 pub async fn process_replay_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     mut events: Vec<RawEvent>,
+    user_agent: String,
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
     // Grab metadata about the whole batch from the first event before
@@ -339,6 +344,10 @@ pub async fn process_replay_events<'a>(
         .properties
         .remove("$snapshot_source")
         .unwrap_or(Value::String(String::from("web")));
+    let snapshot_library = events[0]
+        .properties
+        .remove("$snapshot_library")
+        .unwrap_or(Value::String(String::from(user_agent)));
 
     let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
     for mut event in events {
@@ -379,6 +388,7 @@ pub async fn process_replay_events<'a>(
                 "$session_id": session_id,
                 "$window_id": window_id,
                 "$snapshot_source": snapshot_source,
+                "$snapshot_library": snapshot_library,
                 "$snapshot_items": snapshot_items,
             }
         })
