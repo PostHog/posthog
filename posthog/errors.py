@@ -89,7 +89,7 @@ CLICKHOUSE_SPECIFIC_ERROR_LOOKUP = {
 
 
 #
-# From https://github.com/ClickHouse/ClickHouse/blob/23.12/src/Common/ErrorCodes.cpp#L16-L622
+# From https://github.com/ClickHouse/ClickHouse/blob/v24.8.7.41-lts/src/Common/ErrorCodes.cpp#L16-L618
 #
 # Please keep this list up to date at each ClickHouse upgrade.
 #
@@ -477,7 +477,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     467: ErrorCodeMeta("CANNOT_PARSE_BOOL"),
     468: ErrorCodeMeta("CANNOT_PTHREAD_ATTR"),
     469: ErrorCodeMeta("VIOLATED_CONSTRAINT"),
-    470: ErrorCodeMeta("QUERY_IS_NOT_SUPPORTED_IN_LIVE_VIEW"),
     471: ErrorCodeMeta("INVALID_SETTING_VALUE"),
     472: ErrorCodeMeta("READONLY_SETTING"),
     473: ErrorCodeMeta("DEADLOCK_AVOIDED"),
@@ -685,8 +684,30 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     705: ErrorCodeMeta("TABLE_NOT_EMPTY"),
     706: ErrorCodeMeta("LIBSSH_ERROR"),
     707: ErrorCodeMeta("GCP_ERROR"),
-    708: ErrorCodeMeta("ILLEGAL_STATISTIC"),
+    708: ErrorCodeMeta("ILLEGAL_STATISTICS"),
     709: ErrorCodeMeta("CANNOT_GET_REPLICATED_DATABASE_SNAPSHOT"),
+    710: ErrorCodeMeta("FAULT_INJECTED"),
+    711: ErrorCodeMeta("FILECACHE_ACCESS_DENIED"),
+    712: ErrorCodeMeta("TOO_MANY_MATERIALIZED_VIEWS"),
+    713: ErrorCodeMeta("BROKEN_PROJECTION"),
+    714: ErrorCodeMeta("UNEXPECTED_CLUSTER"),
+    715: ErrorCodeMeta("CANNOT_DETECT_FORMAT"),
+    716: ErrorCodeMeta("CANNOT_FORGET_PARTITION"),
+    717: ErrorCodeMeta("EXPERIMENTAL_FEATURE_ERROR"),
+    718: ErrorCodeMeta("TOO_SLOW_PARSING"),
+    719: ErrorCodeMeta("QUERY_CACHE_USED_WITH_SYSTEM_TABLE"),
+    720: ErrorCodeMeta("USER_EXPIRED"),
+    721: ErrorCodeMeta("DEPRECATED_FUNCTION"),
+    722: ErrorCodeMeta("ASYNC_LOAD_WAIT_FAILED"),
+    723: ErrorCodeMeta("PARQUET_EXCEPTION"),
+    724: ErrorCodeMeta("TOO_MANY_TABLES"),
+    725: ErrorCodeMeta("TOO_MANY_DATABASES"),
+    726: ErrorCodeMeta("UNEXPECTED_HTTP_HEADERS"),
+    727: ErrorCodeMeta("UNEXPECTED_TABLE_ENGINE"),
+    728: ErrorCodeMeta("UNEXPECTED_DATA_TYPE"),
+    729: ErrorCodeMeta("ILLEGAL_TIME_SERIES_TAGS"),
+    900: ErrorCodeMeta("DISTRIBUTED_CACHE_ERROR"),
+    901: ErrorCodeMeta("CANNOT_USE_DISTRIBUTED_CACHE"),
     999: ErrorCodeMeta("KEEPER_EXCEPTION"),
     1000: ErrorCodeMeta("POCO_EXCEPTION"),
     1001: ErrorCodeMeta("STD_EXCEPTION"),
