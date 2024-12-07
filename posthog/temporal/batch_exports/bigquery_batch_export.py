@@ -397,6 +397,7 @@ class BigQueryConsumer(Consumer):
         self.rows_exported_counter.add(records_since_last_flush)
         self.bytes_exported_counter.add(bytes_since_last_flush)
 
+        self.heartbeat_details.records_completed += records_since_last_flush
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
@@ -538,7 +539,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     delete=requires_merge,
                 ) as bigquery_stage_table,
             ):
-                records_completed = await run_consumer_loop(
+                await run_consumer_loop(
                     queue=queue,
                     consumer_cls=BigQueryConsumer,
                     producer_task=producer_task,
@@ -567,7 +568,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         merge_key=merge_key,
                     )
 
-        return records_completed
+        return details.records_completed
 
 
 @workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])
