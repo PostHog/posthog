@@ -244,8 +244,8 @@ class Consumer:
 
         record_batches_count = 0
 
+        await self.logger.adebug("Starting record batch writing loop")
         async with writer.open_temporary_file():
-            await self.logger.adebug("Starting record batch writing loop")
             while True:
                 try:
                     record_batch = queue.get_nowait()
@@ -256,20 +256,14 @@ class Consumer:
                             "Empty queue with no more events being produced, closing writer loop and flushing"
                         )
                         self.flush_start_event.set()
-                        # Exit context manager to trigger flush
+                        # Exit context manager to trigger final flush
                         break
                     else:
-                        await asyncio.sleep(0.1)
+                        await asyncio.sleep(0)
                         continue
 
                 record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
-                await writer.write_record_batch(record_batch, flush=False)
-
-                if writer.should_flush():
-                    await self.logger.adebug("Writer finished, ready to flush events")
-                    self.flush_start_event.set()
-                    # Exit context manager to trigger flush
-                    break
+                await writer.write_record_batch(record_batch, flush=True)
 
         for _ in range(record_batches_count):
             queue.task_done()
@@ -344,68 +338,33 @@ async def run_consumer_loop(
         consumer_tasks_done.add(task)
 
     await logger.adebug("Starting record batch consumer loop")
-    while not queue.empty() or not producer_task.done():
-        consumer = consumer_cls(heartbeater, heartbeat_details, data_interval_start, **kwargs)
-        consumer_task = asyncio.create_task(
-            consumer.start(
-                queue=queue,
-                producer_task=producer_task,
-                writer_format=writer_format,
-                max_bytes=max_bytes,
-                schema=schema,
-                json_columns=json_columns,
-                **writer_file_kwargs or {},
-            ),
-            name=f"record_batch_consumer_{consumer_number}",
-        )
-        consumer_tasks_pending.add(consumer_task)
-        consumer_task.add_done_callback(consumer_done_callback)
-        consumer_number += 1
 
-        while not consumer.flush_start_event.is_set() and not consumer_task.done():
-            # Block until we either start flushing or we are done consuming.
-            # Flush start should always happen first unless the consumer task fails.
-            await asyncio.sleep(0)
+    consumer = consumer_cls(heartbeater, heartbeat_details, data_interval_start, **kwargs)
+    consumer_task = asyncio.create_task(
+        consumer.start(
+            queue=queue,
+            producer_task=producer_task,
+            writer_format=writer_format,
+            max_bytes=max_bytes,
+            schema=schema,
+            json_columns=json_columns,
+            **writer_file_kwargs or {},
+        ),
+        name=f"record_batch_consumer_{consumer_number}",
+    )
+    consumer_tasks_pending.add(consumer_task)
+    consumer_task.add_done_callback(consumer_done_callback)
+    consumer_number += 1
 
-        if consumer_task.done():
-            consumer_task_exception = consumer_task.exception()
+    await asyncio.wait([consumer_task])
 
-            if consumer_task_exception is not None:
-                raise consumer_task_exception
+    if consumer_task.done():
+        consumer_task_exception = consumer_task.exception()
 
-    await logger.adebug("Finished producing, now waiting on any pending consumer tasks")
-    if consumer_tasks_pending:
-        await asyncio.wait(consumer_tasks_pending)
+        if consumer_task_exception is not None:
+            raise consumer_task_exception
 
-    retryable = []
-    non_retryable = []
-    for task in consumer_tasks_done:
-        try:
-            await raise_on_task_failure(task)
-
-        except Exception as e:
-            # TODO: Handle exception types instead of checking for exception names.
-            # We are losing some precision by not handling exception types with
-            # `except`, but using a sequence of strings keeps us in line with
-            # Temporal. Not a good reason though, but right now we would need to
-            # search for a handful of exception types, so this is a quicker tradeoff
-            # as we already have the list of strings for each destination.
-            if e.__class__.__name__ in non_retryable_error_types:
-                await logger.aexception("Consumer task %s has failed with a non-retryable %s", task, e, exc_info=e)
-                non_retryable.append(e)
-
-            else:
-                await logger.aexception("Consumer task %s has failed with a retryable %s", task, e, exc_info=e)
-                retryable.append(e)
-
-    if retryable:
-        raise RecordBatchConsumerRetryableExceptionGroup(
-            "At least one unhandled retryable errors in a RecordBatch consumer TaskGroup", retryable + non_retryable
-        )
-    elif non_retryable:
-        raise RecordBatchConsumerNonRetryableExceptionGroup(
-            "Unhandled non-retryable errors in a RecordBatch consumer TaskGroup", retryable + non_retryable
-        )
+    await logger.adebug("Finished consuming record batches")
 
     await raise_on_task_failure(producer_task)
     await logger.adebug("Successfully consumed all record batches")
