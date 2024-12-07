@@ -1,8 +1,11 @@
 from collections import defaultdict
 import contextlib
+from typing import Optional
 from google.oauth2 import service_account
 from google.cloud import bigquery
+from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.warehouse.types import IncrementalFieldType
+from sentry_sdk.api import capture_exception
 
 # Actual data ingestion happens via the `sql_database` source. This is more for BigQuery utils
 
@@ -36,6 +39,28 @@ def delete_table(
 ) -> None:
     with bigquery_client(project_id, private_key, private_key_id, client_email, token_uri) as bq:
         bq.delete_table(table_id, not_found_ok=True)
+
+
+def delete_all_temp_destination_tables(
+    dataset_id: str,
+    table_prefix: str,
+    project_id: str,
+    private_key: str,
+    private_key_id: str,
+    client_email: str,
+    token_uri: str,
+    logger: Optional[FilteringBoundLogger],
+) -> None:
+    with bigquery_client(project_id, private_key, private_key_id, client_email, token_uri) as bq:
+        try:
+            tables = bq.list_tables(bq.dataset(dataset_id))
+            for table in tables:
+                if table.table_id.startswith(table_prefix):
+                    bq.delete_table(table.reference)
+                    if logger:
+                        logger.debug(f"Deleted bigquery table {table.table_id}")
+        except Exception as e:
+            capture_exception(e)
 
 
 def get_schemas(
@@ -92,7 +117,8 @@ def validate_credentials(dataset_id: str, key_file: dict[str, str]) -> bool:
 
     with bigquery_client(project_id, private_key, private_key_id, client_email, token_uri) as bq:
         try:
-            bq.get_dataset(bq.dataset(dataset_id), retry=bigquery.DEFAULT_RETRY.with_timeout(5))
+            bq.list_tables(bq.dataset(dataset_id), retry=bigquery.DEFAULT_RETRY.with_timeout(5))
             return True
-        except:
+        except Exception as e:
+            capture_exception(e)
             return False
