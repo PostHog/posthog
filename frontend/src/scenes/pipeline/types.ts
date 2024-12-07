@@ -140,7 +140,7 @@ export function convertToPipelineNode<S extends PipelineStage>(
             description: candidate.description,
             enabled: candidate.enabled,
             created_at: candidate.created_at,
-            updated_at: candidate.created_at,
+            updated_at: candidate.updated_at,
             hog_function: candidate,
         }
     } else if (isPluginConfig(candidate)) {
