@@ -9,6 +9,11 @@ from posthog.hogql_queries.experiments.trends_statistics import (
     calculate_credible_intervals,
     calculate_probabilities,
 )
+from posthog.hogql_queries.experiments.experiment_trends_statistics import (
+    are_results_significant as are_results_significant_v2,
+    calculate_credible_intervals as calculate_credible_intervals_v2,
+    calculate_probabilities as calculate_probabilities_v2,
+)
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
@@ -291,6 +296,9 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         probabilities = calculate_probabilities(control_variant, test_variants)
         significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
         credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+        # probabilities = calculate_probabilities_v2(control_variant, test_variants)
+        # significance_code, p_value = are_results_significant_v2(control_variant, test_variants, probabilities)
+        # credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
 
         return ExperimentTrendsQueryResponse(
             kind="ExperimentTrendsQuery",
