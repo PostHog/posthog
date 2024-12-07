@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -e
+
+export DEBUG=${DEBUG:-1}
+export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
+export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
+export HOG_HOOK_URL=${HOG_HOOK_URL:-http://localhost:3300/hoghook}
+
+[ ! -f ./share/GeoLite2-City.mmdb ] && ( curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb )
+
+exec mprocs --config bin/mprocs.yaml
