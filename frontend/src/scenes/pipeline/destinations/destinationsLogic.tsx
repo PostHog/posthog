@@ -320,6 +320,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         deleteNode: ({ destination }) => {
             switch (destination.backend) {
                 case PipelineBackend.Plugin:
+                    // @ts-expect-error - type coercion is ignored, siteApps are just missing the interval prop
                     actions.deleteNodeWebhook(destination)
                     break
                 case PipelineBackend.BatchExport:
