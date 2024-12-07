@@ -29,7 +29,7 @@
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.1
   '''
-  SELECT groups.key AS key,
+  SELECT source.key AS key,
          source.appearances AS appearances
   FROM
     (SELECT actor_activity.actor_id AS actor_id,
@@ -41,7 +41,8 @@
             arrayExists(x -> ifNull(equals(x, 3), 0), appearance_intervals) AS week_3,
             arrayExists(x -> ifNull(equals(x, 4), 0), appearance_intervals) AS week_4,
             arrayExists(x -> ifNull(equals(x, 5), 0), appearance_intervals) AS week_5,
-            arrayExists(x -> ifNull(equals(x, 6), 0), appearance_intervals) AS week_6
+            arrayExists(x -> ifNull(equals(x, 6), 0), appearance_intervals) AS week_6,
+            actor_activity.actor_id AS key
      FROM
        (SELECT events.`$group_0` AS actor_id,
                arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
@@ -54,13 +55,6 @@
         GROUP BY actor_id
         HAVING ifNull(equals(breakdown_values, 0), 0)) AS actor_activity
      GROUP BY actor_activity.actor_id) AS source
-  INNER JOIN
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY length(source.appearances) DESC, source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
@@ -132,7 +126,7 @@
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.1
   '''
-  SELECT groups.key AS key,
+  SELECT source.key AS key,
          source.appearances AS appearances
   FROM
     (SELECT actor_activity.actor_id AS actor_id,
@@ -144,7 +138,8 @@
             arrayExists(x -> ifNull(equals(x, 3), 0), appearance_intervals) AS week_3,
             arrayExists(x -> ifNull(equals(x, 4), 0), appearance_intervals) AS week_4,
             arrayExists(x -> ifNull(equals(x, 5), 0), appearance_intervals) AS week_5,
-            arrayExists(x -> ifNull(equals(x, 6), 0), appearance_intervals) AS week_6
+            arrayExists(x -> ifNull(equals(x, 6), 0), appearance_intervals) AS week_6,
+            actor_activity.actor_id AS key
      FROM
        (SELECT events.`$group_0` AS actor_id,
                arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
@@ -157,13 +152,6 @@
         GROUP BY actor_id
         HAVING ifNull(equals(breakdown_values, 0), 0)) AS actor_activity
      GROUP BY actor_activity.actor_id) AS source
-  INNER JOIN
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY length(source.appearances) DESC, source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,

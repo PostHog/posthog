@@ -73,12 +73,11 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             select=[
                 ast.Field(chain=["id"]),
                 ast.Field(chain=["id"]),
-                ast.Field(chain=["created_at"]),
                 ast.Constant(value=1),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
             where=None,
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")],
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["id"]), order="ASC")],
         )
         query.settings = None
         assert query == expected
