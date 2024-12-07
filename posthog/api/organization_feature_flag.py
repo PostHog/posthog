@@ -111,7 +111,7 @@ class OrganizationFeatureFlagView(
 
                     # search in destination project by name
                     destination_cohort = Cohort.objects.filter(
-                        name=original_cohort.name, team_id=target_project_id, deleted=False
+                        name=original_cohort.name, team__project_id=target_project_id, deleted=False
                     ).first()
 
                     # create new cohort in the destination project

@@ -212,7 +212,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             return value
 
         action_ids = (value.get("id") for value in values)
-        project_actions = Action.objects.filter(team_id=self.context["team_id"], id__in=action_ids)
+        project_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
 
         for project_action in project_actions:
             for step in project_action.steps:
@@ -562,7 +562,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         action_ids = (value.get("id") for value in values)
 
-        instance.actions.set(Action.objects.filter(team_id=self.context["team_id"], id__in=action_ids))
+        instance.actions.set(Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids))
         instance.save()
 
     def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):

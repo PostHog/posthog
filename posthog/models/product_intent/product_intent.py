@@ -65,7 +65,7 @@ class ProductIntent(UUIDModel):
 
     def has_activated_data_warehouse(self) -> bool:
         insights = Insight.objects.filter(
-            team=self.team,
+            team__project_id=self.team.project_id,
             created_at__gte=datetime(2024, 6, 1, tzinfo=UTC),
             query__kind="DataVisualizationNode",
         )

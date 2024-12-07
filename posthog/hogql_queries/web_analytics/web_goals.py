@@ -29,7 +29,9 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner):
             start = self.query_date_range.date_from_as_hogql()
             end = self.query_date_range.date_to_as_hogql()
 
-        actions = Action.objects.filter(team=self.team, deleted=False).order_by("pinned_at", "-last_calculated_at")[:5]
+        actions = Action.objects.filter(team__project_id=self.team.project_id, deleted=False).order_by(
+            "pinned_at", "-last_calculated_at"
+        )[:5]
         if not actions:
             raise NoActionsError("No actions found")
 

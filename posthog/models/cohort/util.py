@@ -170,7 +170,7 @@ def get_entity_query(
     if event_id:
         return f"event = %({f'event_{group_idx}'})s", {f"event_{group_idx}": event_id}
     elif action_id:
-        action = Action.objects.get(pk=action_id, team_id=team_id)
+        action = Action.objects.get(pk=action_id)
         action_filter_query, action_params = format_action_filter(
             team_id=team_id,
             action=action,

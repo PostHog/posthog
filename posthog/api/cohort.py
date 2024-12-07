@@ -430,7 +430,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         page = int(request.query_params.get("page", "1"))
 
         item_id = kwargs["pk"]
-        if not Cohort.objects.filter(id=item_id, team_id=self.team_id).exists():
+        if not Cohort.objects.filter(id=item_id, team__project_id=self.project_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
@@ -613,17 +613,17 @@ def insert_actors_into_cohort_by_query(
 
 def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, batchsize: int = 1_000):
     # :TODO: Find a way to incorporate this into the same code path as feature flag evaluation
-    team: Team = Team.objects.get(pk=team_id)
+    project_id = Team.objects.only("project_id").get(pk=team_id).project_id
     try:
-        feature_flag = FeatureFlag.objects.get(team__project_id=team.project_id, key=flag)
+        feature_flag = FeatureFlag.objects.get(team__project_id=project_id, key=flag)
     except FeatureFlag.DoesNotExist:
         return []
 
     if not feature_flag.active or feature_flag.deleted or feature_flag.aggregation_group_type_index is not None:
         return []
 
-    cohort = Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id)
-    matcher_cache = FlagsMatcherCache(team_id)
+    cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id)
+    matcher_cache = FlagsMatcherCache(team_id=team_id)
     uuids_to_add_to_cohort = []
     cohorts_cache: dict[int, CohortOrEmpty] = {}
 
@@ -632,7 +632,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # because this is currently a lot more inefficient for flag matching,
         # as we're required to go to the database for each person.
         cohorts_cache = {
-            cohort.pk: cohort for cohort in Cohort.objects.filter(team__project_id=team.project_id, deleted=False)
+            cohort.pk: cohort for cohort in Cohort.objects.filter(team__project_id=project_id, deleted=False)
         }
 
     default_person_properties = {}
