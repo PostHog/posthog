@@ -1,14 +1,14 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
+import { urls } from './urls'
 
 import { Breadcrumb } from '~/types'
 
 import type { broadcastsLogicType } from './broadcastsLogicType'
 
 export const broadcastsLogic = kea<broadcastsLogicType>([
-    path(['scenes', 'messaging', 'broadcastsLogic']),
+    path(['products', 'messaging', 'frontend', 'broadcastsLogic']),
     actions({
         editBroadcast: (id: string | null) => ({ id }),
     }),
@@ -32,21 +32,21 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     },
                     ...(broadcastId === 'new'
                         ? [
-                              {
-                                  key: 'new-broadcast',
-                                  name: 'New broadcast',
-                                  path: urls.messagingBroadcastNew(),
-                              },
-                          ]
+                            {
+                                key: 'new-broadcast',
+                                name: 'New broadcast',
+                                path: urls.messagingBroadcastNew(),
+                            },
+                        ]
                         : broadcastId
-                        ? [
-                              {
-                                  key: 'edit-broadcast',
-                                  name: 'Edit broadcast',
-                                  path: urls.messagingBroadcast(broadcastId),
-                              },
-                          ]
-                        : []),
+                            ? [
+                                {
+                                    key: 'edit-broadcast',
+                                    name: 'Edit broadcast',
+                                    path: urls.messagingBroadcast(broadcastId),
+                                },
+                            ]
+                            : []),
                 ]
             },
         ],
