@@ -254,6 +254,32 @@ export class DB {
         })
     }
 
+    public redisSetNX(
+        key: string,
+        value: unknown,
+        tag: string,
+        ttlSeconds?: number,
+        options: CacheOptions = {}
+    ): Promise<'OK' | null> {
+        const { jsonSerialize = true } = options
+
+        return instrumentQuery('query.redisSetNX', tag, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key (NK)', { key })
+            try {
+                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
+                if (ttlSeconds) {
+                    return await client.set(key, serializedValue, 'EX', ttlSeconds, 'NX')
+                } else {
+                    return await client.set(key, serializedValue)
+                }
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
     public redisSetMulti(kv: Array<[string, unknown]>, ttlSeconds?: number, options: CacheOptions = {}): Promise<void> {
         const { jsonSerialize = true } = options
 
@@ -396,6 +422,37 @@ export class DB {
             })
             try {
                 return await client.lpop(key, count)
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
+    public redisSAdd(key: string, value: Redis.ValueType): Promise<number> {
+        return instrumentQuery('query.redisSAdd', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('SADD delayed. Waiting over 30 sec to perform SADD', {
+                key,
+                value,
+            })
+            try {
+                return await client.sadd(key, value)
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
+    public redisSCard(key: string): Promise<number> {
+        return instrumentQuery('query.redisSCard', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('SCARD delayed. Waiting over 30 sec to perform SCARD', {
+                key,
+            })
+            try {
+                return await client.scard(key)
             } finally {
                 clearTimeout(timeout)
                 await this.redisPool.release(client)
