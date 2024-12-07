@@ -200,10 +200,15 @@ type HogFunctionInputSchemaControlsProps = {
 
 function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunctionInputSchemaControlsProps): JSX.Element {
     const _onChange = (data: Partial<HogFunctionInputSchemaType> | null): void => {
+        if (data?.key?.length === 0) {
+            setLocalVariableError('Input variable name cannot be empty')
+            return
+        }
         onChange(data ? { ...value, ...data } : null)
     }
 
     const [localVariableValue, setLocalVariableValue] = useState(value.key)
+    const [localVariableError, setLocalVariableError] = useState<string | null>(null)
 
     return (
         <div className="flex flex-col gap-2">
@@ -248,7 +253,7 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
                         placeholder="Display label"
                     />
                 </LemonField.Pure>
-                <LemonField.Pure label="Input variable name">
+                <LemonField.Pure label="Input variable name" error={localVariableError}>
                     <LemonInput
                         size="small"
                         value={localVariableValue}
