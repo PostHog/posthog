@@ -225,6 +225,10 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --background-brand: var(--brand-500);
     --background-brand-hover: var(--brand-600);
     --background-brand-pressed: var(--brand-700);
+    --background-button: var(--yellow-600);
+    --background-button-hover: var(--yellow-700);
+    --background-button-pressed: var(--yellow-800);
+    --background-button-subtle: var(--yellow-500);
     --background-warning: var(--orange-500);
     --background-warning-subtle: var(--orange-50);
     --background-danger: var(--red-500);
