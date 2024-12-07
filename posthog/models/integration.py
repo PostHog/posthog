@@ -163,7 +163,7 @@ class OauthIntegration:
                 authorize_url="https://app.hubspot.com/oauth/authorize",
                 token_url="https://api.hubapi.com/oauth/v1/token",
                 token_info_url="https://api.hubapi.com/oauth/v1/access-tokens/:access_token",
-                token_info_config_fields=["hub_id", "hub_domain", "user", "user_id"],
+                token_info_config_fields=["hub_id", "hub_domain", "user", "user_id", "scopes"],
                 client_id=settings.HUBSPOT_APP_CLIENT_ID,
                 client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
                 scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
