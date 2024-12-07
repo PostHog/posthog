@@ -139,7 +139,7 @@ ADD_LIBRARY_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_L
 # migration to add all_urls column to the session replay table
 ALTER_SESSION_REPLAY_ADD_ALL_URLS_COLUMN = """
     ALTER TABLE {table_name} on CLUSTER '{cluster}'
-    ADD COLUMN IF NOT EXISTS all_urls AggregateFunction(groupUniqArray, Nullable(VARCHAR))
+    ADD COLUMN IF NOT EXISTS all_urls SimpleAggregateFunction(groupUniqArray, VARCHAR)
 """
 
 ADD_ALL_URLS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_ALL_URLS_COLUMN.format(
