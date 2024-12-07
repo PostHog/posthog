@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     event_count Int64,
     message_count Int64,
     snapshot_source LowCardinality(Nullable(String)),
-    snapshot_library LowCardinality(Nullable(String))
+    snapshot_library Nullable(String)
 ) ENGINE = {engine}
 """
 
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     -- which source the snapshots came from Android, iOS, Mobile, Web. Web if absent
     snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
     -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
-    snapshot_library AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+    snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     _timestamp SimpleAggregateFunction(max, DateTime)
 ) ENGINE = {engine}
 """
@@ -173,7 +173,7 @@ group by session_id, team_id
 `console_error_count` Int64, `size` Int64, `message_count` Int64,
 `event_count` Int64,
 `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-`snapshot_library` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+`snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
 `_timestamp` Nullable(DateTime)
 )""",
     )

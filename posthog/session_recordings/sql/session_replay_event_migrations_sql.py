@@ -118,7 +118,7 @@ ADD_SOURCE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_SO
 # migration to add library column to the session replay table
 ALTER_SESSION_REPLAY_ADD_LIBRARY_COLUMN = """
     ALTER TABLE {table_name} on CLUSTER '{cluster}'
-    ADD COLUMN IF NOT EXISTS snapshot_library AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
+    ADD COLUMN IF NOT EXISTS snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
 """
 
 ADD_LIBRARY_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_LIBRARY_COLUMN.format(
