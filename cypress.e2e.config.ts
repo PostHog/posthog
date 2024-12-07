@@ -5,6 +5,7 @@ import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
 import fs from 'fs'
 import path from 'path'
+import cypressOTP from 'cypress-otp'
 import { createEntry } from './webpack.config'
 
 const downloadDirectory = path.join(__dirname, '..', 'downloads')
@@ -118,6 +119,10 @@ export default defineConfig({
                     }
                     await redisClient.quit()
                     return null // Cypress requires _some_ return value
+                },
+
+                async generateOTP(secret) {
+                    return cypressOTP(secret)
                 },
             })
 
