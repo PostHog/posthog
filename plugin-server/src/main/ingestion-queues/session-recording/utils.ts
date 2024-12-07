@@ -4,8 +4,9 @@ import { KafkaConsumer, Message, MessageHeader, PartitionMetadata } from 'node-r
 import path from 'path'
 import { Counter } from 'prom-client'
 
-import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
+import { PipelineEvent, RawEventMessage, RRWebEvent, Team } from '../../../types'
 import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
+import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
@@ -423,4 +424,23 @@ export const allSettledWithConcurrency = async <T, Q>(
 
         run()
     })
+}
+
+// Optimized loader for session recordings as we typically only need a small subset of the team data
+export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<Record<string, TeamIDWithConfig>> {
+    const selectResult = await client.query<{ capture_console_log_opt_in: boolean } & Pick<Team, 'id' | 'api_token'>>(
+        PostgresUse.COMMON_READ,
+        `
+            SELECT id, api_token, capture_console_log_opt_in
+            FROM posthog_team
+            WHERE session_recording_opt_in = true
+        `,
+        [],
+        'fetchTeamTokensWithRecordings'
+    )
+
+    return selectResult.rows.reduce((acc, row) => {
+        acc[row.api_token] = { teamId: row.id, consoleLogIngestionEnabled: row.capture_console_log_opt_in }
+        return acc
+    }, {} as Record<string, TeamIDWithConfig>)
 }

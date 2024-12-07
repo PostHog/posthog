@@ -2,11 +2,25 @@ import { Properties } from '@posthog/plugin-scaffold'
 import LRU from 'lru-cache'
 
 import { ONE_MINUTE } from '../../config/constants'
-import { TeamIDWithConfig } from '../../main/ingestion-queues/session-recording/session-recordings-consumer'
-import { PipelineEvent, PluginsServerConfig, ProjectId, Team, TeamId } from '../../types'
+import { PipelineEvent, PluginsServerConfig, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
+
+const SELECT_SNIPPET = `SELECT
+    id,
+    uuid,
+    organization_id,
+    name,
+    anonymize_ips,
+    api_token,
+    slack_incoming_webhook,
+    session_recording_opt_in,
+    heatmaps_opt_in,
+    ingested_event,
+    person_display_name_properties,
+    test_account_filters
+FROM posthog_team`
 
 export class TeamManager {
     postgres: PostgresRouter
@@ -48,7 +62,15 @@ export class TeamManager {
 
         const timeout = timeoutGuard(`Still running "fetchTeam". Timeout warning after 30 sec!`)
         try {
-            const team: Team | null = await fetchTeam(this.postgres, teamId)
+            const team =
+                (
+                    await this.postgres.query<Team>(
+                        PostgresUse.COMMON_READ,
+                        `${SELECT_SNIPPET} WHERE id = $1`,
+                        [teamId],
+                        'fetchTeam'
+                    )
+                ).rows[0] ?? null
             this.teamCache.set(teamId, team)
             return team
         } finally {
@@ -93,7 +115,15 @@ export class TeamManager {
         // Query PG if token is not in cache. This will throw if PG is unavailable.
         const timeout = timeoutGuard(`Still running "fetchTeamByToken". Timeout warning after 30 sec!`)
         try {
-            const team = await fetchTeamByToken(this.postgres, token)
+            const team =
+                (
+                    await this.postgres.query<Team>(
+                        PostgresUse.COMMON_READ,
+                        `${SELECT_SNIPPET} WHERE api_token = $1 LIMIT 1`,
+                        [token],
+                        'fetchTeamByToken'
+                    )
+                ).rows[0] ?? null
             if (!team) {
                 // Cache `null` for unknown tokens to reduce PG load, cache TTL will lead to retries later.
                 this.tokenToTeamIdCache.set(token, null)
@@ -150,90 +180,4 @@ export class TeamManager {
             }
         }
     }
-}
-
-export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Promise<Team | null> {
-    const selectResult = await client.query<Team>(
-        PostgresUse.COMMON_READ,
-        `
-            SELECT
-                id,
-                project_id,
-                uuid,
-                organization_id,
-                name,
-                anonymize_ips,
-                api_token,
-                slack_incoming_webhook,
-                session_recording_opt_in,
-                person_processing_opt_out,
-                heatmaps_opt_in,
-                ingested_event,
-                person_display_name_properties,
-                test_account_filters
-            FROM posthog_team
-            WHERE id = $1
-            `,
-        [teamId],
-        'fetchTeam'
-    )
-    if (selectResult.rows.length === 0) {
-        return null
-    }
-    // pg returns int8 as a string, since it can be larger than JS's max safe integer,
-    // but this is not a problem for project_id, which is a long long way from that limit.
-    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
-    return selectResult.rows[0]
-}
-
-export async function fetchTeamByToken(client: PostgresRouter, token: string): Promise<Team | null> {
-    const selectResult = await client.query<Team>(
-        PostgresUse.COMMON_READ,
-        `
-            SELECT
-                id,
-                project_id,
-                uuid,
-                organization_id,
-                name,
-                anonymize_ips,
-                api_token,
-                slack_incoming_webhook,
-                session_recording_opt_in,
-                person_processing_opt_out,
-                heatmaps_opt_in,
-                ingested_event,
-                test_account_filters
-            FROM posthog_team
-            WHERE api_token = $1
-            LIMIT 1
-                `,
-        [token],
-        'fetchTeamByToken'
-    )
-    if (selectResult.rows.length === 0) {
-        return null
-    }
-    // pg returns int8 as a string, since it can be larger than JS's max safe integer,
-    // but this is not a problem for project_id, which is a long long way from that limit.
-    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
-    return selectResult.rows[0]
-}
-
-export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<Record<string, TeamIDWithConfig>> {
-    const selectResult = await client.query<{ capture_console_log_opt_in: boolean } & Pick<Team, 'id' | 'api_token'>>(
-        PostgresUse.COMMON_READ,
-        `
-            SELECT id, api_token, capture_console_log_opt_in
-            FROM posthog_team
-            WHERE session_recording_opt_in = true
-        `,
-        [],
-        'fetchTeamTokensWithRecordings'
-    )
-
-    return selectResult.rows.reduce((acc, row) => {
-        acc[row.api_token] = { teamId: row.id, consoleLogIngestionEnabled: row.capture_console_log_opt_in }
-        return acc
-    }, {} as Record<string, TeamIDWithConfig>)
 }
