@@ -192,7 +192,7 @@ HAVING and(
 )
         """,
             placeholders={
-                "date_range_start": start if self.query.compare else mid,
+                "date_range_start": start if self.query.compareFilter and self.query.compareFilter.compare else mid,
                 "date_range_end": end,
                 "event_properties": self.event_properties(),
                 "session_properties": self.session_properties(),
@@ -236,13 +236,13 @@ HAVING and(
         end = self.query_date_range.date_to_as_hogql()
 
         def current_period_aggregate(function_name, column_name, alias, params=None):
-            if not self.query.compare:
+            if not self.query.compareFilter or not self.query.compareFilter.compare:
                 return ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
 
             return self.period_aggregate(function_name, column_name, mid, end, alias=alias, params=params)
 
         def previous_period_aggregate(function_name, column_name, alias, params=None):
-            if not self.query.compare:
+            if not self.query.compareFilter or not self.query.compareFilter.compare:
                 return ast.Alias(alias=alias, expr=ast.Constant(value=None))
 
             return self.period_aggregate(function_name, column_name, start, mid, alias=alias, params=params)

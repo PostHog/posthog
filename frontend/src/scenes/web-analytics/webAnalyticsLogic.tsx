@@ -16,6 +16,7 @@ import {
     ActionConversionGoal,
     ActionsNode,
     AnyEntityNode,
+    CompareFilter,
     CustomEventConversionGoal,
     EventsNode,
     NodeKind,
@@ -279,6 +280,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             return { tileId, tabId }
         },
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
+        setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -471,6 +473,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setConversionGoalWarning: (_, { warning }) => warning,
             },
         ],
+        compareFilter: [
+            { compare: true } as CompareFilter | null,
+            persistConfig,
+            {
+                setCompareFilter: (_, { compareFilter }) => compareFilter,
+            },
+        ],
     }),
     selectors(({ actions, values }) => ({
         graphsTab: [(s) => [s._graphsTab], (graphsTab: string | null) => graphsTab || GraphsTab.UNIQUE_USERS],
@@ -505,11 +514,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }),
         ],
         filters: [
-            (s) => [s.webAnalyticsFilters, s.replayFilters, s.dateFilter, () => values.conversionGoal],
-            (webAnalyticsFilters, replayFilters, dateFilter, conversionGoal) => ({
+            (s) => [s.webAnalyticsFilters, s.replayFilters, s.dateFilter, s.compareFilter, () => values.conversionGoal],
+            (webAnalyticsFilters, replayFilters, dateFilter, compareFilter, conversionGoal) => ({
                 webAnalyticsFilters,
                 replayFilters,
                 dateFilter,
+                compareFilter,
                 conversionGoal,
             }),
         ],
@@ -518,7 +528,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (
                 { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile },
                 { isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams },
-                { webAnalyticsFilters, replayFilters, dateFilter: { dateFrom, dateTo, interval }, conversionGoal },
+                {
+                    webAnalyticsFilters,
+                    replayFilters,
+                    dateFilter: { dateFrom, dateTo, interval },
+                    conversionGoal,
+                    compareFilter,
+                },
                 featureFlags,
                 isGreaterThanMd
             ): WebDashboardTile[] => {
@@ -526,7 +542,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     date_from: dateFrom,
                     date_to: dateTo,
                 }
-                const compare = !!dateRange.date_from && dateRange.date_from !== 'all'
+
                 const sampling = {
                     enabled: false,
                     forceSamplingRate: { numerator: 1, denominator: 10 },
@@ -604,9 +620,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 display: ChartDisplayType.ActionsLineGraph,
                                 ...trendsFilter,
                             },
-                            compareFilter: {
-                                compare,
-                            },
+                            compareFilter: compareFilter || { compare: false },
                             filterTestAccounts,
                             properties: webAnalyticsFilters,
                         },
@@ -645,6 +659,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 breakdownBy: breakdownBy,
                                 dateRange,
                                 sampling,
+                                compareFilter,
                                 limit: 10,
                                 filterTestAccounts,
                                 ...(source || {}),
@@ -671,7 +686,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             properties: webAnalyticsFilters,
                             dateRange,
                             sampling,
-                            compare,
+                            compareFilter,
                             filterTestAccounts,
                             conversionGoal,
                             includeLCPScore: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LCP_SCORE] ? true : undefined,
@@ -1591,6 +1606,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 _graphsTab,
                 isPathCleaningEnabled,
                 shouldFilterTestAccounts,
+                compareFilter,
             } = values
 
             const urlParams = new URLSearchParams()
@@ -1630,6 +1646,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (shouldFilterTestAccounts != null) {
                 urlParams.set('filter_test_accounts', shouldFilterTestAccounts.toString())
             }
+            if (compareFilter) {
+                urlParams.set('compare_filter', JSON.stringify(compareFilter))
+            }
             return `/web?${urlParams.toString()}`
         }
 
@@ -1644,6 +1663,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setGraphsTab: stateToUrl,
             setPathTab: stateToUrl,
             setGeographyTab: stateToUrl,
+            setCompareFilter: stateToUrl,
         }
     }),
 
@@ -1664,6 +1684,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 geography_tab,
                 path_cleaning,
                 filter_test_accounts,
+                compare_filter,
             }
         ) => {
             const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
@@ -1709,6 +1730,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
+            }
+            if (compare_filter && !objectsEqual(compare_filter, values.compareFilter)) {
+                actions.setCompareFilter(compare_filter)
             }
         },
     })),
