@@ -14,6 +14,7 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationResult,
+    HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from './types'
@@ -462,14 +463,16 @@ export class HogExecutor {
                                     : JSON.stringify(fetchOptions.body)
                                 : fetchOptions?.body
 
-                            result.invocation.queue = 'fetch'
-                            result.invocation.queueParameters = {
+                            const fetchQueueParameters = this.enrichFetchRequest({
                                 url,
                                 method,
                                 body,
                                 headers,
                                 return_queue: 'hog',
-                            }
+                            })
+
+                            result.invocation.queue = 'fetch'
+                            result.invocation.queueParameters = fetchQueueParameters
                             break
                         default:
                             throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
@@ -572,6 +575,27 @@ export class HogExecutor {
         })
 
         return values
+    }
+
+    public enrichFetchRequest(request: HogFunctionQueueParametersFetchRequest): HogFunctionQueueParametersFetchRequest {
+        // TRICKY: Some 3rd parties require developer tokens to be passed in the headers
+        // We don't want to expose these to the user so we add them here out of the custom code loop
+
+        request.headers = request.headers ?? {}
+
+        if (request.url.startsWith('https://googleads.googleapis.com/') && !request.headers['developer-token']) {
+            request.headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
+        }
+
+        return request
+    }
+
+    public redactFetchRequest(request: HogFunctionQueueParametersFetchRequest): HogFunctionQueueParametersFetchRequest {
+        if (request.headers && request.headers['developer-token'] === this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN) {
+            delete request.headers['developer-token']
+        }
+
+        return request
     }
 }
 

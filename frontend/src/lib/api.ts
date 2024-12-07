@@ -55,6 +55,7 @@ import {
     ExternalDataSourceType,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
+    GoogleAdsConversionActionType,
     Group,
     GroupListParams,
     HogFunctionIconResponse,
@@ -782,6 +783,21 @@ class ApiRequest {
 
     public integrationSlackChannels(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
+    }
+
+    public integrationGoogleAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('google_accessible_accounts')
+    }
+
+    public integrationGoogleAdsConversionActions(
+        id: IntegrationType['id'],
+        customerId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('google_conversion_actions')
+            .withQueryString({ customerId })
     }
 
     public media(teamId?: TeamType['id']): ApiRequest {
@@ -2435,6 +2451,17 @@ const api = {
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
+        },
+        async googleAdsAccounts(
+            id: IntegrationType['id']
+        ): Promise<{ accessibleAccounts: { id: string; name: string }[] }> {
+            return await new ApiRequest().integrationGoogleAdsAccounts(id).get()
+        },
+        async googleAdsConversionActions(
+            id: IntegrationType['id'],
+            customerId: string
+        ): Promise<{ conversionActions: GoogleAdsConversionActionType[] }> {
+            return await new ApiRequest().integrationGoogleAdsConversionActions(id, customerId).get()
         },
     },
 
