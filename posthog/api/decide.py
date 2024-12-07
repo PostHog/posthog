@@ -248,20 +248,8 @@ def get_decide(request: HttpRequest):
                 else False
             )
 
-            if str(team.id) not in settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS:
-                if (
-                    "*" in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS
-                    or str(team.id) in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS
-                ):
-                    if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
-                        response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
-
-            if (
-                "*" in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS
-                or str(team.id) in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS
-            ):
-                if random() < settings.NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE:
-                    response["__preview_ingestion_endpoints"] = True
+            if str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):
+                response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
             if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
                 response["elementsChainAsString"] = True
