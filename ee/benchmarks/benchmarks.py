@@ -4,9 +4,9 @@ from .helpers import benchmark_clickhouse, no_materialized_columns, now
 from datetime import timedelta
 from ee.clickhouse.materialized_columns.analyze import (
     backfill_materialized_columns,
-    get_materialized_columns,
     materialize,
 )
+from ee.clickhouse.materialized_columns.columns import MaterializedColumn
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.queries.funnels import ClickhouseFunnel
@@ -771,15 +771,17 @@ class QuerySuite:
 
     def setup(self):
         for table, properties in MATERIALIZED_PROPERTIES.items():
-            existing_materialized_columns = get_materialized_columns(table)
-            for property in properties:
-                if (property, "properties") not in existing_materialized_columns:
-                    materialize(table, property)
-                    backfill_materialized_columns(
-                        table,
-                        [(property, "properties")],
-                        backfill_period=timedelta(days=1_000),
-                    )
+            columns = [
+                materialize(table, property)
+                for property in (
+                    set(properties) - {column.details.property_name for column in MaterializedColumn.get_all(table)}
+                )
+            ]
+            backfill_materialized_columns(
+                table,
+                columns,
+                backfill_period=timedelta(days=1_000),
+            )
 
         # :TRICKY: Data in benchmark servers has ID=2
         team = Team.objects.filter(id=2).first()

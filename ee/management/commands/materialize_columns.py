@@ -87,7 +87,7 @@ class Command(BaseCommand):
             logger.info(f"Materializing column. table={options['property_table']}, property_name={options['property']}")
 
             materialize_properties_task(
-                columns_to_materialize=[
+                properties_to_materialize=[
                     (
                         options["property_table"],
                         options["table_column"],
