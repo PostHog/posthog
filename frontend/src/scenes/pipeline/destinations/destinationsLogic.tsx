@@ -320,7 +320,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         deleteNode: ({ destination }) => {
             switch (destination.backend) {
                 case PipelineBackend.Plugin:
-                    actions.deleteNodeWebhook(destination as WebhookDestination)
+                    actions.deleteNodeWebhook(destination)
                     break
                 case PipelineBackend.BatchExport:
                     actions.deleteNodeBatchExport(destination)
