@@ -631,7 +631,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             product_intent.updated_at = datetime.now(tz=UTC)
             product_intent.save()
 
-        if should_report_product_intent:
+        if should_report_product_intent and isinstance(user, User):
             report_user_action(
                 user,
                 "user showed product intent",
