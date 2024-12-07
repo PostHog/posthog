@@ -39,6 +39,7 @@ from .google_cloud_storage.template_google_cloud_storage import (
     TemplateGoogleCloudStorageMigrator,
 )
 from .airtable.template_airtable import template as airtable
+from .tiktok_ads.template_tiktok_ads import template as tiktok_ads
 from .brevo.template_brevo import template as brevo
 from ._siteapps.template_early_access_features import template as early_access_features
 from ._siteapps.template_hogdesk import template as hogdesk
@@ -90,6 +91,7 @@ HOG_FUNCTION_TEMPLATES = [
     salesforce_create,
     salesforce_update,
     sendgrid,
+    tiktok_ads,
     zapier,
     zendesk,
     early_access_features,
