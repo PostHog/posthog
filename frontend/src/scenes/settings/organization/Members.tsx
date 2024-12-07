@@ -1,6 +1,7 @@
 import { LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -145,6 +146,8 @@ export function Members(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
 
+    const twoFactorRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+
     useEffect(() => {
         ensureAllMembersLoaded()
     }, [])
@@ -165,7 +168,7 @@ export function Members(): JSX.Element | null {
             title: 'Name',
             key: 'user_name',
             render: (_, member) =>
-                member.user.uuid == user.uuid ? `${fullName(member.user)} (me)` : fullName(member.user),
+                member.user.uuid == user.uuid ? `${fullName(member.user)} (you)` : fullName(member.user),
             sorter: (a, b) => fullName(a.user).localeCompare(fullName(b.user)),
         },
         {
@@ -300,6 +303,7 @@ export function Members(): JSX.Element | null {
                     bordered
                     checked={!!currentOrganization?.enforce_2fa}
                     onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
+                    disabledReason={twoFactorRestrictionReason}
                 />
             </PayGateMini>
         </>

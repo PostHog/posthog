@@ -348,9 +348,9 @@ export const notebookLogic = kea<notebookLogicType>([
         mode: [() => [(_, props) => props], (props): NotebookLogicMode => props.mode ?? 'notebook'],
         isTemplate: [(s) => [s.shortId], (shortId): boolean => shortId.startsWith('template-')],
         isLocalOnly: [
-            () => [(_, props) => props],
-            (props): boolean => {
-                return props.shortId === 'scratchpad' || props.mode === 'canvas'
+            (s) => [(_, props) => props, s.isTemplate],
+            (props, isTemplate): boolean => {
+                return props.shortId === 'scratchpad' || props.mode === 'canvas' || isTemplate
             },
         ],
         notebookMissing: [
@@ -443,8 +443,9 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         isEditable: [
-            (s) => [s.shouldBeEditable, s.previewContent],
-            (shouldBeEditable, previewContent) => shouldBeEditable && !previewContent,
+            (s) => [s.shouldBeEditable, s.previewContent, s.notebook],
+            (shouldBeEditable, previewContent, notebook) =>
+                shouldBeEditable && !previewContent && notebook?.user_access_level === 'editor',
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -518,6 +519,11 @@ export const notebookLogic = kea<notebookLogicType>([
             )
         },
         setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
+            if (values.notebook?.user_access_level !== 'editor') {
+                actions.clearLocalContent()
+                return
+            }
+
             if (values.previewContent) {
                 // We don't want to modify the content if we are viewing a preview
                 return

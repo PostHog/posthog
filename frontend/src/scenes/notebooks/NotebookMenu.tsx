@@ -39,7 +39,10 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                         label: 'Delete',
                         icon: <IconTrash />,
                         status: 'danger',
-
+                        disabledReason:
+                            notebook?.user_access_level !== 'editor'
+                                ? 'You do not have permission to delete this notebook.'
+                                : undefined,
                         onClick: () => {
                             notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
                             router.actions.push(urls.notebooks())

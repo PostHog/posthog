@@ -8,6 +8,7 @@ import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activ
 import { AvailableFeature, SidePanelTab } from '~/types'
 
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
+import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
 import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -39,15 +40,25 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['status'],
             userLogic,
             ['hasAvailableFeature'],
+            sidePanelContextLogic,
+            ['sceneSidePanelContext'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
 
     selectors({
         enabledTabs: [
-            (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks, s.featureFlags],
-            (isCloudOrDev, isReady, hasCompletedAllTasks, featureflags) => {
+            (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks, s.featureFlags, s.sceneSidePanelContext],
+            (isCloudOrDev, isReady, hasCompletedAllTasks, featureflags, sceneSidePanelContext) => {
                 const tabs: SidePanelTab[] = []
+
+                if (
+                    featureflags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL] &&
+                    sceneSidePanelContext.access_control_resource &&
+                    sceneSidePanelContext.access_control_resource_id
+                ) {
+                    tabs.push(SidePanelTab.AccessControl)
+                }
 
                 tabs.push(SidePanelTab.Notebooks)
                 tabs.push(SidePanelTab.Docs)
