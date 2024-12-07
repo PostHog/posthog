@@ -980,11 +980,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 const eventStart = meta?.start_time ? dayjs(meta.start_time) : null
                 const snapshotStart = firstSnapshot ? dayjs(firstSnapshot.timestamp) : null
 
-                if (snapshotStart && eventStart) {
-                    return snapshotStart
+                // whichever is earliest
+                if (eventStart && snapshotStart) {
+                    return eventStart.isBefore(snapshotStart) ? eventStart : snapshotStart
                 }
-
-                return snapshotStart || eventStart
+                return eventStart || snapshotStart
             },
         ],
 
@@ -996,7 +996,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                 // whichever is latest
                 if (eventEnd && snapshotEnd) {
-                    return snapshotEnd
+                    return eventEnd.isAfter(snapshotEnd) ? eventEnd : snapshotEnd
                 }
                 return eventEnd || snapshotEnd
             },
