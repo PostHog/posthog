@@ -235,6 +235,16 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
     @xframe_options_exempt
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
+        if self.kwargs.get("access_token") == "embedded-player":
+            # NOTE: This is a shortcut for the embedded player rendered on posthog.com
+            return render_template(
+                "exporter.html",
+                request=request,
+                context={
+                    "exported_data": {"recording": {"id": ""}},
+                },
+            )
+
         resource = self.get_object()
 
         if not resource:
