@@ -193,7 +193,7 @@ export const createSegments = (
             segments.unshift({
                 kind: 'gap',
                 startTimestamp: start.valueOf(),
-                endTimestamp: firstTimestamp - 1,
+                endTimestamp: firstTimestamp,
                 isActive: false,
             } as RecordingSegment)
         }
