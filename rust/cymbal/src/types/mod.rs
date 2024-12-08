@@ -67,7 +67,7 @@ pub struct FingerprintedErrProps {
 }
 
 // We emit this
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct OutputErrProps {
     #[serde(rename = "$exception_list")]
     pub exception_list: Vec<Exception>,
