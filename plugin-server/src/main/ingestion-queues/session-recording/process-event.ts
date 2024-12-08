@@ -279,7 +279,6 @@ export const createSessionReplayEvent = (
     let consoleLogCount = 0
     let consoleWarnCount = 0
     let consoleErrorCount = 0
-    let url: string | null = null
     const urls: string[] = []
 
     events.forEach((event) => {
@@ -298,9 +297,6 @@ export const createSessionReplayEvent = (
         const eventUrl: string | undefined = hrefFrom(event)
         if (eventUrl) {
             urls.push(eventUrl)
-        }
-        if (url === null && eventUrl) {
-            url = eventUrl
         }
 
         if (event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
@@ -333,8 +329,7 @@ export const createSessionReplayEvent = (
         click_count: Math.trunc(clickCount),
         keypress_count: Math.trunc(keypressCount),
         mouse_activity_count: Math.trunc(mouseActivity),
-        // TODO we don't need first_ulr
-        first_url: url,
+        first_url: urls.length ? urls[0] : null,
         urls: urls,
         active_milliseconds: Math.round(activeTime),
         console_log_count: Math.trunc(consoleLogCount),
