@@ -43,7 +43,11 @@ class FunnelUDFMixin:
         return inner_query
 
     def _get_breakdown_select_prop(self) -> list[ast.Expr]:
-        breakdown, breakdownAttributionType = (self.context.breakdown, self.context.breakdownAttributionType)
+        breakdown, breakdownAttributionType, funnelsFilter = (
+            self.context.breakdown,
+            self.context.breakdownAttributionType,
+            self.context.funnelsFilter,
+        )
 
         if not breakdown:
             return []
@@ -63,7 +67,9 @@ class FunnelUDFMixin:
 
             final_select = parse_expr(f"prop_basic as prop")
             # could set prop here to prop_{funnelsFilter.breakdownAttributionValue} to limit amount, but would need to use it at the top level
-            prop_window = parse_expr(f"groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
+            prop_window = parse_expr(
+                f"groupUniqArray(prop_{funnelsFilter.breakdownAttributionValue}) over (PARTITION by aggregation_target) as prop_vals"
+            )
 
             return [prop_basic, *select_columns, final_select, prop_window]
         elif breakdownAttributionType in [
@@ -95,7 +101,7 @@ class FunnelUDFMixin:
             ]
 
 
-class FunnelUDF(FunnelBase, FunnelUDFMixin):
+class FunnelUDF(FunnelUDFMixin, FunnelBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # In base, these fields only get added if you're running an actors query
@@ -158,7 +164,11 @@ class FunnelUDF(FunnelBase, FunnelUDFMixin):
             breakdown_prop = ""
 
         prop_selector = "prop" if self.context.breakdown else default_breakdown_selector
-        prop_vals = "groupUniqArray(prop)" if self.context.breakdown else f"[{default_breakdown_selector}]"
+
+        prop_vals = f"[{default_breakdown_selector}]"
+        if self.context.breakdown:
+            if self.context.breakdownAttributionType == 
+            prop_vals = "groupUniqArray(prop)"
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 

@@ -16,7 +16,7 @@ TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
-class FunnelTrendsUDF(FunnelTrends, FunnelUDFMixin):
+class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # In base, these fields only get added if you're running an actors query
