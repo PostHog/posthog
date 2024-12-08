@@ -217,7 +217,7 @@ impl AggregateFunnelRow {
                         }
                     }
                 } else {
-                    let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
+                    let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step - 1 == breakdown_step).unwrap_or(false) && *prop_val != event.breakdown;
                     let already_used_event = processing_multiple_events && vars.entered_timestamp[step - 1].uuids.contains(&event.uuid);
                     if !is_unmatched_step_attribution && !already_used_event {
                         let new_entered_timestamp = |vars: &Vars| -> EnteredTimestamp {
