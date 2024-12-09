@@ -1,6 +1,7 @@
 import json
 import os
-from typing import Optional
+from typing import Any, Optional
+from collections.abc import Callable
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -28,6 +29,13 @@ CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
     "Number of times the remote config sync task has been run",
     labelnames=["result"],
 )
+
+REMOTE_CONFIG_CACHE_COUNTER = Counter(
+    "posthog_remote_config_via_cache",
+    "Metric tracking whether a remote config was fetched from cache or not",
+    labelnames=["result"],
+)
+
 
 logger = structlog.get_logger(__name__)
 
@@ -237,49 +245,40 @@ class RemoteConfig(UUIDModel):
         return js_content
 
     @classmethod
-    def get_config_via_token(cls, token: str) -> dict:
-        key = cache_key_for_team_token(token, "config")
+    def _get_via_cache(cls, token: str, suffix: str, fn: Callable[["RemoteConfig"], dict | str]) -> Any:
+        key = cache_key_for_team_token(token, suffix)
 
         data = cache.get(key)
         if data == "404":
+            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
             raise cls.DoesNotExist()
 
         if data:
+            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit").inc()
             return data
 
+        REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
         try:
             remote_config = cls.objects.select_related("team").get(team__api_token=token)
         except cls.DoesNotExist:
             cache.set(key, "404", timeout=CACHE_TIMEOUT)
+            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
             raise
 
-        data = remote_config.build_config()
+        data = fn(remote_config)
         cache.set(key, data, timeout=CACHE_TIMEOUT)
 
         return data
 
     @classmethod
+    def get_config_via_token(cls, token: str) -> dict:
+        return cls._get_via_cache(token, "config", lambda remote_config: remote_config.build_config())
+
+    @classmethod
     def get_config_js_via_token(cls, token: str) -> str:
-        key = cache_key_for_team_token(token, "config.js")
+        return cls._get_via_cache(token, "config.js", lambda remote_config: remote_config.build_js_config())
 
-        data = cache.get(key)
-        if data == "404":
-            raise cls.DoesNotExist()
-
-        if data:
-            return data
-
-        try:
-            remote_config = cls.objects.select_related("team").get(team__api_token=token)
-        except cls.DoesNotExist:
-            cache.set(key, "404", timeout=CACHE_TIMEOUT)
-            raise
-
-        data = remote_config.build_js_config()
-        cache.set(key, data, timeout=CACHE_TIMEOUT)
-
-        return data
-
+    @classmethod
     @classmethod
     def get_array_js_via_token(cls, token: str) -> str:
         # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
