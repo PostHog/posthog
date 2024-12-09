@@ -5,8 +5,6 @@ from django.core.cache import cache
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 
-# array.js isn't typically built when running tests so we mock it (posthog.models.remote_config.get_array_js_content)
-
 
 class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
     def setUp(self):
