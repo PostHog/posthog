@@ -32,8 +32,6 @@ from posthog.schema import (
 BREAKDOWN_NULL_DISPLAY = "(none)"
 
 
-# TODO: Extend `conversion_goal` support to queries besides `to_main_query`
-# TODO: Add test cases for conversion goal, both action, and event-based ones
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     query: WebStatsTableQuery
     response: WebStatsTableQueryResponse
