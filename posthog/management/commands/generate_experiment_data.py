@@ -6,7 +6,7 @@ import uuid
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from posthoganalytics.client import Client
+import posthoganalytics
 
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
@@ -30,13 +30,10 @@ class Command(BaseCommand):
         if not experiment_id:
             raise ValueError("Experiment ID is required")
 
-        # Create a new Posthog Client
-        posthog_client = Client(api_key=settings.POSTHOG_API_KEY)
-
         experiment_config = {
             "experiment_id": experiment_id,
             "seed": seed,
-            "number_of_users": 1000,
+            "number_of_users": 10,
             "start_timestamp": datetime.now() - timedelta(days=7),
             "end_timestamp": datetime.now(),
             "variants": {
@@ -64,7 +61,8 @@ class Command(BaseCommand):
             random_timestamp = random.uniform(
                 experiment_config["start_timestamp"], experiment_config["end_timestamp"] - timedelta(hours=1)
             )
-            posthog_client.capture(
+            print(f"Generating data for user {distinct_id} at {random_timestamp} with variant {variant}")
+            posthoganalytics.capture(
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
                 timestamp=random_timestamp,
@@ -76,7 +74,8 @@ class Command(BaseCommand):
 
             for action in experiment_config["variants"][variant]["actions"]:
                 if random.random() < action["probability"]:
-                    posthog_client.capture(
+                    print(f"Generating data for user {distinct_id} at {random_timestamp + timedelta(minutes=1)} with event {action['event']}")
+                    posthoganalytics.capture(
                         distinct_id=distinct_id,
                         event=action["event"],
                         timestamp=random_timestamp + timedelta(minutes=1),
