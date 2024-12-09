@@ -583,7 +583,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (state, props) => [props.key, state.dashboardId],
             (key, dashboardId) => {
                 // Key for SQL editor based visiaulizations
-                return !key.includes('SQLEditorScene') && !dashboardId
+                return !key.includes('new-SQL') && !dashboardId
             },
         ],
         sourceFeatures: [(_, props) => [props.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],
