@@ -228,8 +228,6 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                             "values": [
                                 {
                                     "id": action.id,
-                                    "name": "user subscribed",
-                                    "tags": [],
                                     "steps": [
                                         {
                                             "url": "docs",
@@ -244,19 +242,6 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                                             "text_matching": None,
                                         }
                                     ],
-                                    "deleted": False,
-                                    "team_id": 1262,
-                                    "is_action": True,
-                                    "pinned_at": None,
-                                    "created_at": "2024-12-09T15:34:49.425690Z",
-                                    "created_by": None,
-                                    "description": "",
-                                    "post_to_slack": False,
-                                    "bytecode_error": None,
-                                    "is_calculating": False,
-                                    "creation_context": None,
-                                    "last_calculated_at": "2024-12-09T15:34:49.419884Z",
-                                    "slack_message_format": "",
                                 }
                             ]
                         }
