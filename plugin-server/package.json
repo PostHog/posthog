@@ -90,7 +90,6 @@
         "prom-client": "^14.2.0",
         "re2": "^1.20.3",
         "safe-stable-stringify": "^2.4.0",
-        "siphash": "^1.1.0",
         "tail": "^2.2.6",
         "tldts": "^6.1.57",
         "uuid": "^9.0.1",
