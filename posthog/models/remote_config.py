@@ -1,6 +1,7 @@
 import json
 import os
-from typing import Optional
+from typing import Any, Optional
+from collections.abc import Callable
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -15,8 +16,12 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel, execute_with_timeout
 
+from django.core.cache import cache
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
+
+
+CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 
 
 CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
@@ -25,12 +30,17 @@ CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
     labelnames=["result"],
 )
 
+REMOTE_CONFIG_CACHE_COUNTER = Counter(
+    "posthog_remote_config_via_cache",
+    "Metric tracking whether a remote config was fetched from cache or not",
+    labelnames=["result"],
+)
+
+
 logger = structlog.get_logger(__name__)
 
 
 # Load the JS content from the frontend build
-
-
 _array_js_content: Optional[str] = None
 
 
@@ -48,6 +58,10 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
 
     return joined
+
+
+def cache_key_for_team_token(team_token: str, suffix: str) -> str:
+    return f"remote_config/{team_token}/{suffix}"
 
 
 class RemoteConfig(UUIDModel):
@@ -230,36 +244,70 @@ class RemoteConfig(UUIDModel):
 
         return js_content
 
-    def build_array_js_config(self):
-        # NOTE: This is the JS that will be loaded by the SDK.
-        # It includes the dist JS for the frontend and the JSON config
+    @classmethod
+    def _get_via_cache(cls, token: str, suffix: str, fn: Callable[["RemoteConfig"], dict | str]) -> Any:
+        key = cache_key_for_team_token(token, suffix)
 
-        js_content = self.build_js_config()
+        data = cache.get(key)
+        if data == "404":
+            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
+            raise cls.DoesNotExist()
 
-        js_content = f"""
+        if data:
+            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit").inc()
+            return data
+
+        REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
+        try:
+            remote_config = cls.objects.select_related("team").get(team__api_token=token)
+        except cls.DoesNotExist:
+            cache.set(key, "404", timeout=CACHE_TIMEOUT)
+            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
+            raise
+
+        data = fn(remote_config)
+        cache.set(key, data, timeout=CACHE_TIMEOUT)
+
+        return data
+
+    @classmethod
+    def get_config_via_token(cls, token: str) -> dict:
+        return cls._get_via_cache(token, "config", lambda remote_config: remote_config.build_config())
+
+    @classmethod
+    def get_config_js_via_token(cls, token: str) -> str:
+        return cls._get_via_cache(token, "config.js", lambda remote_config: remote_config.build_js_config())
+
+    @classmethod
+    @classmethod
+    def get_array_js_via_token(cls, token: str) -> str:
+        # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
+        data = cls.get_config_js_via_token(token)
+
+        return f"""
         {get_array_js_content()}
 
-        {js_content}
+        {data}
         """
 
-        return js_content
-
-    def sync(self, force=False):
+    def sync(self):
         """
         When called we sync to any configured CDNs as well as redis for the /decide endpoint
         """
 
         logger.info(f"Syncing RemoteConfig for team {self.team_id}")
 
-        # TODO: We might still want to invalidate certain caches here due to site apps changing
         try:
             config = self.build_config()
-            # Compare the config to the current one and only update if it has changed
-            if config == self.config and not force:
-                logger.info(f"RemoteConfig for team {self.team_id} has not changed. Skipping sync.")
-                return
-
             self.config = config
+
+            cache.set(cache_key_for_team_token(self.team.api_token, "config"), config, timeout=CACHE_TIMEOUT)
+            cache.set(
+                cache_key_for_team_token(self.team.api_token, "config.js"),
+                self.build_js_config(),
+                timeout=CACHE_TIMEOUT,
+            )
+
             # TODO: Invalidate caches - in particular this will be the Cloudflare CDN cache
             self.synced_at = timezone.now()
             self.save()
