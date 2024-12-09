@@ -625,7 +625,7 @@ class PropertyDefinitionViewSet(
         matches = EventProperty.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         ).filter(
-            effective_project_id=self.project_id,
+            effective_project_id=self.project_id,  # type: ignore
             event__in=serializer.validated_data["event_names"],
             property=serializer.validated_data["property_name"],
         )
