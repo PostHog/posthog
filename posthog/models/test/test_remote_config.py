@@ -1,5 +1,5 @@
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from inline_snapshot import snapshot
 import pytest
 from posthog.models.action.action import Action
@@ -142,7 +142,32 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
             }
         )
 
-    def test_includes_surveys_with_actions(self):
+    def test_includes_range_of_survey_types(self):
+        survey_basic = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Basic survey",
+            description="This should not be included",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+        )
+        linked_flag = FeatureFlag.objects.create(team=self.team, key="linked-flag", created_by=self.user)
+        targeting_flag = FeatureFlag.objects.create(team=self.team, key="targeting-flag", created_by=self.user)
+        internal_targeting_flag = FeatureFlag.objects.create(
+            team=self.team, key="custom-targeting-flag", created_by=self.user
+        )
+
+        survey_with_flags = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey with flags",
+            type="popover",
+            linked_flag=linked_flag,
+            targeting_flag=targeting_flag,
+            internal_targeting_flag=internal_targeting_flag,
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+        )
+
         action = Action.objects.create(
             team=self.team,
             name="user subscribed",
@@ -162,162 +187,87 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
         self.remote_config.refresh_from_db()
         assert self.remote_config.config["surveys"]
         # TODO: Fix this - there is _waaaay_ too much data in here
-        assert self.remote_config.config["surveys"] == snapshot(
-            {
-                "surveys": [
-                    {
-                        "id": "01939c7b-cb0b-0000-1678-6c1f4d8fdb10",
-                        "name": "survey with actions",
-                        "type": "popover",
-                        "end_date": None,
-                        "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
-                        "appearance": None,
-                        "conditions": {
-                            "actions": {
-                                "values": [
-                                    {
-                                        "id": 42,
-                                        "name": "user subscribed",
-                                        "tags": [],
-                                        "steps": [
-                                            {
-                                                "url": "docs",
-                                                "href": None,
-                                                "text": None,
-                                                "event": "$pageview",
-                                                "selector": None,
-                                                "tag_name": None,
-                                                "properties": None,
-                                                "url_matching": "contains",
-                                                "href_matching": None,
-                                                "text_matching": None,
-                                            }
-                                        ],
-                                        "deleted": False,
-                                        "team_id": 1028,
-                                        "is_action": True,
-                                        "pinned_at": None,
-                                        "created_at": "2024-12-06T14:59:38.886069Z",
-                                        "created_by": None,
-                                        "description": "",
-                                        "post_to_slack": False,
-                                        "bytecode_error": None,
-                                        "is_calculating": False,
-                                        "creation_context": None,
-                                        "last_calculated_at": "2024-12-06T14:59:38.879836Z",
-                                        "slack_message_format": "",
-                                    }
-                                ]
-                            }
-                        },
-                        "start_date": None,
-                        "current_iteration": None,
-                        "current_iteration_start_date": None,
-                    }
-                ],
-                "survey_config": None,
-            }
-        )
-
-    # @snapshot_postgres_queries
-    # def test_list_surveys(self):
-    #     basic_survey = Survey.objects.create(
-    #         team=self.team,
-    #         created_by=self.user,
-    #         name="Survey 1",
-    #         type="popover",
-    #         questions=[{"type": "open", "question": "What's a survey?"}],
-    #     )
-    #     linked_flag = FeatureFlag.objects.create(team=self.team, key="linked-flag", created_by=self.user)
-    #     targeting_flag = FeatureFlag.objects.create(team=self.team, key="targeting-flag", created_by=self.user)
-    #     internal_targeting_flag = FeatureFlag.objects.create(
-    #         team=self.team, key="custom-targeting-flag", created_by=self.user
-    #     )
-
-    #     survey_with_flags = Survey.objects.create(
-    #         team=self.team,
-    #         created_by=self.user,
-    #         name="Survey 2",
-    #         type="popover",
-    #         linked_flag=linked_flag,
-    #         targeting_flag=targeting_flag,
-    #         internal_targeting_flag=internal_targeting_flag,
-    #         questions=[{"type": "open", "question": "What's a hedgehog?"}],
-    #     )
-
-    #     self.client.logout()
-
-    #     with self.assertNumQueries(3):
-    #         response = self._get_surveys()
-    #         assert response.status_code == status.HTTP_200_OK
-    #         assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
-    #         surveys = response.json()["surveys"]
-    #         self.assertIn(
-    #             {
-    #                 "id": str(survey_with_flags.id),
-    #                 "name": "Survey 2",
-    #                 "type": "popover",
-    #                 "conditions": None,
-    #                 "appearance": None,
-    #                 "questions": [{"type": "open", "question": "What's a hedgehog?"}],
-    #                 "linked_flag_key": "linked-flag",
-    #                 "targeting_flag_key": "targeting-flag",
-    #                 "current_iteration": None,
-    #                 "current_iteration_start_date": None,
-    #                 "internal_targeting_flag_key": "custom-targeting-flag",
-    #                 "start_date": None,
-    #                 "end_date": None,
-    #             },
-    #             surveys,
-    #         )
-    #         self.assertIn(
-    #             {
-    #                 "id": str(basic_survey.id),
-    #                 "name": "Survey 1",
-    #                 "type": "popover",
-    #                 "questions": [{"type": "open", "question": "What's a survey?"}],
-    #                 "conditions": None,
-    #                 "appearance": None,
-    #                 "start_date": None,
-    #                 "end_date": None,
-    #                 "current_iteration": None,
-    #                 "current_iteration_start_date": None,
-    #             },
-    #             surveys,
-    #         )
-
-    # def test_list_surveys_excludes_description(self):
-    #     Survey.objects.create(
-    #         team=self.team,
-    #         created_by=self.user,
-    #         name="Survey 1",
-    #         description="This description should not be returned",
-    #         type="popover",
-    #         questions=[{"type": "open", "question": "What's a survey?"}],
-    #     )
-    #     Survey.objects.create(
-    #         team=self.team,
-    #         created_by=self.user,
-    #         name="Survey 2",
-    #         description="Another description that should be excluded",
-    #         type="popover",
-    #         questions=[{"type": "open", "question": "What's a hedgehog?"}],
-    #     )
-    #     self.client.logout()
-
-    #     with self.assertNumQueries(3):
-    #         response = self._get_surveys()
-    #         assert response.status_code == status.HTTP_200_OK
-    #         assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
-
-    #         surveys = response.json()["surveys"]
-    #         assert len(surveys) == 2
-
-    #         for survey in surveys:
-    #             assert "description" not in survey, f"Description field should not be present in survey: {survey}"
-
-    #         assert surveys[0]["name"] == "Survey 1"
-    #         assert surveys[1]["name"] == "Survey 2"
+        assert self.remote_config.config["surveys"] == {
+            "surveys": [
+                {
+                    "id": str(survey_basic.id),
+                    "name": "Basic survey",
+                    "type": "popover",
+                    "end_date": None,
+                    "questions": [{"type": "open", "question": "What's a survey?"}],
+                    "appearance": None,
+                    "conditions": None,
+                    "start_date": None,
+                    "current_iteration": None,
+                    "current_iteration_start_date": None,
+                },
+                {
+                    "id": str(survey_with_flags.id),
+                    "name": "Survey with flags",
+                    "type": "popover",
+                    "end_date": None,
+                    "questions": [{"type": "open", "question": "What's a hedgehog?"}],
+                    "appearance": None,
+                    "conditions": None,
+                    "start_date": None,
+                    "linked_flag_key": "linked-flag",
+                    "current_iteration": None,
+                    "targeting_flag_key": "targeting-flag",
+                    "internal_targeting_flag_key": "custom-targeting-flag",
+                    "current_iteration_start_date": None,
+                },
+                {
+                    "id": str(survey_with_actions.id),
+                    "name": "survey with actions",
+                    "type": "popover",
+                    "end_date": None,
+                    "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
+                    "appearance": None,
+                    "conditions": {
+                        "actions": {
+                            "values": [
+                                {
+                                    "id": action.id,
+                                    "name": "user subscribed",
+                                    "tags": [],
+                                    "steps": [
+                                        {
+                                            "url": "docs",
+                                            "href": None,
+                                            "text": None,
+                                            "event": "$pageview",
+                                            "selector": None,
+                                            "tag_name": None,
+                                            "properties": None,
+                                            "url_matching": "contains",
+                                            "href_matching": None,
+                                            "text_matching": None,
+                                        }
+                                    ],
+                                    "deleted": False,
+                                    "team_id": 1262,
+                                    "is_action": True,
+                                    "pinned_at": None,
+                                    "created_at": "2024-12-09T15:34:49.425690Z",
+                                    "created_by": None,
+                                    "description": "",
+                                    "post_to_slack": False,
+                                    "bytecode_error": None,
+                                    "is_calculating": False,
+                                    "creation_context": None,
+                                    "last_calculated_at": "2024-12-09T15:34:49.419884Z",
+                                    "slack_message_format": "",
+                                }
+                            ]
+                        }
+                    },
+                    "start_date": None,
+                    "current_iteration": None,
+                    "current_iteration_start_date": None,
+                },
+            ],
+            "survey_config": None,
+        }
 
 
 class TestRemoteConfigCaching(_RemoteConfigBase):
