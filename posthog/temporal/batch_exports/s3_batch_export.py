@@ -5,6 +5,7 @@ import dataclasses
 import datetime as dt
 import io
 import json
+import operator
 import posixpath
 import typing
 
@@ -285,12 +286,13 @@ class S3MultiPartUpload:
         if self.is_upload_in_progress() is False:
             raise NoUploadInProgressError()
 
+        sorted_parts = sorted(self.parts, key=operator.itemgetter("PartNumber"))
         async with self.s3_client() as s3_client:
             response = await s3_client.complete_multipart_upload(
                 Bucket=self.bucket_name,
                 Key=self.key,
                 UploadId=self.upload_id,
-                MultipartUpload={"Parts": self.parts},
+                MultipartUpload={"Parts": sorted_parts},
             )
 
         self.upload_id = None
