@@ -1335,8 +1335,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         credibleIntervalForVariant: [
-            () => [],
-            () =>
+            (s) => [s.featureFlags],
+            (featureFlags) =>
                 (
                     experimentResults:
                         | Partial<ExperimentResults['result']>
@@ -1372,6 +1372,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     const controlVariant = (experimentResults.variants as TrendExperimentVariant[]).find(
                         ({ key }) => key === 'control'
                     ) as TrendExperimentVariant
+
+                    if (featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2]) {
+                        return credibleInterval
+                    }
 
                     const controlMean = controlVariant.count / controlVariant.absolute_exposure
 
