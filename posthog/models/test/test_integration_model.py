@@ -199,6 +199,10 @@ class TestOauthIntegrationModel(BaseTest):
                 "user": "user",
                 "user_id": "user_id",
                 "should_not": "be_saved",
+                "scopes": [
+                    "crm.objects.contacts.read",
+                    "crm.objects.contacts.write",
+                ],
             }
 
             with freeze_time("2024-01-01T12:00:00Z"):
@@ -219,6 +223,10 @@ class TestOauthIntegrationModel(BaseTest):
                 "user": "user",
                 "user_id": "user_id",
                 "refreshed_at": 1704110400,
+                "scopes": [
+                    "crm.objects.contacts.read",
+                    "crm.objects.contacts.write",
+                ],
             }
             assert integration.sensitive_config == {
                 "access_token": "FAKES_ACCESS_TOKEN",
