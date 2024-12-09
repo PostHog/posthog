@@ -33,8 +33,6 @@ Action:
   "action_input": "Final response to human"
 }
 ```
-
-If the user's question is ambiguous, or you can't find a matching taxonomy, ask for clarification.
 """.strip()
 
 REACT_PROPERTY_FILTERS_PROMPT = """
@@ -81,6 +79,15 @@ Supported operators for the Boolean type are:
 
 All operators take a single value except for `equals` and `doesn't equal which can take one or more values.
 </property_filters>
+""".strip()
+
+REACT_HUMAN_IN_THE_LOOP_PROMPT = """
+<human_in_the_loop>
+Ask the user for clarification if:
+- The user's question is ambiguous.
+- You can't find matching events or properties.
+- You're unable to build a plan that effectively answers the user's question.
+</human_in_the_loop>
 """.strip()
 
 REACT_FORMAT_REMINDER_PROMPT = """

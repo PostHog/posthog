@@ -55,7 +55,7 @@ class SingleArgumentTaxonomyAgentTool(BaseModel):
         "retrieve_event_properties",
         "final_answer",
         "handle_incorrect_response",
-        "ask_human_for_help",
+        "ask_user_for_help",
     ]
     arguments: str
 
@@ -147,10 +147,10 @@ class TaxonomyAgentToolkit(ABC):
                 """,
             },
             {
-                "name": "ask_human_for_help",
+                "name": "ask_user_for_help",
                 "signature": "(question: str)",
                 "description": """
-                    When you aren't able to determine the taxonomy to answer the user's question, use this tool to ask a human for help.
+                    Use this tool to ask a question to the user. Your question must be concise and clear.
 
                     Args:
                         question: The question you want to ask.
