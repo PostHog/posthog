@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { useState } from 'react'
 
 import { Experiment, InsightType } from '~/types'
@@ -149,16 +149,18 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                         ),
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
-                            return <div>{targetResults ? countDataForVariant(targetResults, variant) : '—'}</div>
+                            const count = targetResults ? countDataForVariant(targetResults, variant) : null
+                            return <div>{count === null ? '—' : humanFriendlyNumber(count)}</div>
                         },
                     },
                     {
                         title: 'Exposure',
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
-                            return (
-                                <div>{targetResults ? exposureCountDataForVariant(targetResults, variant) : '—'}</div>
-                            )
+                            const exposureCount = targetResults
+                                ? exposureCountDataForVariant(targetResults, variant)
+                                : null
+                            return <div>{exposureCount === null ? '—' : humanFriendlyNumber(exposureCount)}</div>
                         },
                     },
                     {
