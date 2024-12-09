@@ -1,6 +1,6 @@
 # type: ignore
 
-from typing import Any
+from typing import Any, TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
@@ -10,17 +10,40 @@ from langgraph.checkpoint.base import (
     empty_checkpoint,
 )
 from langgraph.checkpoint.base.id import uuid6
+from langgraph.errors import NodeInterrupt
+from langgraph.graph import END, START
+from langgraph.graph.state import CompiledStateGraph, StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.models.assistant import AssistantThread, Checkpoint as ThreadCheckpoint
-from posthog.test.base import BaseTest
+from ee.models.assistant import AssistantCheckpoint, AssistantCheckpointBlob, AssistantCheckpointWrite, AssistantThread
+from posthog.test.base import NonAtomicBaseTest
 
 
-class TestDjangoCheckpointer(BaseTest):
-    def setUp(self):
+class TestDjangoCheckpointer(NonAtomicBaseTest):
+    def setUp(cls):
         super().setUp()
-        self.thread1 = AssistantThread.objects.create(user=self.user, team=self.team)
-        self.thread2 = AssistantThread.objects.create(user=self.user, team=self.team)
+        cls.thread1 = AssistantThread.objects.create(user=cls.user, team=cls.team)
+        cls.thread2 = AssistantThread.objects.create(user=cls.user, team=cls.team)
+
+    def _build_graph(self):
+        class State(TypedDict):
+            val: int
+
+        graph = StateGraph(State)
+
+        def handle_node1(state: State) -> State:
+            if state["val"] == 1:
+                raise NodeInterrupt("test")
+            return {"val": state["val"] + 1}
+
+        graph.add_node("node1", handle_node1)
+        graph.add_node("node2", lambda state: state)
+
+        graph.add_edge(START, "node1")
+        graph.add_edge("node1", "node2")
+        graph.add_edge("node2", END)
+
+        return graph.compile(checkpointer=DjangoCheckpointer())
 
     def test_saver(self):
         config_1: RunnableConfig = {
@@ -139,7 +162,7 @@ class TestDjangoCheckpointer(BaseTest):
         saver = DjangoCheckpointer()
         saver.put(write_config, chkpnt, metadata, {})
 
-        checkpoint = ThreadCheckpoint.objects.first()
+        checkpoint = AssistantCheckpoint.objects.first()
         self.assertIsNotNone(checkpoint)
         self.assertEqual(checkpoint.thread, self.thread1)
         self.assertEqual(checkpoint.checkpoint_ns, "")
@@ -154,3 +177,28 @@ class TestDjangoCheckpointer(BaseTest):
 
         checkpoint = saver.get(read_config)
         self.assertEqual(checkpoint, checkpoints[0].checkpoint)
+
+    def test_concurrent_puts_and_put_writes(self):
+        graph: CompiledStateGraph = self._build_graph()
+        thread = AssistantThread.objects.create(user=self.user, team=self.team)
+        config = {"configurable": {"thread_id": str(thread.id)}}
+        graph.invoke(
+            {"val": 0},
+            config=config,
+        )
+        self.assertEqual(len(AssistantCheckpoint.objects.all()), 4)
+        self.assertEqual(len(AssistantCheckpointBlob.objects.all()), 10)
+        self.assertEqual(len(AssistantCheckpointWrite.objects.all()), 6)
+
+        graph.invoke(
+            {"val": 1},
+            config=config,
+        )
+        snapshot = graph.get_state(config)
+        self.assertIsNotNone(snapshot.next)
+        self.assertEqual(snapshot.tasks[0].interrupts[0].value, "test")
+
+        checkpoints = list(AssistantCheckpoint.objects.all())
+        self.assertEqual(len(checkpoints), 6)
+        self.assertEqual(len(AssistantCheckpointBlob.objects.all()), 4)
+        self.assertEqual(len(AssistantCheckpointWrite.objects.all()), 6)

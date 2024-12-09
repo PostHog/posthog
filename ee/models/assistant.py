@@ -10,7 +10,7 @@ class AssistantThread(UUIDModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
 
-class Checkpoint(UUIDModel):
+class AssistantCheckpoint(UUIDModel):
     thread = models.ForeignKey(AssistantThread, on_delete=models.CASCADE, related_name="checkpoints")
     checkpoint_ns = models.TextField(
         default="",
@@ -19,8 +19,8 @@ class Checkpoint(UUIDModel):
     parent_checkpoint = models.ForeignKey(
         "self", null=True, on_delete=models.CASCADE, related_name="children", help_text="Parent checkpoint ID."
     )
-    checkpoint = models.JSONField(help_text="Serialized checkpoint data.")
-    metadata = models.JSONField(default=dict, help_text="Serialized checkpoint metadata.")
+    checkpoint = models.JSONField(null=True, help_text="Serialized checkpoint data.")
+    metadata = models.JSONField(null=True, help_text="Serialized checkpoint metadata.")
 
     class Meta:
         constraints = [
@@ -31,12 +31,8 @@ class Checkpoint(UUIDModel):
         ]
 
 
-class CheckpointBlob(models.Model):
-    thread = models.ForeignKey(AssistantThread, on_delete=models.CASCADE, related_name="checkpoint_blobs")
-    checkpoint_ns = models.TextField(
-        default="",
-        help_text='Checkpoint namespace. Denotes the path to the subgraph node the checkpoint originates from, separated by `|` character, e.g. `"child|grandchild"`. Defaults to "" (root graph).',
-    )
+class AssistantCheckpointBlob(UUIDModel):
+    checkpoint = models.ForeignKey(AssistantCheckpoint, on_delete=models.CASCADE, related_name="blobs")
     channel = models.TextField(
         help_text="An arbitrary string defining the channel name. For example, it can be a node name or a reserved LangGraph's enum."
     )
@@ -47,18 +43,14 @@ class CheckpointBlob(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["thread_id", "checkpoint_ns", "channel", "version"],
+                fields=["checkpoint_id", "channel", "version"],
                 name="unique_checkpoint_blob",
             )
         ]
 
 
-class CheckpointWrite(models.Model):
-    checkpoint = models.ForeignKey(Checkpoint, on_delete=models.CASCADE, related_name="writes")
-    checkpoint_ns = models.TextField(
-        default="",
-        help_text='Checkpoint namespace. Denotes the path to the subgraph node the checkpoint originates from, separated by `|` character, e.g. `"child|grandchild"`. Defaults to "" (root graph).',
-    )
+class AssistantCheckpointWrite(UUIDModel):
+    checkpoint = models.ForeignKey(AssistantCheckpoint, on_delete=models.CASCADE, related_name="writes")
     task_id = models.UUIDField(help_text="Identifier for the task creating the checkpoint write.")
     idx = models.IntegerField(
         help_text="Index of the checkpoint write. It is an integer value where negative numbers are reserved for special cases, such as node interruption."
@@ -72,7 +64,7 @@ class CheckpointWrite(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["checkpoint_id", "checkpoint_ns", "task_id", "idx"],
+                fields=["checkpoint_id", "task_id", "idx"],
                 name="unique_checkpoint_write",
             )
         ]
