@@ -17,6 +17,8 @@ export function PanelsUI(): JSX.Element {
         updateSearchParams: true,
     }
 
+    const workspaceConfig = { overview: false, inspector: false }
+
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <PanelLayout className="SessionReplay__layout">
@@ -30,24 +32,28 @@ export function PanelsUI(): JSX.Element {
                 </PanelContainer>
 
                 <PanelContainer primary className="PanelLayout__primary">
-                    <PanelContainer primary={false} className="w-full">
-                        <Panel primary className="">
-                            <>
-                                <p>This is a line</p>
-                                <p>This is a line</p>
-                                <p>This is a line</p>
-                                <p>This is a line</p>
-                                <p>This is a line</p>
-                            </>
-                        </Panel>
-                    </PanelContainer>
+                    {workspaceConfig.overview && (
+                        <PanelContainer primary={false} className="w-full">
+                            <Panel primary className="">
+                                <>
+                                    <p>This is a line</p>
+                                    <p>This is a line</p>
+                                    <p>This is a line</p>
+                                    <p>This is a line</p>
+                                    <p>This is a line</p>
+                                </>
+                            </Panel>
+                        </PanelContainer>
+                    )}
                     <PanelContainer primary className="w-full PanelLayout__main">
                         <Panel primary className="PanelLayout__playback">
                             <PanelPlayback />
                         </Panel>
-                        <Panel primary={false} className="PanelLayout__inspector flex flex-col">
-                            <PlayerInspector />
-                        </Panel>
+                        {workspaceConfig.inspector && (
+                            <Panel primary={false} className="PanelLayout__inspector flex flex-col">
+                                <PlayerInspector />
+                            </Panel>
+                        )}
                     </PanelContainer>
                 </PanelContainer>
             </PanelLayout>
@@ -76,7 +82,8 @@ function Panel({
 }: {
     className?: string
     primary: boolean
+    collapsed?: boolean
     children: JSX.Element
 }): JSX.Element {
-    return <div className={clsx(className, primary && 'flex-1', 'border')}>{children}</div>
+    return <div className={clsx(primary && 'flex-1', 'border', className)}>{children}</div>
 }

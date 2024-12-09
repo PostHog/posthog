@@ -42,6 +42,14 @@
         font-size: smaller;
     }
 
+    .PanelLayout__Panel {
+        &--collapsed {
+            width: 40px;
+            min-width: unset;
+            height: 40px;
+        }
+    }
+
     // All primary panels horizontally stacked
     // var(--panel-playback-min-width) + var(--panel-inspector-min-width) + var(--panel-gap) + var(--panel-gap)
     @container replay-panel-layout (width >= 1040px) {
