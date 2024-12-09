@@ -53,7 +53,7 @@ async fn it_drops_events_if_dropper_enabled() -> Result<()> {
     config.kafka.kafka_topic = main_topic.topic_name().to_string();
     config.kafka.kafka_historical_topic = histo_topic.topic_name().to_string();
     config.dropped_keys = Some(format!("{}:{}", token, dropped_id));
-    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+    let server = ServerHandle::for_config(config).await;
 
     let event = json!({
         "token": token,
