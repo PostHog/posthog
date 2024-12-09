@@ -12,6 +12,7 @@ from freezegun import freeze_time
 from rest_framework import status
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
+import time
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.models import User
@@ -371,8 +372,6 @@ class TestTwoFactorAPI(APIBaseTest):
         self.client.logout()
 
         # Wait for throttling to expire
-        import time
-
         time.sleep(2)
 
         # Try to authenticate again with same backup code
