@@ -23,7 +23,7 @@ export function TwoFactorSetupModal({
 
     return (
         <LemonModal
-            title="Set up 2FA"
+            title="Set up two-factor authentication"
             isOpen={isTwoFactorSetupModalOpen || forceOpen}
             onClose={closable ? () => toggleTwoFactorSetupModal(false) : undefined}
             closable={closable}
