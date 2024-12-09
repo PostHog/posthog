@@ -6287,6 +6287,30 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             FeatureFlagStatus.ACTIVE,
         )
 
+        # Request status for multivariate flag with a variant set to 100% but no release condition set to 100%
+        multivariate_flag_rolled_out_release_condition_half_variant = FeatureFlag.objects.create(
+            name="Multivariate flag with release condition set to 100%, but variants still 50%",
+            key="multivariate-rolled-out-release-half-variant-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "var1key", "name": "test", "rollout_percentage": 50},
+                        {"key": "var2key", "name": "control", "rollout_percentage": 50},
+                    ],
+                },
+                "groups": [
+                    {"variant": None, "properties": [], "rollout_percentage": 100},
+                ],
+            },
+        )
+        self.create_feature_flag_called_event(multivariate_flag_rolled_out_release_condition_half_variant.key)
+        self.assert_expected_response(
+            multivariate_flag_rolled_out_release_condition_half_variant.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
         # Request status for multivariate flag with variants set to 100% and a filtered release condition
         multivariate_flag_rolled_out_variant_rolled_out_filtered_release = FeatureFlag.objects.create(
             name="Multivariate flag with variant and release condition set to 100%",
