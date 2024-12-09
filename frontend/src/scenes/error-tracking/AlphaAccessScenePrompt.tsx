@@ -17,7 +17,7 @@ export const AlphaAccessScenePrompt = ({ children }: { children: React.ReactElem
             productName="Error tracking"
             thingName="issue"
             titleOverride="Capture your first exception"
-            description="Error tracking is in closed alpha right now but we are onboarding customers. Right now we only support the JS and Python SDKs."
+            description="Error tracking is in closed alpha for our JS and Python SDKs. If you would like access please reach out and someone on our team will onboard you."
             isEmpty={true}
             actionElementOverride={
                 <LemonButton
@@ -31,7 +31,7 @@ export const AlphaAccessScenePrompt = ({ children }: { children: React.ReactElem
                         })
                     }
                 >
-                    Get access
+                    Request access
                 </LemonButton>
             }
             productKey={ProductKey.ERROR_TRACKING}
