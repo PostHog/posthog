@@ -313,7 +313,6 @@ class RemoteConfig(UUIDModel):
 
             # TODO: Invalidate caches - in particular this will be the Cloudflare CDN cache
             self.synced_at = timezone.now()
-            logger.info(f"Synced RemoteConfig for team {self.team_id}")
             self.save()
 
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="success").inc()

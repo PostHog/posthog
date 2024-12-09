@@ -186,7 +186,6 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
 
         self.remote_config.refresh_from_db()
         assert self.remote_config.config["surveys"]
-        # TODO: Fix this - there is _waaaay_ too much data in here
         assert self.remote_config.config["surveys"] == {
             "surveys": [
                 {
