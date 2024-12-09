@@ -45,8 +45,6 @@ posthog/hogql/parser.py:0: error: Item "None" of "list[Expr] | None" has no attr
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql/functions/cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
-posthog/hogql/functions/cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
 posthog/hogql/database/schema/persons_pdi.py:0: error: Incompatible types in assignment (expression has type "Organization | None", variable has type "Organization")  [assignment]
 posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
 posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
@@ -157,13 +155,9 @@ posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible types in assignme
 posthog/hogql/transforms/in_cohort.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/in_cohort.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql/transforms/in_cohort.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
-posthog/hogql/transforms/in_cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
-posthog/hogql/transforms/in_cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
 posthog/hogql/transforms/in_cohort.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/in_cohort.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql/transforms/in_cohort.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
-posthog/hogql/transforms/in_cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
-posthog/hogql/transforms/in_cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
 posthog/hogql/transforms/in_cohort.py:0: error: Argument "table" to "JoinExpr" has incompatible type "Expr"; expected "SelectQuery | SelectSetQuery | Field | None"  [arg-type]
 posthog/hogql/transforms/in_cohort.py:0: error: List item 0 has incompatible type "SelectQueryType | None"; expected "SelectQueryType"  [list-item]
 posthog/hogql/transforms/in_cohort.py:0: error: Item "None" of "JoinConstraint | None" has no attribute "expr"  [union-attr]
@@ -603,9 +597,6 @@ posthog/hogql/test/test_parser_python.py:0: error: Unsupported dynamic base clas
 posthog/hogql/test/test_parser_cpp.py:0: error: Unsupported dynamic base class "parser_test_factory"  [misc]
 posthog/hogql/test/test_parse_string_python.py:0: error: Unsupported dynamic base class "parse_string_test_factory"  [misc]
 posthog/hogql/test/test_parse_string_cpp.py:0: error: Unsupported dynamic base class "parse_string_test_factory"  [misc]
-posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attribute "snapshot"  [attr-defined]
-posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attribute "snapshot"  [attr-defined]
-posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attribute "snapshot"  [attr-defined]
 posthog/hogql/database/test/test_view.py:0: error: Argument "dialect" to "print_ast" has incompatible type "str"; expected "Literal['hogql', 'clickhouse']"  [arg-type]
 posthog/hogql/database/test/test_s3_table.py:0: error: Argument "dialect" to "print_ast" has incompatible type "str"; expected "Literal['hogql', 'clickhouse']"  [arg-type]
 posthog/helpers/full_text_search.py:0: error: Incompatible return value type (got "SearchVector", expected "CombinedExpression")  [return-value]

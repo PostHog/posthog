@@ -249,9 +249,11 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
     def run(self, filter: Filter, team: Team, is_csv_export: bool = False, *args, **kwargs) -> list[dict[str, Any]]:
         self.is_csv_export = is_csv_export
-        actions = Action.objects.filter(team_id=team.pk).order_by("-id")
+        actions = Action.objects.filter(team__project_id=team.project_id).order_by("-id")
         if len(filter.actions) > 0:
-            actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)
+            actions = Action.objects.filter(
+                pk__in=[entity.id for entity in filter.actions], team__project_id=team.project_id
+            )
 
         if filter.formula:
             return handle_compare(filter, self._run_formula_query, team)
