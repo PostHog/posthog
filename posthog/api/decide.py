@@ -248,6 +248,8 @@ def get_decide(request: HttpRequest):
                 else False
             )
 
+            # this not settings.DEBUG check is a lazy workaround because
+            # NEW_ANALYTICS_CAPTURE_ENDPOINT doesn't currently work in DEBUG mode
             if not settings.DEBUG and str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):
                 response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
