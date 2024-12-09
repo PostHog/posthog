@@ -648,7 +648,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
     task_queue = (
         BATCH_EXPORTS_TASK_QUEUE
-        if batch_export.destination.type in ("BigQuery", "Redshift")
+        if batch_export.destination.type in ("BigQuery", "Redshift", "S3")
         else SYNC_BATCH_EXPORTS_TASK_QUEUE
     )
 
