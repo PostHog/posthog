@@ -5,9 +5,9 @@
     min-height: 3rem;
     padding: 0.5rem;
     font-weight: 500;
-    color: var(--primary-alt);
+    color: var(--content-primary);
     text-align: left;
-    border: solid 1px var(--border-3000);
+    border: solid 1px var(--border-tertiary);
     border-radius: var(--radius);
 
     &.LemonBanner--square {
@@ -15,22 +15,22 @@
     }
 
     &.LemonBanner--info {
-        background-color: var(--primary-alt-highlight);
+        background-color: var(--background-secondary);
     }
 
     &.LemonBanner--warning {
-        color: var(--warning-dark);
-        background-color: var(--warning-highlight);
+        color: var(--content-warning-bold);
+        background-color: var(--background-warning-subtle);
     }
 
     &.LemonBanner--error {
-        color: var(--danger);
-        background-color: var(--danger-highlight);
+        color: var(--content-danger-bold);
+        background-color: var(--background-danger-subtle);
     }
 
     &.LemonBanner--success {
-        color: var(--success);
-        background-color: var(--success-highlight);
+        color: var(--content-success-bold);
+        background-color: var(--background-success-subtle);
     }
 
     .LemonBanner__icon {
