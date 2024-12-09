@@ -265,3 +265,5 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         self.assertEqual(len(AssistantCheckpointWrite.objects.all()), 9)
         self.assertEqual(len(list(checkpointer.list(config))), 5)
         self.assertEqual(res, {"val": 3})
+        snapshot = graph.get_state(config)
+        self.assertFalse(snapshot.next)
