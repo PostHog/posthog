@@ -5888,7 +5888,7 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
     )
     significance_code: ExperimentSignificanceCode
     significant: bool
-    stats_version: Optional[int] = None
+    stats_version: int
     timezone: str
     variants: list[ExperimentVariantTrendsBaseStats]
 
@@ -5906,6 +5906,7 @@ class Response10(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
+    stats_version: int
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
@@ -6010,7 +6011,7 @@ class ExperimentTrendsQueryResponse(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
-    stats_version: Optional[int] = None
+    stats_version: int
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
@@ -6339,6 +6340,7 @@ class QueryResponseAlternative16(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
+    stats_version: int
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
@@ -6370,6 +6372,7 @@ class QueryResponseAlternative27(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
+    stats_version: int
     variants: list[ExperimentVariantTrendsBaseStats]
 
 

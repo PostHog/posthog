@@ -2246,6 +2246,9 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "stats_version": {
+                    "type": "integer"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -2268,6 +2271,7 @@
                 "probability",
                 "significance_code",
                 "significant",
+                "stats_version",
                 "timezone",
                 "variants"
             ],
@@ -4585,6 +4589,9 @@
                                 "significant": {
                                     "type": "boolean"
                                 },
+                                "stats_version": {
+                                    "type": "integer"
+                                },
                                 "variants": {
                                     "items": {
                                         "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
@@ -4600,6 +4607,7 @@
                                 "probability",
                                 "significance_code",
                                 "significant",
+                                "stats_version",
                                 "variants"
                             ],
                             "type": "object"
@@ -6143,6 +6151,9 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "stats_version": {
+                    "type": "integer"
+                },
                 "variants": {
                     "items": {
                         "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
@@ -6157,6 +6168,7 @@
                 "probability",
                 "significant",
                 "significance_code",
+                "stats_version",
                 "p_value",
                 "credible_intervals"
             ],
@@ -9858,6 +9870,9 @@
                         "significant": {
                             "type": "boolean"
                         },
+                        "stats_version": {
+                            "type": "integer"
+                        },
                         "variants": {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
@@ -9872,6 +9887,7 @@
                         "probability",
                         "significant",
                         "significance_code",
+                        "stats_version",
                         "p_value",
                         "credible_intervals"
                     ],
@@ -10486,6 +10502,9 @@
                         "significant": {
                             "type": "boolean"
                         },
+                        "stats_version": {
+                            "type": "integer"
+                        },
                         "variants": {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
@@ -10501,6 +10520,7 @@
                         "probability",
                         "significance_code",
                         "significant",
+                        "stats_version",
                         "variants"
                     ],
                     "type": "object"

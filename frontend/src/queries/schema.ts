@@ -2004,6 +2004,7 @@ export interface ExperimentTrendsQueryResponse {
     probability: Record<string, number>
     significant: boolean
     significance_code: ExperimentSignificanceCode
+    stats_version: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
 }
