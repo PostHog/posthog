@@ -38,7 +38,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=self.where(),
             order_by=self.order_by,
-            group_by=[ast.Field(chain=["properties", "$exception_issue_id"])],
+            group_by=[ast.Field(chain=["issue_id"])],
         )
 
     def select(self):
@@ -54,7 +54,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(alias="id", expr=ast.Field(chain=["properties", "$exception_issue_id"])),
+            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
         ]
 
         if self.query.select:
@@ -71,7 +71,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Call(
                 name="isNotNull",
-                args=[ast.Field(chain=["properties", "$exception_issue_id"])],
+                args=[ast.Field(chain=["issue_id"])],
             ),
             ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
@@ -80,7 +80,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["properties", "$exception_issue_id"]),
+                    left=ast.Field(chain=["issue_id"]),
                     right=ast.Constant(value=self.query.issueId),
                 )
             )
