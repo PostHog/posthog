@@ -51,7 +51,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."feature_management_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -210,7 +211,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."feature_management_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -632,6 +634,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."feature_management_id",
          T5."id",
          T5."key",
          T5."name",
@@ -647,6 +650,7 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
+         T5."feature_management_id",
          T6."id",
          T6."key",
          T6."name",
@@ -661,7 +665,8 @@
          T6."performed_rollback",
          T6."ensure_experience_continuity",
          T6."usage_dashboard_id",
-         T6."has_enriched_analytics"
+         T6."has_enriched_analytics",
+         T6."feature_management_id"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
@@ -848,7 +853,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."feature_management_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
