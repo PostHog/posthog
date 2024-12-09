@@ -44,6 +44,7 @@ import {
     MultivariateFlagVariant,
     NewEarlyAccessFeatureType,
     OrganizationFeatureFlag,
+    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     QueryBasedInsightModel,
@@ -270,6 +271,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['updateFlag', 'deleteFlag'],
             sidePanelStateLogic,
             ['closeSidePanel'],
+            teamLogic,
+            ['addProductIntent'],
         ],
     })),
     actions({
@@ -563,6 +566,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         if (values.roleBasedAccessEnabled && savedFlag.id) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
                         }
+                        actions.addProductIntent({ product_type: ProductKey.FEATURE_FLAGS })
                     } else {
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
