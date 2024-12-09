@@ -32,6 +32,7 @@ export interface SummarizedSessionRecordingEvent {
     distinct_id: string
     session_id: string
     first_url: string | null
+    urls: string[]
     click_count: number
     keypress_count: number
     mouse_activity_count: number
@@ -43,6 +44,7 @@ export interface SummarizedSessionRecordingEvent {
     event_count: number
     message_count: number
     snapshot_source: string | null
+    snapshot_library: string | null
 }
 
 // this is of course way more complicated than you'd expect
@@ -254,8 +256,9 @@ export const createSessionReplayEvent = (
     distinct_id: string,
     session_id: string,
     events: RRWebEvent[],
-    snapshot_source: string | null
-): { event: SummarizedSessionRecordingEvent; warnings: string[] } => {
+    snapshot_source: string | null,
+    snapshot_library: string | null
+): { event: SummarizedSessionRecordingEvent } => {
     const timestamps = getTimestampsFrom(events)
 
     // but every event where chunk index = 0 must have an eventsSummary
@@ -268,15 +271,14 @@ export const createSessionReplayEvent = (
         throw new Error('ignoring an empty session recording event')
     }
 
-    const warnings: string[] = []
-
     let clickCount = 0
     let keypressCount = 0
     let mouseActivity = 0
     let consoleLogCount = 0
     let consoleWarnCount = 0
     let consoleErrorCount = 0
-    let url: string | null = null
+    const urls: Set<string> = new Set()
+
     events.forEach((event) => {
         if (event.type === RRWebEventType.IncrementalSnapshot) {
             if (isClick(event)) {
@@ -291,8 +293,8 @@ export const createSessionReplayEvent = (
         }
 
         const eventUrl: string | undefined = hrefFrom(event)
-        if (url === null && eventUrl) {
-            url = eventUrl
+        if (eventUrl) {
+            urls.add(eventUrl)
         }
 
         if (event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
@@ -305,13 +307,11 @@ export const createSessionReplayEvent = (
                 consoleErrorCount += 1
             }
         }
-
-        if (event.type === RRWebEventType.Custom && event.data?.tag === 'Message too large') {
-            warnings.push('replay_message_too_large')
-        }
     })
 
     const activeTime = activeMilliseconds(events)
+
+    const urlArray = Array.from(urls)
 
     // NB forces types to be correct e.g. by truncating or rounding
     // to ensure we don't send floats when we should send an integer
@@ -325,7 +325,8 @@ export const createSessionReplayEvent = (
         click_count: Math.trunc(clickCount),
         keypress_count: Math.trunc(keypressCount),
         mouse_activity_count: Math.trunc(mouseActivity),
-        first_url: url,
+        first_url: urlArray.length ? urlArray[0] : null,
+        urls: urlArray,
         active_milliseconds: Math.round(activeTime),
         console_log_count: Math.trunc(consoleLogCount),
         console_warn_count: Math.trunc(consoleWarnCount),
@@ -334,7 +335,9 @@ export const createSessionReplayEvent = (
         event_count: Math.trunc(events.length),
         message_count: 1,
         snapshot_source: snapshot_source || 'web',
+        // we can't default this one, since we now have multiple libraries in production
+        snapshot_library: snapshot_library || null,
     }
 
-    return { event: data, warnings }
+    return { event: data }
 }
