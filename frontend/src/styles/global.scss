@@ -233,6 +233,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --background-warning-subtle: var(--orange-50);
     --background-danger: var(--red-500);
     --background-danger-subtle: var(--red-50);
+    --background-danger-bold: var(--red-200);
     --background-success: var(--green-500);
     --background-success-subtle: var(--green-50);
     --border-primary: var(--neutral-warm-600);
@@ -245,6 +246,10 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --border-warning: var(--orange-500);
     --border-danger: var(--red-500);
     --border-success: var(--green-500);
+    --border-button: var(--yellow-600);
+    --border-button-hover: var(--yellow-700);
+    --border-button-bold-hover: var(--yellow-900);
+    --border-button-subtle: var(--yellow-500);
     --overlay-50: var(--primary-black-50);
     --overlay-50-inverse: var(--primary-white-50);
 
@@ -581,15 +586,29 @@ body {
     &[theme='dark'] {
         // Semantic colors (Dark mode) WIP
         --content-primary: var(--neutral-cool-100);
+        --content-secondary: var(--neutral-cool-200);
+        --content-tertiary: var(--neutral-cool-300);
         --content-warning-bold: var(--orange-100);
-        --content-danger-bold: var(--red-100);
+        --content-danger-bold: var(--red-200);
         --content-success-bold: var(--green-100);
         --background-primary: var(--neutral-cool-900);
         --background-secondary: var(--neutral-cool-850);
         --background-tertiary: var(--neutral-cool-800);
         --background-warning-subtle: var(--orange-850);
         --background-danger-subtle: var(--red-800);
+        --background-danger-bold: var(--red-600);
+
+        // --background-button: var(--yellow-600);
+        // --background-button-hover: var(--yellow-600);
+        // --background-button-pressed: var(--yellow-800);
+        // --border-button-hover: var(--yellow-600);
+        --border-button-hover: var(--yellow-700);
+        --border-button-bold-hover: var(--yellow-500);
+        --border-button-subtle: var(--yellow-500);
+        --background-button-subtle: var(--yellow-900);
+        --background-button-subtle-hover: var(--yellow-500);
         --background-success-subtle: var(--green-800);
+        --border-secondary: var(--neutral-cool-650);
         --border-tertiary: var(--neutral-cool-750);
 
         @include dark-mode-3000-variables;
