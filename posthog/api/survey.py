@@ -19,7 +19,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
-from posthog.api.action import ActionSerializer
+from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
@@ -801,6 +801,18 @@ class SurveyConfigSerializer(serializers.ModelSerializer):
         fields = ["survey_config"]
 
 
+class SurveyAPIActionSerializer(serializers.ModelSerializer):
+    steps = ActionStepJSONSerializer(many=True, required=False)
+
+    class Meta:
+        model = Action
+        fields = [
+            "id",
+            "steps",
+        ]
+        read_only_fields = fields
+
+
 class SurveyAPISerializer(serializers.ModelSerializer):
     """
     Serializer for the exposed /api/surveys endpoint, to be used in posthog-js and for headless APIs.
@@ -844,7 +856,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             if survey.conditions is None:
                 survey.conditions = {}
 
-            survey.conditions["actions"] = {"values": ActionSerializer(actions, many=True).data}
+            survey.conditions["actions"] = {"values": SurveyAPIActionSerializer(actions, many=True).data}
         return survey.conditions
 
 
