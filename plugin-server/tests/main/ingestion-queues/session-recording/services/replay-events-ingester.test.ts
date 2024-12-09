@@ -15,12 +15,15 @@ jest.mock('../../../../../src/kafka/producer')
 const makeIncomingMessage = (
     source: string | null,
     timestamp: number,
-    extraWindowedEvents: Record<string, Record<string, any>[]>
+    extraWindowedEvents?: Record<string, Record<string, any>[]>
 ): IncomingRecordingMessage => {
     return {
         distinct_id: '',
         eventsRange: { start: timestamp, end: timestamp },
-        eventsByWindowId: { '': [{ data: { any: 'thing' }, type: 2, timestamp: timestamp }], ...extraWindowedEvents },
+        eventsByWindowId: {
+            '': [{ data: { any: 'thing' }, type: 2, timestamp: timestamp }],
+            ...(extraWindowedEvents || {}),
+        },
         metadata: {
             lowOffset: 0,
             highOffset: 0,
