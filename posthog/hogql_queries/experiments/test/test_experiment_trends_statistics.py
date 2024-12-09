@@ -17,6 +17,17 @@ def create_variant(key: str, count: int, exposure: int) -> ExperimentVariantTren
     return ExperimentVariantTrendsBaseStats(key=key, count=count, exposure=exposure, absolute_exposure=exposure)
 
 
+def create_variant_with_different_exposures(
+    key: str,
+    count: int,
+    exposure: float,  # relative exposure
+    absolute_exposure: int,  # absolute exposure
+) -> ExperimentVariantTrendsBaseStats:
+    return ExperimentVariantTrendsBaseStats(
+        key=key, count=count, exposure=exposure, absolute_exposure=absolute_exposure
+    )
+
+
 class TestExperimentTrendsStatistics(APIBaseTest):
     def run_test_for_both_implementations(self, test_fn):
         """Run the same test for both implementations"""
@@ -249,5 +260,42 @@ class TestExperimentTrendsStatistics(APIBaseTest):
 
             self.assertAlmostEqual(intervals["test"][0], 0.0, places=3)
             self.assertAlmostEqual(intervals["test"][1], 0.004, places=3)
+
+        self.run_test_for_both_implementations(run_test)
+
+    def test_different_relative_and_absolute_exposure(self):
+        """Test that credible intervals are calculated using absolute_exposure rather than relative exposure"""
+
+        def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
+            # Control has exposure=1 (relative) but absolute_exposure=10000
+            control = create_variant_with_different_exposures(
+                "control", count=1000, exposure=1, absolute_exposure=10000
+            )
+            # Test has exposure=1.2 (relative) but absolute_exposure=12000
+            test = create_variant_with_different_exposures("test", count=1200, exposure=1.2, absolute_exposure=12000)
+
+            probabilities = calculate_probabilities(control, [test])
+            significance, p_value = are_results_significant(control, [test], probabilities)
+            intervals = calculate_credible_intervals([control, test])
+
+            self.assertEqual(len(probabilities), 2)
+            if stats_version == 2:
+                self.assertTrue(probabilities[0] < 0.1)
+                self.assertTrue(0.9 < probabilities[1])
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
+                self.assertEqual(p_value, 0)
+            else:
+                self.assertTrue(0.4 < probabilities[0] < 0.6)  # Close to 50/50
+                self.assertTrue(0.4 < probabilities[1] < 0.6)  # Close to 50/50
+                self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
+                self.assertEqual(p_value, 1)
+
+            # Control at ~10% conversion rate
+            self.assertAlmostEqual(intervals["control"][0], 0.094, places=2)
+            self.assertAlmostEqual(intervals["control"][1], 0.106, places=2)
+
+            # Test at ~10% conversion rate
+            self.assertAlmostEqual(intervals["test"][0], 0.094, places=2)
+            self.assertAlmostEqual(intervals["test"][1], 0.106, places=2)
 
         self.run_test_for_both_implementations(run_test)
