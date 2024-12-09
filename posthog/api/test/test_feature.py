@@ -112,17 +112,19 @@ class TestFeatureAPI(APIBaseTest):
         response = self.client.delete(f"/api/projects/{self.team.id}/features/{self.feature.id}/")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    def test_get_primary_feature_flag(self):
+    def test_get_primary_early_access_feature(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
             name="Test Flag",
             key="test-flag",
             feature_management=self.feature,
         )
-        self.feature.primary_feature_flag = flag
+        self.feature.primary_early_access_feature = flag
         self.feature.save()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/features/{self.feature.id}/primary_feature_flag/")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/features/{self.feature.id}/primary_early_access_feature/"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["key"], "test-flag")
 
