@@ -1,20 +1,31 @@
-from typing import cast, Optional
+from typing import cast, Optional, runtime_checkable
 
 from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase, JOIN_ALGOS
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP
+
+from typing import Protocol
+
+
+@runtime_checkable
+class FunnelProtocol(Protocol):
+    context: FunnelQueryContext
+
+    def _query_has_array_breakdown(self) -> bool: ...
+
+    def _default_breakdown_selector(self) -> str: ...
+
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
 class FunnelUDFMixin:
-    pass
-    '''
-    def _add_breakdown_attribution_subquery(self, inner_query: ast.SelectQuery) -> ast.SelectQuery:
+    def _add_breakdown_attribution_subquery(self: FunnelProtocol, inner_query: ast.SelectQuery) -> ast.SelectQuery:
         breakdown, breakdownAttributionType = (
             self.context.breakdown,
             self.context.breakdownAttributionType,
@@ -43,6 +54,7 @@ class FunnelUDFMixin:
             )
 
         # For step breakdowns and all_event breakdowns, remove events that have an empty breakdown
+        """
         if self._query_has_array_breakdown():
             compare = ast.CompareOperation(
                 left=ast.Field(chain=["prop"]), right=ast.Array(exprs=[]), op=ast.CompareOperationOp.NotEq
@@ -51,9 +63,27 @@ class FunnelUDFMixin:
                 inner_query.where = ast.And(exprs=[inner_query.where, compare])
             else:
                 inner_query.where = compare
+        """
 
         return inner_query
 
+    def _prop_vals(self: FunnelProtocol):
+        prop_vals = f"[{self._default_breakdown_selector()}]"
+        if self.context.breakdown:
+            if self.context.breakdownAttributionType == BreakdownAttributionType.STEP:
+                prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
+            else:
+                prop = "prop"
+            if self._query_has_array_breakdown():
+                prop_vals = f"groupUniqArrayIf({prop}, {prop} != [])"
+            else:
+                prop_vals = f"groupUniqArray({prop})"
+        return prop_vals
+
+    def _default_breakdown_selector(self: FunnelProtocol) -> str:
+        return "[]" if self._query_has_array_breakdown() else "''"
+
+    """
     def _get_breakdown_select_prop(self) -> list[ast.Expr]:
         breakdown, breakdownAttributionType, funnelsFilter = (
             self.context.breakdown,
@@ -111,7 +141,7 @@ class FunnelUDFMixin:
                 prop_basic,
                 ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"])),
             ]
-    '''
+    """
 
 
 class FunnelUDF(FunnelUDFMixin, FunnelBase):
@@ -153,8 +183,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         else:
             inner_event_query = self._get_inner_event_query_for_udf(entity_name="events")
 
-        default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "''"
-
         # stores the steps as an array of integers from 1 to max_steps
         # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]
 
@@ -176,18 +204,9 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             fn = "aggregate_funnel"
             breakdown_prop = ""
 
-        prop_selector = "prop" if self.context.breakdown else default_breakdown_selector
+        prop_selector = "prop" if self.context.breakdown else self._default_breakdown_selector()
 
-        prop_vals = f"[{default_breakdown_selector}]"
-        if self.context.breakdown:
-            if self.context.breakdownAttributionType == BreakdownAttributionType.STEP:
-                prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
-            else:
-                prop = "prop"
-            if self._query_has_array_breakdown():
-                prop_vals = f"groupUniqArrayIf({prop}, {prop} != [])"
-            else:
-                prop_vals = f"groupUniqArray({prop})"
+        prop_vals = self._prop_vals()
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
