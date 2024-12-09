@@ -178,16 +178,31 @@ const mutex = new ConcurrencyController(1)
 
 export async function getSaltForDay(db: DB, timestamp: number, timeZone: string): Promise<Uint32Array> {
     // get the day based on the timezone
-    const parts = new Intl.DateTimeFormat('en', {
-        timeZone,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-    }).formatToParts(new Date(timestamp))
+    let parts: Intl.DateTimeFormatPart[]
+    try {
+        parts = new Intl.DateTimeFormat('en', {
+            timeZone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        }).formatToParts(new Date(timestamp))
+    } catch (e) {
+        // if the timezone is invalid, fall back to UTC
+        parts = new Intl.DateTimeFormat('en', {
+            timeZone: TIMEZONE_FALLBACK,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        }).formatToParts(new Date(timestamp))
+    }
     const year = parts.find((part) => part.type === 'year')?.value
     const month = parts.find((part) => part.type === 'month')?.value
     const day = parts.find((part) => part.type === 'day')?.value
     const yyyymmdd = `${year}-${month}-${day}`
+
+    if (!isCalendarDateValid(yyyymmdd)) {
+        throw new Error('Date is out of range')
+    }
 
     // see if we have it locally
     if (localSaltMap[yyyymmdd]) {
@@ -212,11 +227,6 @@ export async function getSaltForDay(db: DB, timestamp: number, timeZone: string)
                 const salt = base64StringToUint32Array(saltBase64)
                 localSaltMap[yyyymmdd] = salt
                 return salt
-            }
-
-            // looks like we'll need to create a new one, but check the date is within range
-            if (!isCalendarDateValid(yyyymmdd)) {
-                throw new Error('Date is out of range')
             }
 
             // try to write a new one to redis, but don't overwrite
