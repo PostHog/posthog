@@ -109,7 +109,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             null as { backup_codes: string[] } | null,
             {
                 generateBackupCodes: async () => {
-                    return await api.create('api/users/@me/two_factor_backup_codes/')
+                    return await api.create<any>('api/users/@me/two_factor_backup_codes/')
                 },
             },
         ],
@@ -123,7 +123,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             submit: async ({ token }, breakpoint) => {
                 breakpoint()
                 try {
-                    return await api.create('api/users/@me/two_factor_validate/', { token })
+                    return await api.create<any>('api/users/@me/two_factor_validate/', { token })
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     actions.setGeneralError(code, detail)
@@ -140,7 +140,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         },
         disable2FA: async () => {
             try {
-                await api.create('api/users/@me/two_factor_disable/')
+                await api.create<any>('api/users/@me/two_factor_disable/')
                 lemonToast.success('2FA disabled successfully')
                 actions.loadStatus()
             } catch (e) {

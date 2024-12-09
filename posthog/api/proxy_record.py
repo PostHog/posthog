@@ -25,6 +25,20 @@ def generate_target_cname(organization_id, domain) -> str:
     return f"{digest}.{settings.PROXY_BASE_CNAME}"
 
 
+def _capture_proxy_event(request, record: ProxyRecord, event_type: str) -> None:
+    organization = Organization.objects.get(id=record.organization_id)
+    posthoganalytics.capture(
+        request.user.distinct_id,
+        f"managed reverse proxy {event_type}",
+        properties={
+            "proxy_record_id": record.id,
+            "domain": record.domain,
+            "target_cname": record.target_cname,
+        },
+        groups=groups(organization),
+    )
+
+
 class ProxyRecordSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProxyRecord
@@ -79,17 +93,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         )
 
         serializer = self.get_serializer(record)
-        organization = Organization.objects.get(id=record.organization_id)
-        posthoganalytics.capture(
-            request.user.distinct_id,
-            "managed reverse proxy created",
-            properties={
-                "proxy_record_id": record.id,
-                "domain": record.domain,
-                "target_cname": record.target_cname,
-            },
-            groups=groups(organization),
-        )
+        _capture_proxy_event(request, record, "created")
         return Response(serializer.data)
 
     def destroy(self, request, *args, pk=None, **kwargs):
@@ -119,6 +123,8 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             )
             record.status = ProxyRecord.Status.DELETING
             record.save()
+
+            _capture_proxy_event(request, record, "deleted")
 
         return Response(
             {"success": True},

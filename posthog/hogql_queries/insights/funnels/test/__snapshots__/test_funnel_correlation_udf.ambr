@@ -56,7 +56,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
   WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
@@ -108,7 +108,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -171,7 +171,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      JOIN
        (SELECT persons.id AS id,
                persons.properties AS person_props
@@ -236,7 +236,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -309,7 +309,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -350,7 +350,7 @@
                                                              GROUP BY aggregation_target
                                                              HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
                                                           WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-                                                          ORDER BY aggregation_target ASC) AS funnel_actors
+                                                          ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
                                                        WHERE ifNull(equals(funnel_actors.steps, 2), 0)
                                                        GROUP BY funnel_actors.actor_id
                                                        ORDER BY funnel_actors.actor_id ASC) AS source)))
@@ -358,7 +358,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -444,7 +446,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -485,7 +487,7 @@
                                                              GROUP BY aggregation_target
                                                              HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
                                                           WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-                                                          ORDER BY aggregation_target ASC) AS funnel_actors
+                                                          ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
                                                        WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
                                                        GROUP BY funnel_actors.actor_id
                                                        ORDER BY funnel_actors.actor_id ASC) AS source)))
@@ -493,7 +495,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -579,7 +583,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -620,7 +624,7 @@
                                                              GROUP BY aggregation_target
                                                              HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
                                                           WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-                                                          ORDER BY aggregation_target ASC) AS funnel_actors
+                                                          ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
                                                        WHERE ifNull(equals(funnel_actors.steps, 2), 0)
                                                        GROUP BY funnel_actors.actor_id
                                                        ORDER BY funnel_actors.actor_id ASC) AS source)))
@@ -628,7 +632,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -714,7 +720,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -755,7 +761,7 @@
                                                              GROUP BY aggregation_target
                                                              HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
                                                           WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-                                                          ORDER BY aggregation_target ASC) AS funnel_actors
+                                                          ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
                                                        WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
                                                        GROUP BY funnel_actors.actor_id
                                                        ORDER BY funnel_actors.actor_id ASC) AS source)))
@@ -763,7 +769,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -839,7 +847,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      JOIN
        (SELECT persons.id AS id,
                persons.properties AS person_props
@@ -904,7 +912,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -977,7 +985,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -1018,7 +1026,7 @@
                                                              GROUP BY aggregation_target
                                                              HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
                                                           WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-                                                          ORDER BY aggregation_target ASC) AS funnel_actors
+                                                          ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
                                                        WHERE ifNull(equals(funnel_actors.steps, 2), 0)
                                                        GROUP BY funnel_actors.actor_id
                                                        ORDER BY funnel_actors.actor_id ASC) AS source)))
@@ -1026,7 +1034,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1112,7 +1122,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -1153,7 +1163,7 @@
                                                              GROUP BY aggregation_target
                                                              HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
                                                           WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-                                                          ORDER BY aggregation_target ASC) AS funnel_actors
+                                                          ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
                                                        WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
                                                        GROUP BY funnel_actors.actor_id
                                                        ORDER BY funnel_actors.actor_id ASC) AS source)))
@@ -1161,7 +1171,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1247,7 +1259,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -1288,7 +1300,7 @@
                                                              GROUP BY aggregation_target
                                                              HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
                                                           WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-                                                          ORDER BY aggregation_target ASC) AS funnel_actors
+                                                          ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
                                                        WHERE ifNull(equals(funnel_actors.steps, 2), 0)
                                                        GROUP BY funnel_actors.actor_id
                                                        ORDER BY funnel_actors.actor_id ASC) AS source)))
@@ -1296,7 +1308,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1382,7 +1396,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -1423,7 +1437,7 @@
                                                              GROUP BY aggregation_target
                                                              HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
                                                           WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-                                                          ORDER BY aggregation_target ASC) AS funnel_actors
+                                                          ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
                                                        WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
                                                        GROUP BY funnel_actors.actor_id
                                                        ORDER BY funnel_actors.actor_id ASC) AS source)))
@@ -1431,7 +1445,9 @@
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1502,7 +1518,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
   GROUP BY name,
            prop
@@ -1549,7 +1565,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1607,7 +1623,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
   GROUP BY name,
            prop
@@ -1654,7 +1670,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1707,7 +1723,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
   WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
@@ -1752,7 +1768,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1807,7 +1823,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
@@ -1820,7 +1836,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1874,7 +1892,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
@@ -1887,7 +1905,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1941,7 +1961,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
@@ -1954,7 +1974,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2008,7 +2030,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
@@ -2021,7 +2043,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2081,7 +2105,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
   WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
@@ -2134,7 +2158,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2189,7 +2213,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
@@ -2202,7 +2226,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2256,7 +2282,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
@@ -2269,7 +2295,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2321,7 +2349,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
   WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
@@ -2366,7 +2394,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2421,7 +2449,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
@@ -2434,7 +2462,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2488,7 +2518,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
@@ -2501,7 +2531,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2555,7 +2587,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
@@ -2568,7 +2600,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2622,7 +2656,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
@@ -2635,7 +2669,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2695,7 +2731,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
   WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
@@ -2748,7 +2784,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2803,7 +2839,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
@@ -2816,7 +2852,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2870,7 +2908,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
@@ -2883,7 +2921,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2938,7 +2978,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
                groups.properties AS properties
@@ -2995,7 +3035,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3057,7 +3097,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -3070,7 +3110,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3131,7 +3173,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -3144,7 +3186,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3205,7 +3249,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -3218,7 +3262,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3279,7 +3325,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -3292,7 +3338,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3347,7 +3395,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
                groups.properties AS properties
@@ -3404,7 +3452,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3460,7 +3508,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
                groups.properties AS properties
@@ -3517,7 +3565,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3579,7 +3627,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -3592,7 +3640,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3653,7 +3703,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -3666,7 +3716,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3727,7 +3779,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -3740,7 +3792,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3801,7 +3855,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -3814,7 +3868,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -3869,7 +3925,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
                groups.properties AS properties
@@ -3926,7 +3982,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3982,7 +4038,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
                groups.properties AS properties
@@ -4039,7 +4095,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -4101,7 +4157,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -4114,7 +4170,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4175,7 +4233,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -4188,7 +4246,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4249,7 +4309,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -4262,7 +4322,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4323,7 +4385,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -4336,7 +4398,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4391,7 +4455,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
                groups.properties AS properties
@@ -4448,7 +4512,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -4504,7 +4568,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
                groups.properties AS properties
@@ -4561,7 +4625,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -4623,7 +4687,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -4636,7 +4700,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4697,7 +4763,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -4710,7 +4776,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4771,7 +4839,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -4784,7 +4852,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4845,7 +4915,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -4858,7 +4928,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -4913,7 +4985,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
                groups.properties AS properties
@@ -4970,7 +5042,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -5026,7 +5098,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
                groups.properties AS properties
@@ -5083,7 +5155,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -5145,7 +5217,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -5158,7 +5230,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -5219,7 +5293,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -5232,7 +5306,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -5293,7 +5369,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -5306,7 +5382,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -5367,7 +5445,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
@@ -5380,7 +5458,9 @@
               groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -5435,7 +5515,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-        ORDER BY aggregation_target ASC) AS funnel_actors
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
                groups.properties AS properties
@@ -5492,7 +5572,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
-     ORDER BY aggregation_target ASC) AS funnel_actors
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
