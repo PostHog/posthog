@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator, Generator, Iterator
 from functools import partial
-from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union
+from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union, cast
 
 from asgiref.sync import sync_to_async
 from langchain_core.messages import AIMessageChunk
@@ -18,7 +18,7 @@ from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
 )
-from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation, ReplaceMessages
+from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation
 from ee.models import AssistantThread
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
@@ -160,17 +160,21 @@ class Assistant:
 
     def _get_saved_state(self, thread: AssistantThread):
         config = self._get_config(thread)
-        saved_state = self._graph.get_state(config)
-        if saved_state.next:
-            intermediate_steps = saved_state.values.get("intermediate_steps", []).copy()
-            intermediate_steps[-1][1] = self._conversation.messages[-1].root.content
-            self._graph.update_state(
-                config,
-                {
-                    "messages": ReplaceMessages(message.root for message in self._conversation.messages[:-2]),
-                    "intermediate_steps": intermediate_steps,
-                },
-            )
+        snapshot = self._graph.get_state(config)
+        if snapshot.next:
+            saved_state = cast(AssistantState, snapshot.values)
+            intermediate_steps = saved_state.get("intermediate_steps")
+            if intermediate_steps:
+                last_message = self._conversation.messages[-1].root
+                if isinstance(last_message, HumanMessage):
+                    intermediate_steps = intermediate_steps.copy()
+                    intermediate_steps[-1] = (intermediate_steps[-1][0], last_message.content)
+                    self._graph.update_state(
+                        config,
+                        {
+                            "intermediate_steps": intermediate_steps,
+                        },
+                    )
             return None
         return self._initial_state
 
