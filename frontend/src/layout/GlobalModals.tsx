@@ -77,7 +77,7 @@ export function GlobalModals(): JSX.Element {
                         userLogic.actions.loadUser()
                         membersLogic.actions.loadAllMembers()
                     }}
-                    forceOpen={true}
+                    forceOpen
                     closable={false}
                     required={true}
                 />
