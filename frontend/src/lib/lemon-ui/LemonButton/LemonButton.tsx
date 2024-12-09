@@ -1,4 +1,3 @@
-// import './LemonButton-old.scss'
 import './LemonButton.scss'
 
 import { IconChevronDown } from '@posthog/icons'

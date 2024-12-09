@@ -590,6 +590,7 @@ body {
         --content-tertiary: var(--neutral-cool-300);
         --content-warning-bold: var(--orange-100);
         --content-danger-bold: var(--red-200);
+        --content-danger-bold-disabled: var(--red-100);
         --content-success-bold: var(--green-100);
         --background-primary: var(--neutral-cool-900);
         --background-secondary: var(--neutral-cool-850);
@@ -597,11 +598,6 @@ body {
         --background-warning-subtle: var(--orange-850);
         --background-danger-subtle: var(--red-800);
         --background-danger-bold: var(--red-600);
-
-        // --background-button: var(--yellow-600);
-        // --background-button-hover: var(--yellow-600);
-        // --background-button-pressed: var(--yellow-800);
-        // --border-button-hover: var(--yellow-600);
         --border-button-hover: var(--yellow-700);
         --border-button-bold-hover: var(--yellow-500);
         --border-button-subtle: var(--yellow-500);
