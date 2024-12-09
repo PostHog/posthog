@@ -12,6 +12,8 @@ HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
 class FunnelUDFMixin:
+    pass
+    '''
     def _add_breakdown_attribution_subquery(self, inner_query: ast.SelectQuery) -> ast.SelectQuery:
         breakdown, breakdownAttributionType = (
             self.context.breakdown,
@@ -39,6 +41,16 @@ class FunnelUDFMixin:
                 select=[ast.Field(chain=["*"]), ast.Alias(alias="prop", expr=breakdown_selector)],
                 select_from=ast.JoinExpr(table=inner_query),
             )
+
+        # For step breakdowns and all_event breakdowns, remove events that have an empty breakdown
+        if self._query_has_array_breakdown():
+            compare = ast.CompareOperation(
+                left=ast.Field(chain=["prop"]), right=ast.Array(exprs=[]), op=ast.CompareOperationOp.NotEq
+            )
+            if inner_query.where:
+                inner_query.where = ast.And(exprs=[inner_query.where, compare])
+            else:
+                inner_query.where = compare
 
         return inner_query
 
@@ -99,6 +111,7 @@ class FunnelUDFMixin:
                 prop_basic,
                 ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"])),
             ]
+    '''
 
 
 class FunnelUDF(FunnelUDFMixin, FunnelBase):
@@ -167,8 +180,14 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         prop_vals = f"[{default_breakdown_selector}]"
         if self.context.breakdown:
-            if self.context.breakdownAttributionType == 
-            prop_vals = "groupUniqArray(prop)"
+            if self.context.breakdownAttributionType == BreakdownAttributionType.STEP:
+                prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
+            else:
+                prop = "prop"
+            if self._query_has_array_breakdown():
+                prop_vals = f"groupUniqArrayIf({prop}, {prop} != [])"
+            else:
+                prop_vals = f"groupUniqArray({prop})"
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
