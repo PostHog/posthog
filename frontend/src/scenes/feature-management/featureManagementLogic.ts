@@ -39,11 +39,11 @@ export const featureManagementLogic = kea<featureManagementLogicType>([
     }),
     loaders(({ values }) => ({
         features: [
-            { results: [], count: 0, offset: 0 } as FeaturesResult,
+            null as null | FeaturesResult,
             {
                 loadFeatures: async () => {
                     const response = await api.get(`api/projects/${values.currentTeamId}/features`)
-                    return response.data as FeaturesResult
+                    return response as FeaturesResult
                 },
             },
         ],
@@ -51,7 +51,7 @@ export const featureManagementLogic = kea<featureManagementLogicType>([
     selectors({
         activeFeature: [
             (s) => [s.activeFeatureId, s.features],
-            (activeFeatureId, features) => features.results.find((feature) => feature.id === activeFeatureId) || null,
+            (activeFeatureId, features) => features?.results.find((feature) => feature.id === activeFeatureId) || null,
         ],
         breadcrumbs: [
             (s) => [s.activeFeatureId, s.activeFeature],

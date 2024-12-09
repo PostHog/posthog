@@ -9,7 +9,7 @@ export function FeatureManagementList(): JSX.Element {
 
     return (
         <ul>
-            {features.results.map((feature) => (
+            {features?.results.map((feature) => (
                 <li key={feature.id}>
                     <LemonButton
                         onClick={() => setActiveFeatureId(feature.id)}
