@@ -4586,26 +4586,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 {
                     "event": "step two",
                     "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                    "properties": {"$browser": "Safari"},
+                },
+                {
+                    "event": "step two",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 2),
                     "properties": {"$browser": "Chrome"},
                 },
                 {
                     "event": "step three",
-                    "timestamp": datetime(2021, 5, 1, 0, 0, 2),
-                    "properties": {"$browser": "Safari"},
-                },
-                {
-                    "event": "step one",
-                    "properties": {"$browser": "Safari"},
-                    "timestamp": datetime(2021, 5, 2, 0, 0, 0),
-                },
-                {
-                    "event": "step two",
-                    "timestamp": datetime(2021, 5, 2, 0, 0, 1),
-                    "properties": {"$browser": "Safari"},
-                },
-                {
-                    "event": "step three",
-                    "timestamp": datetime(2021, 5, 2, 0, 0, 2),
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 3),
                     "properties": {"$browser": "Chrome"},
                 },
             ]
@@ -4644,15 +4634,24 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             filters["breakdown_attribution_type"] = "all_events"
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
-            assert 2 == len(results)
-            for result in results:
-                assert [x["count"] for x in result] == [1, 1, 0]
+            assert 1 == len(results)
+            result = results[0]
+            assert [x["count"] for x in result] == [1, 1, 1]
+            assert [x["breakdown"] == ["Chrome"] for x in result]
 
             filters["breakdown_attribution_type"] = "step"
             filters["breakdown_attribution_value"] = 0
             query = cast(FunnelsQuery, filter_to_query(filters))
-            full_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate()
-            results = full_results.results
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+            assert 1 == len(results)
+            result = results[0]
+            assert [x["count"] for x in result] == [1, 1, 1]
+            assert [x["breakdown"] == ["Chrome"] for x in result]
+
+            filters["breakdown_attribution_type"] = "step"
+            filters["breakdown_attribution_value"] = 1
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
             assert 2 == len(results)
             for result in results:
                 assert [x["count"] for x in result] == [1, 1, 1]
@@ -4661,9 +4660,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             filters["breakdown_attribution_value"] = 2
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
-
-            for result in results:
-                assert [x["count"] for x in result] == [1, 1, 1]
+            assert 1 == len(results)
+            result = results[0]
+            assert [x["count"] for x in result] == [1, 1, 1]
+            assert [x["breakdown"] == ["Chrome"] for x in result]
 
     return TestGetFunnel
 
