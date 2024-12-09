@@ -14,7 +14,11 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
 )
-from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from posthog.models.error_tracking import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueAssignment,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -544,25 +548,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     #         ],
     #     )
 
-    # @snapshot_clickhouse_queries
-    # def test_assignee_groups(self):
-    #     ErrorTrackingIssueAssignment.objects.create(issue=self.issue_mine, user=self.user)
-    #     # flush_persons_and_events()
+    @snapshot_clickhouse_queries
+    def test_assignee_groups(self):
+        issue = ErrorTrackingIssue.objects.filter(id=self.issue_id_one).first()
+        ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
 
-    #     runner = ErrorTrackingQueryRunner(
-    #         team=self.team,
-    #         query=ErrorTrackingQuery(
-    #             kind="ErrorTrackingQuery",
-    #             dateRange=DateRange(),
-    #             assignee=self.user.pk,
-    #         ),
-    #     )
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(),
+                assignee=self.user.pk,
+            ),
+        )
 
-    #     results = self._calculate(runner)["results"]
-
-    #     self.assertEqual(len(results), 45)
-
-    # self.assertEqual(sorted([x["fingerprint"] for x in results]), [["SyntaxError"], ["custom_fingerprint"]])
+        results = self._calculate(runner)["results"]
+        self.assertEqual([x["id"] for x in results], [self.issue_id_one])
 
 
 class TestSearchTokenizer(TestCase):
