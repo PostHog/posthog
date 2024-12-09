@@ -170,7 +170,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         for result_dict in mapped_results:
             issue = issues.get(result_dict["id"])
             if issue:
-                results.append(issue | result_dict | {"assignee": self.query.assignee})
+                results.append(issue | result_dict | {"assignee": self.query.assignee, "id": str(result_dict["id"])})
             else:
                 logger.error(
                     "error tracking issue not found",
@@ -210,7 +210,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             else queryset
         )
         issues = queryset.values("id", "status", "name", "description")
-        return {str(item["id"]): item for item in issues}
+        return {item["id"]: item for item in issues}
 
 
 def search_tokenizer(query: str) -> list[str]:
