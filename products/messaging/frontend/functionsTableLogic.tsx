@@ -10,7 +10,7 @@ import { HogFunctionType, HogFunctionTypeType } from '~/types'
 import type { functionsTableLogicType } from './functionsTableLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
-export interface Fuse extends FuseClass<HogFunctionType> {}
+export interface Fuse extends FuseClass<HogFunctionType> { }
 
 export interface FunctionsTableLogicProps {
     type?: HogFunctionTypeType
@@ -19,7 +19,7 @@ export interface HogFunctionsFilter {
     search?: string
 }
 export const functionsTableLogic = kea<functionsTableLogicType>([
-    path(['scenes', 'messaging', 'functionsTableLogic']),
+    path(['products', 'messaging', 'frontend', 'functionsTableLogic']),
     props({} as FunctionsTableLogicProps),
     key((props: FunctionsTableLogicProps) => props.type ?? 'destination'),
     connect({

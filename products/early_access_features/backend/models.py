@@ -3,6 +3,9 @@ from posthog.models.utils import UUIDModel, sane_repr
 
 
 class EarlyAccessFeature(UUIDModel):
+    class Meta:
+        db_table = '"posthog_earlyaccessfeature"'
+
     class Stage(models.TextChoices):
         DRAFT = "draft", "draft"
         CONCEPT = "concept", "concept"
@@ -30,6 +33,7 @@ class EarlyAccessFeature(UUIDModel):
     stage = models.CharField(max_length=40, choices=Stage.choices)
     documentation_url = models.URLField(max_length=800, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    field_we_test = models.TextField(blank=True)
 
     def __str__(self) -> str:
         return self.name
