@@ -521,15 +521,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
         segmentForTimestamp: [
             (s) => [s.sessionPlayerData],
-            (sessionPlayerData) => {
+            (sessionPlayerData: SessionPlayerData) => {
                 return (timestamp?: number): RecordingSegment | null => {
                     if (timestamp === undefined) {
                         return null
                     }
-                    for (const segment of sessionPlayerData.segments) {
-                        if (segment.startTimestamp <= timestamp && segment.endTimestamp >= timestamp) {
-                            return segment
+                    if (sessionPlayerData.segments.length) {
+                        for (const segment of sessionPlayerData.segments) {
+                            if (segment.startTimestamp <= timestamp && segment.endTimestamp >= timestamp) {
+                                return segment
+                            }
                         }
+                        return {
+                            kind: 'buffer',
+                            startTimestamp: timestamp,
+                            endTimestamp: sessionPlayerData.segments[0].startTimestamp - 1,
+                            isActive: false,
+                        } as RecordingSegment
                     }
                     return null
                 }
