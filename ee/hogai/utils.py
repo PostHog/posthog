@@ -1,10 +1,10 @@
-import json
 import operator
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Any, Optional, TypedDict, Union
+from typing import Annotated, Optional, TypedDict, Union
 
+from jsonref import replace_refs
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
@@ -19,16 +19,19 @@ from posthog.schema import (
     AssistantMessage,
     FailureMessage,
     HumanMessage,
+    ReasoningMessage,
     RootAssistantMessage,
     RouterMessage,
     VisualizationMessage,
 )
 
-AssistantMessageUnion = Union[AssistantMessage, HumanMessage, VisualizationMessage, FailureMessage, RouterMessage]
+AssistantMessageUnion = Union[
+    AssistantMessage, HumanMessage, VisualizationMessage, FailureMessage, RouterMessage, ReasoningMessage
+]
 
 
 class Conversation(BaseModel):
-    messages: list[RootAssistantMessage] = Field(..., min_length=1, max_length=20)
+    messages: list[RootAssistantMessage] = Field(..., min_length=1, max_length=50)
     session_id: str
 
 
@@ -50,6 +53,7 @@ class AssistantNodeName(StrEnum):
     FUNNEL_PLANNER_TOOLS = "funnel_planner_tools"
     FUNNEL_GENERATOR = "funnel_generator"
     FUNNEL_GENERATOR_TOOLS = "funnel_generator_tools"
+    SUMMARIZER = "summarizer"
 
 
 class AssistantNode(ABC):
@@ -106,26 +110,8 @@ def filter_visualization_conversation(
     return human_messages, visualization_messages
 
 
-def replace_value_in_dict(item: Any, original_schema: Any):
-    if isinstance(item, list):
-        return [replace_value_in_dict(i, original_schema) for i in item]
-    elif isinstance(item, dict):
-        if list(item.keys()) == ["$ref"]:
-            definitions = item["$ref"][2:].split("/")
-            res = original_schema.copy()
-            for definition in definitions:
-                res = res[definition]
-            return res
-        else:
-            return {key: replace_value_in_dict(i, original_schema) for key, i in item.items()}
-    else:
-        return item
-
-
-def flatten_schema(schema: dict):
-    for _ in range(100):
-        if "$ref" not in json.dumps(schema):
-            break
-        schema = replace_value_in_dict(schema.copy(), schema.copy())
-    del schema["$defs"]
-    return schema
+def dereference_schema(schema: dict) -> dict:
+    new_schema: dict = replace_refs(schema, proxies=False, lazy_load=False)
+    if "$defs" in new_schema:
+        new_schema.pop("$defs")
+    return new_schema

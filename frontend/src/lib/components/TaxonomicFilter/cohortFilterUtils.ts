@@ -10,7 +10,7 @@ function isCohortCriteriaGroupFilter(
 
 const hasBehavioralFilter = (cohort: CohortType, allCohorts: CohortType[]): boolean => {
     const checkCriteriaGroup = (group: CohortCriteriaGroupFilter): boolean => {
-        return group.values.some((value) => {
+        return group.values?.some((value) => {
             if (isCohortCriteriaGroupFilter(value)) {
                 return checkCriteriaGroup(value)
             }

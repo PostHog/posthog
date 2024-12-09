@@ -219,7 +219,10 @@ class TrendsQueryRunner(QueryRunner):
                 for value in self.query.breakdownFilter.breakdown:
                     if value != "all" and str(value) != "0":
                         res_breakdown.append(
-                            BreakdownItem(label=Cohort.objects.get(pk=int(value), team=self.team).name, value=value)
+                            BreakdownItem(
+                                label=Cohort.objects.get(pk=int(value), team__project_id=self.team.project_id).name,
+                                value=value,
+                            )
                         )
                     else:
                         res_breakdown.append(BreakdownItem(label="all users", value="all"))
@@ -524,17 +527,8 @@ class TrendsQueryRunner(QueryRunner):
 
             # Modifications for when comparing to previous period
             if self.query.compareFilter is not None and self.query.compareFilter.compare:
-                labels = [
-                    "{} {}".format(
-                        self.query.interval if self.query.interval is not None else "day",
-                        i,
-                    )
-                    for i in range(len(series_object.get("labels", [])))
-                ]
-
                 series_object["compare"] = True
                 series_object["compare_label"] = "previous" if series.is_previous_period_series else "current"
-                series_object["labels"] = labels
 
             # Modifications for when breakdowns are active
             if self.breakdown_enabled:
@@ -897,7 +891,16 @@ class TrendsQueryRunner(QueryRunner):
             if not table_or_view:
                 raise ValueError(f"Table {series.table_name} not found")
 
-            field_type = dict(table_or_view.columns)[self.query.breakdownFilter.breakdown]["clickhouse"]
+            breakdown_key = (
+                self.query.breakdownFilter.breakdown[0]
+                if isinstance(self.query.breakdownFilter.breakdown, list)
+                else self.query.breakdownFilter.breakdown
+            )
+
+            if breakdown_key not in dict(table_or_view.columns):
+                return False
+
+            field_type = dict(table_or_view.columns)[breakdown_key]["clickhouse"]
 
             if field_type.startswith("Nullable("):
                 field_type = field_type.replace("Nullable(", "")[:-1]

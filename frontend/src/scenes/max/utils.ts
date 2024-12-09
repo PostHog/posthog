@@ -1,16 +1,22 @@
 import {
     AssistantFunnelsQuery,
+    AssistantMessage,
     AssistantMessageType,
     AssistantTrendsQuery,
     FailureMessage,
     FunnelsQuery,
     HumanMessage,
+    ReasoningMessage,
     RootAssistantMessage,
     RouterMessage,
     TrendsQuery,
     VisualizationMessage,
 } from '~/queries/schema'
 import { isTrendsQuery } from '~/queries/utils'
+
+export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
+    return message?.type === AssistantMessageType.Reasoning
+}
 
 export function isVisualizationMessage(
     message: RootAssistantMessage | undefined | null
@@ -20,6 +26,10 @@ export function isVisualizationMessage(
 
 export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {
     return message?.type === AssistantMessageType.Human
+}
+
+export function isAssistantMessage(message: RootAssistantMessage | undefined | null): message is AssistantMessage {
+    return message?.type === AssistantMessageType.Assistant
 }
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {

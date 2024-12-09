@@ -1,5 +1,5 @@
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
-from ee.hogai.utils import flatten_schema
+from ee.hogai.utils import dereference_schema
 from posthog.schema import (
     AssistantTrendsQuery,
 )
@@ -59,39 +59,16 @@ class TrendsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
 
 def generate_trends_schema() -> dict:
     schema = AssistantTrendsQuery.model_json_schema()
-
-    # Patch `numeric` types
-    schema["$defs"]["MathGroupTypeIndex"]["type"] = "number"
-    property_filters = (
-        "EventPropertyFilter",
-        "PersonPropertyFilter",
-        "SessionPropertyFilter",
-        "FeaturePropertyFilter",
-        "GroupPropertyFilter",
-    )
-
-    # Clean up the property filters
-    for key in property_filters:
-        property_schema = schema["$defs"][key]
-        property_schema["properties"]["key"]["description"] = (
-            f"Use one of the properties the user has provided in the plan."
-        )
-
     return {
         "name": "output_insight_schema",
-        "description": "Outputs the JSON schema of a funnel insight",
+        "description": "Outputs the JSON schema of a trends insight",
         "parameters": {
             "type": "object",
             "properties": {
-                "reasoning_steps": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "The reasoning steps leading to the final conclusion that will be shown to the user. Use 'you' if you want to refer to the user.",
-                },
-                "answer": flatten_schema(schema),
+                "query": dereference_schema(schema),
             },
             "additionalProperties": False,
-            "required": ["reasoning_steps", "answer"],
+            "required": ["query"],
         },
     }
 

@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
@@ -6,11 +6,12 @@ import api from 'lib/api'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { urls } from 'scenes/urls'
 
+import { hogqlQuery } from '~/queries/query'
 import {
     ActionConversionGoal,
     ActionsNode,
@@ -86,10 +87,11 @@ const loadPriorityMap: Record<TileId, number> = {
 interface BaseTile {
     tileId: TileId
     layout: WebTileLayout
+    docs?: Docs
 }
 
 export interface Docs {
-    docsUrl: PostHogComDocsURL
+    url?: PostHogComDocsURL
     title: string
     description: string | JSX.Element
 }
@@ -102,7 +104,6 @@ export interface QueryTile extends BaseTile {
     insightProps: InsightLogicProps
     canOpenModal: boolean
     canOpenInsight?: boolean
-    docs?: Docs
 }
 
 export interface TabsTileTab {
@@ -185,12 +186,18 @@ export enum GeographyTab {
     COUNTRIES = 'COUNTRIES',
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',
+    TIMEZONES = 'TIMEZONES',
+    LANGUAGES = 'LANGUAGES',
 }
 
 export interface WebAnalyticsStatusCheck {
     isSendingPageViews: boolean
     isSendingPageLeaves: boolean
     isSendingPageLeavesScroll: boolean
+}
+
+export enum ConversionGoalWarning {
+    CustomEventWithNoSessionId = 'CustomEventWithNoSessionId',
 }
 
 export const GEOIP_PLUGIN_URLS = [
@@ -209,6 +216,9 @@ const getDashboardItemId = (section: TileId, tab: string | undefined, isModal?: 
     // pretend to be a new-AdHoc to get the correct behaviour elsewhere
     return `new-AdHoc.web-analytics.${section}.${tab || 'default'}.${isModal ? 'modal' : 'default'}`
 }
+
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
     connect(() => ({
@@ -268,11 +278,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         openAsNewInsight: (tileId: TileId, tabId?: string) => {
             return { tileId, tabId }
         },
+        setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
     }),
     reducers({
         webAnalyticsFilters: [
             initialWebAnalyticsFilter,
-            { persist: true },
+            persistConfig,
             {
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
                 togglePropertyFilter: (oldPropertyFilters, { key, value, type }): WebAnalyticsPropertyFilters => {
@@ -344,7 +355,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _graphsTab: [
             null as string | null,
-            { persist: true },
+            persistConfig,
             {
                 setGraphsTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.graphsTab || oldTab,
@@ -352,7 +363,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _sourceTab: [
             null as string | null,
-            { persist: true },
+            persistConfig,
             {
                 setSourceTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.sourceTab || oldTab,
@@ -360,7 +371,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _deviceTab: [
             null as string | null,
-            { persist: true },
+            persistConfig,
             {
                 setDeviceTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.deviceTab || oldTab,
@@ -368,7 +379,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _pathTab: [
             null as string | null,
-            { persist: true },
+            persistConfig,
             {
                 setPathTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.pathTab || oldTab,
@@ -376,7 +387,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _geographyTab: [
             null as string | null,
-            { persist: true },
+            persistConfig,
             {
                 setGeographyTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
@@ -384,7 +395,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         isPathCleaningEnabled: [
             null as boolean | null,
-            { persist: true },
+            persistConfig,
             {
                 setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
             },
@@ -405,7 +416,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 dateTo: initialDateTo,
                 interval: initialInterval,
             },
-            { persist: true },
+            persistConfig,
             {
                 setDates: (_, { dateTo, dateFrom }) => ({
                     dateTo,
@@ -435,23 +446,29 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         shouldFilterTestAccounts: [
             false as boolean,
-            { persist: true },
+            persistConfig,
             {
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
             },
         ],
         shouldStripQueryParams: [
             false as boolean,
-            { persist: true },
+            persistConfig,
             {
                 setShouldStripQueryParams: (_, { shouldStripQueryParams }) => shouldStripQueryParams,
             },
         ],
         conversionGoal: [
             null as WebAnalyticsConversionGoal | null,
-            { persist: true },
+            persistConfig,
             {
                 setConversionGoal: (_, { conversionGoal }) => conversionGoal,
+            },
+        ],
+        conversionGoalWarning: [
+            null as ConversionGoalWarning | null,
+            {
+                setConversionGoalWarning: (_, { warning }) => warning,
             },
         ],
     }),
@@ -741,6 +758,27 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                     {
                                         showPathCleaningControls: true,
+                                        docs: {
+                                            url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
+                                            title: 'Paths',
+                                            description: (
+                                                <div>
+                                                    <p>
+                                                        In this view you can validate all of the paths that were
+                                                        accessed in your application, regardless of when they were
+                                                        accessed through the lifetime of a user session.
+                                                    </p>
+                                                    <p>
+                                                        The{' '}
+                                                        <Link to="https://posthog.com/docs/web-analytics/dashboard#bounce-rate">
+                                                            bounce rate
+                                                        </Link>{' '}
+                                                        indicates the percentage of users who left your page immediately
+                                                        after visiting without capturing any event.
+                                                    </p>
+                                                </div>
+                                            ),
+                                        },
                                     }
                                 ),
                                 createTableTab(
@@ -756,6 +794,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                     {
                                         showPathCleaningControls: true,
+                                        docs: {
+                                            url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
+                                            title: 'Entry Path',
+                                            description: (
+                                                <div>
+                                                    Entry paths are the paths a user session started, i.e. the first
+                                                    path they saw when they opened your website.
+                                                </div>
+                                            ),
+                                        },
                                     }
                                 ),
                                 createTableTab(
@@ -771,6 +819,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                     {
                                         showPathCleaningControls: true,
+                                        docs: {
+                                            url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
+                                            title: 'End Path',
+                                            description: (
+                                                <div>
+                                                    End paths are the last path a user visited before their session
+                                                    ended, i.e. the last path they saw before leaving your
+                                                    website/closing the browser/turning their computer off.
+                                                </div>
+                                            ),
+                                        },
                                     }
                                 ),
                                 featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LAST_CLICK]
@@ -795,6 +854,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           },
                                           insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
                                           canOpenModal: true,
+                                          docs: {
+                                              title: 'Outbound Clicks',
+                                              description: (
+                                                  <div>
+                                                      You'll be able to verify when someone leaves your website by
+                                                      clicking an outbound link (to a separate domain)
+                                                  </div>
+                                              ),
+                                          },
                                       }
                                     : null,
                             ] as (TabsTileTab | undefined)[]
@@ -819,7 +887,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 {},
                                 {
                                     docs: {
-                                        docsUrl: 'https://posthog.com/docs/data/channel-type',
+                                        url: 'https://posthog.com/docs/data/channel-type',
                                         title: 'Channels',
                                         description: (
                                             <div>
@@ -827,6 +895,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                     Channels are the different sources that bring traffic to your
                                                     website, e.g. Paid Search, Organic Social, Direct, etc.
                                                 </p>
+                                                {featureFlags[FEATURE_FLAGS.CUSTOM_CHANNEL_TYPE_RULES] && (
+                                                    <p>
+                                                        You can also{' '}
+                                                        <Link
+                                                            to={urls.settings(
+                                                                'environment-web-analytics',
+                                                                'channel-type'
+                                                            )}
+                                                        >
+                                                            create custom channel types
+                                                        </Link>
+                                                        , allowing you to further categorize your channels.
+                                                    </p>
+                                                )}
+
                                                 <p>
                                                     Something unexpected? Try the{' '}
                                                     <Link to={urls.sessionAttributionExplorer()}>
@@ -843,49 +926,136 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 SourceTab.REFERRING_DOMAIN,
                                 'Referrers',
                                 'Referring domain',
-                                WebStatsBreakdown.InitialReferringDomain
+                                WebStatsBreakdown.InitialReferringDomain,
+                                {},
+                                {
+                                    docs: {
+                                        url: 'https://posthog.com/docs/web-analytics/dashboard#referrers-channels-utms',
+                                        title: 'Referrers',
+                                        description: 'Understand where your users are coming from',
+                                    },
+                                }
                             ),
                             createTableTab(
                                 TileId.SOURCES,
                                 SourceTab.UTM_SOURCE,
                                 'UTM sources',
                                 'UTM source',
-                                WebStatsBreakdown.InitialUTMSource
+                                WebStatsBreakdown.InitialUTMSource,
+                                {},
+                                {
+                                    docs: {
+                                        url: 'https://posthog.com/docs/web-analytics/dashboard#utms',
+                                        title: 'UTM source',
+                                        description: (
+                                            <>
+                                                Understand where your users are coming from - filtered down by their{' '}
+                                                <code>utm_source</code> parameter
+                                            </>
+                                        ),
+                                    },
+                                }
                             ),
                             createTableTab(
                                 TileId.SOURCES,
                                 SourceTab.UTM_MEDIUM,
                                 'UTM medium',
                                 'UTM medium',
-                                WebStatsBreakdown.InitialUTMMedium
+                                WebStatsBreakdown.InitialUTMMedium,
+                                {},
+                                {
+                                    docs: {
+                                        url: 'https://posthog.com/docs/web-analytics/dashboard#utms',
+                                        title: 'UTM medium',
+                                        description: (
+                                            <>
+                                                Understand where your users are coming from - filtered down by their{' '}
+                                                <code>utm_medium</code> parameter
+                                            </>
+                                        ),
+                                    },
+                                }
                             ),
                             createTableTab(
                                 TileId.SOURCES,
                                 SourceTab.UTM_CAMPAIGN,
                                 'UTM campaigns',
                                 'UTM campaign',
-                                WebStatsBreakdown.InitialUTMCampaign
+                                WebStatsBreakdown.InitialUTMCampaign,
+                                {},
+                                {
+                                    docs: {
+                                        url: 'https://posthog.com/docs/web-analytics/dashboard#utms',
+                                        title: 'UTM campaign',
+                                        description: (
+                                            <>
+                                                Understand where your users are coming from - filtered down by their{' '}
+                                                <code>utm_campaign</code> parameter
+                                            </>
+                                        ),
+                                    },
+                                }
                             ),
                             createTableTab(
                                 TileId.SOURCES,
                                 SourceTab.UTM_CONTENT,
                                 'UTM content',
                                 'UTM content',
-                                WebStatsBreakdown.InitialUTMContent
+                                WebStatsBreakdown.InitialUTMContent,
+                                {},
+                                {
+                                    docs: {
+                                        url: 'https://posthog.com/docs/web-analytics/dashboard#utms',
+                                        title: 'UTM content',
+                                        description: (
+                                            <>
+                                                Understand where your users are coming from - filtered down by their{' '}
+                                                <code>utm_content</code> parameter
+                                            </>
+                                        ),
+                                    },
+                                }
                             ),
                             createTableTab(
                                 TileId.SOURCES,
                                 SourceTab.UTM_TERM,
                                 'UTM terms',
                                 'UTM term',
-                                WebStatsBreakdown.InitialUTMTerm
+                                WebStatsBreakdown.InitialUTMTerm,
+                                {},
+                                {
+                                    docs: {
+                                        url: 'https://posthog.com/docs/web-analytics/dashboard#utms',
+                                        title: 'UTM term',
+                                        description: (
+                                            <>
+                                                Understand where your users are coming from - filtered down by their{' '}
+                                                <code>utm_term</code> parameter
+                                            </>
+                                        ),
+                                    },
+                                }
                             ),
                             createTableTab(
                                 TileId.SOURCES,
                                 SourceTab.UTM_SOURCE_MEDIUM_CAMPAIGN,
                                 'Source / Medium / Campaign',
                                 'UTM s/m/c',
-                                WebStatsBreakdown.InitialUTMSourceMediumCampaign
+                                WebStatsBreakdown.InitialUTMSourceMediumCampaign,
+                                {},
+                                {
+                                    docs: {
+                                        url: 'https://posthog.com/docs/web-analytics/dashboard#utms',
+                                        title: 'UTM parameters',
+                                        description: (
+                                            <>
+                                                Understand where your users are coming from - filtered down by a tuple
+                                                of their <code>utm_source</code>, <code>utm_medium</code>, and{' '}
+                                                <code>utm_campaign</code> parameters
+                                            </>
+                                        ),
+                                    },
+                                }
                             ),
                         ],
                     },
@@ -981,6 +1151,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       'Cities',
                                       WebStatsBreakdown.City
                                   ),
+                                  createTableTab(
+                                      TileId.GEOGRAPHY,
+                                      GeographyTab.TIMEZONES,
+                                      'Timezones',
+                                      'Timezones',
+                                      WebStatsBreakdown.Timezone
+                                  ),
+                                  createTableTab(
+                                      TileId.GEOGRAPHY,
+                                      GeographyTab.LANGUAGES,
+                                      'Languages',
+                                      'Languages',
+                                      WebStatsBreakdown.Language
+                                  ),
                               ],
                           }
                         : null,
@@ -1017,6 +1201,28 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         insightProps: createInsightProps(TileId.RETENTION),
                         canOpenInsight: false,
                         canOpenModal: true,
+                        docs: {
+                            url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
+                            title: 'Retention',
+                            description: (
+                                <>
+                                    <div>
+                                        <p>
+                                            Retention creates a cohort of unique users who performed any event for the
+                                            first time in the last week. It then tracks the percentage of users who
+                                            return to perform any event in the following weeks.
+                                        </p>
+                                        <p>
+                                            You want the numbers numbers to be the highest possible, suggesting that
+                                            people that come to your page continue coming to your page - and performing
+                                            an actions. Also, the further down the table the higher the numbers should
+                                            be (or at least as high), which would indicate that you're either increasing
+                                            or keeping your retention at the same level.
+                                        </p>
+                                    </div>
+                                </>
+                            ),
+                        },
                     },
                     featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS]
                         ? {
@@ -1043,6 +1249,25 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               insightProps: createInsightProps(TileId.GOALS),
                               canOpenInsight: false,
                               canOpenModal: false,
+                              docs: {
+                                  url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
+                                  title: 'Goals',
+                                  description: (
+                                      <>
+                                          <div>
+                                              <p>
+                                                  Goals shows your pinned or most recently created actions and the
+                                                  number of conversions they've had. You can set a custom event or
+                                                  action as a{' '}
+                                                  <Link to="https://posthog.com/docs/web-analytics/conversion-goals">
+                                                      conversion goal
+                                                  </Link>{' '}
+                                                  at the top of the dashboard for more specific metrics.
+                                              </p>
+                                          </div>
+                                      </>
+                                  ),
+                              },
                           }
                         : null,
                     featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REPLAY]
@@ -1051,6 +1276,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               tileId: TileId.REPLAY,
                               layout: {
                                   colSpanClassName: 'md:col-span-1',
+                              },
+                              docs: {
+                                  url: 'https://posthog.com/docs/session-replay',
+                                  title: 'Session Replay',
+                                  description:
+                                      'Play back sessions to diagnose UI issues, improve support, and get context for nuanced user behavior.',
                               },
                           }
                         : null,
@@ -1062,7 +1293,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   colSpanClassName: 'md:col-span-1',
                               },
                               query: errorTrackingQuery({
-                                  order: 'users',
+                                  orderBy: 'users',
                                   dateRange: dateRange,
                                   filterTestAccounts: filterTestAccounts,
                                   filterGroup: replayFilters.filter_group,
@@ -1070,6 +1301,25 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   columns: ['error', 'users', 'occurrences'],
                                   limit: 4,
                               }),
+                              docs: {
+                                  url: 'https://posthog.com/docs/error-tracking',
+                                  title: 'Error Tracking',
+                                  description: (
+                                      <>
+                                          <div>
+                                              <p>
+                                                  Error tracking allows you to track, investigate, and resolve
+                                                  exceptions your customers face.
+                                              </p>
+                                              <p>
+                                                  Errors are captured as <code>$exception</code> events which means that
+                                                  you can create insights, filter recordings and trigger surveys based
+                                                  on them exactly the same way you can for any other type of event.
+                                              </p>
+                                          </div>
+                                      </>
+                                  ),
+                              },
                           }
                         : null,
                 ]
@@ -1481,18 +1731,68 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
             }
         }
+
         return {
             setGraphsTab: ({ tab }) => {
                 checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)
             },
-            setConversionGoal: ({ conversionGoal }) => {
-                checkGraphsTabIsCompatibleWithConversionGoal(values.graphsTab, conversionGoal)
-            },
+            setConversionGoal: [
+                ({ conversionGoal }) => {
+                    checkGraphsTabIsCompatibleWithConversionGoal(values.graphsTab, conversionGoal)
+                },
+                ({ conversionGoal }, breakpoint) =>
+                    checkCustomEventConversionGoalHasSessionIdsHelper(
+                        conversionGoal,
+                        breakpoint,
+                        actions.setConversionGoalWarning,
+                        values.featureFlags
+                    ),
+            ],
         }
+    }),
+    afterMount(({ actions, values }) => {
+        checkCustomEventConversionGoalHasSessionIdsHelper(
+            values.conversionGoal,
+            undefined,
+            actions.setConversionGoalWarning,
+            values.featureFlags
+        ).catch(() => {
+            // ignore, this warning is just a nice-to-have, no point showing an error to the user
+        })
     }),
 ])
 
 const isDefinitionStale = (definition: EventDefinition | PropertyDefinition): boolean => {
     const parsedLastSeen = definition.last_seen_at ? dayjs(definition.last_seen_at) : null
     return !!parsedLastSeen && dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
+}
+
+const checkCustomEventConversionGoalHasSessionIdsHelper = async (
+    conversionGoal: WebAnalyticsConversionGoal | null,
+    breakpoint: BreakPointFunction | undefined,
+    setConversionGoalWarning: (warning: ConversionGoalWarning | null) => void,
+    featureFlags: FeatureFlagsSet
+): Promise<void> => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_WARN_CUSTOM_EVENT_NO_SESSION]) {
+        return
+    }
+
+    if (!conversionGoal || !('customEventName' in conversionGoal) || !conversionGoal.customEventName) {
+        setConversionGoalWarning(null)
+        return
+    }
+    const { customEventName } = conversionGoal
+    // check if we have any conversion events from the last week without sessions ids
+
+    const response = await hogqlQuery(
+        `select count() from events where timestamp >= (now() - toIntervalHour(24)) AND ($session_id IS NULL OR $session_id = '') AND event = {event}`,
+        { event: customEventName }
+    )
+    breakpoint?.()
+    const row = response.results[0]
+    if (row[0]) {
+        setConversionGoalWarning(ConversionGoalWarning.CustomEventWithNoSessionId)
+    } else {
+        setConversionGoalWarning(null)
+    }
 }

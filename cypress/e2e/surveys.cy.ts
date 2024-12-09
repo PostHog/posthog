@@ -100,7 +100,7 @@ describe('Surveys', () => {
         cy.get('[data-attr=prop-val]').click({ force: true })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
-        cy.get('[data-attr="rollout-percentage"]').type('100')
+        cy.get('[data-attr="rollout-percentage"]').click().type('100')
 
         // save
         cy.get('[data-attr="save-survey"]').eq(0).click()
@@ -202,7 +202,7 @@ describe('Surveys', () => {
         cy.get('[data-attr="prop-filter-person_properties-0"]').click()
         cy.get('[data-attr=prop-val]').click({ force: true })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
-        cy.get('[data-attr="rollout-percentage"]').type('100')
+        cy.get('[data-attr="rollout-percentage"]').click().type('100')
 
         cy.get('[data-attr=save-survey]').first().click()
 
@@ -269,6 +269,7 @@ describe('Surveys', () => {
 
         // Set responses limit
         cy.get('.LemonCollapsePanel').contains('Completion conditions').click()
+        cy.get('[data-attr=survey-collection-until-limit]').first().click()
         cy.get('[data-attr=survey-responses-limit-input]').focus().type('228').click()
 
         // Save the survey
@@ -276,7 +277,7 @@ describe('Surveys', () => {
         cy.get('button[data-attr="launch-survey"]').should('have.text', 'Launch')
 
         cy.reload()
-        cy.contains('The survey will be stopped once 228 responses are received.').should('be.visible')
+        cy.contains('The survey will be stopped once 100228 responses are received.').should('be.visible')
     })
 
     it('creates a new survey with branching logic', () => {

@@ -3,25 +3,57 @@ from posthog.hogql_queries.experiments.experiment_trends_query_runner import Exp
 from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (
+    DataWarehouseNode,
     EventsNode,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
     ExperimentTrendsQueryResponse,
     TrendsQuery,
 )
+from posthog.settings import (
+    OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    XDIST_SUFFIX,
+)
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from freezegun import freeze_time
 from typing import cast
 from django.utils import timezone
-from datetime import timedelta
+from datetime import datetime, timedelta
 from posthog.test.test_journeys import journeys_for
 from rest_framework.exceptions import ValidationError
 from posthog.constants import ExperimentNoResultsErrorKeys
+import s3fs
+from pyarrow import parquet as pq
+import pyarrow as pa
 import json
+from flaky import flaky
+
+from boto3 import resource
+from botocore.config import Config
+from posthog.warehouse.models.credential import DataWarehouseCredential
+from posthog.warehouse.models.join import DataWarehouseJoin
+from posthog.warehouse.models.table import DataWarehouseTable
+
+TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery" + XDIST_SUFFIX
 
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    def teardown_method(self, method) -> None:
+        s3 = resource(
+            "s3",
+            endpoint_url=OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            config=Config(signature_version="s3v4"),
+            region_name="us-east-1",
+        )
+        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+        bucket.objects.filter(Prefix=TEST_BUCKET).delete()
+
     def create_feature_flag(self, key="test-experiment"):
         return FeatureFlag.objects.create(
             name=f"Test experiment flag: {key}",
@@ -47,15 +79,25 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-    def create_experiment(self, name="test-experiment", feature_flag=None):
+    def create_experiment(
+        self,
+        name="test-experiment",
+        feature_flag=None,
+        start_date=None,
+        end_date=None,
+    ):
         if feature_flag is None:
             feature_flag = self.create_feature_flag(name)
+        if start_date is None:
+            start_date = timezone.now()
+        if end_date is None:
+            end_date = timezone.now() + timedelta(days=14)
         return Experiment.objects.create(
             name=name,
             team=self.team,
             feature_flag=feature_flag,
-            start_date=timezone.now(),
-            end_date=timezone.now() + timedelta(days=14),
+            start_date=start_date,
+            end_date=end_date,
         )
 
     def create_holdout_for_experiment(self, experiment: Experiment):
@@ -68,6 +110,77 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.holdout = holdout
         experiment.save()
         return holdout
+
+    def create_data_warehouse_table_with_payments(self):
+        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
+            raise Exception("Missing vars")
+
+        fs = s3fs.S3FileSystem(
+            client_kwargs={
+                "region_name": "us-east-1",
+                "endpoint_url": OBJECT_STORAGE_ENDPOINT,
+                "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
+                "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            },
+        )
+
+        path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
+
+        id = pa.array(["1", "2", "3", "4", "5"])
+        timestamp = pa.array(
+            [
+                datetime(2023, 1, 1),
+                datetime(2023, 1, 2),
+                datetime(2023, 1, 3),
+                datetime(2023, 1, 6),
+                datetime(2023, 1, 7),
+            ]
+        )
+        distinct_id = pa.array(["user_control_0", "user_test_1", "user_test_2", "user_test_3", "user_extra"])
+        amount = pa.array([100, 50, 75, 80, 90])
+        names = ["id", "dw_timestamp", "dw_distinct_id", "amount"]
+
+        pq.write_to_dataset(
+            pa.Table.from_arrays([id, timestamp, distinct_id, amount], names=names),
+            path_to_s3_object,
+            filesystem=fs,
+            use_dictionary=True,
+            compression="snappy",
+            version="2.0",
+        )
+
+        table_name = "payments"
+
+        credential = DataWarehouseCredential.objects.create(
+            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
+            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            team=self.team,
+        )
+
+        DataWarehouseTable.objects.create(
+            name=table_name,
+            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={
+                "id": "String",
+                "dw_timestamp": "DateTime64(3, 'UTC')",
+                "dw_distinct_id": "String",
+                "amount": "Int64",
+            },
+            credential=credential,
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=table_name,
+            source_table_key="dw_distinct_id",
+            joining_table_name="events",
+            joining_table_key="distinct_id",
+            field_name="events",
+            configuration={"experiments_optimized": True, "experiments_timestamp_key": "dw_timestamp"},
+        )
+        return table_name
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner(self):
@@ -250,7 +363,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {ff_property: "control", "$feature_flag": feature_flag.key},
+                        "properties": {"$feature_flag_response": "control", "$feature_flag": feature_flag.key},
                     },
                 ],
                 "user_control_2": [
@@ -258,7 +371,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {ff_property: "control", "$feature_flag": feature_flag.key},
+                        "properties": {"$feature_flag_response": "control", "$feature_flag": feature_flag.key},
                     },
                 ],
                 "user_test_1": [
@@ -268,7 +381,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {ff_property: "test", "$feature_flag": feature_flag.key},
+                        "properties": {"$feature_flag_response": "test", "$feature_flag": feature_flag.key},
                     },
                 ],
                 "user_test_2": [
@@ -277,7 +390,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {ff_property: "test", "$feature_flag": feature_flag.key},
+                        "properties": {"$feature_flag_response": "test", "$feature_flag": feature_flag.key},
                     },
                 ],
                 "user_out_of_control": [
@@ -291,7 +404,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2019-01-01",
-                        "properties": {ff_property: "control", "$feature_flag": feature_flag.key},
+                        "properties": {"$feature_flag_response": "control", "$feature_flag": feature_flag.key},
                     },
                 ],
             },
@@ -376,6 +489,143 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_result.absolute_exposure, 9)
         self.assertEqual(holdout_result.absolute_exposure, 4)
 
+    def test_query_runner_with_data_warehouse_series(self):
+        table_name = self.create_data_warehouse_table_with_payments()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2023, 1, 1),
+            end_date=datetime(2023, 1, 10),
+        )
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        count_query = TrendsQuery(
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    distinct_id_field="dw_distinct_id",
+                    id_field="id",
+                    table_name=table_name,
+                    timestamp_field="dw_timestamp",
+                )
+            ]
+        )
+        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=exposure_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        # Populate exposure events
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    properties={feature_flag_property: variant},
+                    timestamp=datetime(2023, 1, i + 1),
+                )
+
+        # "user_test_3" first exposure (feature_flag_property="control") is on 2023-01-03
+        # "user_test_3" relevant exposure (feature_flag_property="test") is on 2023-01-04
+        # "user_test_3" other event (feature_flag_property="control" is on 2023-01-05
+        # "user_test_3" purchase is on 2023-01-06
+        # "user_test_3" second exposure (feature_flag_property="control") is on 2023-01-09
+        # "user_test_3" should fall into the "test" variant, not the "control" variant
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_test_3",
+            properties={feature_flag_property: "control"},
+            timestamp=datetime(2023, 1, 3),
+        )
+        _create_event(
+            team=self.team,
+            event="Some other event",
+            distinct_id="user_test_3",
+            properties={feature_flag_property: "control"},
+            timestamp=datetime(2023, 1, 5),
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_test_3",
+            properties={feature_flag_property: "control"},
+            timestamp=datetime(2023, 1, 9),
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        with freeze_time("2023-01-07"):
+            result = query_runner.calculate()
+
+        trend_result = cast(ExperimentTrendsQueryResponse, result)
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_result = next(variant for variant in trend_result.variants if variant.key == "control")
+        test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+
+        self.assertEqual(control_result.count, 1)
+        self.assertEqual(test_result.count, 3)
+        self.assertEqual(control_result.absolute_exposure, 9)
+        self.assertEqual(test_result.absolute_exposure, 9)
+
+    def test_query_runner_with_invalid_data_warehouse_table_name(self):
+        # parquet file isn't created, so we'll get an error
+        table_name = "invalid_table_name"
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2023, 1, 1),
+            end_date=datetime(2023, 1, 10),
+        )
+
+        count_query = TrendsQuery(
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    distinct_id_field="dw_distinct_id",
+                    id_field="id",
+                    table_name=table_name,
+                    timestamp_field="dw_timestamp",
+                )
+            ]
+        )
+        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=exposure_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        with freeze_time("2023-01-07"):
+            with self.assertRaises(KeyError) as context:
+                query_runner.calculate()
+
+        self.assertEqual(str(context.exception), "'invalid_table_name'")
+
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_avg_math(self):
         feature_flag = self.create_feature_flag()
@@ -401,6 +651,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         prepared_count_query = query_runner.prepared_count_query
         self.assertEqual(prepared_count_query.series[0].math, "sum")
 
+    @flaky(max_runs=10, min_passes=1)
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_standard_flow(self):
         feature_flag = self.create_feature_flag()

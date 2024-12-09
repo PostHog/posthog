@@ -19,6 +19,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
 from posthog.api.cohort import CohortSerializer
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -54,6 +56,7 @@ from posthog.models.feature_flag.flag_matching import check_flag_evaluation_quer
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
+from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker, FeatureFlagStatus
 from posthog.queries.base import (
     determine_parsed_date_for_property_matching,
 )
@@ -88,7 +91,9 @@ class CanEditFeatureFlag(BasePermission):
             return can_user_edit_feature_flag(request, feature_flag)
 
 
-class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
+class FeatureFlagSerializer(
+    TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.HyperlinkedModelSerializer
+):
     created_by = UserBasicSerializer(read_only=True)
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
@@ -115,6 +120,14 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     )
     can_edit = serializers.SerializerMethodField()
 
+    CREATION_CONTEXT_CHOICES = ("feature_flags", "experiments", "surveys", "early_access_features", "web_experiments")
+    creation_context = serializers.ChoiceField(
+        choices=CREATION_CONTEXT_CHOICES,
+        write_only=True,
+        required=False,
+        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
+    )
+
     class Meta:
         model = FeatureFlag
         fields = [
@@ -139,11 +152,16 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "usage_dashboard",
             "analytics_dashboards",
             "has_enriched_analytics",
+            "user_access_level",
+            "creation_context",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         # TODO: make sure this isn't n+1
-        return can_user_edit_feature_flag(self.context["request"], feature_flag)
+        return (
+            can_user_edit_feature_flag(self.context["request"], feature_flag)
+            and self.get_user_access_level(feature_flag) == "editor"
+        )
 
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
@@ -317,6 +335,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
+        creation_context = validated_data.pop(
+            "creation_context", "feature_flags"
+        )  # default to "feature_flags" if an alternative value is not provided
 
         self._update_filters(validated_data)
 
@@ -347,7 +368,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         _create_usage_dashboard(instance, request.user)
 
-        report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
+        analytics_metadata = instance.get_analytics_metadata()
+        analytics_metadata["creation_context"] = creation_context
+        report_user_action(request.user, "feature flag created", analytics_metadata)
 
         return instance
 
@@ -370,6 +393,23 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
         instance = super().update(instance, validated_data)
+
+        # Propagate the new variants and aggregation group type index to the linked experiments
+        if "filters" in validated_data:
+            filters = validated_data["filters"] or {}
+            multivariate = filters.get("multivariate") or {}
+            variants = multivariate.get("variants", [])
+            aggregation_group_type_index = filters.get("aggregation_group_type_index")
+
+            for experiment in instance.experiment_set.all():
+                if experiment.parameters is None:
+                    experiment.parameters = {}
+                experiment.parameters["feature_flag_variants"] = variants
+                if aggregation_group_type_index is not None:
+                    experiment.parameters["aggregation_group_type_index"] = aggregation_group_type_index
+                else:
+                    experiment.parameters.pop("aggregation_group_type_index", None)
+                experiment.save()
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
 
@@ -421,6 +461,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
 
 class FeatureFlagViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
@@ -706,7 +747,7 @@ class FeatureFlagViewSet(
                 "group_type_mapping": {
                     str(row.group_type_index): row.group_type
                     for row in GroupTypeMapping.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-                        team_id=self.team_id
+                        project_id=self.project_id
                     )
                 },
                 "cohorts": cohorts,
@@ -795,6 +836,20 @@ class FeatureFlagViewSet(
         activity_page = load_activity(scope="FeatureFlag", team_id=self.team_id, limit=limit, page=page)
 
         return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
+    def status(self, request: request.Request, **kwargs):
+        feature_flag_id = kwargs["pk"]
+
+        checker = FeatureFlagStatusChecker(
+            feature_flag_id=feature_flag_id,
+        )
+        flag_status, reason = checker.get_status()
+
+        return Response(
+            {"status": flag_status, "reason": reason},
+            status=status.HTTP_404_NOT_FOUND if flag_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK,
+        )
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):

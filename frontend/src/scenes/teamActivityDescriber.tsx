@@ -59,6 +59,17 @@ const teamActionsMapping: Record<
             description: [<>Changed session replay URL blocklist</>],
         }
     },
+    session_recording_event_trigger_config(change: ActivityChange | undefined): ChangeMapping | null {
+        const before = change?.before
+        const after = change?.after
+        if (before === null && after === null) {
+            return null
+        }
+
+        return {
+            description: [<>Changed session replay event triggers</>],
+        }
+    },
     capture_console_log_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} console log capture in session replay</>] }
     },
@@ -351,6 +362,7 @@ const teamActionsMapping: Record<
     id: () => null,
     updated_at: () => null,
     uuid: () => null,
+    user_access_level: () => null,
     live_events_token: () => null,
     product_intents: () => null,
 }

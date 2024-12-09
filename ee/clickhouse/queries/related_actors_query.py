@@ -41,7 +41,7 @@ class RelatedActorsQuery:
     def run(self) -> list[SerializedActor]:
         results: list[SerializedActor] = []
         results.extend(self._query_related_people())
-        for group_type_mapping in GroupTypeMapping.objects.filter(team_id=self.team.pk):
+        for group_type_mapping in GroupTypeMapping.objects.filter(project_id=self.team.project_id):
             results.extend(self._query_related_groups(group_type_mapping.group_type_index))
         return results
 

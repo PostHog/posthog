@@ -9,6 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { ExperimentIdType } from '~/types'
 
@@ -157,9 +158,11 @@ export function AuthorizedUrlList({
                         ) : (
                             <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
                                 {keyedURL.type === 'suggestion' && (
-                                    <LemonTag type="highlight" className="mr-4 uppercase">
-                                        Suggestion
-                                    </LemonTag>
+                                    <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>
+                                        <LemonTag type="highlight" className="mr-4 uppercase cursor-pointer">
+                                            Suggestion
+                                        </LemonTag>
+                                    </Tooltip>
                                 )}
                                 <span title={keyedURL.url} className="flex-1 truncate">
                                     {keyedURL.url}
@@ -183,7 +186,7 @@ export function AuthorizedUrlList({
                                                     type === AuthorizedUrlListType.TOOLBAR_URLS
                                                         ? launchUrl(keyedURL.url)
                                                         : // other urls are simply opened directly
-                                                          keyedURL.url + query
+                                                          `${keyedURL.url}${query ? query : ''}`
                                                 }
                                                 targetBlank
                                                 tooltip={

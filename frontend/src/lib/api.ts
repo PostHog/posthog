@@ -5,7 +5,6 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
@@ -14,7 +13,7 @@ import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     DashboardFilter,
     DatabaseSerializedFieldType,
-    ErrorTrackingGroup,
+    ErrorTrackingIssue,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
@@ -42,7 +41,6 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     EarlyAccessFeatureType,
-    ErrorClusterResponse,
     EventDefinition,
     EventDefinitionType,
     EventsListQueryParams,
@@ -113,6 +111,11 @@ import {
 } from '~/types'
 
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
+import {
+    ErrorTrackingStackFrame,
+    ErrorTrackingStackFrameRecord,
+    ErrorTrackingSymbolSet,
+} from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
@@ -707,16 +710,32 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('error_tracking')
     }
 
-    public errorTrackingGroup(fingerprint: ErrorTrackingGroup['fingerprint'], teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent(stringifiedFingerprint(fingerprint))
+    public errorTrackingIssue(id: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('issue').addPathComponent(id)
     }
 
-    public errorTrackingMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
-        return this.errorTrackingGroup(fingerprint).addPathComponent('merge')
+    public errorTrackingIssueMerge(into: ErrorTrackingIssue['id']): ApiRequest {
+        return this.errorTrackingIssue(into).addPathComponent('merge')
     }
 
-    public errorTrackingUploadSourceMaps(): ApiRequest {
-        return this.errorTracking().addPathComponent('upload_source_maps')
+    public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('symbol_sets')
+    }
+
+    public errorTrackingSymbolSet(id: ErrorTrackingSymbolSet['id']): ApiRequest {
+        return this.errorTrackingSymbolSets().addPathComponent(id)
+    }
+
+    public errorTrackingStackFrames({
+        raw_ids,
+        symbol_set,
+    }: {
+        raw_ids?: ErrorTrackingStackFrame['raw_id'][]
+        symbol_set?: ErrorTrackingSymbolSet['id']
+    }): ApiRequest {
+        return this.errorTracking()
+            .addPathComponent('stack_frames')
+            .withQueryString(toParams({ raw_ids, symbol_set }, true))
     }
 
     // # Warehouse
@@ -900,6 +919,10 @@ class ApiRequest {
 
     public async update(options?: ApiMethodOptions & { data: any }): Promise<any> {
         return await api.update(this.assembleFullUrl(), options?.data, options)
+    }
+
+    public async put(options?: ApiMethodOptions & { data: any }): Promise<any> {
+        return await api.put(this.assembleFullUrl(), options?.data, options)
     }
 
     public async create(options?: ApiMethodOptions & { data: any }): Promise<any> {
@@ -1745,11 +1768,17 @@ const api = {
         },
     },
     hogFunctions: {
-        async list(params?: {
-            filters?: any
-            type?: HogFunctionTypeType
-        }): Promise<PaginatedResponse<HogFunctionType>> {
-            return await new ApiRequest().hogFunctions().withQueryString(params).get()
+        async list(
+            filters?: any,
+            type?: HogFunctionTypeType | HogFunctionTypeType[]
+        ): Promise<PaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest()
+                .hogFunctions()
+                .withQueryString({
+                    filters: filters,
+                    ...(type ? (Array.isArray(type) ? { types: type.join(',') } : { type }) : {}),
+                })
+                .get()
         },
         async get(id: HogFunctionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).get()
@@ -1778,10 +1807,12 @@ const api = {
         ): Promise<AppMetricsTotalsV2Response> {
             return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
-        async listTemplates(type?: HogFunctionTypeType): Promise<PaginatedResponse<HogFunctionTemplateType>> {
+        async listTemplates(
+            type?: HogFunctionTypeType | HogFunctionTypeType[]
+        ): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             return new ApiRequest()
                 .hogFunctionTemplates()
-                .withQueryString({ type: type ?? 'destination' })
+                .withQueryString(Array.isArray(type) ? { types: type.join(',') } : { type: type ?? 'destination' })
                 .get()
         },
         async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
@@ -1838,24 +1869,44 @@ const api = {
     },
 
     errorTracking: {
-        async update(
-            fingerprint: ErrorTrackingGroup['fingerprint'],
-            data: Partial<Pick<ErrorTrackingGroup, 'assignee' | 'status'>>
-        ): Promise<ErrorTrackingGroup> {
-            return await new ApiRequest().errorTrackingGroup(fingerprint).update({ data })
+        async updateIssue(
+            id: ErrorTrackingIssue['id'],
+            data: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>
+        ): Promise<ErrorTrackingIssue> {
+            return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
 
-        async merge(
-            primaryFingerprint: ErrorTrackingGroup['fingerprint'],
-            mergingFingerprints: ErrorTrackingGroup['fingerprint'][]
+        async mergeInto(
+            primaryIssueId: ErrorTrackingIssue['id'],
+            mergingIssueIds: ErrorTrackingIssue['id'][]
         ): Promise<{ content: string }> {
             return await new ApiRequest()
-                .errorTrackingMerge(primaryFingerprint)
-                .create({ data: { merging_fingerprints: mergingFingerprints } })
+                .errorTrackingIssueMerge(primaryIssueId)
+                .create({ data: { ids: mergingIssueIds } })
         },
 
-        async uploadSourceMaps(data: FormData): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingUploadSourceMaps().create({ data })
+        async updateSymbolSet(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<void> {
+            return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
+        },
+
+        async deleteSymbolSet(id: ErrorTrackingSymbolSet['id']): Promise<void> {
+            return await new ApiRequest().errorTrackingSymbolSet(id).delete()
+        },
+
+        async symbolSets(): Promise<{ results: ErrorTrackingSymbolSet[] }> {
+            return await new ApiRequest().errorTrackingSymbolSets().get()
+        },
+
+        async symbolSetStackFrames(
+            id: ErrorTrackingSymbolSet['id']
+        ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
+            return await new ApiRequest().errorTrackingStackFrames({ symbol_set: id }).get()
+        },
+
+        async stackFrames(
+            raw_ids: ErrorTrackingStackFrame['raw_id'][]
+        ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
+            return await new ApiRequest().errorTrackingStackFrames({ raw_ids }).get()
         },
     },
 
@@ -1889,10 +1940,6 @@ const api = {
 
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
             return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
-        },
-
-        async errorClusters(refresh?: boolean): Promise<ErrorClusterResponse> {
-            return await new ApiRequest().recordings().withAction('error_clusters').withQueryString({ refresh }).get()
         },
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
@@ -2190,7 +2237,7 @@ const api = {
         async get(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).get()
         },
-        async create(data: Partial<DataWarehouseSavedQuery>): Promise<DataWarehouseSavedQuery> {
+        async create(data: Partial<DataWarehouseSavedQuery> & { types: string[][] }): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQueries().create({ data })
         },
         async delete(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
@@ -2198,7 +2245,7 @@ const api = {
         },
         async update(
             viewId: DataWarehouseSavedQuery['id'],
-            data: Pick<DataWarehouseSavedQuery, 'name' | 'query'>
+            data: Partial<DataWarehouseSavedQuery> & { types: string[][] }
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
@@ -2316,7 +2363,12 @@ const api = {
             viewId: DataWarehouseViewLink['id'],
             data: Pick<
                 DataWarehouseViewLink,
-                'source_table_name' | 'source_table_key' | 'joining_table_name' | 'joining_table_key' | 'field_name'
+                | 'source_table_name'
+                | 'source_table_key'
+                | 'joining_table_name'
+                | 'joining_table_key'
+                | 'field_name'
+                | 'configuration'
             >
         ): Promise<DataWarehouseViewLink> {
             return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
@@ -2506,14 +2558,19 @@ const api = {
         })
     },
 
-    async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
+    async _update<T = any, P = any>(
+        method: 'PATCH' | 'PUT',
+        url: string,
+        data: P,
+        options?: ApiMethodOptions
+    ): Promise<T> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
-        const response = await handleFetch(url, 'PATCH', async () => {
+        const response = await handleFetch(url, method, async () => {
             return await fetch(url, {
-                method: 'PATCH',
+                method: method,
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
@@ -2528,7 +2585,15 @@ const api = {
         return await getJSONOrNull(response)
     },
 
-    async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
+    async update<T = any, P = any>(url: string, data: P, options?: ApiMethodOptions): Promise<T> {
+        return api._update('PATCH', url, data, options)
+    },
+
+    async put<T = any, P = any>(url: string, data: P, options?: ApiMethodOptions): Promise<T> {
+        return api._update('PUT', url, data, options)
+    },
+
+    async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
         const res = await api.createResponse(url, data, options)
         return await getJSONOrNull(res)
     },

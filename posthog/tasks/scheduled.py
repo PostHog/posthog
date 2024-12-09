@@ -12,13 +12,13 @@ from posthog.tasks.alerts.checks import (
     check_alerts_task,
     checks_cleanup_task,
     alerts_backlog_task,
+    reset_stuck_alerts_task,
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
     calculate_external_data_rows_synced,
-    calculate_replay_embeddings,
     check_async_migration_health,
     check_flags_to_rollback,
     clean_stale_partials,
@@ -53,6 +53,7 @@ from posthog.tasks.tasks import (
     update_quota_limiting,
     update_survey_iteration,
     verify_persons_data_in_sync,
+    update_survey_adaptive_sampling,
 )
 from posthog.utils import get_crontab
 
@@ -256,6 +257,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
+        crontab(hour="*/12"),
+        update_survey_adaptive_sampling.s(),
+        name="update survey's sampling feature flag rollout  based on date",
+    )
+
+    sender.add_periodic_task(
         crontab(hour="*", minute="*/2"),
         check_alerts_task.s(),
         name="check_alerts_task",
@@ -268,22 +275,18 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
+        crontab(hour="*", minute="*/15"),
+        reset_stuck_alerts_task.s(),
+        name="reset_stuck_alerts_task",
+    )
+
+    sender.add_periodic_task(
         crontab(hour="8", minute="0"),
         checks_cleanup_task.s(),
         name="clean up old alert checks",
     )
 
     if settings.EE_AVAILABLE:
-        # every interval seconds, we calculate N replay embeddings
-        # the goal is to process _enough_ every 24 hours that
-        # there is a meaningful playlist to test with
-        add_periodic_task_with_expiry(
-            sender,
-            settings.REPLAY_EMBEDDINGS_CALCULATION_CELERY_INTERVAL_SECONDS,
-            calculate_replay_embeddings.s(),
-            name="calculate replay embeddings",
-        )
-
         sender.add_periodic_task(
             crontab(hour="0", minute=str(randrange(0, 40))),
             clickhouse_send_license_usage.s(),

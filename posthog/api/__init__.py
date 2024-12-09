@@ -2,7 +2,7 @@ from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
 
-from posthog.api import project
+from posthog.api import metalytics, project
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
@@ -28,6 +28,7 @@ from . import (
     dead_letter_queue,
     debug_ch_queries,
     early_access_feature,
+    error_tracking,
     event_definition,
     exports,
     feature_flag,
@@ -499,12 +500,26 @@ projects_router.register(
     ["project_id"],
 )
 
+projects_router.register(
+    r"error_tracking/symbol_sets",
+    error_tracking.ErrorTrackingSymbolSetViewSet,
+    "project_error_tracking_symbol_set",
+    ["team_id"],
+)
+
 # projects_router.register(
 #     r"error_tracking",
 #     error_tracking.ErrorTrackingGroupViewSet,
 #     "project_error_tracking",
 #     ["team_id"],
 # )
+
+projects_router.register(
+    r"error_tracking/stack_frames",
+    error_tracking.ErrorTrackingStackFrameViewSet,
+    "project_error_tracking_stack_frames",
+    ["project_id"],
+)
 
 projects_router.register(
     r"comments",
@@ -531,6 +546,13 @@ projects_router.register(
     r"hog",
     hog.HogViewSet,
     "hog",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"metalytics",
+    metalytics.MetalyticsViewSet,
+    "environment_metalytics",
     ["team_id"],
 )
 

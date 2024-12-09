@@ -13,7 +13,14 @@ import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
 import { List, ListProps } from 'react-virtualized/dist/es/List'
 
 import { ITEM_KEY_PART_SEPARATOR, navigation3000Logic } from '../navigationLogic'
-import { BasicListItem, ExtendedListItem, ExtraListItemContext, SidebarCategory, TentativeListItem } from '../types'
+import {
+    BasicListItem,
+    ButtonListItem,
+    ExtendedListItem,
+    ExtraListItemContext,
+    SidebarCategory,
+    TentativeListItem,
+} from '../types'
 import { KeyboardShortcut } from './KeyboardShortcut'
 
 export function SidebarList({ category }: { category: SidebarCategory }): JSX.Element {
@@ -122,7 +129,7 @@ export function SidebarList({ category }: { category: SidebarCategory }): JSX.El
 }
 
 interface SidebarListItemProps {
-    item: BasicListItem | ExtendedListItem | TentativeListItem
+    item: BasicListItem | ExtendedListItem | TentativeListItem | ButtonListItem
     validateName?: SidebarCategory['validateName']
     active?: boolean
     style: React.CSSProperties
@@ -130,6 +137,10 @@ interface SidebarListItemProps {
 
 function isItemTentative(item: SidebarListItemProps['item']): item is TentativeListItem {
     return 'onSave' in item
+}
+
+function isItemClickable(item: SidebarListItemProps['item']): item is ButtonListItem {
+    return 'onClick' in item
 }
 
 function SidebarListItem({ item, validateName, active, style }: SidebarListItemProps): JSX.Element {
@@ -218,7 +229,13 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
     }) // Intentionally run on every render so that ref value changes are picked up
 
     let content: JSX.Element
-    if (!save || (!isItemTentative(item) && newName === null)) {
+    if (isItemClickable(item)) {
+        content = (
+            <li className="SidebarListItem__button" onClick={item.onClick}>
+                <h5>{item.name}</h5>
+            </li>
+        )
+    } else if (!save || (!isItemTentative(item) && newName === null)) {
         if (isItemTentative(item)) {
             throw new Error('Tentative items should not be rendered in read mode')
         }

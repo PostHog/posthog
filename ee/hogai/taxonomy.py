@@ -76,7 +76,7 @@ SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
 
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
-        "": {
+        "All Events": {
             "label": "All events",
             "description": "This is a wildcard that matches all events.",
         },
@@ -139,7 +139,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$identify": {
             "label": "Identify",
-            "description": "Identifies an anonymous user. This event doesn't show how many users you have but rather how many users used an account.",
+            "description": "Identifies an anonymous user. The event shows how many users used an account, so do not use it for active users metrics because a user may skip identification.",
         },
         "$create_alias": {
             "label": "Alias",
@@ -760,6 +760,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Feature Flag Response",
             "description": "What the call to feature flag responded with.",
             "examples": ["true", "false"],
+        },
+        "$feature_flag_payload": {
+            "label": "Feature Flag Response Payload",
+            "description": "The JSON payload that the call to feature flag responded with (if any)",
+            "examples": ['{"variant": "test"}'],
         },
         "$feature_flag": {
             "label": "Feature Flag",

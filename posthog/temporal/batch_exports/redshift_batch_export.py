@@ -32,6 +32,11 @@ from posthog.temporal.batch_exports.batch_exports import (
     start_batch_export_run,
     start_produce_batch_export_record_batches,
 )
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
+    should_resume_from_activity_heartbeat,
+)
 from posthog.temporal.batch_exports.metrics import get_rows_exported_metric
 from posthog.temporal.batch_exports.postgres_batch_export import (
     Fields,
@@ -47,7 +52,6 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
-from posthog.temporal.common.utils import BatchExportHeartbeatDetails, should_resume_from_activity_heartbeat
 
 
 def remove_escaped_whitespace_recursive(value):
@@ -273,7 +277,7 @@ def get_redshift_fields_from_record_schema(
 
 
 @dataclasses.dataclass
-class RedshiftHeartbeatDetails(BatchExportHeartbeatDetails):
+class RedshiftHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     """The Redshift batch export details included in every heartbeat."""
 
     pass
@@ -285,6 +289,9 @@ async def insert_records_to_redshift(
     schema: str | None,
     table: str,
     heartbeater: Heartbeater,
+    heartbeat_details: RedshiftHeartbeatDetails,
+    data_interval_start: dt.datetime | None,
+    data_interval_end: dt.datetime,
     batch_size: int = 100,
     use_super: bool = False,
     known_super_columns: list[str] | None = None,
@@ -352,7 +359,11 @@ async def insert_records_to_redshift(
                 # the byte size of each batch the way things are currently written. We can revisit this
                 # in the future if we decide it's useful enough.
 
+            batch_start_inserted_at = None
             async for record, _inserted_at in records_iterator:
+                if batch_start_inserted_at is None:
+                    batch_start_inserted_at = _inserted_at
+
                 for column in columns:
                     if known_super_columns is not None and column in known_super_columns:
                         record[column] = json.dumps(record[column], ensure_ascii=False)
@@ -362,12 +373,24 @@ async def insert_records_to_redshift(
                     continue
 
                 await flush_to_redshift(batch)
-                heartbeater.details = (str(_inserted_at),)
+
+                last_date_range = (batch_start_inserted_at, _inserted_at)
+                heartbeat_details.track_done_range(last_date_range, data_interval_start)
+                heartbeater.set_from_heartbeat_details(heartbeat_details)
+
+                batch_start_inserted_at = None
                 batch = []
 
-            if len(batch) > 0:
+            if len(batch) > 0 and batch_start_inserted_at:
                 await flush_to_redshift(batch)
-                heartbeater.details = (str(_inserted_at),)
+
+                last_date_range = (batch_start_inserted_at, _inserted_at)
+
+                heartbeat_details.track_done_range(last_date_range, data_interval_start)
+                heartbeater.set_from_heartbeat_details(heartbeat_details)
+
+    heartbeat_details.complete_done_ranges(data_interval_end)
+    heartbeater.set_from_heartbeat_details(heartbeat_details)
 
     return total_rows_exported
 
@@ -420,12 +443,11 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        should_resume, details = await should_resume_from_activity_heartbeat(activity, RedshiftHeartbeatDetails, logger)
+        _, details = await should_resume_from_activity_heartbeat(activity, RedshiftHeartbeatDetails)
+        if details is None:
+            details = RedshiftHeartbeatDetails()
 
-        if should_resume is True and details is not None:
-            data_interval_start: str | None = details.last_inserted_at.isoformat()
-        else:
-            data_interval_start = inputs.data_interval_start
+        done_ranges: list[DateRange] = details.done_ranges
 
         model: BatchExportModel | BatchExportSchema | None = None
         if inputs.batch_export_schema is None and "batch_export_model" in {
@@ -446,13 +468,19 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             extra_query_parameters = model["values"] if model is not None else {}
             fields = model["fields"] if model is not None else None
 
+        data_interval_start = (
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
+        )
+        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
+        full_range = (data_interval_start, data_interval_end)
+
         queue, produce_task = start_produce_batch_export_record_batches(
             client=client,
             model_name=model_name,
             is_backfill=inputs.is_backfill,
             team_id=inputs.team_id,
-            interval_start=data_interval_start,
-            interval_end=inputs.data_interval_end,
+            full_range=full_range,
+            done_ranges=done_ranges,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             fields=fields,
@@ -545,7 +573,12 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                             # TODO: We should be able to save a json.loads here.
                             record[column] = remove_escaped_whitespace_recursive(json.loads(record[column]))
 
-                    return record, row["_inserted_at"]
+                    if isinstance(row["_inserted_at"], int):
+                        inserted_at = dt.datetime.fromtimestamp(row["_inserted_at"])
+                    else:
+                        inserted_at = row["_inserted_at"]
+
+                    return record, inserted_at
 
                 async def record_generator() -> (
                     collections.abc.AsyncGenerator[tuple[dict[str, typing.Any], dt.datetime], None]
@@ -574,6 +607,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                     heartbeater=heartbeater,
                     use_super=properties_type == "SUPER",
                     known_super_columns=known_super_columns,
+                    heartbeat_details=details,
+                    data_interval_start=data_interval_start,
+                    data_interval_end=data_interval_end,
                 )
 
                 if requires_merge:
@@ -679,6 +715,8 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                 "StringDataRightTruncation",
                 # Raised by our PostgreSQL client when failing to connect after several attempts.
                 "PostgreSQLConnectionError",
+                # Column missing in Redshift, likely the schema was altered.
+                "UndefinedColumn",
             ],
             finish_inputs=finish_inputs,
         )

@@ -1,6 +1,7 @@
 import dataclasses
 import datetime as dt
 import json
+import re
 
 from django.db import close_old_connections
 import posthoganalytics
@@ -50,8 +51,12 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "FATAL: Tenant or user not found",
         "error received from server in SCRAM exchange: Wrong password",
         "could not translate host name",
+        "timeout expired connection to server at",
+        "password authentication failed for user",
+        "No primary key defined for table",
     ],
     ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
+    ExternalDataSource.Type.MYSQL: ["Can't connect to MySQL server on", "No primary key defined for table"],
 }
 
 
@@ -91,11 +96,13 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
             f"External data job failed for external data schema {inputs.schema_id} with error: {inputs.internal_error}"
         )
 
+        internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
+
         source: ExternalDataSource = ExternalDataSource.objects.get(pk=inputs.source_id)
         non_retryable_errors = Non_Retryable_Schema_Errors.get(ExternalDataSource.Type(source.source_type))
 
         if non_retryable_errors is not None:
-            has_non_retryable_error = any(error in inputs.internal_error for error in non_retryable_errors)
+            has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors)
             if has_non_retryable_error:
                 logger.info("Schema has a non-retryable error - turning off syncing")
                 posthoganalytics.capture(

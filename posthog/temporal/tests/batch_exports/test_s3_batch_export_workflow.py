@@ -28,10 +28,10 @@ from posthog.temporal.batch_exports.batch_exports import (
 )
 from posthog.temporal.batch_exports.s3_batch_export import (
     FILE_FORMAT_EXTENSIONS,
-    HeartbeatDetails,
     IntermittentUploadPartTimeoutError,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
+    S3HeartbeatDetails,
     S3InsertInputs,
     S3MultiPartUpload,
     get_s3_key,
@@ -387,6 +387,102 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     )
 
 
+@pytest.mark.parametrize("compression", [None, "gzip"], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("file_format", ["Parquet"])
+async def test_insert_into_s3_activity_puts_splitted_parquet_data_into_s3(
+    clickhouse_client,
+    bucket_name,
+    minio_client,
+    activity_environment,
+    compression,
+    exclude_events,
+    file_format,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel | BatchExportSchema | None,
+    ateam,
+):
+    """Test that the insert_into_s3_activity function exports uncorrupted parquet data.
+
+    More specifically, we are interested in what happens when there is the need to split
+    up a parquet file into multiple parts, so we generate a lot of data for this test.
+    """
+    prefix = str(uuid.uuid4())
+
+    events_1, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100000,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        properties={"$prop1": 123},
+    )
+
+    events_2, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100000,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        properties={"$prop1": 123},
+    )
+
+    events_to_export_created = events_1 + events_2
+
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
+
+    insert_inputs = S3InsertInputs(
+        bucket_name=bucket_name,
+        region="us-east-1",
+        prefix=prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        compression=compression,
+        exclude_events=exclude_events,
+        file_format=file_format,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+    )
+
+    with override_settings(
+        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    ):  # 5MB, the minimum for Multipart uploads
+        records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
+
+    assert records_exported == len(events_to_export_created)
+
+    # Takes a long time to re-read this data from ClickHouse, so we just make sure that:
+    # 1. The file exists in S3.
+    # 2. We can read it (so, it's a valid parquet).
+    # 3. It has the same length as the events we have created.
+    s3_data = await assert_file_in_s3(
+        s3_compatible_client=minio_client,
+        bucket_name=bucket_name,
+        key_prefix=prefix,
+        file_format=file_format,
+        compression=compression,
+        json_columns=("properties", "person_properties", "set", "set_once"),
+    )
+
+    assert len(s3_data) == len(events_to_export_created)
+
+
 @pytest.mark.parametrize("model", [model for model in TEST_S3_MODELS if model is not None])
 async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
     clickhouse_client,
@@ -517,7 +613,7 @@ async def s3_batch_export(
     await adelete_batch_export(batch_export, temporal_client)
 
 
-@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+@pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
@@ -1010,6 +1106,12 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     )
 
 
+class RetryableTestException(Exception):
+    """An exception to be raised during tests"""
+
+    pass
+
+
 async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch_export, interval):
     """Test S3BatchExport Workflow can handle errors from executing the insert into S3 activity.
 
@@ -1028,7 +1130,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
 
     @activity.defn(name="insert_into_s3_activity")
     async def insert_into_s3_activity_mocked(_: S3InsertInputs) -> str:
-        raise ValueError("A useful error message")
+        raise RetryableTestException("A useful error message")
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -1056,7 +1158,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
 
     run = runs[0]
     assert run.status == "FailedRetryable"
-    assert run.latest_error == "ValueError: A useful error message"
+    assert run.latest_error == "RetryableTestException: A useful error message"
     assert run.records_completed is None
 
 
@@ -1387,14 +1489,14 @@ async def test_insert_into_s3_activity_heartbeats(
             inserted_at=part_inserted_at,
         )
 
-    heartbeat_details = []
+    heartbeat_details: list[S3HeartbeatDetails] = []
 
     def track_hearbeat_details(*details):
         """Record heartbeat details received."""
         nonlocal heartbeat_details
 
-        details = HeartbeatDetails.from_activity_details(details)
-        heartbeat_details.append(details)
+        s3_details = S3HeartbeatDetails.from_activity_details(details)
+        heartbeat_details.append(s3_details)
 
     activity_environment.on_heartbeat = track_hearbeat_details
 
@@ -1415,11 +1517,13 @@ async def test_insert_into_s3_activity_heartbeats(
 
     assert len(heartbeat_details) > 0
 
-    for detail in heartbeat_details:
-        last_uploaded_part_dt = dt.datetime.fromisoformat(detail.last_uploaded_part_timestamp)
-        assert last_uploaded_part_dt == data_interval_end - s3_batch_export.interval_time_delta / len(
-            detail.upload_state.parts
-        )
+    detail = heartbeat_details[-1]
+
+    assert detail.upload_state is not None
+    assert len(detail.upload_state.parts) == 3
+    assert len(detail.done_ranges) == 1
+
+    assert detail.done_ranges[0] == (data_interval_start, data_interval_end)
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,

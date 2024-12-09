@@ -12,17 +12,19 @@ from ee.hogai.taxonomy_agent.nodes import (
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
 from ee.hogai.utils import AssistantState
+from posthog.models import GroupTypeMapping
 from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
+    RouterMessage,
     VisualizationMessage,
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
-class TestToolkit(TaxonomyAgentToolkit):
+class DummyToolkit(TaxonomyAgentToolkit):
     def _get_tools(self) -> list[ToolkitTool]:
         return self._default_tools
 
@@ -36,8 +38,8 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
     def _get_node(self):
         class Node(TaxonomyAgentPlannerNode):
             def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-                prompt = ChatPromptTemplate.from_messages([("user", "test")])
-                toolkit = TestToolkit(self._team)
+                prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages([("user", "test")])
+                toolkit = DummyToolkit(self._team)
                 return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
 
         return Node(self.team)
@@ -115,6 +117,36 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Text", history[0].content)
         self.assertNotIn("{{question}}", history[0].content)
 
+    def test_agent_reconstructs_typical_conversation(self):
+        node = self._get_node()
+        history = node._construct_messages(
+            {
+                "messages": [
+                    HumanMessage(content="Question 1"),
+                    RouterMessage(content="trends"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1"),
+                    AssistantMessage(content="Summary 1"),
+                    HumanMessage(content="Question 2"),
+                    RouterMessage(content="funnel"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2"),
+                    AssistantMessage(content="Summary 2"),
+                    HumanMessage(content="Question 3"),
+                    RouterMessage(content="funnel"),
+                ]
+            }
+        )
+        self.assertEqual(len(history), 5)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("Question 1", history[0].content)
+        self.assertEqual(history[1].type, "ai")
+        self.assertEqual(history[1].content, "Plan 1")
+        self.assertEqual(history[2].type, "human")
+        self.assertIn("Question 2", history[2].content)
+        self.assertEqual(history[3].type, "ai")
+        self.assertEqual(history[3].content, "Plan 2")
+        self.assertEqual(history[4].type, "human")
+        self.assertIn("Question 3", history[4].content)
+
     def test_agent_filters_out_low_count_events(self):
         _create_person(distinct_ids=["test"], team=self.team)
         for i in range(26):
@@ -123,7 +155,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         node = self._get_node()
         self.assertEqual(
             node._events_prompt,
-            "<list of available events for filtering>\nall events\ndistinctevent\n</list of available events for filtering>",
+            "<defined_events><event><name>All Events</name><description>All events. This is a wildcard that matches all events.</description></event><event><name>distinctevent</name></event></defined_events>",
         )
 
     def test_agent_preserves_low_count_events_for_smaller_teams(self):
@@ -172,13 +204,36 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("action", action.tool_input)
             self.assertIn("action_input", action.tool_input)
 
+    def test_node_outputs_all_events_prompt(self):
+        node = self._get_node()
+        self.assertIn("All Events", node._events_prompt)
+        self.assertIn(
+            "<event><name>All Events</name><description>All events. This is a wildcard that matches all events.</description></event>",
+            node._events_prompt,
+        )
+
+    def test_format_prompt(self):
+        node = self._get_node()
+        self.assertNotIn("Human:", node._get_react_format_prompt(DummyToolkit(self.team)))
+        self.assertIn("retrieve_event_properties,", node._get_react_format_prompt(DummyToolkit(self.team)))
+        self.assertIn(
+            "retrieve_event_properties(event_name: str)", node._get_react_format_prompt(DummyToolkit(self.team))
+        )
+
+    def test_property_filters_prompt(self):
+        GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="org", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="account", group_type_index=1)
+        node = self._get_node()
+        prompt = node._get_react_property_filters_prompt()
+        self.assertIn("org, account.", prompt)
+
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def _get_node(self):
         class Node(TaxonomyAgentPlannerToolsNode):
             def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-                toolkit = TestToolkit(self._team)
+                toolkit = DummyToolkit(self._team)
                 return super()._run_with_toolkit(state, toolkit, config=config)
 
         return Node(self.team)

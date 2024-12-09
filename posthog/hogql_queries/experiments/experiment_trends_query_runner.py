@@ -19,6 +19,8 @@ from posthog.schema import (
     BreakdownFilter,
     CachedExperimentTrendsQueryResponse,
     ChartDisplayType,
+    DataWarehouseNode,
+    DataWarehousePropertyFilter,
     EventPropertyFilter,
     EventsNode,
     ExperimentSignificanceCode,
@@ -27,6 +29,7 @@ from posthog.schema import (
     ExperimentVariantTrendsBaseStats,
     InsightDateRange,
     PropertyMathType,
+    PropertyOperator,
     TrendsFilter,
     TrendsQuery,
     TrendsQueryResponse,
@@ -42,6 +45,10 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        if not self.query.experiment_id:
+            raise ValidationError("experiment_id is required")
+
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
@@ -85,10 +92,16 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             explicitDate=True,
         )
 
-    def _get_breakdown_filter(self) -> BreakdownFilter:
+    def _get_event_breakdown_filter(self) -> BreakdownFilter:
         return BreakdownFilter(
             breakdown=self.breakdown_key,
             breakdown_type="event",
+        )
+
+    def _get_data_warehouse_breakdown_filter(self) -> BreakdownFilter:
+        return BreakdownFilter(
+            breakdown=f"events.properties.{self.breakdown_key}",
+            breakdown_type="data_warehouse",
         )
 
     def _prepare_count_query(self) -> TrendsQuery:
@@ -114,15 +127,32 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
         prepared_count_query.dateRange = self._get_insight_date_range()
-        prepared_count_query.breakdownFilter = self._get_breakdown_filter()
-        prepared_count_query.properties = [
-            EventPropertyFilter(
-                key=self.breakdown_key,
-                value=self.variants,
-                operator="exact",
-                type="event",
-            )
-        ]
+        if self._is_data_warehouse_query(prepared_count_query):
+            prepared_count_query.breakdownFilter = self._get_data_warehouse_breakdown_filter()
+            prepared_count_query.properties = [
+                DataWarehousePropertyFilter(
+                    key="events.event",
+                    value="$feature_flag_called",
+                    operator=PropertyOperator.EXACT,
+                    type="data_warehouse",
+                ),
+                DataWarehousePropertyFilter(
+                    key=f"events.properties.{self.breakdown_key}",
+                    value=self.variants,
+                    operator=PropertyOperator.EXACT,
+                    type="data_warehouse",
+                ),
+            ]
+        else:
+            prepared_count_query.breakdownFilter = self._get_event_breakdown_filter()
+            prepared_count_query.properties = [
+                EventPropertyFilter(
+                    key=self.breakdown_key,
+                    value=self.variants,
+                    operator=PropertyOperator.EXACT,
+                    type="event",
+                )
+            ]
 
         return prepared_count_query
 
@@ -148,7 +178,10 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
             if hasattr(count_event, "event"):
                 prepared_exposure_query.dateRange = self._get_insight_date_range()
-                prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
+                prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()
+                prepared_exposure_query.trendsFilter = TrendsFilter(
+                    display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
+                )
                 prepared_exposure_query.series = [
                     EventsNode(
                         event=count_event.event,
@@ -159,7 +192,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                     EventPropertyFilter(
                         key=self.breakdown_key,
                         value=self.variants,
-                        operator="exact",
+                        operator=PropertyOperator.EXACT,
                         type="event",
                     )
                 ]
@@ -170,12 +203,13 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         elif self.query.exposure_query:
             prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
             prepared_exposure_query.dateRange = self._get_insight_date_range()
-            prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
+            prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
+            prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()
             prepared_exposure_query.properties = [
                 EventPropertyFilter(
                     key=self.breakdown_key,
                     value=self.variants,
-                    operator="exact",
+                    operator=PropertyOperator.EXACT,
                     type="event",
                 )
             ]
@@ -183,7 +217,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         else:
             prepared_exposure_query = TrendsQuery(
                 dateRange=self._get_insight_date_range(),
-                breakdownFilter=self._get_breakdown_filter(),
+                trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE),
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$feature_flag_response",
+                    breakdown_type="event",
+                ),
                 series=[
                     EventsNode(
                         event="$feature_flag_called",
@@ -192,15 +230,15 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 ],
                 properties=[
                     EventPropertyFilter(
-                        key=self.breakdown_key,
+                        key="$feature_flag_response",
                         value=self.variants,
-                        operator="exact",
+                        operator=PropertyOperator.EXACT,
                         type="event",
                     ),
                     EventPropertyFilter(
                         key="$feature_flag",
                         value=[self.feature_flag.key],
-                        operator="exact",
+                        operator=PropertyOperator.EXACT,
                         type="event",
                     ),
                 ],
@@ -349,6 +387,9 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         has_errors = any(errors.values())
         if has_errors:
             raise ValidationError(detail=json.dumps(errors))
+
+    def _is_data_warehouse_query(self, query: TrendsQuery) -> bool:
+        return isinstance(query.series[0], DataWarehouseNode)
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.count_query.kind} to query")

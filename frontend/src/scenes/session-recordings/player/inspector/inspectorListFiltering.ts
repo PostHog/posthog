@@ -1,17 +1,14 @@
 import { InspectorListItemPerformance } from 'scenes/session-recordings/apm/performanceEventDataLogic'
-import { SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import { MiniFilterKey, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     IMAGE_WEB_EXTENSIONS,
-    InspectorListBrowserVisibility,
     InspectorListItem,
-    InspectorListItemComment,
     InspectorListItemConsole,
     InspectorListItemDoctor,
     InspectorListItemEvent,
-    InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { SessionRecordingPlayerTab } from '~/types'
+import { FilterableInspectorListItemTypes } from '~/types'
 
 const PostHogMobileEvents = [
     'Deep Link Opened',
@@ -31,31 +28,15 @@ function isPostHogEvent(item: InspectorListItem): boolean {
 }
 
 function isNetworkEvent(item: InspectorListItem): item is InspectorListItemPerformance {
-    return item.type === SessionRecordingPlayerTab.NETWORK
-}
-
-function isOfflineStatusChange(item: InspectorListItem): item is InspectorListOfflineStatusChange {
-    return item.type === 'offline-status'
-}
-
-function isBrowserVisibilityEvent(item: InspectorListItem): item is InspectorListBrowserVisibility {
-    return item.type === 'browser-visibility'
+    return item.type === FilterableInspectorListItemTypes.NETWORK
 }
 
 function isNavigationEvent(item: InspectorListItem): boolean {
     return isNetworkEvent(item) && ['navigation'].includes(item.data.entry_type || '')
 }
 
-function isNetworkError(item: InspectorListItem): boolean {
-    return isNetworkEvent(item) && (item.data.response_status || -1) >= 400
-}
-
-function isSlowNetwork(item: InspectorListItem): boolean {
-    return isNetworkEvent(item) && (item.data.duration || -1) >= 1000
-}
-
 function isEvent(item: InspectorListItem): item is InspectorListItemEvent {
-    return item.type === SessionRecordingPlayerTab.EVENTS
+    return item.type === FilterableInspectorListItemTypes.EVENTS
 }
 
 function isPageviewOrScreen(item: InspectorListItem): boolean {
@@ -67,7 +48,7 @@ function isAutocapture(item: InspectorListItem): boolean {
 }
 
 function isConsoleEvent(item: InspectorListItem): item is InspectorListItemConsole {
-    return item.type === SessionRecordingPlayerTab.CONSOLE
+    return item.type === FilterableInspectorListItemTypes.CONSOLE
 }
 
 function isConsoleError(item: InspectorListItem): boolean {
@@ -86,28 +67,120 @@ function isDoctorEvent(item: InspectorListItem): item is InspectorListItemDoctor
     return item.type === 'doctor'
 }
 
-function isComment(item: InspectorListItem): item is InspectorListItemComment {
-    return item.type === 'comment'
+function isContextItem(item: InspectorListItem): boolean {
+    return ['browser-visibility', 'offline-status', 'comment', 'inspector-summary', 'inactivity'].includes(item.type)
+}
+
+const eventsMatch = (
+    item: InspectorListItemEvent,
+    miniFiltersByKey: { [p: MiniFilterKey]: SharedListMiniFilter }
+): SharedListMiniFilter | null => {
+    if (isException(item) || isErrorEvent(item)) {
+        return miniFiltersByKey['events-exceptions']
+    } else if (isAutocapture(item)) {
+        return miniFiltersByKey['events-autocapture']
+    } else if (isPageviewOrScreen(item)) {
+        return miniFiltersByKey['events-pageview']
+    } else if (isPostHogEvent(item)) {
+        return miniFiltersByKey['events-posthog']
+    } else if (!isPostHogEvent(item)) {
+        return miniFiltersByKey['events-custom']
+    }
+    return null
+}
+
+const consoleMatch = (
+    item: InspectorListItemConsole,
+    miniFiltersByKey: { [p: MiniFilterKey]: SharedListMiniFilter }
+): SharedListMiniFilter | null => {
+    if (['log', 'info'].includes(item.data.level)) {
+        return miniFiltersByKey['console-info']
+    } else if (item.data.level === 'warn') {
+        return miniFiltersByKey['console-warn']
+    } else if (isConsoleError(item)) {
+        return miniFiltersByKey['console-error']
+    }
+    return null
+}
+
+function networkMatch(
+    item: InspectorListItemPerformance,
+    miniFiltersByKey: {
+        [p: MiniFilterKey]: SharedListMiniFilter
+    }
+): SharedListMiniFilter | null {
+    if (isNavigationEvent(item)) {
+        return miniFiltersByKey['performance-document']
+    } else if (
+        item.data.entry_type === 'resource' &&
+        ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')
+    ) {
+        return miniFiltersByKey['performance-fetch']
+    } else if (
+        item.data.entry_type === 'resource' &&
+        (item.data.initiator_type === 'script' ||
+            (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.js')))
+    ) {
+        return miniFiltersByKey['performance-assets-js']
+    } else if (
+        item.data.entry_type === 'resource' &&
+        (item.data.initiator_type === 'css' ||
+            (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.css')))
+    ) {
+        return miniFiltersByKey['performance-assets-css']
+    } else if (
+        item.data.entry_type === 'resource' &&
+        (item.data.initiator_type === 'img' ||
+            (['link', 'other'].includes(item.data.initiator_type || '') &&
+                !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))
+    ) {
+        return miniFiltersByKey['performance-assets-img']
+    } else if (
+        item.data.entry_type === 'resource' &&
+        ['other'].includes(item.data.initiator_type || '') &&
+        ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`))
+    ) {
+        return miniFiltersByKey['performance-other']
+    }
+    return null
+}
+
+export function itemToMiniFilter(
+    item: InspectorListItem,
+    miniFiltersByKey: { [p: MiniFilterKey]: SharedListMiniFilter }
+): SharedListMiniFilter | null {
+    switch (item.type) {
+        case FilterableInspectorListItemTypes.EVENTS:
+            return eventsMatch(item, miniFiltersByKey)
+        case FilterableInspectorListItemTypes.CONSOLE:
+            return consoleMatch(item, miniFiltersByKey)
+        case FilterableInspectorListItemTypes.NETWORK:
+            return networkMatch(item, miniFiltersByKey)
+        case FilterableInspectorListItemTypes.DOCTOR:
+            if (isDoctorEvent(item)) {
+                return miniFiltersByKey['doctor']
+            }
+            break
+    }
+    return null
 }
 
 export function filterInspectorListItems({
     allItems,
-    tab,
     miniFiltersByKey,
-    showMatchingEventsFilter,
+    allowMatchingEventsFilter,
     showOnlyMatching,
-    windowIdFilter,
+    trackedWindow,
 }: {
     allItems: InspectorListItem[]
-    tab: SessionRecordingPlayerTab
     miniFiltersByKey:
         | {
-              [key: string]: SharedListMiniFilter
+              [key: MiniFilterKey]: SharedListMiniFilter
           }
         | undefined
-    showMatchingEventsFilter: boolean
+    allowMatchingEventsFilter: boolean
     showOnlyMatching: boolean
-    windowIdFilter: string | null
+    trackedWindow: string | null
 }): InspectorListItem[] {
     const items: InspectorListItem[] = []
 
@@ -118,94 +191,6 @@ export function filterInspectorListItems({
         return []
     }
 
-    const inspectorTabFilters: Record<SessionRecordingPlayerTab, (item: InspectorListItem) => boolean> = {
-        [SessionRecordingPlayerTab.ALL]: (item: InspectorListItem) => {
-            // even in everything mode we don't show doctor events
-            const isAllEverything = miniFiltersByKey['all-everything']?.enabled === true && !isDoctorEvent(item)
-            const isAllAutomatic =
-                (!!miniFiltersByKey['all-automatic']?.enabled &&
-                    (isOfflineStatusChange(item) ||
-                        isBrowserVisibilityEvent(item) ||
-                        isNavigationEvent(item) ||
-                        isNetworkError(item) ||
-                        isSlowNetwork(item) ||
-                        isPostHogMobileEvent(item) ||
-                        isPageviewOrScreen(item) ||
-                        isAutocapture(item))) ||
-                isComment(item)
-            const isAllErrors =
-                (!!miniFiltersByKey['all-errors']?.enabled && isNetworkError(item)) ||
-                isConsoleError(item) ||
-                isException(item) ||
-                isErrorEvent(item)
-            return isAllEverything || isAllAutomatic || isAllErrors
-        },
-        [SessionRecordingPlayerTab.EVENTS]: (item: InspectorListItem) => {
-            if (item.type !== SessionRecordingPlayerTab.EVENTS) {
-                return false
-            }
-            return (
-                !!miniFiltersByKey['events-all']?.enabled ||
-                (!!miniFiltersByKey['events-posthog']?.enabled && isPostHogEvent(item)) ||
-                (!!miniFiltersByKey['events-custom']?.enabled && !isPostHogEvent(item)) ||
-                (!!miniFiltersByKey['events-pageview']?.enabled &&
-                    ['$pageview', '$screen'].includes(item.data.event)) ||
-                (!!miniFiltersByKey['events-autocapture']?.enabled && item.data.event === '$autocapture') ||
-                (!!miniFiltersByKey['events-exceptions']?.enabled && item.data.event === '$exception')
-            )
-        },
-        [SessionRecordingPlayerTab.CONSOLE]: (item: InspectorListItem) => {
-            if (item.type !== SessionRecordingPlayerTab.CONSOLE) {
-                return false
-            }
-            return (
-                !!miniFiltersByKey['console-all']?.enabled ||
-                (!!miniFiltersByKey['console-info']?.enabled && ['log', 'info'].includes(item.data.level)) ||
-                (!!miniFiltersByKey['console-warn']?.enabled && item.data.level === 'warn') ||
-                (!!miniFiltersByKey['console-error']?.enabled && isConsoleError(item))
-            )
-        },
-        [SessionRecordingPlayerTab.NETWORK]: (item: InspectorListItem) => {
-            if (item.type !== SessionRecordingPlayerTab.NETWORK) {
-                return false
-            }
-            return (
-                !!miniFiltersByKey['performance-all']?.enabled === true ||
-                (!!miniFiltersByKey['performance-document']?.enabled && isNavigationEvent(item)) ||
-                (!!miniFiltersByKey['performance-fetch']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')) ||
-                (!!miniFiltersByKey['performance-assets-js']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    (item.data.initiator_type === 'script' ||
-                        (['link', 'other'].includes(item.data.initiator_type || '') &&
-                            item.data.name?.includes('.js')))) ||
-                (!!miniFiltersByKey['performance-assets-css']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    (item.data.initiator_type === 'css' ||
-                        (['link', 'other'].includes(item.data.initiator_type || '') &&
-                            item.data.name?.includes('.css')))) ||
-                (!!miniFiltersByKey['performance-assets-img']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    (item.data.initiator_type === 'img' ||
-                        (['link', 'other'].includes(item.data.initiator_type || '') &&
-                            !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))) ||
-                (!!miniFiltersByKey['performance-other']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    ['other'].includes(item.data.initiator_type || '') &&
-                    ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`)))
-            )
-        },
-        [SessionRecordingPlayerTab.DOCTOR]: (item: InspectorListItem) => {
-            return (
-                isOfflineStatusChange(item) ||
-                isBrowserVisibilityEvent(item) ||
-                isException(item) ||
-                isDoctorEvent(item)
-            )
-        },
-    }
-
     for (const item of allItems) {
         let include = false
 
@@ -213,15 +198,18 @@ export function filterInspectorListItems({
             continue
         }
 
-        include = inspectorTabFilters[tab](item)
+        const itemFilter = itemToMiniFilter(item, miniFiltersByKey)
+        include = isContextItem(item) || !!itemFilter?.enabled
 
-        if (showMatchingEventsFilter && showOnlyMatching) {
+        // what about isOfflineStatusChange(item) || isBrowserVisibilityEvent(item) || isComment(item)
+
+        if (allowMatchingEventsFilter && showOnlyMatching) {
             // Special case - overrides the others
             include = include && item.highlightColor === 'primary'
         }
 
         const itemWindowId = item.windowId // how do we use sometimes properties $window_id... maybe we just shouldn't need to :shrug:
-        const excludedByWindowFilter = !!windowIdFilter && !!itemWindowId && itemWindowId !== windowIdFilter
+        const excludedByWindowFilter = !!trackedWindow && !!itemWindowId && itemWindowId !== trackedWindow
 
         if (!include || excludedByWindowFilter) {
             continue
@@ -230,5 +218,5 @@ export function filterInspectorListItems({
         items.push(item)
     }
 
-    return items
+    return items.every((i) => isContextItem(i)) ? [] : items
 }

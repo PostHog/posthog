@@ -1,3 +1,4 @@
+from collections import defaultdict
 import re
 from datetime import timedelta
 from typing import Optional
@@ -170,6 +171,7 @@ def materialize_properties_task(
     backfill_period_days: int = MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     dry_run: bool = False,
     team_id_to_analyze: Optional[int] = None,
+    is_nullable: bool = False,
 ) -> None:
     """
     Creates materialized columns for event and person properties based off of slow queries
@@ -177,11 +179,17 @@ def materialize_properties_task(
 
     if columns_to_materialize is None:
         columns_to_materialize = _analyze(time_to_analyze_hours, min_query_time, team_id_to_analyze)
-    result = []
-    for suggestion in columns_to_materialize:
-        table, table_column, property_name = suggestion
-        if (property_name, table_column) not in get_materialized_columns(table):
-            result.append(suggestion)
+
+    columns_by_table: dict[TableWithProperties, list[tuple[TableColumn, PropertyName]]] = defaultdict(list)
+    for table, table_column, property_name in columns_to_materialize:
+        columns_by_table[table].append((table_column, property_name))
+
+    result: list[Suggestion] = []
+    for table, columns in columns_by_table.items():
+        existing_materialized_columns = get_materialized_columns(table)
+        for table_column, property_name in columns:
+            if (property_name, table_column) not in existing_materialized_columns:
+                result.append((table, table_column, property_name))
 
     if len(result) > 0:
         logger.info(f"Calculated columns that could be materialized. count={len(result)}")
@@ -196,7 +204,7 @@ def materialize_properties_task(
         logger.info(f"Materializing column. table={table}, property_name={property_name}")
 
         if not dry_run:
-            materialize(table, property_name, table_column=table_column)
+            materialize(table, property_name, table_column=table_column, is_nullable=is_nullable)
         properties[table].append((property_name, table_column))
 
     if backfill_period_days > 0 and not dry_run:
