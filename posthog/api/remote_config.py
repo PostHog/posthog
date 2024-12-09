@@ -14,7 +14,7 @@ class BaseRemoteConfigAPIView(APIView):
     permission_classes = []
 
     def check_token(self, token: str):
-        # Check token is a valid token - not longer than 255 characters and only allowing alphanumeric characters and _
+        # Simple check rather than involving a whole serializer
         if len(token) > 200 or not re.match(r"^[a-zA-Z0-9_]+$", token):
             raise ValidationError("Invalid token")
         return token
