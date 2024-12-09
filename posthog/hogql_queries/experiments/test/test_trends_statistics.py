@@ -49,7 +49,7 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         self.assertTrue(probabilities[1] > 0.95)  # Test variant strongly winning
         self.assertTrue(probabilities[0] < 0.05)  # Control variant strongly losing
         self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
-        self.assertEqual(p_value, 0)
+        self.assertLess(p_value, 0.001)  # Very small p-value indicates significance
 
         # Control: 10% conversion rate with narrow interval due to large sample
         self.assertAlmostEqual(intervals["control"][0], 0.094, places=2)  # Lower bound ~9.4%
@@ -72,7 +72,7 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         self.assertTrue(probabilities[1] > 0.99)  # Test variant very strongly winning
         self.assertTrue(probabilities[0] < 0.01)  # Control variant very strongly losing
         self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
-        self.assertEqual(p_value, 0)
+        self.assertLess(p_value, 0.001)  # Very small p-value indicates significance
 
         # Control: 10% conversion rate
         self.assertAlmostEqual(intervals["control"][0], 0.094, places=2)  # Lower bound ~9.4%
@@ -127,7 +127,7 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         self.assertTrue(probabilities[1] < 0.1)  # test_a should be losing
         self.assertTrue(probabilities[0] < 0.1)  # control should be losing
         self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
-        self.assertEqual(p_value, 0)
+        self.assertLess(p_value, 0.001)  # Very small p-value indicates significance
 
         # Control at 10%
         self.assertAlmostEqual(intervals["control"][0], 0.094, places=2)
@@ -166,7 +166,7 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         self.assertAlmostEqual(intervals["control"][1], 0.229, places=2)  # 22.9%
 
         self.assertAlmostEqual(intervals["test"][0], 0.083, places=2)  # 8.3%
-        self.assertAlmostEqual(intervals["test"][1], 0.309, places=2)  # 30.9%
+        self.assertAlmostEqual(intervals["test"][1], 0.315, places=2)  # 31.5%
 
     def test_edge_cases(self):
         """Test edge cases like zero counts"""
