@@ -205,7 +205,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         checkpoint_ns: str | None = configurable.get("checkpoint_ns") or ""
 
         checkpoint_copy = cast(dict[str, Any], checkpoint.copy())
-        channel_values = checkpoint.pop("channel_values", {})
+        channel_values = checkpoint_copy.pop("channel_values", {})
 
         next_config: RunnableConfig = {
             "configurable": {

@@ -180,6 +180,35 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         checkpoint = saver.get(read_config)
         self.assertEqual(checkpoint, checkpoints[0].checkpoint)
 
+    def test_put_copies_checkpoint(self):
+        thread1 = AssistantThread.objects.create(user=self.user, team=self.team)
+        chkpnt = {
+            "v": 1,
+            "ts": "2024-07-31T20:14:19.804150+00:00",
+            "id": str(uuid6(clock_seq=-2)),
+            "channel_values": {
+                "post": "hog",
+                "node": "node",
+            },
+            "channel_versions": {
+                "__start__": 2,
+                "my_key": 3,
+                "start:node": 3,
+                "node": 3,
+            },
+            "versions_seen": {
+                "__input__": {},
+                "__start__": {"__start__": 1},
+                "node": {"start:node": 2},
+            },
+            "pending_sends": [],
+        }
+        metadata = {"meta": "key"}
+        write_config = {"configurable": {"thread_id": thread1.id, "checkpoint_ns": ""}}
+        saver = DjangoCheckpointer()
+        saver.put(write_config, chkpnt, metadata, {})
+        self.assertIn("channel_values", chkpnt)
+
     def test_concurrent_puts_and_put_writes(self):
         graph: CompiledStateGraph = self._build_graph(DjangoCheckpointer())
         thread = AssistantThread.objects.create(user=self.user, team=self.team)
