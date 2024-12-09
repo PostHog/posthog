@@ -20,10 +20,7 @@ from posthog.test.base import NonAtomicBaseTest
 
 
 class TestDjangoCheckpointer(NonAtomicBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.thread1 = AssistantThread.objects.create(user=self.user, team=self.team)
-        self.thread2 = AssistantThread.objects.create(user=self.user, team=self.team)
+    CLASS_DATA_LEVEL_SETUP = False
 
     def _build_graph(self, checkpointer: DjangoCheckpointer):
         class State(TypedDict):
@@ -46,9 +43,12 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         return graph.compile(checkpointer=checkpointer)
 
     def test_saver(self):
+        thread1 = AssistantThread.objects.create(user=self.user, team=self.team)
+        thread2 = AssistantThread.objects.create(user=self.user, team=self.team)
+
         config_1: RunnableConfig = {
             "configurable": {
-                "thread_id": self.thread1.id,
+                "thread_id": thread1.id,
                 "checkpoint_ns": "",
             }
         }
@@ -56,7 +56,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
 
         config_2: RunnableConfig = {
             "configurable": {
-                "thread_id": self.thread2.id,
+                "thread_id": thread2.id,
                 "checkpoint_ns": "",
             }
         }
@@ -64,7 +64,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
 
         config_3: RunnableConfig = {
             "configurable": {
-                "thread_id": self.thread2.id,
+                "thread_id": thread2.id,
                 "checkpoint_id": chkpnt_2["id"],
                 "checkpoint_ns": "inner",
             }
@@ -125,7 +125,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         assert len(search_results_4) == 0
 
         # search by config (defaults to checkpoints across all namespaces)
-        search_results_5 = list(saver.list({"configurable": {"thread_id": self.thread2.id}}))
+        search_results_5 = list(saver.list({"configurable": {"thread_id": thread2.id}}))
         assert len(search_results_5) == 2
         assert {
             search_results_5[0].config["configurable"]["checkpoint_ns"],
@@ -133,6 +133,8 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         } == {"", "inner"}
 
     def test_channel_versions(self):
+        thread1 = AssistantThread.objects.create(user=self.user, team=self.team)
+
         chkpnt = {
             "v": 1,
             "ts": "2024-07-31T20:14:19.804150+00:00",
@@ -156,15 +158,15 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         }
         metadata = {"meta": "key"}
 
-        write_config = {"configurable": {"thread_id": self.thread1.id, "checkpoint_ns": ""}}
-        read_config = {"configurable": {"thread_id": self.thread1.id}}
+        write_config = {"configurable": {"thread_id": thread1.id, "checkpoint_ns": ""}}
+        read_config = {"configurable": {"thread_id": thread1.id}}
 
         saver = DjangoCheckpointer()
         saver.put(write_config, chkpnt, metadata, {})
 
         checkpoint = AssistantCheckpoint.objects.first()
         self.assertIsNotNone(checkpoint)
-        self.assertEqual(checkpoint.thread, self.thread1)
+        self.assertEqual(checkpoint.thread, thread1)
         self.assertEqual(checkpoint.checkpoint_ns, "")
         self.assertEqual(str(checkpoint.id), chkpnt["id"])
         self.assertIsNone(checkpoint.parent_checkpoint)

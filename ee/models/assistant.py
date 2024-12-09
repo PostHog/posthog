@@ -1,4 +1,7 @@
+from collections.abc import Iterable
+
 from django.db import models
+from langgraph.checkpoint.serde.types import TASKS
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -29,6 +32,16 @@ class AssistantCheckpoint(UUIDModel):
                 name="unique_checkpoint",
             )
         ]
+
+    @property
+    def pending_sends(self) -> Iterable["AssistantCheckpointWrite"]:
+        if self.parent_checkpoint is None:
+            return []
+        return self.parent_checkpoint.writes.filter(channel=TASKS).order_by("task_id", "idx")
+
+    @property
+    def pending_writes(self) -> Iterable["AssistantCheckpointWrite"]:
+        return self.writes.order_by("idx", "task_id")
 
 
 class AssistantCheckpointBlob(UUIDModel):

@@ -1,7 +1,7 @@
 import json
 import random
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from typing import Any, Optional, cast
 
 from django.db import transaction
@@ -18,7 +18,7 @@ from langgraph.checkpoint.base import (
     get_checkpoint_id,
 )
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
+from langgraph.checkpoint.serde.types import ChannelProtocol
 
 from ee.models.assistant import AssistantCheckpoint, AssistantCheckpointBlob, AssistantCheckpointWrite
 
@@ -83,6 +83,17 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
 
         return AssistantCheckpoint.objects.filter(query).order_by("-id")
 
+    def _get_checkpoint_channel_values(self, checkpoint: AssistantCheckpoint) -> Iterable[AssistantCheckpointBlob]:
+        if not checkpoint.checkpoint:
+            return []
+        loaded_checkpoint: Checkpoint = self._load_json(checkpoint.checkpoint)
+        if "channel_versions" not in loaded_checkpoint:
+            return []
+        query = Q()
+        for channel, version in loaded_checkpoint["channel_versions"].items():
+            query |= Q(channel=channel, version=version)
+        return checkpoint.blobs.filter(query)
+
     def list(
         self,
         config: Optional[RunnableConfig],
@@ -110,27 +121,13 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             qs = qs[:limit]
 
         for checkpoint in qs:
-            channel_values: list[AssistantCheckpointBlob] = []
-
-            loaded_checkpoint: Checkpoint = self._load_json(checkpoint.checkpoint)
-            if "channel_versions" in loaded_checkpoint:
-                query = Q()
-                for channel, version in loaded_checkpoint["channel_versions"].items():
-                    query |= Q(channel=channel, version=version)
-                channel_values = list(checkpoint.blobs.filter(query))
-
-            pending_writes = checkpoint.writes.order_by("idx", "task_id")
-
-            if checkpoint.parent_checkpoint is not None:
-                pending_sends = checkpoint.parent_checkpoint.writes.filter(channel=TASKS).order_by("task_id", "idx")
-            else:
-                pending_sends = []
+            channel_values = self._get_checkpoint_channel_values(checkpoint)
 
             checkpoint_dict: Checkpoint = {
-                **loaded_checkpoint,
+                **self._load_json(checkpoint.checkpoint),
                 "pending_sends": [
                     self.serde.loads_typed((checkpoint_write.type, checkpoint_write.blob))
-                    for checkpoint_write in pending_sends
+                    for checkpoint_write in checkpoint.pending_sends
                 ],
                 "channel_values": {
                     checkpoint_blob.channel: self.serde.loads_typed((checkpoint_blob.type, checkpoint_blob.blob))
@@ -162,7 +159,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     if checkpoint.parent_checkpoint
                     else None
                 ),
-                self._load_writes(pending_writes),
+                self._load_writes(checkpoint.pending_writes),
             )
 
     def get_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
