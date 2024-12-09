@@ -20,12 +20,12 @@ from posthog.test.base import NonAtomicBaseTest
 
 
 class TestDjangoCheckpointer(NonAtomicBaseTest):
-    def setUp(cls):
+    def setUp(self):
         super().setUp()
-        cls.thread1 = AssistantThread.objects.create(user=cls.user, team=cls.team)
-        cls.thread2 = AssistantThread.objects.create(user=cls.user, team=cls.team)
+        self.thread1 = AssistantThread.objects.create(user=self.user, team=self.team)
+        self.thread2 = AssistantThread.objects.create(user=self.user, team=self.team)
 
-    def _build_graph(self):
+    def _build_graph(self, checkpointer: DjangoCheckpointer):
         class State(TypedDict):
             val: int
 
@@ -43,7 +43,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         graph.add_edge("node1", "node2")
         graph.add_edge("node2", END)
 
-        return graph.compile(checkpointer=DjangoCheckpointer())
+        return graph.compile(checkpointer=checkpointer)
 
     def test_saver(self):
         config_1: RunnableConfig = {
@@ -179,7 +179,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         self.assertEqual(checkpoint, checkpoints[0].checkpoint)
 
     def test_concurrent_puts_and_put_writes(self):
-        graph: CompiledStateGraph = self._build_graph()
+        graph: CompiledStateGraph = self._build_graph(DjangoCheckpointer())
         thread = AssistantThread.objects.create(user=self.user, team=self.team)
         config = {"configurable": {"thread_id": str(thread.id)}}
         graph.invoke(
@@ -190,6 +190,12 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         self.assertEqual(len(AssistantCheckpointBlob.objects.all()), 10)
         self.assertEqual(len(AssistantCheckpointWrite.objects.all()), 6)
 
+    def test_resuming(self):
+        checkpointer = DjangoCheckpointer()
+        graph: CompiledStateGraph = self._build_graph(checkpointer)
+        thread = AssistantThread.objects.create(user=self.user, team=self.team)
+        config = {"configurable": {"thread_id": str(thread.id)}}
+
         graph.invoke(
             {"val": 1},
             config=config,
@@ -198,7 +204,33 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         self.assertIsNotNone(snapshot.next)
         self.assertEqual(snapshot.tasks[0].interrupts[0].value, "test")
 
-        checkpoints = list(AssistantCheckpoint.objects.all())
-        self.assertEqual(len(checkpoints), 6)
+        self.assertEqual(len(AssistantCheckpoint.objects.all()), 2)
         self.assertEqual(len(AssistantCheckpointBlob.objects.all()), 4)
-        self.assertEqual(len(AssistantCheckpointWrite.objects.all()), 6)
+        self.assertEqual(len(AssistantCheckpointWrite.objects.all()), 3)
+        self.assertEqual(len(list(checkpointer.list(config))), 2)
+
+        latest_checkpoint = AssistantCheckpoint.objects.last()
+        latest_write = AssistantCheckpointWrite.objects.filter(checkpoint=latest_checkpoint).first()
+        actual_checkpoint = checkpointer.get_tuple(config)
+        self.assertIsNotNone(actual_checkpoint)
+        self.assertIsNotNone(latest_write)
+        self.assertEqual(len(latest_checkpoint.writes.all()), 1)
+        blobs = list(latest_checkpoint.blobs.all())
+        self.assertEqual(len(blobs), 3)
+        self.assertEqual(actual_checkpoint.checkpoint["id"], str(latest_checkpoint.id))
+        self.assertEqual(len(actual_checkpoint.pending_writes), 1)
+        self.assertEqual(actual_checkpoint.pending_writes[0][0], str(latest_write.task_id))
+
+        graph.update_state(config, {"val": 2})
+        # add the value update checkpoint
+        self.assertEqual(len(AssistantCheckpoint.objects.all()), 3)
+        self.assertEqual(len(AssistantCheckpointBlob.objects.all()), 6)
+        self.assertEqual(len(AssistantCheckpointWrite.objects.all()), 5)
+        self.assertEqual(len(list(checkpointer.list(config))), 3)
+
+        res = graph.invoke(None, config=config)
+        self.assertEqual(len(AssistantCheckpoint.objects.all()), 5)
+        self.assertEqual(len(AssistantCheckpointBlob.objects.all()), 12)
+        self.assertEqual(len(AssistantCheckpointWrite.objects.all()), 9)
+        self.assertEqual(len(list(checkpointer.list(config))), 5)
+        self.assertEqual(res, {"val": 3})

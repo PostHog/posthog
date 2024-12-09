@@ -181,15 +181,6 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         """
         return next(self.list(config), None)
 
-    def _get_checkpoint(
-        self, checkpoint_id: str, thread_id: str, checkpoint_ns: Optional[str] = None
-    ) -> AssistantCheckpoint:
-        return (
-            AssistantCheckpoint.objects.filter(id=checkpoint_id, thread_id=thread_id, checkpoint_ns=checkpoint_ns)
-            .select_for_update()
-            .first()
-        )
-
     def put(
         self,
         config: RunnableConfig,
