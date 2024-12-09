@@ -66,8 +66,8 @@ export interface ItemPerformanceEventProps {
     finalTimestamp: Dayjs | null
 }
 
-function renderTimeBenchmark(milliseconds: number): JSX.Element {
-    return (
+function renderTimeBenchmark(milliseconds: number | null): JSX.Element | null {
+    return milliseconds === null ? null : (
         <span
             className={clsx('font-semibold', {
                 'text-danger-dark': milliseconds >= 2000,
@@ -107,14 +107,20 @@ function StartedAt({ item }: { item: PerformanceEvent }): JSX.Element | null {
     ) : null
 }
 
-function DurationDescription({ item }: { item: PerformanceEvent }): JSX.Element | null {
+function durationMillisecondsFrom(item: PerformanceEvent): number | null {
     let duration = item.duration
     if (duration === undefined && item.end_time !== undefined && item.start_time !== undefined) {
         duration = item.end_time - item.start_time
     }
-    if (duration === undefined) {
+    return duration ?? null
+}
+
+function DurationDescription({ item }: { item: PerformanceEvent }): JSX.Element | null {
+    const duration = durationMillisecondsFrom(item)
+    if (duration === null) {
         return null
     }
+
     return (
         <>
             took <b>{humanFriendlyMilliseconds(duration)}</b>
@@ -153,7 +159,7 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
     const sizeInfo = itemSizeInfo(item)
 
     const startTime = item.start_time || item.fetch_start || 0
-    const duration = item.duration || item.end_time === undefined ? 0 : item.end_time - startTime
+    const duration = durationMillisecondsFrom(item)
 
     const callerOrigin = isURL(item.current_url) ? new URL(item.current_url).origin : undefined
     const eventName = item.name || '(empty string)'
@@ -185,7 +191,7 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         left: `${(startTime / contextLengthMs) * 100}%`,
-                        width: `${Math.max((duration / contextLengthMs) * 100, 0.5)}%`,
+                        width: `${Math.max(((duration ?? 0) / contextLengthMs) * 100, 0.5)}%`,
                     }}
                 />
                 {item.entry_type === 'navigation' ? (
@@ -285,6 +291,7 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
             <LemonDivider dashed />
 
             <LemonTabs
+                size="small"
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}
                 tabs={[

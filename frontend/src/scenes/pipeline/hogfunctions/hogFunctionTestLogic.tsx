@@ -77,7 +77,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     forms(({ props, actions, values }) => ({
         testInvocation: {
             defaults: {
-                mock_async_functions: true,
+                mock_async_functions: false,
             } as HogFunctionTestInvocationForm,
             alwaysShowErrors: true,
             errors: ({ globals }) => {

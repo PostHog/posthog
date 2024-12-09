@@ -733,6 +733,5 @@
     "$ip": "185.140.230.43",
     "$lib_version__minor": 6,
     "$lib": "posthog-python",
-    "$lib_version__major": 3,
-    "$exception_fingerprint": ["ConnectionRefusedError", "[Errno 111] Connection refused", "_new_conn"]
+    "$lib_version__major": 3
 }
