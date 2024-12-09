@@ -580,9 +580,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         presetChartHeight: [
-            (state) => [state.dashboardId],
-            (dashboardId) => {
-                return !dashboardId
+            (state, props) => [props.key, state.dashboardId],
+            (key, dashboardId) => {
+                // Key for SQL editor based visiaulizations
+                return !key.includes('SQLEditorScene') && !dashboardId
             },
         ],
         sourceFeatures: [(_, props) => [props.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],

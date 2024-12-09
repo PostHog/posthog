@@ -129,7 +129,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                                         }
                                                     >
                                                         <span className="flex gap-2">
-                                                            Mock out async functions
+                                                            Mock out HTTP requests
                                                             <IconInfo className="text-lg" />
                                                         </span>
                                                     </Tooltip>

@@ -1,2 +1,5 @@
 .eslintrc.js
 jest.config.ts
+node_modules
+rust
+livestream
