@@ -2999,6 +2999,11 @@ export interface CombinedFeatureFlagAndValueType {
     value: boolean | string
 }
 
+export interface Feature {
+    id: number | null
+    name: string
+}
+
 export enum EarlyAccessFeatureStage {
     Draft = 'draft',
     Concept = 'concept',
