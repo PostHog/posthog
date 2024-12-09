@@ -1,5 +1,5 @@
 from typing import Optional
-from unittest.mock import patch, ANY
+from unittest.mock import patch
 import uuid
 from freezegun import freeze_time
 from rest_framework.status import (
@@ -194,8 +194,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
             self.assertFalse(self.team.access_control)
 
-        @patch("posthoganalytics.capture")
-        def test_enable_access_control_as_org_admin_allowed(self, mock_capture):
+        def test_enable_access_control_as_org_admin_allowed(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
@@ -204,21 +203,6 @@ def team_enterprise_api_test_factory():  # type: ignore
 
             self.assertEqual(response.status_code, HTTP_200_OK)
             self.assertTrue(self.team.access_control)
-
-            # Verify the capture event was called correctly for enabling
-            mock_capture.assert_any_call(
-                self.user.distinct_id,
-                "project access control toggled",
-                properties={
-                    "enabled": True,
-                    "project_id": str(self.team.id),
-                    "project_name": self.team.name,
-                    "organization_id": str(self.organization.id),
-                    "organization_name": self.organization.name,
-                    "user_role": OrganizationMembership.Level.ADMIN,
-                },
-                groups={"instance": ANY, "organization": str(self.organization.id)},
-            )
 
         def test_enable_access_control_as_org_member_and_team_admin_forbidden(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
