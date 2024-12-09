@@ -14,6 +14,7 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::instrument;
 
+use crate::limiters::token_dropper::TokenDropper;
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
     Compression, DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
@@ -172,7 +173,14 @@ pub async fn event(
         }
         Err(err) => Err(err),
         Ok((context, events)) => {
-            if let Err(err) = process_events(state.sink.clone(), &events, &context).await {
+            if let Err(err) = process_events(
+                state.sink.clone(),
+                state.token_dropper.clone(),
+                &events,
+                &context,
+            )
+            .await
+            {
                 let cause = match err {
                     CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
@@ -285,9 +293,11 @@ pub fn process_single_event(
         session_id: None,
     };
 
+    let distinct_id = event.extract_distinct_id()?;
+
     let event = CapturedEvent {
         uuid: event.uuid.unwrap_or_else(uuid_v7),
-        distinct_id: event.extract_distinct_id()?,
+        distinct_id,
         ip: context.client_ip.clone(),
         data,
         now: context.now.clone(),
@@ -300,6 +310,7 @@ pub fn process_single_event(
 #[instrument(skip_all, fields(events = events.len()))]
 pub async fn process_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
+    dropper: Arc<TokenDropper>,
     events: &'a [RawEvent],
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
@@ -307,6 +318,13 @@ pub async fn process_events<'a>(
         .iter()
         .map(|e| process_single_event(e, context))
         .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
+
+    for event in events.iter() {
+        if dropper.should_drop(&event.event.token, Some(&event.event.distinct_id)) {
+            report_dropped_events("token_dropper", 1);
+            continue;
+        }
+    }
 
     tracing::debug!(events=?events, "processed {} events", events.len());
 
