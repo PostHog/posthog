@@ -6009,6 +6009,7 @@ class ExperimentTrendsQueryResponse(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
+    stats_version: Optional[int] = None
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
@@ -6551,6 +6552,7 @@ class ExperimentTrendsQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentTrendsQueryResponse] = None
+    stats_version: Optional[int] = None
 
 
 class FunnelPathsFilter(BaseModel):
