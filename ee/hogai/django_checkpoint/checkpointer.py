@@ -86,7 +86,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
     def _get_checkpoint_channel_values(self, checkpoint: AssistantCheckpoint) -> Iterable[AssistantCheckpointBlob]:
         if not checkpoint.checkpoint:
             return []
-        loaded_checkpoint: Checkpoint = self._load_json(checkpoint.checkpoint)
+        loaded_checkpoint = self._load_json(checkpoint.checkpoint)
         if "channel_versions" not in loaded_checkpoint:
             return []
         query = Q()
@@ -122,9 +122,10 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
 
         for checkpoint in qs:
             channel_values = self._get_checkpoint_channel_values(checkpoint)
+            loaded_checkpoint: Checkpoint = self._load_json(checkpoint.checkpoint)
 
             checkpoint_dict: Checkpoint = {
-                **self._load_json(checkpoint.checkpoint),
+                **loaded_checkpoint,
                 "pending_sends": [
                     self.serde.loads_typed((checkpoint_write.type, checkpoint_write.blob))
                     for checkpoint_write in checkpoint.pending_sends

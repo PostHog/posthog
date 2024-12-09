@@ -43,7 +43,7 @@ def add_messages(
 ) -> Sequence[AssistantMessageUnion]:
     if isinstance(right, ReplaceMessages):
         return list(right)
-    return left + right
+    return list(left) + list(right)
 
 
 class AssistantState(TypedDict, total=False):

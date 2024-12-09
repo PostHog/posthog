@@ -238,7 +238,7 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         try:
             input = TaxonomyAgentTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
         except ValidationError as e:
-            observation = (
+            observation = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
                 .format_messages(exception=e.errors(include_url=False))[0]
                 .content
