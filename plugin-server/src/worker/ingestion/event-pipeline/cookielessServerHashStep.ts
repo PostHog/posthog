@@ -1,14 +1,13 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as crypto from 'crypto'
 import { DateTime } from 'luxon'
-// @ts-expect-error no types
-import * as siphashDouble from 'siphash/lib/siphash-double'
 import { getDomain } from 'tldts'
 
 import { ConcurrencyController } from '../../../utils/concurrencyController'
 import { DB } from '../../../utils/db/db'
 import { now } from '../../../utils/now'
 import { UUID7 } from '../../../utils/utils'
+import * as siphashDouble from '../../../utils/vendor/siphash/siphash-double'
 import { EventPipelineRunner } from './runner'
 
 //---------------------------------------------------------------------
