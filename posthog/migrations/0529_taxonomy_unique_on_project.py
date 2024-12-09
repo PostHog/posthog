@@ -14,6 +14,35 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # First clean up rows that would fail the project-based unique constraints we're adding
+        migrations.RunSQL(
+            sql="""
+            DELETE FROM posthog_propertydefinition
+            WHERE team_id IN (
+                SELECT id FROM posthog_team WHERE id != project_id
+            );""",
+            reverse_sql=migrations.RunSQL.noop,
+            elidable=True,
+        ),
+        migrations.RunSQL(
+            sql="""
+            DELETE FROM posthog_eventdefinition
+            WHERE team_id IN (
+                SELECT id FROM posthog_team WHERE id != project_id
+            );""",
+            reverse_sql=migrations.RunSQL.noop,
+            elidable=True,
+        ),
+        migrations.RunSQL(
+            sql="""
+            DELETE FROM posthog_eventproperty
+            WHERE team_id IN (
+                SELECT id FROM posthog_team WHERE id != project_id
+            );""",
+            reverse_sql=migrations.RunSQL.noop,
+            elidable=True,
+        ),
+        # Remove misguided `project_id`-only indexes from the previous migration
         RemoveIndexConcurrently(
             model_name="eventproperty",
             name="posthog_eve_proj_id_22de03_idx",
@@ -30,6 +59,7 @@ class Migration(migrations.Migration):
             model_name="propertydefinition",
             name="posthog_pro_project_3583d2_idx",
         ),
+        # Add new useful indexes using `coalesce(project_id, team_id)`
         AddIndexConcurrently(
             model_name="eventproperty",
             index=models.Index(
