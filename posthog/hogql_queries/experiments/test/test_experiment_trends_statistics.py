@@ -7,13 +7,10 @@ from posthog.hogql_queries.experiments.experiment_trends_statistics import (
 )
 from posthog.test.base import APIBaseTest
 
+
 def create_variant(key: str, count: int, exposure: int) -> ExperimentVariantTrendsBaseStats:
-    return ExperimentVariantTrendsBaseStats(
-        key=key,
-        count=count,
-        exposure=exposure,
-        absolute_exposure=exposure
-    )
+    return ExperimentVariantTrendsBaseStats(key=key, count=count, exposure=exposure, absolute_exposure=exposure)
+
 
 class TestExperimentTrendsStatistics(APIBaseTest):
     def test_small_sample_two_variants_not_significant(self):
@@ -105,14 +102,14 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         self.assertAlmostEqual(intervals["control"][0], 0.083, places=2)  # ~8.3%
         self.assertAlmostEqual(intervals["control"][1], 0.119, places=2)  # ~11.9%
 
-        self.assertAlmostEqual(intervals["test_a"][0], 0.081, places=2)   # ~8.1%
-        self.assertAlmostEqual(intervals["test_a"][1], 0.117, places=2)   # ~11.7%
+        self.assertAlmostEqual(intervals["test_a"][0], 0.081, places=2)  # ~8.1%
+        self.assertAlmostEqual(intervals["test_a"][1], 0.117, places=2)  # ~11.7%
 
-        self.assertAlmostEqual(intervals["test_b"][0], 0.085, places=2)   # ~8.5%
-        self.assertAlmostEqual(intervals["test_b"][1], 0.121, places=2)   # ~12.1%
+        self.assertAlmostEqual(intervals["test_b"][0], 0.085, places=2)  # ~8.5%
+        self.assertAlmostEqual(intervals["test_b"][1], 0.121, places=2)  # ~12.1%
 
-        self.assertAlmostEqual(intervals["test_c"][0], 0.084, places=2)   # ~8.4%
-        self.assertAlmostEqual(intervals["test_c"][1], 0.120, places=2)   # ~12.0%
+        self.assertAlmostEqual(intervals["test_c"][0], 0.084, places=2)  # ~8.4%
+        self.assertAlmostEqual(intervals["test_c"][1], 0.120, places=2)  # ~12.0%
 
     def test_many_variants_significant(self):
         """Test with multiple variants, one clear winner"""
@@ -168,8 +165,8 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         self.assertAlmostEqual(intervals["control"][0], 0.044, places=2)  # 4.4%
         self.assertAlmostEqual(intervals["control"][1], 0.229, places=2)  # 22.9%
 
-        self.assertAlmostEqual(intervals["test"][0], 0.083, places=2)    # 8.3%
-        self.assertAlmostEqual(intervals["test"][1], 0.309, places=2)    # 30.9%
+        self.assertAlmostEqual(intervals["test"][0], 0.083, places=2)  # 8.3%
+        self.assertAlmostEqual(intervals["test"][1], 0.315, places=2)  # 31.5%
 
     def test_edge_cases(self):
         """Test edge cases like zero counts"""
