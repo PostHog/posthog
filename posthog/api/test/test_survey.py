@@ -2782,6 +2782,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                                 "values": [
                                     {
                                         "id": action.id,
+                                        "name": "user subscribed",
                                         "steps": [
                                             {
                                                 "event": "$pageview",
