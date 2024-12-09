@@ -9,7 +9,7 @@ on:
 
 jobs:
     trigger_udfs_workflow:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         steps:
             - name: Trigger UDFs Workflow
               uses: benc-uk/workflow-dispatch@v1

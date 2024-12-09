@@ -81,6 +81,8 @@ export interface DataNodeLogicProps {
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+
+    autoLoad?: boolean
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -114,7 +116,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             ],
         ],
     })),
-    props({ query: {}, variablesOverride: undefined } as DataNodeLogicProps),
+    props({ query: {}, variablesOverride: undefined, autoLoad: true } as DataNodeLogicProps),
     propsChanged(({ actions, props }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
@@ -131,6 +133,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.loadData(queryVarsHaveChanged, queryStatus.id)
         } else if (
             hasQueryChanged &&
+            props.autoLoad &&
             !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
             (!props.cachedResults ||
                 (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))

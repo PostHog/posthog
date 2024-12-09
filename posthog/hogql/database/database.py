@@ -28,6 +28,7 @@ from posthog.hogql.database.models import (
     Table,
     VirtualTable,
 )
+from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
@@ -116,6 +117,7 @@ class Database(BaseModel):
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
     log_entries: LogEntriesTable = LogEntriesTable()
+    app_metrics: AppMetrics2Table = AppMetrics2Table()
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
     sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
@@ -145,6 +147,7 @@ class Database(BaseModel):
         "cohort_people",
         "static_cohort_people",
         "log_entries",
+        "app_metrics",
         "sessions",
         "heatmaps",
     ]
@@ -318,7 +321,7 @@ def create_hogql_database(
         "$virt_initial_channel_type", modifiers.customChannelTypeRules
     )
 
-    for mapping in GroupTypeMapping.objects.filter(team=team):
+    for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
         if database.events.fields.get(mapping.group_type) is None:
             database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
