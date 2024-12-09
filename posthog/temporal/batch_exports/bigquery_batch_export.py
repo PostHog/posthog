@@ -276,7 +276,7 @@ class BigQueryClient(bigquery.Client):
 
         merge_query = f"""
         MERGE `{final_table.full_table_id.replace(":", ".", 1)}` final
-        USING `{stage_table.full_table_id.replace(":", ".", 1)}` stage
+        USING (SELECT DISTINCT * FROM `{stage_table.full_table_id.replace(":", ".", 1)}`) stage
         {merge_condition}
 
         WHEN MATCHED AND (stage.`{person_version_key}` > final.`{person_version_key}` OR stage.`{person_distinct_id_version_key}` > final.`{person_distinct_id_version_key}`) THEN
