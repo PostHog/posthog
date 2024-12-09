@@ -1,5 +1,5 @@
 from decimal import Decimal
-from unittest.mock import ANY, patch
+from unittest.mock import patch
 from inline_snapshot import snapshot
 import pytest
 from posthog.models.action.action import Action
@@ -41,7 +41,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config.config == snapshot(
             {
                 "token": "phc_12345",
-                "surveys": False,
+                "surveys": [],
                 "heatmaps": False,
                 "siteApps": [],
                 "analytics": {"endpoint": "/i/v0/e/"},
@@ -130,15 +130,12 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
         self.team.save()
 
         self.remote_config.refresh_from_db()
-        assert self.remote_config.config["surveys"] == snapshot(
+        assert self.remote_config.config["survey_config"] == snapshot(
             {
-                "surveys": [],
-                "survey_config": {
-                    "appearance": {
-                        "thankYouMessageHeader": "Thanks for your feedback!",
-                        "thankYouMessageDescription": "We'll use it to make notebooks better",
-                    }
-                },
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "We'll use it to make notebooks better",
+                }
             }
         )
 
@@ -186,73 +183,70 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
 
         self.remote_config.refresh_from_db()
         assert self.remote_config.config["surveys"]
-        assert self.remote_config.config["surveys"] == {
-            "surveys": [
-                {
-                    "id": str(survey_basic.id),
-                    "name": "Basic survey",
-                    "type": "popover",
-                    "end_date": None,
-                    "questions": [{"type": "open", "question": "What's a survey?"}],
-                    "appearance": None,
-                    "conditions": None,
-                    "start_date": None,
-                    "current_iteration": None,
-                    "current_iteration_start_date": None,
+        assert self.remote_config.config["surveys"] == [
+            {
+                "id": str(survey_basic.id),
+                "name": "Basic survey",
+                "type": "popover",
+                "end_date": None,
+                "questions": [{"type": "open", "question": "What's a survey?"}],
+                "appearance": None,
+                "conditions": None,
+                "start_date": None,
+                "current_iteration": None,
+                "current_iteration_start_date": None,
+            },
+            {
+                "id": str(survey_with_flags.id),
+                "name": "Survey with flags",
+                "type": "popover",
+                "end_date": None,
+                "questions": [{"type": "open", "question": "What's a hedgehog?"}],
+                "appearance": None,
+                "conditions": None,
+                "start_date": None,
+                "linked_flag_key": "linked-flag",
+                "current_iteration": None,
+                "targeting_flag_key": "targeting-flag",
+                "internal_targeting_flag_key": "custom-targeting-flag",
+                "current_iteration_start_date": None,
+            },
+            {
+                "id": str(survey_with_actions.id),
+                "name": "survey with actions",
+                "type": "popover",
+                "end_date": None,
+                "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
+                "appearance": None,
+                "conditions": {
+                    "actions": {
+                        "values": [
+                            {
+                                "id": action.id,
+                                "name": "user subscribed",
+                                "steps": [
+                                    {
+                                        "url": "docs",
+                                        "href": None,
+                                        "text": None,
+                                        "event": "$pageview",
+                                        "selector": None,
+                                        "tag_name": None,
+                                        "properties": None,
+                                        "url_matching": "contains",
+                                        "href_matching": None,
+                                        "text_matching": None,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
                 },
-                {
-                    "id": str(survey_with_flags.id),
-                    "name": "Survey with flags",
-                    "type": "popover",
-                    "end_date": None,
-                    "questions": [{"type": "open", "question": "What's a hedgehog?"}],
-                    "appearance": None,
-                    "conditions": None,
-                    "start_date": None,
-                    "linked_flag_key": "linked-flag",
-                    "current_iteration": None,
-                    "targeting_flag_key": "targeting-flag",
-                    "internal_targeting_flag_key": "custom-targeting-flag",
-                    "current_iteration_start_date": None,
-                },
-                {
-                    "id": str(survey_with_actions.id),
-                    "name": "survey with actions",
-                    "type": "popover",
-                    "end_date": None,
-                    "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
-                    "appearance": None,
-                    "conditions": {
-                        "actions": {
-                            "values": [
-                                {
-                                    "id": action.id,
-                                    "name": "user subscribed",
-                                    "steps": [
-                                        {
-                                            "url": "docs",
-                                            "href": None,
-                                            "text": None,
-                                            "event": "$pageview",
-                                            "selector": None,
-                                            "tag_name": None,
-                                            "properties": None,
-                                            "url_matching": "contains",
-                                            "href_matching": None,
-                                            "text_matching": None,
-                                        }
-                                    ],
-                                }
-                            ]
-                        }
-                    },
-                    "start_date": None,
-                    "current_iteration": None,
-                    "current_iteration_start_date": None,
-                },
-            ],
-            "survey_config": None,
-        }
+                "start_date": None,
+                "current_iteration": None,
+                "current_iteration_start_date": None,
+            },
+        ]
 
 
 class TestRemoteConfigCaching(_RemoteConfigBase):
@@ -324,7 +318,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
+  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
   window._POSTHOG_JS_APPS = [];
 })();\
 """
@@ -368,7 +362,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
+  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
   window._POSTHOG_JS_APPS = [    
     {
       id: 'tokentoken',
@@ -439,7 +433,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
+  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
   window._POSTHOG_JS_APPS = [    
     {
       id: 'SITE_DESTINATION_ID',

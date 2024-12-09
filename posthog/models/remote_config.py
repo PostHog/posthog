@@ -180,7 +180,10 @@ class RemoteConfig(UUIDModel):
                 config["sessionRecording"] = False
 
         config["heatmaps"] = True if team.heatmaps_opt_in else False
-        config["surveys"] = get_surveys_response(team)
+        surveys_response = get_surveys_response(team)
+        config["surveys"] = surveys_response["surveys"]
+        if surveys_response["survey_config"]:
+            config["survey_config"] = surveys_response["survey_config"]
 
         try:
             default_identified_only = team.pk >= int(settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN)
