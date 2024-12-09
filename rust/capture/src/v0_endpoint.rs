@@ -312,17 +312,19 @@ pub async fn process_events<'a>(
     events: &'a [RawEvent],
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
-    let events: Vec<ProcessedEvent> = events
+    let mut events: Vec<ProcessedEvent> = events
         .iter()
         .map(|e| process_single_event(e, context))
         .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
 
-    for event in events.iter() {
-        if dropper.should_drop(&event.event.token, Some(&event.event.distinct_id)) {
+    events.retain(|e| {
+        if dropper.should_drop(&e.event.token, Some(&e.event.distinct_id)) {
             report_dropped_events("token_dropper", 1);
-            continue;
+            false
+        } else {
+            true
         }
-    }
+    });
 
     tracing::debug!(events=?events, "processed {} events", events.len());
 
