@@ -154,7 +154,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 results_to_evaluate.append(selected_series_result)
 
             if not results_to_evaluate:
-                raise RuntimeError(f"No results returned for insight")
+                raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
 
             # if we don't have breakdown, we'll have to evaluate just one result
             # and increase will be the evaluated value of that result
