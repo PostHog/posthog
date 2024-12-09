@@ -230,7 +230,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 is_identified=True,
             )
 
-            self.create_events_and_issue(
+            self.issue_one = self.create_events_and_issue(
                 issue_id=self.issue_id_one,
                 fingerprint="issue_one_fingerprint",
                 distinct_ids=[self.distinct_id_one, self.distinct_id_two],
@@ -498,12 +498,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
 
     # def test_merges_and_defaults_groups(self):
-    #     ErrorTrackingGroup.objects.create(
-    #         team=self.team,
-    #         fingerprint=["SyntaxError"],
-    #         merged_fingerprints=[["custom_fingerprint"]],
-    #         assignee=self.user,
-    #     )
+    #     ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
 
     #     runner = ErrorTrackingQueryRunner(
     #         team=self.team,
@@ -550,8 +545,14 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_assignee_groups(self):
-        issue = ErrorTrackingIssue.objects.filter(id=self.issue_id_one).first()
-        ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
+        issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
+        self.create_events_and_issue(
+            issue_id=issue_id,
+            fingerprint="assigned_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+        )
+        flush_persons_and_events()
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user)
 
         runner = ErrorTrackingQueryRunner(
             team=self.team,
@@ -563,7 +564,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = self._calculate(runner)["results"]
-        self.assertEqual([x["id"] for x in results], [self.issue_id_one])
+        self.assertEqual([x["id"] for x in results], [issue_id])
 
 
 class TestSearchTokenizer(TestCase):
