@@ -66,12 +66,12 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_conversion_window_seconds.1
   '''
-  SELECT persons.id,
-         persons.id AS id,
-         persons.created_at AS created_at,
+  SELECT source.id,
+         source.id AS id,
          1
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                arrayJoin(aggregate_funnel_array_v4(3, 15, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
@@ -106,14 +106,7 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 1), 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
-  INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.created_at DESC
+  ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
@@ -361,12 +354,12 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups.1
   '''
-  SELECT persons.id,
-         persons.id AS id,
-         persons.created_at AS created_at,
+  SELECT source.id,
+         source.id AS id,
          1
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                arrayJoin(aggregate_funnel_array_v4(3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
@@ -412,14 +405,7 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
-  INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.created_at DESC
+  ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
@@ -435,12 +421,12 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups.2
   '''
-  SELECT persons.id,
-         persons.id AS id,
-         persons.created_at AS created_at,
+  SELECT source.id,
+         source.id AS id,
          1
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                arrayJoin(aggregate_funnel_array_v4(3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
@@ -486,14 +472,7 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 1), 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
-  INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.created_at DESC
+  ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
@@ -509,12 +488,12 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups.3
   '''
-  SELECT persons.id,
-         persons.id AS id,
-         persons.created_at AS created_at,
+  SELECT source.id,
+         source.id AS id,
          1
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                arrayJoin(aggregate_funnel_array_v4(3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
@@ -560,14 +539,7 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE ifNull(greaterOrEquals(step_reached, 2), 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
-  INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.created_at DESC
+  ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
@@ -1181,10 +1153,11 @@
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.1
   '''
-  SELECT persons.id,
-         persons.id AS id
+  SELECT source.id,
+         source.id AS id
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                arrayJoin(aggregate_funnel_v4(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
@@ -1244,13 +1217,7 @@
      WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
                                                                    and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
@@ -1266,10 +1233,11 @@
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.2
   '''
-  SELECT persons.id,
-         persons.id AS id
+  SELECT source.id,
+         source.id AS id
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                arrayJoin(aggregate_funnel_v4(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
@@ -1329,13 +1297,7 @@
      WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
                                                                    and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
@@ -1351,10 +1313,11 @@
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.3
   '''
-  SELECT persons.id,
-         persons.id AS id
+  SELECT source.id,
+         source.id AS id
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                arrayJoin(aggregate_funnel_v4(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
@@ -1414,13 +1377,7 @@
      WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
                                                                    and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
@@ -1436,10 +1393,11 @@
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.4
   '''
-  SELECT persons.id,
-         persons.id AS id
+  SELECT source.id,
+         source.id AS id
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                arrayJoin(aggregate_funnel_v4(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
@@ -1499,13 +1457,7 @@
      WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
                                                                    and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
