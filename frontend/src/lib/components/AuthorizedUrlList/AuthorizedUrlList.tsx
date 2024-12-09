@@ -186,7 +186,7 @@ export function AuthorizedUrlList({
                                                     type === AuthorizedUrlListType.TOOLBAR_URLS
                                                         ? launchUrl(keyedURL.url)
                                                         : // other urls are simply opened directly
-                                                          keyedURL.url + query
+                                                          `${keyedURL.url}${query ? query : ''}`
                                                 }
                                                 targetBlank
                                                 tooltip={

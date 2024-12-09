@@ -212,6 +212,7 @@ export type AnyResponseType =
     | HogQLAutocompleteResponse
     | EventsNode['response']
     | EventsQueryResponse
+    | ErrorTrackingQueryResponse
 
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
@@ -1930,13 +1931,14 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     kind: NodeKind.ErrorTrackingQuery
     issueId?: string
     select?: HogQLExpression[]
-    order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
     assignee?: integer | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
     limit?: integer
+    offset?: integer
 }
 
 export interface ErrorTrackingIssue {

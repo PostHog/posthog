@@ -29,6 +29,7 @@ from posthog.api import (
     capture,
     decide,
     hog_function_template,
+    remote_config,
     router,
     sharing,
     signup,
@@ -210,7 +211,9 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
-    path("site_function/<str:id>/<str:hash>/", site_app.get_site_function),
+    path("array/<str:token>/config", remote_config.RemoteConfigAPIView.as_view()),
+    path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
+    path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
@@ -234,6 +237,8 @@ urlpatterns = [
     path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
     path("year_in_posthog/2023/<str:user_uuid>", year_in_posthog.render_2023),
     path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
+    path("year_in_posthog/2024/<str:user_uuid>", year_in_posthog.render_2024),
+    path("year_in_posthog/2024/<str:user_uuid>/", year_in_posthog.render_2024),
 ]
 
 if settings.DEBUG:

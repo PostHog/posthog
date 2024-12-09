@@ -30,7 +30,7 @@ AssistantMessageUnion = Union[
 
 
 class Conversation(BaseModel):
-    messages: list[RootAssistantMessage] = Field(..., min_length=1, max_length=100)
+    messages: list[RootAssistantMessage] = Field(..., min_length=1, max_length=50)
     session_id: str
 
 

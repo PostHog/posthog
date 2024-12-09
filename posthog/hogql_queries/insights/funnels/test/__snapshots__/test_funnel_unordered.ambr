@@ -1221,10 +1221,11 @@
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.1
   '''
-  SELECT persons.id,
-         persons.id AS id
+  SELECT source.id,
+         source.id AS id
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
@@ -1463,15 +1464,11 @@
      WHERE and(ifNull(in(steps, [1, 2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
                                                        and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2060,10 +2057,11 @@
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.2
   '''
-  SELECT persons.id,
-         persons.id AS id
+  SELECT source.id,
+         source.id AS id
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
@@ -2302,15 +2300,11 @@
      WHERE and(ifNull(in(steps, [2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
                                                     and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2322,10 +2316,11 @@
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.3
   '''
-  SELECT persons.id,
-         persons.id AS id
+  SELECT source.id,
+         source.id AS id
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
@@ -2564,15 +2559,11 @@
      WHERE and(ifNull(in(steps, [1, 2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
                                                        and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2584,10 +2575,11 @@
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.4
   '''
-  SELECT persons.id,
-         persons.id AS id
+  SELECT source.id,
+         source.id AS id
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
@@ -2826,15 +2818,11 @@
      WHERE and(ifNull(in(steps, [2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
                                                     and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,

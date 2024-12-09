@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -103,8 +103,4 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
             },
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadSymbolSets()
-    }),
 ])
