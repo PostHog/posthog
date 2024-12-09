@@ -122,6 +122,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         disable_flags=False,
         user_agent: Optional[str] = None,
         assert_num_queries: Optional[int] = None,
+        simulate_database_timeout: bool = False,
     ):
         if self.use_remote_config:
             # We test a lot with settings changes so the idea is to refresh the remote config
@@ -150,6 +151,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 REMOTE_ADDR=ip,
                 HTTP_USER_AGENT=user_agent or "PostHog test",
             )
+
+        if simulate_database_timeout:
+            with connection.execute_wrapper(QueryTimeoutWrapper()):
+                return do_request()
 
         if assert_num_queries:
             with self.assertNumQueries(assert_num_queries):
@@ -1865,14 +1870,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
         # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
-            response = self._post_decide(api_version=3, distinct_id="example_id")
-            self.assertTrue("beta-feature" not in response.json()["featureFlags"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
-            self.assertTrue(response.json()["errorsWhileComputingFlags"])
+        response = self._post_decide(api_version=3, distinct_id="example_id", simulate_database_timeout=True)
+        self.assertTrue("beta-feature" not in response.json()["featureFlags"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
+        self.assertTrue(response.json()["errorsWhileComputingFlags"])
 
-            mock_counter.labels.assert_called_once_with(reason="timeout")
+        mock_counter.labels.assert_called_once_with(reason="timeout")
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_HASH_KEY_WRITES_COUNTER")
     @patch("posthog.api.decide.FLAG_EVALUATION_COUNTER")
@@ -2010,24 +2014,23 @@ class TestDecide(BaseTest, QueryMatchingTest):
             mock_counter.reset_mock()
 
             # now database is down
-            with connection.execute_wrapper(QueryTimeoutWrapper()):
-                response = self._post_decide(api_version=3, distinct_id="example_id")
-                self.assertTrue("beta-feature" not in response.json()["featureFlags"])
-                self.assertTrue(response.json()["featureFlags"]["default-flag"])
-                self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
-                self.assertTrue(response.json()["errorsWhileComputingFlags"])
+            response = self._post_decide(api_version=3, distinct_id="example_id", simulate_database_timeout=True)
+            self.assertTrue("beta-feature" not in response.json()["featureFlags"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
+            self.assertTrue(response.json()["errorsWhileComputingFlags"])
 
-                mock_counter.labels.assert_called_once_with(
-                    team_id=str(self.team.pk),
-                    errors_computing=True,
-                    has_hash_key_override=False,
-                )
-                mock_counter.labels.return_value.inc.assert_called_once()
-                mock_error_counter.labels.assert_any_call(reason="healthcheck_failed")
-                mock_error_counter.labels.assert_any_call(reason="timeout")
-                self.assertEqual(mock_error_counter.labels.call_count, 2)
+            mock_counter.labels.assert_called_once_with(
+                team_id=str(self.team.pk),
+                errors_computing=True,
+                has_hash_key_override=False,
+            )
+            mock_counter.labels.return_value.inc.assert_called_once()
+            mock_error_counter.labels.assert_any_call(reason="healthcheck_failed")
+            mock_error_counter.labels.assert_any_call(reason="timeout")
+            self.assertEqual(mock_error_counter.labels.call_count, 2)
 
-                mock_hash_key_counter.labels.assert_not_called()
+            mock_hash_key_counter.labels.assert_not_called()
 
     def test_feature_flags_v3_with_database_errors_and_no_flags(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2047,11 +2050,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
-        # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
-            response = self._post_decide(api_version=3, distinct_id="example_id")
-            self.assertEqual(response.json()["featureFlags"], {})
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        response = self._post_decide(api_version=3, distinct_id="example_id", simulate_database_timeout=True)
+        self.assertEqual(response.json()["featureFlags"], {})
+        self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
     def test_feature_flags_v3_with_database_errors_and_geoip_properties(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2116,12 +2117,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
         self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
-        # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
-            response = self._post_decide(api_version=3, distinct_id="example_id", ip=australia_ip)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        response = self._post_decide(
+            api_version=3, distinct_id="example_id", ip=australia_ip, simulate_database_timeout=True
+        )
+        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
     def test_feature_flags_v3_consistent_flags_with_database_errors(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2198,18 +2199,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
         person.add_distinct_id("other_id")
 
         # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
-            response = self._post_decide(
-                api_version=3,
-                data={
-                    "token": self.team.api_token,
-                    "distinct_id": "other_id",
-                    "$anon_distinct_id": "example_id",
-                },
-            )
-            self.assertTrue("beta-feature" not in response.json()["featureFlags"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertTrue(response.json()["errorsWhileComputingFlags"])
+        response = self._post_decide(
+            api_version=3,
+            data={
+                "token": self.team.api_token,
+                "distinct_id": "other_id",
+                "$anon_distinct_id": "example_id",
+            },
+            simulate_database_timeout=True,
+        )
+        self.assertTrue("beta-feature" not in response.json()["featureFlags"])
+        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        self.assertTrue(response.json()["errorsWhileComputingFlags"])
 
     def test_feature_flags_v2_with_groups(self, *args):
         # More in-depth tests in posthog/api/test/test_feature_flag.py
@@ -2992,30 +2993,30 @@ class TestDecide(BaseTest, QueryMatchingTest):
             {"endpoint": "/e/"},
         )
 
-        # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
-            response = self._post_decide(api_version=2, origin="https://random.example.com").json()
+        response = self._post_decide(
+            api_version=2, origin="https://random.example.com", simulate_database_timeout=True
+        ).json()
 
-            self.assertEqual(
-                response["sessionRecording"],
-                make_session_recording_decide_response(
-                    {
-                        "sampleRate": "0.20",
-                    }
-                ),
-            )
+        self.assertEqual(
+            response["sessionRecording"],
+            make_session_recording_decide_response(
+                {
+                    "sampleRate": "0.20",
+                }
+            ),
+        )
 
-            self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
-            self.assertEqual(response["siteApps"], [])
-            self.assertEqual(
-                response["capturePerformance"],
-                {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-            )
-            self.assertEqual(
-                response["autocaptureExceptions"],
-                {"endpoint": "/e/"},
-            )
-            self.assertEqual(response["featureFlags"], {})
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
+        self.assertEqual(response["siteApps"], [])
+        self.assertEqual(
+            response["capturePerformance"],
+            {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
+        )
+        self.assertEqual(
+            response["autocaptureExceptions"],
+            {"endpoint": "/e/"},
+        )
+        self.assertEqual(response["featureFlags"], {})
 
     def test_decide_with_json_and_numeric_distinct_ids(self, *args):
         self.client.logout()
