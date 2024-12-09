@@ -40,6 +40,7 @@ const MAX_INGESTION_LAG_HOURS = 24
 const SALT_TTL_SECONDS =
     (MAX_POSITIVE_TIMEZONE_HOURS + MAX_NEGATIVE_TIMEZONE_HOURS + MAX_INGESTION_LAG_HOURS + 24) * 60 * 60
 const SESSION_TTL_SECONDS = 60 * 60 * 24
+const IDENTIFIES_TTL_SECONDS = 60 * 60 * 24
 
 export async function cookielessServerHashStep(
     runner: EventPipelineRunner,
@@ -90,38 +91,38 @@ export async function cookielessServerHashStep(
     // Find the base hash value, before we take the number of identifies into account
     const baseHashValue = await doHash(runner.hub.db, timestampMs, timezone, teamId, ip, host, userAgent)
     event.properties['$device_id'] = baseHashValue
-    const identifiesRedisKey = `cookieless_i:${baseHashValue}`
-
-    // how many identifies have happened with that base hash value?
-    const numIdentifies = await runner.hub.db.redisSCard(identifiesRedisKey)
+    const identifiesRedisKey = `cookieless_i:${teamId}:${baseHashValue}`
 
     let hashValue: string
     if (event.event === '$identify') {
         // identify event, so the anon_distinct_id must be the sentinel and needs to be replaced
 
         // add this identify event id to redis
-        const added = await runner.hub.db.redisSAdd(identifiesRedisKey, event.uuid)
-        await runner.hub.db.redisExpire(identifiesRedisKey, SESSION_TTL_SECONDS)
+        const numIdentifies = await runner.hub.db.redisSAddAndSCard(
+            identifiesRedisKey,
+            event.uuid,
+            IDENTIFIES_TTL_SECONDS
+        )
 
-        // we want the number of identifies excluding this one, but we need to think about idempotency. Redis will have
-        // returned 1 if the event was added, and 0 if it was already there. If it was already there, we need to subtract 1
-        const numIdentifies2 = numIdentifies + (added ? 0 : -1)
-
-        hashValue = await doHash(runner.hub.db, timestampMs, timezone, teamId, ip, host, userAgent, numIdentifies2)
+        // we want the number of identifies that happened before this one
+        hashValue = await doHash(runner.hub.db, timestampMs, timezone, teamId, ip, host, userAgent, numIdentifies - 1)
 
         // set the distinct id to the new hash value
         event.properties[`$anon_distinct_id`] = hashValue
     } else if (event.distinct_id === SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID) {
+        const numIdentifies = await runner.hub.db.redisSCard(identifiesRedisKey)
         hashValue = await doHash(runner.hub.db, timestampMs, timezone, teamId, ip, host, userAgent, numIdentifies)
         // event before identify has been called, distinct id is the sentinel and needs to be replaced
         event.distinct_id = hashValue
         event.properties[`$distinct_id`] = hashValue
     } else {
+        const numIdentifies = await runner.hub.db.redisSCard(identifiesRedisKey)
+
         // this event is after identify has been called, so subtract 1 from the numIdentifies
         hashValue = await doHash(runner.hub.db, timestampMs, timezone, teamId, ip, host, userAgent, numIdentifies - 1)
     }
 
-    const sessionRedisKey = `cookieless_s:${hashValue}`
+    const sessionRedisKey = `cookieless_s:${teamId}:${hashValue}`
     // do we have a session id for this user already?
     let sessionInfo = await runner.hub.db.redisGet<{ s: string; t: number } | null>(
         sessionRedisKey,

@@ -429,15 +429,22 @@ export class DB {
         })
     }
 
-    public redisSAdd(key: string, value: Redis.ValueType): Promise<number> {
-        return instrumentQuery('query.redisSAdd', undefined, async () => {
+    public redisSAddAndSCard(key: string, value: Redis.ValueType, ttlSeconds?: number): Promise<number> {
+        return instrumentQuery('query.redisSAddAndSCard', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard('SADD delayed. Waiting over 30 sec to perform SADD', {
                 key,
                 value,
             })
             try {
-                return await client.sadd(key, value)
+                const multi = client.multi()
+                multi.sadd(key, value)
+                if (ttlSeconds) {
+                    multi.expire(key, ttlSeconds)
+                }
+                multi.scard(key)
+                const results = await multi.exec()
+                return results[2][1] // Result of SCARD
             } finally {
                 clearTimeout(timeout)
                 await this.redisPool.release(client)
