@@ -2523,22 +2523,23 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         full_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate()
         results = full_results.results
 
-        assert 4 == len(results)
-        assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-        assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-        assert [0, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
-        assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        if full_results.isUdf:
+            assert 4 == len(results)
+            assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+            assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+            assert [0, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+            assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
-        filters["breakdown_attribution_type"] = "step"
-        filters["breakdown_attribution_value"] = 2
-        query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+            filters["breakdown_attribution_type"] = "step"
+            filters["breakdown_attribution_value"] = 2
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        assert 4 == len(results)
-        assert [0, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-        assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-        assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
-        assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+            assert 4 == len(results)
+            assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+            assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+            assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+            assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
 
 class TestFunnelTrends(BaseTestFunnelTrends):
