@@ -45,11 +45,7 @@ export const login2FALogic = kea<login2FALogicType>([
         twofactortoken: {
             defaults: { token: '' } as TwoFactorForm,
             errors: ({ token }) => ({
-                token: !token
-                    ? 'Please enter a token to continue'
-                    : token.length !== 6 || isNaN(parseInt(token))
-                    ? 'A token must consist of 6 digits'
-                    : null,
+                token: !token ? 'Please enter a token to continue' : null,
             }),
             submit: async ({ token }, breakpoint) => {
                 breakpoint()

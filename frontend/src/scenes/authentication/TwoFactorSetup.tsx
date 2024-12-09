@@ -6,17 +6,17 @@ import { Form } from 'kea-forms'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { setup2FALogic } from './setup2FALogic'
+import { twoFactorLogic } from './twoFactorLogic'
 
-export function Setup2FA({ onSuccess }: { onSuccess: () => void }): JSX.Element | null {
-    const { startSetupLoading, generalError } = useValues(setup2FALogic({ onSuccess }))
+export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.Element | null {
+    const { startSetupLoading, generalError } = useValues(twoFactorLogic({ onSuccess }))
     if (startSetupLoading) {
         return null
     }
 
     return (
         <>
-            <Form logic={setup2FALogic} formKey="token" enableFormOnSubmit className="flex flex-col space-y-4">
+            <Form logic={twoFactorLogic} formKey="token" enableFormOnSubmit className="flex flex-col space-y-4">
                 <div className="bg-white ml-auto mr-auto mt-2">
                     <img src="/account/two_factor/qrcode/" className="Setup2FA__image" />
                 </div>
