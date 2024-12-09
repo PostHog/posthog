@@ -6090,6 +6090,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendsQueryResponse"
+                },
+                "stats_version": {
+                    "type": "integer"
                 }
             },
             "required": ["count_query", "kind"],
