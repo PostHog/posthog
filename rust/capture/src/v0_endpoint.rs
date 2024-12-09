@@ -293,11 +293,9 @@ pub fn process_single_event(
         session_id: None,
     };
 
-    let distinct_id = event.extract_distinct_id()?;
-
     let event = CapturedEvent {
         uuid: event.uuid.unwrap_or_else(uuid_v7),
-        distinct_id,
+        distinct_id: event.extract_distinct_id()?,
         ip: context.client_ip.clone(),
         data,
         now: context.now.clone(),
