@@ -808,6 +808,7 @@ class SurveyAPIActionSerializer(serializers.ModelSerializer):
         model = Action
         fields = [
             "id",
+            "name",
             "steps",
         ]
         read_only_fields = fields
