@@ -147,7 +147,12 @@ class Assistant:
     @property
     def _initial_state(self) -> AssistantState:
         messages = [message.root for message in self._conversation.messages]
-        return {"messages": messages, "intermediate_steps": None, "plan": None}
+        return {
+            "messages": messages,
+            "intermediate_steps": None,
+            "start_idx": len(messages) - 1,
+            "plan": None,
+        }
 
     def _get_config(self, thread: AssistantThread) -> RunnableConfig:
         callbacks = [langfuse_handler] if langfuse_handler else []

@@ -49,6 +49,10 @@ def add_messages(
 class AssistantState(TypedDict, total=False):
     messages: Annotated[Sequence[AssistantMessageUnion], add_messages]
     intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]]
+    start_idx: Optional[int]
+    """
+    The index of the message from which the conversation started.
+    """
     plan: Optional[str]
 
 
@@ -98,27 +102,32 @@ def merge_human_messages(messages: list[LangchainHumanMessage]) -> list[Langchai
 
 def filter_visualization_conversation(
     messages: Sequence[AssistantMessageUnion],
-) -> tuple[list[LangchainHumanMessage], list[VisualizationMessage]]:
+    filter_until_idx: Optional[int] = None,
+):
     """
-    Splits, filters and merges the message history to be consumable by agents. Returns human and visualization messages.
+    Filters and merges the message history to be consumable by agents. Returns human and AI messages.
     """
     stack: list[LangchainHumanMessage] = []
-    human_messages: list[LangchainHumanMessage] = []
-    visualization_messages: list[VisualizationMessage] = []
+    filtered_messages: list[HumanMessage | AssistantMessage | VisualizationMessage] = []
 
-    for message in messages:
+    def _merge_stack(stack: list[LangchainHumanMessage]) -> list[HumanMessage]:
+        return [HumanMessage(content=langchain_message.content) for langchain_message in merge_human_messages(stack)]
+
+    for i, message in enumerate(messages):
+        if filter_until_idx is not None and i >= filter_until_idx:
+            break
         if isinstance(message, HumanMessage):
             stack.append(LangchainHumanMessage(content=message.content))
-        elif isinstance(message, VisualizationMessage) and message.answer:
+        elif isinstance(message, VisualizationMessage) or isinstance(message, AssistantMessage):
             if stack:
-                human_messages += merge_human_messages(stack)
+                filtered_messages += _merge_stack(stack)
                 stack = []
-            visualization_messages.append(message)
+            filtered_messages.append(message)
 
     if stack:
-        human_messages += merge_human_messages(stack)
+        filtered_messages += _merge_stack(stack)
 
-    return human_messages, visualization_messages
+    return filtered_messages
 
 
 def dereference_schema(schema: dict) -> dict:
