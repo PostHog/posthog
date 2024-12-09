@@ -14,36 +14,35 @@ SAMPLE_SIZE = 10000
 
 
 def calculate_probabilities(
-    control_variant: ExperimentVariantTrendsBaseStats,
-    test_variants: list[ExperimentVariantTrendsBaseStats]
+    control_variant: ExperimentVariantTrendsBaseStats, test_variants: list[ExperimentVariantTrendsBaseStats]
 ) -> list[float]:
     """
     Calculate the win probabilities for each variant in an experiment using Bayesian analysis.
-    
+
     This function computes the probability that each variant is the best (i.e., has the highest
     conversion rate) compared to all other variants, including the control. It uses samples
     drawn from the posterior distributions of each variant's conversion rate.
-    
+
     Parameters:
     -----------
     control_variant : ExperimentVariantTrendsBaseStats
         Statistics for the control group, including count (successes) and exposure (total trials)
     test_variants : list[ExperimentVariantTrendsBaseStats]
         List of statistics for test variants to compare against the control
-    
+
     Returns:
     --------
     list[float]
         A list of probabilities where:
         - The first element is the probability that the control variant is the best
         - Subsequent elements are the probabilities that each test variant is the best
-    
+
     Notes:
     ------
     - Uses a Bayesian approach with a Beta distribution as the posterior
     - Assumes a minimally informative prior (alpha=1, beta=1)
     - Draws samples from the posterior to estimate win probabilities
-    
+
     Example:
     --------
     >>> control = ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1000)
@@ -61,14 +60,14 @@ def calculate_probabilities(
     beta_control = PRIOR_BETA + control_variant.exposure
 
     # Draw samples from control posterior
-    samples_control = gamma.rvs(alpha_control, scale=1/beta_control, size=SAMPLE_SIZE)
+    samples_control = gamma.rvs(alpha_control, scale=1 / beta_control, size=SAMPLE_SIZE)
 
     # Draw samples for each test variant
     test_samples = []
     for test in test_variants:
         alpha_test = PRIOR_ALPHA + test.count
         beta_test = PRIOR_BETA + test.exposure
-        test_samples.append(gamma.rvs(alpha_test, scale=1/beta_test, size=SAMPLE_SIZE))
+        test_samples.append(gamma.rvs(alpha_test, scale=1 / beta_test, size=SAMPLE_SIZE))
 
     # Calculate probabilities
     probabilities = []
@@ -79,9 +78,10 @@ def calculate_probabilities(
 
     # Probability each test variant wins (beats control and all other test variants)
     for i, test_sample in enumerate(test_samples):
-        other_test_samples = test_samples[:i] + test_samples[i+1:]
-        variant_wins = np.all([test_sample > samples_control] +
-                            [test_sample > other for other in other_test_samples], axis=0)
+        other_test_samples = test_samples[:i] + test_samples[i + 1 :]
+        variant_wins = np.all(
+            [test_sample > samples_control] + [test_sample > other for other in other_test_samples], axis=0
+        )
         probabilities.append(float(np.mean(variant_wins)))
 
     return probabilities
@@ -94,12 +94,12 @@ def are_results_significant(
 ) -> tuple[ExperimentSignificanceCode, Probability]:
     """
     Determines if experiment results are statistically significant using Bayesian analysis.
-    
+
     This function evaluates the win probabilities of each variant to determine if any variant
     is significantly better than the others. The method:
     1. Checks if sample sizes meet minimum threshold requirements
     2. Evaluates win probabilities from the posterior distributions
-    
+
     Parameters:
     -----------
     control_variant : ExperimentVariantTrendsBaseStats
@@ -108,7 +108,7 @@ def are_results_significant(
         List of statistics for test variants to compare against control
     probabilities : list[Probability]
         List of win probabilities for each variant, as calculated by calculate_probabilities
-    
+
     Returns:
     --------
     tuple[ExperimentSignificanceCode, Probability]
@@ -117,7 +117,7 @@ def are_results_significant(
             LOW_WIN_PROBABILITY: No variant has a high enough probability of being best
             SIGNIFICANT: Clear winner with high probability of being best
         - Probability value (1.0 for NOT_ENOUGH_EXPOSURE and LOW_WIN_PROBABILITY, 0.0 for SIGNIFICANT)
-    
+
     Notes:
     ------
     - Uses a Bayesian approach to determine significance
@@ -145,12 +145,12 @@ def are_results_significant(
 def calculate_credible_intervals(variants, lower_bound=0.025, upper_bound=0.975):
     """
     Calculate Bayesian credible intervals for each variant's conversion rate.
-    
+
     Credible intervals represent the range where we believe the true conversion rate lies
     with a specified probability (default 95%). Unlike frequentist confidence intervals,
     these have a direct probabilistic interpretation: "There is a 95% probability that
     the true conversion rate lies within this interval."
-    
+
     Parameters:
     -----------
     variants : list[ExperimentVariantTrendsBaseStats]
@@ -159,20 +159,20 @@ def calculate_credible_intervals(variants, lower_bound=0.025, upper_bound=0.975)
         Lower percentile for the credible interval (2.5% for 95% CI)
     upper_bound : float, optional (default=0.975)
         Upper percentile for the credible interval (97.5% for 95% CI)
-    
+
     Returns:
     --------
     dict[str, tuple[float, float]]
         Dictionary mapping variant keys to their credible intervals
         Each interval is a tuple of (lower_bound, upper_bound)
-    
+
     Notes:
     ------
     - Uses a Gamma distribution as the posterior distribution
     - Assumes a minimally informative prior (alpha=1, beta=1)
     - Intervals are calculated for visualization purposes, not for significance testing
     - Returns empty dict if any calculations fail
-    
+
     Example:
     --------
     >>> variants = [
@@ -191,11 +191,7 @@ def calculate_credible_intervals(variants, lower_bound=0.025, upper_bound=0.975)
             beta_posterior = PRIOR_BETA + variant.exposure
 
             # Calculate credible intervals using the posterior distribution
-            credible_interval = gamma.ppf(
-                [lower_bound, upper_bound],
-                alpha_posterior,
-                scale=1/beta_posterior
-            )
+            credible_interval = gamma.ppf([lower_bound, upper_bound], alpha_posterior, scale=1 / beta_posterior)
 
             intervals[variant.key] = (float(credible_interval[0]), float(credible_interval[1]))
         except Exception as e:
