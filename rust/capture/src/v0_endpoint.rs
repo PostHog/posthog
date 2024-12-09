@@ -318,7 +318,7 @@ pub async fn process_events<'a>(
         .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
 
     events.retain(|e| {
-        if dropper.should_drop(&e.event.token, Some(&e.event.distinct_id)) {
+        if dropper.should_drop(&e.event.token, &e.event.distinct_id) {
             report_dropped_events("token_dropper", 1);
             false
         } else {
