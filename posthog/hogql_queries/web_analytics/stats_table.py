@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -9,18 +9,13 @@ from posthog.hogql.property import (
     get_property_value,
     get_property_type,
     get_property_key,
-    action_to_expr,
 )
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
     map_columns,
 )
-from posthog.models import Action
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
-    ActionConversionGoal,
-    CustomEventConversionGoal,
     CachedWebStatsTableQueryResponse,
     WebStatsTableQuery,
     WebStatsBreakdown,
@@ -381,65 +376,6 @@ GROUP BY session_id, breakdown_value
 
     def _previous_period_aggregate(self, function_name, column_name):
         return self.period_aggregate(function_name, column_name, self._date_from_previous_period(), self._date_from())
-
-    # Reproduction from `web_analytics/web_overview.py`
-    # Update in both places
-    @cached_property
-    def conversion_goal_expr(self) -> Optional[ast.Expr]:
-        if isinstance(self.query.conversionGoal, ActionConversionGoal):
-            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
-            return action_to_expr(action)
-        elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
-            return ast.CompareOperation(
-                left=ast.Field(chain=["events", "event"]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=self.query.conversionGoal.customEventName),
-            )
-        else:
-            return None
-
-    # Reproduction from `web_analytics/web_overview.py`
-    # Update in both places
-    @cached_property
-    def conversion_count_expr(self) -> Optional[ast.Expr]:
-        if self.conversion_goal_expr:
-            return ast.Call(name="countIf", args=[self.conversion_goal_expr])
-        else:
-            return None
-
-    # Reproduction from `web_analytics/web_overview.py`
-    # Update in both places
-    @cached_property
-    def conversion_person_id_expr(self) -> Optional[ast.Expr]:
-        if self.conversion_goal_expr:
-            return ast.Call(
-                name="any",
-                args=[
-                    ast.Call(
-                        name="if",
-                        args=[
-                            self.conversion_goal_expr,
-                            ast.Field(chain=["events", "person_id"]),
-                            ast.Constant(value=None),
-                        ],
-                    )
-                ],
-            )
-        else:
-            return None
-
-    # Reproduction from `web_analytics/web_overview.py`
-    # Update in both places
-    @cached_property
-    def event_type_expr(self) -> ast.Expr:
-        pageview_expr = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
-        )
-
-        if self.conversion_goal_expr:
-            return ast.Call(name="or", args=[pageview_expr, self.conversion_goal_expr])
-        else:
-            return pageview_expr
 
     def _event_properties(self) -> ast.Expr:
         properties = [
