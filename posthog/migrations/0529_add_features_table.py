@@ -6,7 +6,7 @@ from django.utils import timezone
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0525_hog_function_transpiled"),
+        ("posthog", "0528_project_field_in_taxonomy"),
     ]
 
     operations = [
@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("team", models.ForeignKey(on_delete=models.deletion.CASCADE, to="posthog.team")),
-                ("name", models.CharField(max_length=400)),
+                ("name", models.CharField(max_length=400, blank=False)),
                 ("description", models.TextField(default="")),
                 ("documentation_url", models.URLField(blank=True)),
                 ("issue_url", models.URLField(blank=True)),
@@ -31,7 +31,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="featureflag",
-            name="feature",
+            name="feature_management",
             field=models.ForeignKey(
                 blank=True,
                 null=True,
@@ -41,7 +41,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="experiment",
-            name="feature",
+            name="feature_management",
             field=models.ForeignKey(
                 blank=True,
                 null=True,
@@ -51,7 +51,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="earlyaccessfeature",
-            name="feature",
+            name="feature_management",
             field=models.ForeignKey(
                 blank=True,
                 null=True,
