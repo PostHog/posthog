@@ -178,6 +178,11 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-web_analytics`,
                 label: 'Web Analytics',
             },
+            {
+                value: 'error_tracking',
+                'data-attr': `support-form-target-area-error_tracking`,
+                label: 'Error tracking',
+            },
         ],
     },
 ]
@@ -211,6 +216,7 @@ export type SupportTicketTargetArea =
     | 'toolbar'
     | 'surveys'
     | 'web_analytics'
+    | 'error_tracking'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
