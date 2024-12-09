@@ -8,6 +8,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema'
 
+import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
@@ -40,7 +41,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     }, [])
 
     return (
-        <>
+        <AlphaAccessScenePrompt>
             <PageHeader
                 buttons={
                     issue && hasGroupActions ? (
@@ -81,6 +82,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <ErrorTrackingFilters.Options isGroup />
             <OverviewTab />
             <SymbolSetUploadModal />
-        </>
+        </AlphaAccessScenePrompt>
     )
 }
