@@ -1,5 +1,5 @@
 from random import random
-from typing import Union, cast
+from typing import Any, Union, cast
 
 import structlog
 from django.conf import settings
@@ -262,7 +262,7 @@ def get_decide(request: HttpRequest):
         disable_flags = process_bool(data.get("disable_flags")) is True
         feature_flags = None
         errors = False
-        flags_response = {}
+        flags_response: dict[str, Any] = {}
 
         if not disable_flags:
             distinct_id = data.get("distinct_id")
