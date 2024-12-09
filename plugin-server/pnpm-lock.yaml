@@ -154,9 +154,6 @@ dependencies:
   safe-stable-stringify:
     specifier: ^2.4.0
     version: 2.4.3
-  siphash:
-    specifier: ^1.1.0
-    version: 1.1.0
   tail:
     specifier: ^2.2.6
     version: 2.2.6
@@ -9809,10 +9806,6 @@ packages:
     dependencies:
       string-width: 1.0.2
     dev: true
-
-  /siphash@1.1.0:
-    resolution: {integrity: sha512-QXQOIeN7Lq1uAVfppZukylZ2tAGedZ49Xpu39Zfyb6JJqVFrP7GfbVc7kxTAyoHGi3/c0y7yIG6lmSwxapEKqA==}
-    dev: false
 
   /sisteransi@1.0.5:
     resolution: {integrity: sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg==}
