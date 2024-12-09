@@ -227,6 +227,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                             "values": [
                                 {
                                     "id": action.id,
+                                    "name": "user subscribed",
                                     "steps": [
                                         {
                                             "url": "docs",
