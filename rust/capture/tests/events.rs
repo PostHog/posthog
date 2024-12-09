@@ -83,6 +83,7 @@ async fn it_drops_events_if_dropper_enabled() -> Result<()> {
         })
     );
 
+    // Next event we get is identical to the first, because the dropped event is not captured
     let event = main_topic.next_event()?;
     assert_json_include!(
         actual: event,
