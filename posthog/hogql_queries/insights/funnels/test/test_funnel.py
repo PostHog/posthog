@@ -4576,6 +4576,95 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 self.assertEqual(0, results[0]["count"])
                 self.assertEqual(0, results[1]["count"])
 
+        def test_breakdown_step_attributions(self):
+            events = [
+                {
+                    "event": "step one",
+                    "properties": {"$browser": "Chrome"},
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                },
+                {
+                    "event": "step two",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                    "properties": {"$browser": "Chrome"},
+                },
+                {
+                    "event": "step three",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 2),
+                    "properties": {"$browser": "Safari"},
+                },
+                {
+                    "event": "step one",
+                    "properties": {"$browser": "Safari"},
+                    "timestamp": datetime(2021, 5, 2, 0, 0, 0),
+                },
+                {
+                    "event": "step two",
+                    "timestamp": datetime(2021, 5, 2, 0, 0, 1),
+                    "properties": {"$browser": "Safari"},
+                },
+                {
+                    "event": "step three",
+                    "timestamp": datetime(2021, 5, 2, 0, 0, 2),
+                    "properties": {"$browser": "Chrome"},
+                },
+            ]
+
+            journeys_for(
+                {
+                    "user_one": events,
+                },
+                self.team,
+            )
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-02 23:59:59",
+                "funnel_window_interval": 30,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+                "breakdown_type": "event",
+                "breakdown": "$browser",
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+            assert 1 == len(results)
+            result = results[0]
+            assert 3 == len(result)
+            assert [x["count"] == 1 for x in result]
+            assert [x["breakdown"] == ["Chrome"] for x in result]
+
+            filters["breakdown_attribution_type"] = "all_events"
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+            assert 2 == len(results)
+            for result in results:
+                assert [x["count"] for x in result] == [1, 1, 0]
+
+            filters["breakdown_attribution_type"] = "step"
+            filters["breakdown_attribution_value"] = 0
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            full_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate()
+            results = full_results.results
+            assert 2 == len(results)
+            for result in results:
+                assert [x["count"] for x in result] == [1, 1, 1]
+
+            filters["breakdown_attribution_type"] = "step"
+            filters["breakdown_attribution_value"] = 2
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+            for result in results:
+                assert [x["count"] for x in result] == [1, 1, 1]
+
     return TestGetFunnel
 
 
