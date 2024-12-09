@@ -76,8 +76,7 @@ class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
         Get primary feature flag associated with a specific feature.
         """
         feature = self.get_object()
-        serializer = self.get_serializer(feature)
-        primary_early_access_feature = serializer.get_primary_early_access_feature(feature)
+        primary_early_access_feature = FeatureSerializer().get_primary_early_access_feature(feature)
         return Response(primary_early_access_feature)
 
     @action(detail=True, methods=["get"])
@@ -86,8 +85,7 @@ class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
         Get all feature flags associated with a specific feature.
         """
         feature = self.get_object()
-        serializer = self.get_serializer(feature)
-        flags = serializer.get_feature_flags(feature)
+        flags = FeatureSerializer().get_feature_flags(feature)
         return Response(flags)
 
     @action(detail=True, methods=["get"])
@@ -96,8 +94,7 @@ class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
         Get experiments associated with a specific feature.
         """
         feature = self.get_object()
-        serializer = self.get_serializer(feature)
-        experiments = serializer.get_experiments(feature)
+        experiments = FeatureSerializer().get_experiments(feature)
         return Response(experiments)
 
     @action(detail=True, methods=["get"])
@@ -106,6 +103,5 @@ class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
         Get early access features associated with a specific feature.
         """
         feature = self.get_object()
-        serializer = self.get_serializer(feature)
-        early_access_features = serializer.get_early_access_features(feature)
+        early_access_features = FeatureSerializer().get_early_access_features(feature)
         return Response(early_access_features)

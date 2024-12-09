@@ -113,13 +113,11 @@ class TestFeatureAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def test_get_primary_early_access_feature(self):
-        flag = FeatureFlag.objects.create(
+        eaf = EarlyAccessFeature.objects.create(
             team=self.team,
             name="Test Flag",
-            key="test-flag",
-            feature_management=self.feature,
         )
-        self.feature.primary_early_access_feature = flag
+        self.feature.primary_early_access_feature = eaf
         self.feature.save()
 
         response = self.client.get(
