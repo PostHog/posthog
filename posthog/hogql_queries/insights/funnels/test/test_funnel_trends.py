@@ -2440,6 +2440,106 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
             assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
+    def test_breakdown_step_attributions(self):
+        events = [
+            {
+                "event": "step one",
+                "properties": {"$browser": "Chrome"},
+                "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                "properties": {"$browser": "Chrome"},
+            },
+            {
+                "event": "step three",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 2),
+                "properties": {"$browser": "Safari"},
+            },
+            {
+                "event": "step one",
+                "properties": {"$browser": "Safari"},
+                "timestamp": datetime(2021, 5, 2, 0, 0, 0),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 2, 0, 0, 1),
+                "properties": {"$browser": "Safari"},
+            },
+            {
+                "event": "step three",
+                "timestamp": datetime(2021, 5, 2, 0, 0, 2),
+                "properties": {"$browser": "Chrome"},
+            },
+        ]
+
+        journeys_for(
+            {
+                "user_one": events,
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-02 23:59:59",
+            "funnel_window_interval": 30,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+            "funnel_from_step": 0,
+            "funnel_to_step": 2,
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        assert 2 == len(results)
+        assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+
+        filters["breakdown_attribution_type"] = "all_events"
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        assert 4 == len(results)
+        assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [0, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [0, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        assert [0, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+
+        filters["breakdown_attribution_type"] = "step"
+        filters["breakdown_attribution_value"] = 0
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        full_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate()
+        results = full_results.results
+
+        assert 4 == len(results)
+        assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [0, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+
+        filters["breakdown_attribution_type"] = "step"
+        filters["breakdown_attribution_value"] = 2
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        assert 4 == len(results)
+        assert [0, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+
 
 class TestFunnelTrends(BaseTestFunnelTrends):
     __test__ = True
