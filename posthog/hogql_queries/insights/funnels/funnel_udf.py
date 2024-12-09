@@ -53,18 +53,6 @@ class FunnelUDFMixin:
                 select_from=ast.JoinExpr(table=inner_query),
             )
 
-        # For step breakdowns and all_event breakdowns, remove events that have an empty breakdown
-        """
-        if self._query_has_array_breakdown():
-            compare = ast.CompareOperation(
-                left=ast.Field(chain=["prop"]), right=ast.Array(exprs=[]), op=ast.CompareOperationOp.NotEq
-            )
-            if inner_query.where:
-                inner_query.where = ast.And(exprs=[inner_query.where, compare])
-            else:
-                inner_query.where = compare
-        """
-
         return inner_query
 
     def _prop_vals(self: FunnelProtocol):
