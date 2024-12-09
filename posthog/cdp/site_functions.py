@@ -59,6 +59,18 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
     response += f"const source = {transpile(hog_function.hog, 'site')}();"
 
+    match_groups = ""
+    if hog_function.filters and hog_function.filters.get("matchGroups"):
+        match_groups += "function getMatchGroups() {"
+        match_groups += "const matchGroups = {};\n"
+        for group in hog_function.filters["matchGroups"]:
+            group_code = hog_function_filters_to_expr(group.get("filters", {}), hog_function.team, {})
+            match_groups += f"try {{ matchGroups[{json.dumps(group.get('key', ''))}] = {compiler.visit(group_code)}; }} catch (e) {{ console.error('Matching error', {json.dumps(group.get('key', ''))}, e); }}\n"
+        match_groups += "return matchGroups;\n"
+        match_groups += "}\n"
+    else:
+        match_groups += "function getMatchGroups() { return {}; }\n"
+
     # We are exposing an init function which is what the client will use to actually run this setup code.
     # The return includes any extra methods that the client might need to use - so far just processEvent
     response += (
@@ -72,9 +84,10 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
             let __getGlobal = (key) => filterGlobals[key];
             const filterMatches = """
         + filters_code
-        + """;
-            if (filterMatches) { source.onEvent({ ...globals, inputs, posthog }); }
-        }
+        + ";\n"
+        + match_groups
+        + """
+        if (filterMatches) { source.onEvent({ ...globals, matchGroups: getMatchGroups(), inputs, posthog }); }
     }
 
     function init(config) {
