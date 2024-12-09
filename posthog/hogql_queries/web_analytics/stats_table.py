@@ -57,11 +57,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
             if self.query.includeBounceRate:
                 return self.to_entry_bounce_query()
 
-        return self.to_main_query(
-            self._counts_breakdown_value(), include_session_properties=self._has_session_properties()
-        )
+        return self.to_main_query(self._counts_breakdown_value())
 
-    def to_main_query(self, breakdown, *, include_session_properties=False) -> ast.SelectQuery:
+    def to_main_query(self, breakdown) -> ast.SelectQuery:
         with self.timings.measure("stats_table_query"):
             # Base selects, always returns the breakdown value, and the total number of visitors
             selects = [
@@ -101,12 +99,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
 
             query = ast.SelectQuery(
                 select=selects,
-                select_from=ast.JoinExpr(
-                    table=self._main_inner_query(
-                        breakdown,
-                        include_session_properties=include_session_properties,
-                    )
-                ),
+                select_from=ast.JoinExpr(table=self._main_inner_query(breakdown)),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
                 order_by=[
                     ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order="DESC"),
@@ -127,14 +120,13 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
         return query
 
     def to_entry_bounce_query(self) -> ast.SelectQuery:
-        query = self.to_main_query(self._bounce_entry_pathname_breakdown(), include_session_properties=True)
+        query = self.to_main_query(self._bounce_entry_pathname_breakdown())
 
         if self.query.conversionGoal is None:
             query.select.append(self._period_comparison_tuple("is_bounce", "context.columns.bounce_rate", "avg"))
 
         return query
 
-    # TODO: Support conversion goal
     def to_path_scroll_bounce_query(self) -> ast.SelectQuery:
         with self.timings.measure("stats_table_bounce_query"):
             query = parse_select(
@@ -254,7 +246,6 @@ ORDER BY "context.columns.visitors" DESC,
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    # TODO: Support conversion goal
     def to_path_bounce_query(self) -> ast.SelectQuery:
         if self.query.breakdownBy not in [WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.PAGE]:
             raise NotImplementedError("Bounce rate is only supported for page breakdowns")
@@ -341,7 +332,7 @@ ORDER BY "context.columns.visitors" DESC,
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def _main_inner_query(self, breakdown, *, include_session_properties=False):
+    def _main_inner_query(self, breakdown):
         query = parse_select(
             """
 SELECT
@@ -367,15 +358,6 @@ GROUP BY session_id, breakdown_value
         )
 
         assert isinstance(query, ast.SelectQuery)
-
-        if include_session_properties:
-            # Append session properties to the where clause if it exists
-            #
-            # We know `query.where` is an `ast.Call` because it's a `WHERE` clause
-            # and `ast.Call` is the only kind of expression that `query.where` can be
-            # but we need to convince mypy
-            if query.where is not None and isinstance(query.where, ast.Call):
-                query.where.args.append(self._session_properties())
 
         if self.conversion_count_expr and self.conversion_person_id_expr:
             query.select.append(ast.Alias(alias="conversion_count", expr=self.conversion_count_expr))
@@ -481,22 +463,6 @@ GROUP BY session_id, breakdown_value
             if get_property_type(p) in ["event", "person"]
         ]
         return property_to_expr(properties, team=self.team, scope="event")
-
-    def _has_session_properties(self) -> bool:
-        return any(
-            get_property_type(p) == "session" for p in self.query.properties + self._test_account_filters
-        ) or self.query.breakdownBy in {
-            WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
-            WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
-            WebStatsBreakdown.INITIAL_UTM_SOURCE,
-            WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
-            WebStatsBreakdown.INITIAL_UTM_MEDIUM,
-            WebStatsBreakdown.INITIAL_UTM_TERM,
-            WebStatsBreakdown.INITIAL_UTM_CONTENT,
-            WebStatsBreakdown.INITIAL_PAGE,
-            WebStatsBreakdown.EXIT_PAGE,
-            WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN,
-        }
 
     def _session_properties(self) -> ast.Expr:
         properties = [
