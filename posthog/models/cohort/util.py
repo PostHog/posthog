@@ -354,6 +354,7 @@ def _recalculate_cohortpeople_for_team(
             "receive_timeout": 600,
             "optimize_on_insert": 0,
         },
+        team_id=cohort.team_id,
         workload=Workload.OFFLINE,
     )
 
