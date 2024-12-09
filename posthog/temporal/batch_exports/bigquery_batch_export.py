@@ -8,6 +8,7 @@ import json
 import pyarrow as pa
 import structlog
 from django.conf import settings
+from google.api_core.exceptions import Forbidden
 from google.cloud import bigquery
 from google.oauth2 import service_account
 from temporalio import activity, workflow
@@ -154,6 +155,17 @@ class BigQueryInsertInputs:
     batch_export_schema: BatchExportSchema | None = None
 
 
+class BigQueryQuotaExceededError(Exception):
+    """Exception raised when a BigQuery quota is exceeded.
+
+    This error indicates that we have been exporting too much data and need to
+    slow down. This error is retryable.
+    """
+
+    def __init__(self, message: str):
+        super().__init__(f"A BigQuery quota has been exceeded. Error: {message}")
+
+
 class BigQueryClient(bigquery.Client):
     async def acreate_table(
         self,
@@ -294,7 +306,12 @@ class BigQueryClient(bigquery.Client):
         return result
 
     async def load_jsonl_file(self, jsonl_file, table, table_schema):
-        """Execute a COPY FROM query with given connection to copy contents of jsonl_file."""
+        """Execute a COPY FROM query to copy contents of `jsonl_file`.
+
+        Raises:
+            BigQueryQuotaExceededError: If we receive a 'quotaExceeded' error from
+                BigQuery when loading a file.
+        """
         job_config = bigquery.LoadJobConfig(
             source_format="NEWLINE_DELIMITED_JSON",
             schema=table_schema,
@@ -306,7 +323,14 @@ class BigQueryClient(bigquery.Client):
         )
 
         await logger.adebug("Waiting for BigQuery load job for JSONL file '%s'", jsonl_file)
-        result = await asyncio.to_thread(load_job.result)
+
+        try:
+            result = await asyncio.to_thread(load_job.result)
+        except Forbidden as err:
+            if err.reason == "quotaExceeded":
+                raise BigQueryQuotaExceededError(err.message) from err
+            raise
+
         return result
 
 
