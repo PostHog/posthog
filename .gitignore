@@ -76,3 +76,4 @@ pyrightconfig.json
 .temporal-worker-settings
 temp_test_run_data.json
 .temp-deepeval-cache.json
+.eslintcache

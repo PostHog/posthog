@@ -1,4 +1,5 @@
 from decimal import Decimal
+from unittest.mock import patch
 from inline_snapshot import snapshot
 import pytest
 from posthog.models.action.action import Action
@@ -359,7 +360,8 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
 
         assert data == self.remote_config.build_js_config()
 
-    def test_gets_array_js_via_redis_cache(self):
+    @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    def test_gets_array_js_via_redis_cache(self, mock_get_array_js_content):
         with self.assertNumQueries(3):
             RemoteConfig.get_array_js_via_token(self.team.api_token)
 
