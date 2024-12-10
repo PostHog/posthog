@@ -3,18 +3,13 @@ import json
 from posthog.cdp.filters import hog_function_filters_to_expr
 from posthog.cdp.validation import transpile_template_code
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import transpile
-from posthog.models.team.team import Team
 
 
-def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, team: Team) -> str:
+def get_transpiled_function(hog_function: HogFunction) -> str:
     # Wrap in IIFE = Immediately Invoked Function Expression = to avoid polluting global scope
-    response = "(function() {\n\n"
-
-    # PostHog-JS adds itself to the window object for us to use
-    response += f"const posthog = window['__$$ph_site_app_{id}_posthog'] || window['__$$ph_site_app_{id}'] || window['posthog'];\n"
-    response += f"const missedInvocations = window['__$$ph_site_app_{id}_missed_invocations'] || (() => []);\n"
-    response += f"const callback = window['__$$ph_site_app_{id}_callback'] || (() => {'{}'});\n"
+    response = "(function() {\n"
 
     # Build the inputs in three parts:
     # 1) a simple object with constants/scalars
@@ -27,7 +22,7 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, t
     compiler = JavaScriptCompiler()
 
     # TODO: reorder inputs to make dependencies work
-    for key, input in inputs.items():
+    for key, input in (hog_function.inputs or {}).items():
         value = input.get("value")
         key_string = json.dumps(str(key) or "<empty>")
         if (isinstance(value, str) and "{" in value) or isinstance(value, dict) or isinstance(value, list):
@@ -38,9 +33,8 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, t
             inputs_object.append(f"{key_string}: {json.dumps(value)}")
 
     # Convert the filters to code
-    filters_expr = hog_function_filters_to_expr(filters, team, {})
+    filters_expr = hog_function_filters_to_expr(hog_function.filters or {}, hog_function.team, {})
     filters_code = compiler.visit(filters_expr)
-
     # Start with the STL functions
     response += compiler.get_stl_code() + "\n"
 
@@ -60,43 +54,47 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, t
         response += "default: return null; }\n"
         response += "} catch (e) { if(!initial) {console.error('[POSTHOG-JS] Unable to compute value for inputs', key, e);} return null } }\n"
         response += "\n".join(inputs_append) + "\n"
+
     response += "return inputs;}\n"
 
-    # See plugin-transpiler/src/presets.ts
-    # transpile(source, 'site') == `(function () {let exports={};${code};return exports;})`
-    response += f"const response = {transpile(source, 'site')}();"
+    response += f"const source = {transpile(hog_function.hog, 'site')}();"
 
+    # We are exposing an init function which is what the client will use to actually run this setup code.
+    # The return includes any extra methods that the client might need to use - so far just processEvent
     response += (
         """
-    function processEvent(globals) {
-        if (!('onEvent' in response)) { return; };
-        const inputs = buildInputs(globals);
-        const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
-        let __getGlobal = (key) => filterGlobals[key];
-        const filterMatches = """
+    let processEvent = undefined;
+    if ('onEvent' in source) {
+        processEvent = function processEvent(globals) {
+            if (!('onEvent' in source)) { return; };
+            const inputs = buildInputs(globals);
+            const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
+            let __getGlobal = (key) => filterGlobals[key];
+            const filterMatches = """
         + filters_code
         + """;
-        if (filterMatches) { response.onEvent({ ...globals, inputs, posthog }); }
+            if (filterMatches) { source.onEvent({ ...globals, inputs, posthog }); }
+        }
     }
-    if ('onLoad' in response) {
-        const r = response.onLoad({ inputs: buildInputs({}, true), posthog: posthog });
-        const done = (success = true) => {
-            if (success) {
-                missedInvocations().forEach(processEvent);
-                posthog.on('eventCaptured', (event) => { processEvent(posthog.siteApps.globalsForEvent(event)) });
-            } else {
-                console.error('[POSTHOG-JS] Site function failed to load', response)
-            }
-            callback(success);
-        };
-        if (r && typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => done(false)).then(() => done(true)) } else { done(true) }
-    } else if ('onEvent' in response) {
-        missedInvocations().forEach(processEvent);
-        posthog.on('eventCaptured', (event) => { processEvent(posthog.siteApps.globalsForEvent(event)) })
+
+    function init(config) {
+        const posthog = config.posthog;
+        const callback = config.callback;
+        if ('onLoad' in source) {
+            const r = source.onLoad({ inputs: buildInputs({}, true), posthog: posthog });
+            if (r && typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => callback(false)).then(() => callback(true)) } else { callback(true) }
+        } else {
+            callback(true);
+        }
+
+        return {
+            processEvent: processEvent
+        }
     }
-    """
+
+    return { init: init };"""
     )
 
-    response += "\n})();"
+    response += "\n})"
 
     return response
