@@ -1,8 +1,8 @@
 @mixin secondary-variables {
-    --button-border-color: var(--secondary-3000-button-border);
-    --lemon-button-bg-color-active: var(--bg-light);
-    --lemon-button-border-color-hover: var(--secondary-3000-button-border-hover);
-    --lemon-button-frame-bg-color: var(--secondary-3000-frame-bg);
+    --lemon-button-border-color: var(--border-tertiary);
+    --lemon-button-bg-color-active: transparent;
+    --lemon-button-border-color-hover: var(--border-secondary);
+    --lemon-button-frame-bg-color: var(--background-tertiary);
 }
 
 @mixin size-variables {
@@ -47,7 +47,7 @@
     --lemon-button-transition: opacity 200ms ease, transform 200ms ease;
     --lemon-button-border-width: 0;
     --lemon-button-bg-color: transparent;
-    --button-border-color: none;
+    --lemon-button-border-color: none;
     --lemon-button-border-color-hover: none;
     --lemon-button-frame-bg-color: none;
     --lemon-button-font-size: 0.875rem;
@@ -55,7 +55,8 @@
     --lemon-button-height: 2.3125rem;
     --lemon-button-gap: 0.5rem;
     --lemon-button-icon-opacity: 0.8;
-    --lemon-button-color: var(--text-3000);
+    --lemon-button-color: var(--content-primary);
+    --lemon-button-spacer-color: var(--content-tertiary);
 
     // column-gap: 4px;
     // flex-direction: row;
@@ -188,20 +189,30 @@
     }
 
     &.LemonButton--primary {
-        --lemon-button-bg-color: var(--primary-3000-button-bg);
-        --lemon-button-bg-color-active: var(--primary-3000-button-bg);
-        --button-border-color: var(--primary-3000-button-border);
-        --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
-        --lemon-button-frame-bg-color: var(--primary-3000-frame-bg);
-        --lemon-button-color: var(--text-3000-light);
+        --lemon-button-bg-color: var(--background-primary);
+        --lemon-button-bg-color-active: var(--background-primary);
+        --lemon-button-border-color: var(--border-button);
+        --lemon-button-border-color-hover: var(--border-button-hover);
+        --lemon-button-frame-bg-color: var(--background-button-subtle);
+        --lemon-button-color: var(--content-primary);
+
+        [theme='dark'] & {
+            --lemon-button-bg-color: var(--background-button);
+            --lemon-button-border-color-hover: var(--border-button-bold-hover);
+        }
 
         &.LemonButton--status-alt {
-            --lemon-button-bg-color: var(--primary-3000-frame-bg-light);
-            --lemon-button-bg-color-active: var(--lemon-button-bg-color);
-            --button-border-color: var(--primary-3000-button-border);
-            --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
-            --lemon-button-frame-bg-color: var(--primary-3000-button-bg-dark);
-            --lemon-button-color: var(--text-3000-light);
+            --lemon-button-bg-color: var(--background-button-subtle);
+            --lemon-button-bg-color-active: var(--background-button-subtle);
+            --lemon-button-border-color-hover: var(--border-button-hover);
+            --lemon-button-frame-bg-color: var(--background-button-subtle);
+            --lemon-button-color: var(--content-primary);
+
+            [theme='dark'] & {
+                --lemon-button-border-color: var(--border-button);
+                --lemon-button-bg-color: var(--background-button-subtle);
+                --lemon-button-border-color-hover: var(--background-button-subtle-hover);
+            }
         }
     }
 
@@ -214,19 +225,30 @@
     &.LemonButton--status-danger,
     &.LemonButton--primary.LemonButton--status-danger,
     &.LemonButton--secondary.LemonButton--status-danger {
-        --lemon-button-color: var(--danger-3000-button-border-hover);
-        --button-border-color: var(--danger-3000-button-border);
-        --lemon-button-border-color-hover: var(--danger-3000-button-border-hover);
-        --lemon-button-frame-bg-color: var(--danger-3000-frame-bg);
+        --lemon-button-bg-color: var(--background-danger-subtle);
+        --lemon-button-color: var(--content-danger-bold);
+        --lemon-button-border-color: var(--border-danger);
+        --lemon-button-border-color-hover: var(--border-danger-bold);
+        --lemon-button-frame-bg-color: var(--background-danger-bold);
         --lemon-button-icon-opacity: 1;
+
+        [theme='dark'] & {
+            --lemon-button-border-color: var(--border-danger);
+            --lemon-button-bg-color: var(--background-button-subtle);
+            --lemon-button-border-color-hover: var(--border-danger-hover);
+        }
+
+        &[aria-disabled='true']:not(.LemonButton--loading) {
+            --lemon-button-color: var(--content-danger-bold-disabled);
+        }
     }
 
     &.LemonButton--secondary.LemonButton--status-alt {
-        --lemon-button-color: var(--muted);
+        --lemon-button-color: var(--content-tertiary);
 
         &.LemonButton--active,
         &:hover:not([aria-disabled='true']) {
-            --lemon-button-color: var(--text-3000);
+            --lemon-button-color: var(--content-tertiary);
         }
     }
 
@@ -264,7 +286,7 @@
                 inset: -1px;
                 z-index: 0;
                 content: '';
-                border: 1px solid var(--button-border-color);
+                border: 1px solid var(--lemon-button-border-color);
                 border-radius: var(--radius);
             }
 
@@ -274,7 +296,7 @@
                 z-index: 0;
                 content: '';
                 background: var(--lemon-button-bg-color);
-                border: 1px solid var(--button-border-color);
+                border: 1px solid var(--lemon-button-border-color);
                 border-radius: var(--radius);
                 box-shadow: 0 var(--lemon-button-chrome-depth) 0 -1px var(--lemon-button-frame-bg-color);
                 transition: opacity 200ms ease;
@@ -325,13 +347,13 @@
     &.LemonButton--tertiary {
         &:not([aria-disabled='true']):hover,
         &.LemonButton--active {
-            background-color: var(--glass-border-3000);
+            background-color: var(--background-tertiary);
         }
 
         &.LemonButton--status-danger {
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
-                background-color: var(--danger-highlight);
+                background-color: var(--background-danger-subtle);
             }
         }
     }
@@ -363,7 +385,7 @@
                 var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal))
         );
         height: calc(var(--lemon-button-height) - 1.0625rem);
-        color: var(--muted);
+        color: var(--lemon-button-spacer-color);
 
         &--divider {
             padding: 0;
@@ -416,6 +438,10 @@
 
         &:not([aria-disabled='true']):hover {
             background: rgb(0 0 0 / 10%);
+
+            [theme='dark'] & {
+                background: rgb(255 255 255 / 10%);
+            }
         }
     }
 
