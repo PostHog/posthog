@@ -736,6 +736,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(str(context.exception), "'invalid_table_name'")
 
+    # Uses the same values as test_query_runner_with_data_warehouse_series_avg_amount for easy comparison
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_avg_math(self):
         feature_flag = self.create_feature_flag()
@@ -764,7 +765,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
 
-        for variant, count in [("control", 7), ("test", 9)]:
+        # Populate exposure events - same as data warehouse test
+        for variant, count in [("control", 1), ("test", 3)]:
             for i in range(count):
                 _create_event(
                     team=self.team,
@@ -774,15 +776,38 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     timestamp=datetime(2020, 1, i + 1),
                 )
 
-        for variant, count in [("control", 4), ("test", 2)]:
-            for i in range(count):
-                _create_event(
-                    team=self.team,
-                    event="purchase",
-                    distinct_id=f"user_{variant}_{i}",
-                    properties={feature_flag_property: variant, "amount": i * 10},
-                    timestamp=datetime(2020, 1, i + 2),
-                )
+        # Create purchase events with same amounts as data warehouse test
+        # Control: 1 purchase of 100
+        # Test: 3 purchases of 50, 75, and 80
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_0",
+            properties={feature_flag_property: "control", "amount": 100},
+            timestamp=datetime(2020, 1, 2),
+        )
+
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_test_1",
+            properties={feature_flag_property: "test", "amount": 50},
+            timestamp=datetime(2020, 1, 2),
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_test_2",
+            properties={feature_flag_property: "test", "amount": 75},
+            timestamp=datetime(2020, 1, 3),
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_test_3",
+            properties={feature_flag_property: "test", "amount": 80},
+            timestamp=datetime(2020, 1, 6),
+        )
 
         flush_persons_and_events()
 
@@ -800,18 +825,18 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "control")
         test_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "test")
 
-        self.assertEqual(control_result.count, 60)
-        self.assertEqual(test_result.count, 10)
-        self.assertEqual(control_result.absolute_exposure, 4)
-        self.assertEqual(test_result.absolute_exposure, 2)
+        self.assertEqual(control_result.count, 100)
+        self.assertAlmostEqual(test_result.count, 205)
+        self.assertEqual(control_result.absolute_exposure, 1)
+        self.assertEqual(test_result.absolute_exposure, 3)
 
         self.assertEqual(
             control_insight["data"],
-            [0.0, 0.0, 10.0, 30.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0],
+            [0.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
         )
         self.assertEqual(
             test_insight["data"],
-            [0.0, 0.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+            [0.0, 50.0, 125.0, 125.0, 125.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0],
         )
 
     @flaky(max_runs=10, min_passes=1)
