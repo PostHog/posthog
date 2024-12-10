@@ -695,6 +695,10 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
+        let ha = self
+            .hashed_identifier(flag, hash_key_overrides.clone())
+            .await?;
+        println!("hashed_identifier: {:?}", ha);
         if self
             .hashed_identifier(flag, hash_key_overrides.clone())
             .await?

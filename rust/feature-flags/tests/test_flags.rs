@@ -1,6 +1,7 @@
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
 
+use rand::Rng;
 use reqwest::StatusCode;
 use serde_json::{json, Value};
 
@@ -586,16 +587,13 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
 async fn test_feature_flags_with_group_relationships() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
-
     let redis_client = setup_redis_client(Some(config.redis_url.clone()));
     let pg_client = setup_pg_reader_client(None).await;
+    let team_id = rand::thread_rng().gen_range(1..10_000_000);
+    let team = insert_new_team_in_pg(pg_client.clone(), Some(team_id))
+        .await
+        .unwrap();
 
-    let team = insert_new_team_in_redis(redis_client.clone())
-        .await
-        .unwrap();
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
     let token = team.api_token;
 
     // Create a group of type "organization" (group_type_index 1) with group_key "foo" and specific properties
@@ -681,7 +679,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
             expected: json!({
                 "errorWhileComputingFlags": false,
                 "featureFlags": {
-                    "default-no-prop-group-flag": true,
+                    "default-no-prop-group-flag": false, // if we don't specify any groups in the request, the flags should be false
                     "groups-flag": false
                 }
             })
