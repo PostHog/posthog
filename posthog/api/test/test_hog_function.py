@@ -1055,6 +1055,30 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["bytecode"] is None
         assert "Hello, site_destination" in response.json()["transpiled"]
 
+    def test_cannot_modify_type_of_existing_hog_function(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Site Destination Function",
+                "hog": "export function onLoad() { console.log('Hello, site_destination'); }",
+                "type": "site_destination",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+            data={"type": "site_app"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "attr": "type",
+            "detail": "Cannot modify the type of an existing function",
+            "code": "invalid_input",
+            "type": "validation_error",
+        }
+
     def test_transpiled_field_not_populated_for_other_types(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",

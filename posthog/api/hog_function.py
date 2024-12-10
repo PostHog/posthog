@@ -129,6 +129,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "deleted": {"write_only": True},
         }
 
+    def validate_type(self, value):
+        # Ensure it is only set when creating a new function
+        if self.context.get("view") and self.context["view"].action == "create":
+            return value
+
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        if instance and instance.type != value:
+            raise serializers.ValidationError("Cannot modify the type of an existing function")
+        return value
+
     def validate(self, attrs):
         team = self.context["get_team"]()
         attrs["team"] = team
@@ -154,9 +164,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             # Without the addon, they cannot deviate from the template
             attrs["inputs_schema"] = template.inputs_schema
             attrs["hog"] = template.hog
-
-        if "type" not in attrs:
-            attrs["type"] = "destination"
 
         if self.context.get("view") and self.context["view"].action == "create":
             # Ensure we have sensible defaults when created

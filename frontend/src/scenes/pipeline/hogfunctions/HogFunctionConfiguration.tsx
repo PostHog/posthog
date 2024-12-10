@@ -157,7 +157,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
     const showEnabled = ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
     const canEditSource = ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
     const showPersonsCount = ['broadcast'].includes(type)
-    const showTesting = ['destination', 'broadcast', 'email'].includes(type)
+    const showTesting = ['destination', 'transformation', 'broadcast', 'email'].includes(type)
 
     return (
         <div className="space-y-3">
