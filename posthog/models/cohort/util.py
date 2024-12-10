@@ -8,7 +8,9 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver_utils import extract_select_queries
+from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
@@ -40,10 +42,23 @@ from posthog.models.person.sql import (
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
+from posthog.queries.cohort_query import CohortQuery
+
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 logger = structlog.get_logger(__name__)
+
+
+class DataCheckWrapperCohortQuery(CohortQuery):
+    def __init__(self, filter: Filter, team: Team):
+        cohort_query = CohortQuery(filter=filter, team=team)
+        try:
+            hogql_cohort_query = HogQLCohortQuery(cohort_query=cohort_query)
+            self.result = execute_hogql_query(hogql_cohort_query.get_query(), team)
+        except Exception:
+            pass
+        super().__init__(filter=filter, team=team)
 
 
 def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext) -> tuple[str, dict[str, Any]]:
@@ -53,8 +68,6 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
     if not cohort.properties.values:
         # No person can match an empty cohort
         return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
-
-    from posthog.queries.cohort_query import CohortQuery
 
     query_builder = CohortQuery(
         Filter(
