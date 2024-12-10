@@ -898,6 +898,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = ExperimentTrendsQueryRunner(
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
+        self.assertEqual(query_runner.stats_version, 1)
         result = query_runner.calculate()
 
         self.assertEqual(len(result.variants), 2)
@@ -916,6 +917,105 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(result.credible_intervals["control"][1], 4.3836, places=3)
         self.assertAlmostEqual(result.credible_intervals["test"][0], 1.1009, places=3)
         self.assertAlmostEqual(result.credible_intervals["test"][1], 5.8342, places=3)
+
+        self.assertAlmostEqual(result.p_value, 1.0, places=3)
+
+        self.assertAlmostEqual(result.probability["control"], 0.2549, places=2)
+        self.assertAlmostEqual(result.probability["test"], 0.7453, places=2)
+
+        self.assertEqual(result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+
+        self.assertFalse(result.significant)
+
+        self.assertEqual(len(result.variants), 2)
+
+        self.assertEqual(control_variant.absolute_exposure, 2.0)
+        self.assertEqual(control_variant.count, 3.0)
+        self.assertEqual(control_variant.exposure, 1.0)
+
+        self.assertEqual(test_variant.absolute_exposure, 2.0)
+        self.assertEqual(test_variant.count, 5.0)
+        self.assertEqual(test_variant.exposure, 1.0)
+
+    @flaky(max_runs=10, min_passes=1)
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_query_runner_standard_flow_v2_stats(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        ff_property = f"$feature/{feature_flag.key}"
+        count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=exposure_query,
+            stats_version=2,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        journeys_for(
+            {
+                "user_control_1": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {ff_property: "control"}},
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "control"},
+                    },
+                ],
+                "user_control_2": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "control"},
+                    },
+                ],
+                "user_test_1": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {ff_property: "test"}},
+                    {"event": "$feature_flag_called", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                ],
+                "user_test_2": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                    {"event": "$feature_flag_called", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        self.assertEqual(query_runner.stats_version, 2)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+        for variant in result.variants:
+            self.assertIn(variant.key, ["control", "test"])
+
+        control_variant = next(v for v in result.variants if v.key == "control")
+        test_variant = next(v for v in result.variants if v.key == "test")
+
+        self.assertEqual(control_variant.count, 3)
+        self.assertEqual(test_variant.count, 5)
+        self.assertEqual(control_variant.absolute_exposure, 2)
+        self.assertEqual(test_variant.absolute_exposure, 2)
+
+        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.3633, places=3)
+        self.assertAlmostEqual(result.credible_intervals["control"][1], 2.9224, places=3)
+        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.7339, places=3)
+        self.assertAlmostEqual(result.credible_intervals["test"][1], 3.8894, places=3)
 
         self.assertAlmostEqual(result.p_value, 1.0, places=3)
 

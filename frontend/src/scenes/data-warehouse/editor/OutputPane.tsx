@@ -37,10 +37,9 @@ export function OutputPane(): JSX.Element {
     const { variablesForInsight } = useValues(variablesLogic)
 
     const { editingView, sourceQuery, exportContext, isValidView, error } = useValues(multitabEditorLogic)
-    const { saveAsInsight, saveAsView, setSourceQuery } = useActions(multitabEditorLogic)
+    const { saveAsInsight, saveAsView, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading } = useValues(dataNodeLogic)
-    const { loadData } = useActions(dataNodeLogic)
     const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { visualizationType } = useValues(dataVisualizationLogic)
@@ -182,7 +181,7 @@ export function OutputPane(): JSX.Element {
                         disabledReason={error ? error : ''}
                         loading={responseLoading}
                         type="primary"
-                        onClick={() => loadData(true)}
+                        onClick={() => runQuery()}
                     >
                         <span className="mr-1">Run</span>
                         <KeyboardShortcut command enter />

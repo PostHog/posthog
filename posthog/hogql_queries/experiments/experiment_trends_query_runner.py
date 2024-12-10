@@ -9,6 +9,11 @@ from posthog.hogql_queries.experiments.trends_statistics import (
     calculate_credible_intervals,
     calculate_probabilities,
 )
+from posthog.hogql_queries.experiments.trends_statistics_v2 import (
+    are_results_significant_v2,
+    calculate_credible_intervals_v2,
+    calculate_probabilities_v2,
+)
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
@@ -55,6 +60,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
         self.breakdown_key = f"$feature/{self.feature_flag.key}"
+
+        self.stats_version = self.query.stats_version or 1
 
         self.prepared_count_query = self._prepare_count_query()
         self.prepared_exposure_query = self._prepare_exposure_query()
@@ -307,9 +314,14 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
-        probabilities = calculate_probabilities(control_variant, test_variants)
-        significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
-        credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+        if self.stats_version == 2:
+            probabilities = calculate_probabilities_v2(control_variant, test_variants)
+            significance_code, p_value = are_results_significant_v2(control_variant, test_variants, probabilities)
+            credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
+        else:
+            probabilities = calculate_probabilities(control_variant, test_variants)
+            significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
+            credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
 
         return ExperimentTrendsQueryResponse(
             kind="ExperimentTrendsQuery",
@@ -323,6 +335,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             },
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
+            stats_version=self.stats_version,
             p_value=p_value,
             credible_intervals=credible_intervals,
         )
