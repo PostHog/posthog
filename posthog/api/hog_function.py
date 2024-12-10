@@ -107,7 +107,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "inputs",
             "filters",
             "masking",
-            "mapping",
+            "mappings",
             "icon_url",
             "template",
             "template_id",
