@@ -26,7 +26,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { formatDate } from 'lib/utils'
@@ -100,7 +100,7 @@ export default function SurveyEdit(): JSX.Element {
         ? undefined
         : 'Upgrade your plan to use an adaptive limit on survey responses'
 
-    const surveyLimitOptions = [
+    const surveyLimitOptions: LemonRadioOption<'until_stopped' | 'until_limit' | 'until_adaptive_limit'>[] = [
         {
             value: 'until_stopped',
             label: 'Keep collecting responses until the survey is stopped',
@@ -119,7 +119,7 @@ export default function SurveyEdit(): JSX.Element {
             label: 'Collect a certain number of surveys per day, week or month',
             'data-attr': 'survey-collection-until-adaptive-limit',
             disabledReason: surveysAdaptiveLimitsDisabledReason,
-        })
+        } as unknown as LemonRadioOption<'until_stopped' | 'until_limit' | 'until_adaptive_limit'>)
     }
     useMemo(() => {
         if (surveyUsesLimit) {
