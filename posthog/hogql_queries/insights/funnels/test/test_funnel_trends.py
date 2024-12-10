@@ -2440,7 +2440,7 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
             assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
-    def test_breakdown_step_attributions(self):
+    def test_breakdown_with_attribution_2(self):
         events = [
             {
                 "event": "step one",
