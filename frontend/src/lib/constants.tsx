@@ -239,6 +239,7 @@ export const FEATURE_FLAGS = {
     REPLAY_LIST_RECORDINGS_AS_QUERY: 'replay-list-recordings-as-query', // owner: @pauldambra #team-replay
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     WEB_ANALYTICS_PERIOD_COMPARISON: 'web-analytics-period-comparison', // owner: @rafaeelaudibert #team-web-analytics
+    BILLING_USAGE_DASHBOARD: 'billing-usage-dashboard', // owner: @pato
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
