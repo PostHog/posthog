@@ -7,6 +7,7 @@ from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql_queries.insights.funnels import FunnelTrends
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS
+from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDFMixin
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql_str
 from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP, relative_date_parse
@@ -15,7 +16,7 @@ TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
-class FunnelTrendsUDF(FunnelTrends):
+class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # In base, these fields only get added if you're running an actors query
@@ -65,8 +66,6 @@ class FunnelTrendsUDF(FunnelTrends):
         else:
             inner_event_query = self._get_inner_event_query_for_udf(entity_name="events")
 
-        default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "''"
-
         # stores the steps as an array of integers from 1 to max_steps
         # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]
 
@@ -89,8 +88,7 @@ class FunnelTrendsUDF(FunnelTrends):
             fn = "aggregate_funnel_trends"
             breakdown_prop = ""
 
-        prop_selector = "prop" if self.context.breakdown else default_breakdown_selector
-        prop_vals = "groupUniqArray(prop)" if self.context.breakdown else f"[{default_breakdown_selector}]"
+        prop_selector = "prop" if self.context.breakdown else self._default_breakdown_selector()
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
@@ -114,7 +112,7 @@ class FunnelTrendsUDF(FunnelTrends):
                     {self.conversion_window_limit()},
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
-                    {prop_vals},
+                    {self._prop_vals()},
                     {self.udf_event_array_filter()}
                 )) as af_tuple,
                 toTimeZone(toDateTime(_toUInt64(af_tuple.1)), '{self.context.team.timezone}') as entrance_period_start,
