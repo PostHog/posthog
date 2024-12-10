@@ -1,8 +1,10 @@
 from collections.abc import AsyncGenerator, Generator, Iterator
 from functools import partial
 from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union, cast
+from uuid import uuid4
 
 from asgiref.sync import sync_to_async
+from django.forms import ValidationError
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langfuse.callback import CallbackHandler
@@ -18,7 +20,7 @@ from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
 )
-from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation
+from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation, ReplaceMessages
 from ee.models import AssistantThread
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
@@ -114,18 +116,16 @@ class Assistant:
                 break
 
     def _stream(self) -> Generator[str, None, None]:
-        thread, _ = AssistantThread.objects.get_or_create(
-            id=self._conversation.session_id, team=self._team, user=self._user
-        )
-        state = self._get_saved_state(thread)
+        thread, last_message = self._init_thread()
+        state = self._init_or_update_state(thread)
         config = self._get_config(thread)
 
         generator: Iterator[Any] = self._graph.stream(
             state, config=config, stream_mode=["messages", "values", "updates", "debug"]
         )
 
-        # Send a chunk to establish the connection avoiding the worker's timeout.
-        yield self._serialize_message(AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK))
+        # Send the last message with the initialized id.
+        yield self._serialize_message(last_message)
 
         try:
             last_viz_message = None
@@ -165,7 +165,7 @@ class Assistant:
         }
         return config
 
-    def _get_saved_state(self, thread: AssistantThread):
+    def _init_or_update_state(self, thread: AssistantThread):
         config = self._get_config(thread)
         snapshot = self._graph.get_state(config)
         if snapshot.next:
@@ -180,6 +180,7 @@ class Assistant:
                     self._graph.update_state(
                         config,
                         {
+                            "messages": ReplaceMessages(self._conversation.messages),
                             "intermediate_steps": intermediate_steps,
                         },
                     )
@@ -187,6 +188,17 @@ class Assistant:
         initial_state = self._initial_state
         self._state = initial_state
         return initial_state
+
+    def _init_thread(self):
+        thread, _ = AssistantThread.objects.get_or_create(
+            id=self._conversation.session_id, team=self._team, user=self._user
+        )
+        last_message = self._conversation.messages[-1].root
+        if isinstance(last_message, HumanMessage):
+            last_message.id = uuid4()
+        else:
+            raise ValidationError("The last message must be a human message.")
+        return thread, last_message
 
     def _node_to_reasoning_message(
         self, node_name: AssistantNodeName, input: AssistantState

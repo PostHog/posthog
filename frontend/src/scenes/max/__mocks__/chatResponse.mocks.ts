@@ -1,3 +1,5 @@
+import { uuid } from 'lib/utils'
+
 import {
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
@@ -12,13 +14,13 @@ import visualizationMessage from './visualizationMessage.json'
 const reasoningMessage1: ReasoningMessage = {
     type: AssistantMessageType.Reasoning,
     content: 'Picking relevant events and properties',
-    done: true,
+    id: uuid(),
 }
 
 const reasoningMessage2: ReasoningMessage = {
     type: AssistantMessageType.Reasoning,
     content: 'Generating trends',
-    done: true,
+    id: uuid(),
 }
 
 function generateChunk(events: string[]): string {

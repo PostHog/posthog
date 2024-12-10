@@ -4,6 +4,7 @@ import { createParser } from 'eventsource-parser'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
+import { uuid } from 'lib/utils'
 import { isHumanMessage, isReasoningMessage, isVisualizationMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -37,7 +38,6 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     type: AssistantMessageType.Failure,
     content: 'Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?',
     status: 'completed',
-    done: true,
 }
 
 export const maxLogic = kea<maxLogicType>([
@@ -156,7 +156,7 @@ export const maxLogic = kea<maxLogicType>([
             )
         },
         askMax: async ({ prompt }) => {
-            actions.addMessage({ type: AssistantMessageType.Human, content: prompt, done: true, status: 'completed' })
+            actions.addMessage({ type: AssistantMessageType.Human, content: prompt, status: 'completed' })
             try {
                 const response = await api.chat({
                     session_id: props.sessionId,
@@ -178,15 +178,20 @@ export const maxLogic = kea<maxLogicType>([
                                 return
                             }
 
-                            if (values.threadRaw[values.threadRaw.length - 1].status === 'completed') {
+                            if (isHumanMessage(parsedResponse)) {
+                                actions.replaceMessage(values.threadRaw.length - 1, {
+                                    ...parsedResponse,
+                                    status: 'completed',
+                                })
+                            } else if (values.threadRaw[values.threadRaw.length - 1].status === 'completed') {
                                 actions.addMessage({
                                     ...parsedResponse,
-                                    status: !parsedResponse.done ? 'loading' : 'completed',
+                                    status: !parsedResponse.id ? 'loading' : 'completed',
                                 })
                             } else if (parsedResponse) {
                                 actions.replaceMessage(values.threadRaw.length - 1, {
                                     ...parsedResponse,
-                                    status: !parsedResponse.done ? 'loading' : 'completed',
+                                    status: !parsedResponse.id ? 'loading' : 'completed',
                                 })
                             }
                         } else if (event === AssistantEventType.Status) {
@@ -210,7 +215,7 @@ export const maxLogic = kea<maxLogicType>([
                     }
                 }
             } catch (e) {
-                const relevantErrorMessage = { ...FAILURE_MESSAGE } // Generic message by default
+                const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
                 if (e instanceof ApiError && e.status === 429) {
                     relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
                 } else {
@@ -264,7 +269,7 @@ export const maxLogic = kea<maxLogicType>([
                     const previousMessage: ThreadMessage | undefined = thread[i - 1]
                     if (currentMessage.type.split('/')[0] === previousMessage?.type.split('/')[0]) {
                         const lastThreadSoFar = threadGrouped[threadGrouped.length - 1]
-                        if (currentMessage.done && previousMessage.type === AssistantMessageType.Reasoning) {
+                        if (currentMessage.id && previousMessage.type === AssistantMessageType.Reasoning) {
                             // Only preserve the latest reasoning message, and remove once reasoning is done
                             lastThreadSoFar[lastThreadSoFar.length - 1] = currentMessage
                         } else {
@@ -276,14 +281,14 @@ export const maxLogic = kea<maxLogicType>([
                 }
                 if (threadLoading) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
-                    if (finalMessageSoFar?.done && finalMessageSoFar.type !== AssistantMessageType.Reasoning) {
+                    if (finalMessageSoFar?.id && finalMessageSoFar.type !== AssistantMessageType.Reasoning) {
                         // If now waiting for the current node to start streaming, add "Thinking" message
                         // so that there's _some_ indication of processing
                         const thinkingMessage: ReasoningMessage & ThreadMessage = {
                             type: AssistantMessageType.Reasoning,
                             content: 'Thinking',
                             status: 'completed',
-                            done: true,
+                            id: uuid(),
                         }
                         if (finalMessageSoFar.type === AssistantMessageType.Human) {
                             // If the last message was human, we need to add a new "ephemeral" AI group

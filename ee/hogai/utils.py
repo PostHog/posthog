@@ -48,9 +48,9 @@ def add_messages(
 class AssistantState(TypedDict, total=False):
     messages: Annotated[Sequence[AssistantMessageUnion], add_messages]
     intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]]
-    start_idx: Optional[int]
+    start_id: Optional[str]
     """
-    The index of the message from which the conversation started.
+    The ID of the message from which the conversation started.
     """
     plan: Optional[str]
 
@@ -109,7 +109,7 @@ def filter_messages(
     """
     Filters and merges the message history to be consumable by agents. Returns human and AI messages.
     """
-    stack: list[LangchainHumanMessage] = []
+    stack: list[tuple[int, LangchainHumanMessage]] = []
     filtered_messages: list[AssistantMessageUnion] = []
 
     def _merge_stack(stack: list[LangchainHumanMessage]) -> list[HumanMessage]:
