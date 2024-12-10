@@ -109,6 +109,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 setTimedOutQueryId: (_, { id }) => id,
             },
         ],
+
+        // Whether the interval has been manually set by the user. If true, prevents auto-adjusting the interval when date range changes. Reference: https://github.com/PostHog/posthog/issues/22785
+        isIntervalManuallySet: [
+            false,
+            {
+                updateQuerySource: (state, { querySource }) => {
+                    // If interval is explicitly included in the update, mark it as manually set
+                    return 'interval' in querySource ? true : state
+                },
+                resetIntervalManuallySet: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -401,7 +413,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 ...values.query,
                 source: {
                     ...values.querySource,
-                    ...handleQuerySourceUpdateSideEffects(querySource, values.querySource as InsightQueryNode),
+                    ...handleQuerySourceUpdateSideEffects(
+                        querySource,
+                        values.querySource as InsightQueryNode,
+                        values.isIntervalManuallySet
+                    ),
                 },
             } as Node)
         },
@@ -487,7 +503,8 @@ const getActiveUsersMath = (
 
 const handleQuerySourceUpdateSideEffects = (
     update: QuerySourceUpdate,
-    currentState: InsightQueryNode
+    currentState: InsightQueryNode,
+    isIntervalManuallySet: boolean
 ): QuerySourceUpdate => {
     const mergedUpdate = { ...update } as InsightQueryNode
 
@@ -532,11 +549,12 @@ const handleQuerySourceUpdateSideEffects = (
      */
     if (
         !isRetentionQuery(currentState) &&
-        !isPathsQuery(currentState) && // TODO: Apply side logic more elegantly
+        !isPathsQuery(currentState) &&
         update.dateRange &&
         update.dateRange.date_from &&
         (update.dateRange.date_from !== currentState.dateRange?.date_from ||
-            update.dateRange.date_to !== currentState.dateRange?.date_to)
+            update.dateRange.date_to !== currentState.dateRange?.date_to) &&
+        !isIntervalManuallySet // Only auto-adjust interval if not manually set
     ) {
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
 
