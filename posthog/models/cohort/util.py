@@ -8,9 +8,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver_utils import extract_select_queries
-from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
@@ -42,23 +40,10 @@ from posthog.models.person.sql import (
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
-from posthog.queries.cohort_query import CohortQuery
-
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 logger = structlog.get_logger(__name__)
-
-
-class DataCheckWrapperCohortQuery(CohortQuery):
-    def __init__(self, filter: Filter, team: Team):
-        cohort_query = CohortQuery(filter=filter, team=team)
-        try:
-            hogql_cohort_query = HogQLCohortQuery(cohort_query=cohort_query)
-            self.result = execute_hogql_query(hogql_cohort_query.get_query(), team)
-        except Exception:
-            pass
-        super().__init__(filter=filter, team=team)
 
 
 def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext) -> tuple[str, dict[str, Any]]:
@@ -68,6 +53,8 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
     if not cohort.properties.values:
         # No person can match an empty cohort
         return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
+
+    from posthog.queries.cohort_query import CohortQuery
 
     query_builder = CohortQuery(
         Filter(
@@ -338,13 +325,99 @@ def _recalculate_cohortpeople_for_team(
 
     before_count = get_cohort_size(cohort, team_id=team.id)
 
-    if before_count:
+    if before_count is not None:
         logger.warn(
             "Recalculating cohortpeople starting",
             team_id=team.id,
             cohort_id=cohort.pk,
             size_before=before_count,
         )
+
+    # Want to store amount of time it takes
+
+    recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
+
+    tag_queries(kind="cohort_calculation", team_id=team.id, query_type="CohortsQuery")
+    if initiating_user_id:
+        tag_queries(user_id=initiating_user_id)
+
+    sync_execute(
+        recalcluate_cohortpeople_sql,
+        {
+            **cohort_params,
+            **hogql_context.values,
+            "cohort_id": cohort.pk,
+            "team_id": team.id,
+            "new_version": pending_version,
+        },
+        settings={
+            "max_execution_time": 600,
+            "send_timeout": 600,
+            "receive_timeout": 600,
+            "optimize_on_insert": 0,
+        },
+        workload=Workload.OFFLINE,
+    )
+
+    count = get_cohort_size(cohort, override_version=pending_version, team_id=team.id)
+
+    if count is not None and before_count is not None:
+        logger.warn(
+            "Recalculating cohortpeople done",
+            team_id=team.id,
+            cohort_id=cohort.pk,
+            size_before=before_count,
+            size=count,
+        )
+
+    return count
+
+
+def format_person_query_hogql(cohort: Cohort, index: int, hogql_context: HogQLContext) -> tuple[str, dict[str, Any]]:
+    if cohort.is_static:
+        return format_static_cohort_query(cohort, index, prepend="")
+
+    if not cohort.properties.values:
+        # No person can match an empty cohort
+        return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
+
+    from posthog.queries.cohort_query import CohortQuery
+
+    cohort_query = CohortQuery(
+        Filter(
+            data={"properties": cohort.properties},
+            team=cohort.team,
+            hogql_context=hogql_context,
+        ),
+        cohort.team,
+        cohort_pk=cohort.pk,
+        persons_on_events_mode=cohort.team.person_on_events_mode,
+    )
+
+    # HogQLCohortQuery(cohort_query=cohort_query).get_query()
+
+    query, params = cohort_query.get_query()
+
+    return query, params
+
+
+def _recalculate_cohortpeople_for_team_hogql(
+    cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
+) -> Optional[int]:
+    hogql_context = HogQLContext(within_non_hogql_query=True, team_id=team.id)
+    cohort_query, cohort_params = format_person_query_hogql(cohort, 0, hogql_context)
+
+    before_count = get_cohort_size(cohort, team_id=team.id)
+
+    if before_count is not None:
+        logger.warn(
+            "Recalculating cohortpeople starting",
+            team_id=team.id,
+            cohort_id=cohort.pk,
+            size_before=before_count,
+        )
+
+    # Want to store amount of time it takes
 
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 

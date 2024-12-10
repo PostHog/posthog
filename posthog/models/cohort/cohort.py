@@ -250,6 +250,8 @@ class Cohort(models.Model):
 
         clear_stale_cohort.delay(self.pk, before_version=pending_version)
 
+        # Try the new version
+
     def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
         """
         Insert a list of users identified by their distinct ID into the cohort, for the given team.
