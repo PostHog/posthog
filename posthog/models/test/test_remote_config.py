@@ -52,7 +52,7 @@ class TestRemoteConfig(_RemoteConfigBase):
                 "autocapture_opt_out": False,
                 "supportedCompression": ["gzip", "gzip-js"],
                 "autocaptureExceptions": False,
-                "defaultIdentifiedOnly": False,
+                "defaultIdentifiedOnly": True,
                 "elementsChainAsString": True,
             }
         )
@@ -318,7 +318,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
+  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true};
   window._POSTHOG_JS_APPS = [];
 })();\
 """
@@ -362,7 +362,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
+  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true};
   window._POSTHOG_JS_APPS = [    
     {
       id: 'tokentoken',
@@ -433,7 +433,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
+  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true};
   window._POSTHOG_JS_APPS = [    
     {
       id: 'SITE_DESTINATION_ID',
