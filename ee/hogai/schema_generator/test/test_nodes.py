@@ -38,6 +38,7 @@ class DummyGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
 @override_settings(IN_UNIT_TESTING=True)
 class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
+        super().setUp()
         self.schema = AssistantTrendsQuery(series=[])
 
     def test_node_runs(self):

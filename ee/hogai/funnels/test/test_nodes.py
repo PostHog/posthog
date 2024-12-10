@@ -15,6 +15,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 @override_settings(IN_UNIT_TESTING=True)
 class TestFunnelsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
+        super().setUp()
         self.schema = AssistantFunnelsQuery(series=[])
 
     def test_node_runs(self):

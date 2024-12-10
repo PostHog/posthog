@@ -17,6 +17,7 @@ class TestTrendsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def setUp(self):
+        super().setUp()
         self.schema = AssistantTrendsQuery(series=[])
 
     def test_node_runs(self):
