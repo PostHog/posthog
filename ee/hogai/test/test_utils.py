@@ -26,27 +26,28 @@ class TestTrendsUtils(BaseTest):
         self.assertEqual(res, [LangchainHumanMessage(content="Text\nTe\nxt")])
 
     def test_filter_trends_conversation(self):
-        human_messages, visualization_messages = filter_messages(
+        conversation = [
+            HumanMessage(content="Text"),
+            FailureMessage(content="Error"),
+            HumanMessage(content="Text"),
+            VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="plan"),
+            HumanMessage(content="Text2"),
+            VisualizationMessage(answer=None, plan="plan"),
+        ]
+        messages = filter_messages(conversation)
+        self.assertEqual(len(messages), 4)
+        self.assertEqual(
             [
-                HumanMessage(content="Text"),
-                FailureMessage(content="Error"),
                 HumanMessage(content="Text"),
                 VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="plan"),
                 HumanMessage(content="Text2"),
                 VisualizationMessage(answer=None, plan="plan"),
-            ]
-        )
-        self.assertEqual(len(human_messages), 2)
-        self.assertEqual(len(visualization_messages), 1)
-        self.assertEqual(
-            human_messages, [LangchainHumanMessage(content="Text"), LangchainHumanMessage(content="Text2")]
-        )
-        self.assertEqual(
-            visualization_messages, [VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="plan")]
+            ],
+            messages,
         )
 
     def test_filters_typical_conversation(self):
-        human_messages, visualization_messages = filter_messages(
+        messages = filter_messages(
             [
                 HumanMessage(content="Question 1"),
                 RouterMessage(content="trends"),
@@ -58,15 +59,15 @@ class TestTrendsUtils(BaseTest):
                 AssistantMessage(content="Summary 2"),
             ]
         )
-        self.assertEqual(len(human_messages), 2)
-        self.assertEqual(len(visualization_messages), 2)
+        self.assertEqual(len(messages), 6)
         self.assertEqual(
-            human_messages, [LangchainHumanMessage(content="Question 1"), LangchainHumanMessage(content="Question 2")]
-        )
-        self.assertEqual(
-            visualization_messages,
+            messages,
             [
+                HumanMessage(content="Question 1"),
                 VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1"),
+                AssistantMessage(content="Summary 1"),
+                HumanMessage(content="Question 2"),
                 VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2"),
+                AssistantMessage(content="Summary 2"),
             ],
         )
