@@ -197,10 +197,10 @@ async def test_monitoring_workflow(
                 continue
             if run.data_interval_start >= check_interval_end or run.data_interval_end < check_interval_start:
                 # we shouldn't have updated this run
-                assert run.expected_records_count is None
+                assert run.records_total_count is None
             elif run.records_completed == 0:
                 # TODO: in the actual monitoring activity it would be better to
                 # update the actual count to 0 rather than None
-                assert run.expected_records_count is None
+                assert run.records_total_count is None
             else:
-                assert run.records_completed == run.expected_records_count
+                assert run.records_completed == run.records_total_count

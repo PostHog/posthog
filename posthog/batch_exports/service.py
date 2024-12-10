@@ -796,7 +796,7 @@ async def aupdate_batch_export_backfill_status(backfill_id: UUID, status: str) -
     return await model.aget()
 
 
-async def aupdate_expected_records_count(
+async def aupdate_records_total_count(
     batch_export_id: UUID, interval_start: dt.datetime, interval_end: dt.datetime, count: int
 ) -> int:
     """Update the expected records count for a set of batch export runs.
@@ -808,5 +808,5 @@ async def aupdate_expected_records_count(
         batch_export_id=batch_export_id,
         data_interval_start=interval_start,
         data_interval_end=interval_end,
-    ).aupdate(expected_records_count=count)
+    ).aupdate(records_total_count=count)
     return rows_updated

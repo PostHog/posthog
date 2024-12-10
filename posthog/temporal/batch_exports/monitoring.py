@@ -7,7 +7,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExport
-from posthog.batch_exports.service import aupdate_expected_records_count
+from posthog.batch_exports.service import aupdate_records_total_count
 from posthog.batch_exports.sql import EVENT_COUNT_BY_INTERVAL
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -147,7 +147,7 @@ async def update_batch_export_runs(inputs: UpdateBatchExportRunsInputs) -> int:
 
     total_rows_updated = 0
     for result in inputs.results:
-        total_rows_updated += await aupdate_expected_records_count(
+        total_rows_updated += await aupdate_records_total_count(
             batch_export_id=inputs.batch_export_id,
             interval_start=dt.datetime.strptime(result.interval_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC),
             interval_end=dt.datetime.strptime(result.interval_end, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC),
