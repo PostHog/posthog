@@ -228,15 +228,21 @@ insight_to_query_type = {
 }
 
 
-class RetentionFilterWithTemplateVariables(RetentionFilter):
-    returningEntity: Optional[RetentionEntity | str] = None  # type: ignore
-    targetEntity: Optional[RetentionEntity | str] = None  # type: ignore
-
-
 class TrendsQueryWithTemplateVariables(TrendsQuery):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, str]] = Field(  # type: ignore
         ..., description="Events and actions to include"
     )
+
+
+class FunnelsQueryWithTemplateVariables(FunnelsQuery):
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, str]] = Field(  # type: ignore
+        ..., description="Events and actions to include"
+    )
+
+
+class RetentionFilterWithTemplateVariables(RetentionFilter):
+    returningEntity: Optional[RetentionEntity | str] = None  # type: ignore
+    targetEntity: Optional[RetentionEntity | str] = None  # type: ignore
 
 
 class RetentionQueryWithTemplateVariables(RetentionQuery):
@@ -245,13 +251,26 @@ class RetentionQueryWithTemplateVariables(RetentionQuery):
     )
 
 
+class LifecycleQueryWithTemplateVariables(LifecycleQuery):
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, str]] = Field(  # type: ignore
+        ..., description="Events and actions to include"
+    )
+
+
+class StickinessQueryWithTemplateVariables(StickinessQuery):
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, str]] = Field(  # type: ignore
+        ..., description="Events and actions to include"
+    )
+
+
+#
 insight_to_query_type_with_variables = {
     "TRENDS": TrendsQueryWithTemplateVariables,
-    "FUNNELS": FunnelsQuery,
+    "FUNNELS": FunnelsQueryWithTemplateVariables,
     "RETENTION": RetentionQueryWithTemplateVariables,
     "PATHS": PathsQuery,
-    "LIFECYCLE": LifecycleQuery,
-    "STICKINESS": StickinessQuery,
+    "LIFECYCLE": LifecycleQueryWithTemplateVariables,
+    "STICKINESS": StickinessQueryWithTemplateVariables,
 }
 
 INSIGHT_TYPE = Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "STICKINESS"]

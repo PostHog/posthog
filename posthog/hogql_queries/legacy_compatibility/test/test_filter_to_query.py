@@ -1834,6 +1834,16 @@ class TestDashboardTemplateConversion(BaseTest):
 
         self.assertEqual(query.series, ["{VARIABLE}"])
 
+    def test_funnel_series_with_variables(self):
+        filter = {
+            "insight": "FUNNELS",
+            "events": ["{VARIABLE1}", "{VARIABLE2}"],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filter, allow_variables=True))
+
+        self.assertEqual(query.series, ["{VARIABLE1}", "{VARIABLE2}"])
+
     def test_retention_entities_with_variables(self):
         filter = {
             "insight": "RETENTION",
