@@ -193,9 +193,13 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 selected_series_result = _pick_series_result(config, calculation_result)
                 results_to_evaluate.append(selected_series_result)
 
+            if not results_to_evaluate:
+                raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
+
             # if we don't have breakdown, we'll have to evaluate just one result
             # and increase will be the evaluated value of that result
             increase = None
+            breaches = []
 
             if threshold.bounds.upper is not None:
                 # checking for value increased > X so we can also check current interval value

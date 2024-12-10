@@ -662,6 +662,7 @@ class ParquetBatchExportWriter(BatchExportWriter):
         flush_callable: FlushCallable,
         schema: pa.Schema,
         compression: str | None = "snappy",
+        compression_level: int | None = None,
     ):
         super().__init__(
             max_bytes=max_bytes,
@@ -670,6 +671,7 @@ class ParquetBatchExportWriter(BatchExportWriter):
         )
         self.schema = schema
         self.compression = compression
+        self.compression_level = compression_level
 
         self._parquet_writer: pq.ParquetWriter | None = None
 
@@ -680,6 +682,7 @@ class ParquetBatchExportWriter(BatchExportWriter):
                 self.batch_export_file,
                 schema=self.schema,
                 compression="none" if self.compression is None else self.compression,
+                compression_level=self.compression_level,
             )
         return self._parquet_writer
 
