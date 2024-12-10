@@ -20,7 +20,7 @@ from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
 )
-from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation, ReplaceMessages
+from ee.hogai.utils import AssistantMessageUnion, AssistantNodeName, AssistantState, Conversation, ReplaceMessages
 from ee.models import AssistantThread
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
@@ -138,7 +138,9 @@ class Assistant:
             # Check if the assistant has requested help.
             state = self._graph.get_state(config)
             if state.next:
-                yield self._serialize_message(AssistantMessage(content=state.tasks[0].interrupts[0].value, done=True))
+                yield self._serialize_message(
+                    AssistantMessage(content=state.tasks[0].interrupts[0].value, id=str(uuid4()))
+                )
             else:
                 self._report_conversation(last_viz_message)
         except:
@@ -146,13 +148,16 @@ class Assistant:
             yield self._serialize_message(FailureMessage())
             raise  # Re-raise, so that the error is printed or goes into Sentry
 
+    def _unpack_messages(self) -> list[AssistantMessageUnion]:
+        return [msg.root for msg in self._conversation.messages]
+
     @property
     def _initial_state(self) -> AssistantState:
-        messages = [message.root for message in self._conversation.messages]
+        messages = self._unpack_messages()
         return {
             "messages": messages,
             "intermediate_steps": None,
-            "start_idx": len(messages) - 1,
+            "start_id": messages[-1].id,
             "plan": None,
         }
 
@@ -180,7 +185,7 @@ class Assistant:
                     self._graph.update_state(
                         config,
                         {
-                            "messages": ReplaceMessages(self._conversation.messages),
+                            "messages": ReplaceMessages([msg.root for msg in self._conversation.messages]),
                             "intermediate_steps": intermediate_steps,
                         },
                     )
@@ -195,7 +200,7 @@ class Assistant:
         )
         last_message = self._conversation.messages[-1].root
         if isinstance(last_message, HumanMessage):
-            last_message.id = uuid4()
+            last_message.id = str(uuid4())
         else:
             raise ValidationError("The last message must be a human message.")
         return thread, last_message

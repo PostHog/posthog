@@ -1,14 +1,16 @@
 import json
 from time import sleep
+from uuid import uuid4
+
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from django.core.serializers.json import DjangoJSONEncoder
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception
 
-from ee.hogai.summarizer.prompts import SUMMARIZER_SYSTEM_PROMPT, SUMMARIZER_INSTRUCTION_PROMPT
+from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
 from ee.hogai.utils import AssistantNode, AssistantNodeName, AssistantState
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
@@ -58,10 +60,16 @@ class SummarizerNode(AssistantNode):
                     err_message = ", ".join(f"{key}: {value}" for key, value in err.detail.items())
                 elif isinstance(err.detail, list):
                     err_message = ", ".join(map(str, err.detail))
-            return {"messages": [FailureMessage(content=f"There was an error running this query: {err_message}")]}
+            return {
+                "messages": [
+                    FailureMessage(content=f"There was an error running this query: {err_message}", id=str(uuid4()))
+                ]
+            }
         except Exception as err:
             capture_exception(err)
-            return {"messages": [FailureMessage(content="There was an unknown error running this query.")]}
+            return {
+                "messages": [FailureMessage(content="There was an unknown error running this query.", id=str(uuid4()))]
+            }
 
         summarization_prompt = ChatPromptTemplate(self._construct_messages(state), template_format="mustache")
 
@@ -76,7 +84,7 @@ class SummarizerNode(AssistantNode):
             config,
         )
 
-        return {"messages": [AssistantMessage(content=str(message.content), done=True)]}
+        return {"messages": [AssistantMessage(content=str(message.content), id=str(uuid4()))]}
 
     @property
     def _model(self):

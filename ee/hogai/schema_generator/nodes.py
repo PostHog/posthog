@@ -1,6 +1,7 @@
 import xml.etree.ElementTree as ET
 from functools import cached_property
 from typing import Generic, Optional, TypeVar
+from uuid import uuid4
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -114,7 +115,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                     plan=generated_plan,
                     answer=message.query,
                     initiator=start_index,
-                    done=True,
+                    id=str(uuid4()),
                 )
             ],
             "intermediate_steps": None,
