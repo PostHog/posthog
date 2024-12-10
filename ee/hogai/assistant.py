@@ -273,8 +273,8 @@ class Assistant:
                         self._chunks.tool_calls[0]["args"]
                     )
                     if parsed_message:
-                        initiator_idx = self._state.get("start_idx") if self._state is not None else None
-                        return VisualizationMessage(answer=parsed_message.query, initiator=initiator_idx)
+                        initiator_id = self._state.get("start_id") if self._state is not None else None
+                        return VisualizationMessage(answer=parsed_message.query, initiator=initiator_id)
                 elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
                     self._chunks += langchain_message  # type: ignore
                     return AssistantMessage(content=self._chunks.content)

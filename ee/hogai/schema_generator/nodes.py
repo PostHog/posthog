@@ -1,4 +1,5 @@
 import xml.etree.ElementTree as ET
+from collections.abc import Sequence
 from functools import cached_property
 from typing import Generic, Optional, TypeVar
 from uuid import uuid4
@@ -32,8 +33,8 @@ from ee.hogai.utils import (
     AssistantMessageUnion,
     AssistantNode,
     AssistantState,
-    filter_messages,
     find_last_message_of_type,
+    slice_messages_to_conversation_start,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
@@ -77,7 +78,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         prompt: ChatPromptTemplate,
         config: Optional[RunnableConfig] = None,
     ) -> AssistantState:
-        start_index = state.get("start_idx")
+        start_id = state.get("start_id")
         generated_plan = state.get("plan", "")
         intermediate_steps = state.get("intermediate_steps") or []
         validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
@@ -114,7 +115,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 VisualizationMessage(
                     plan=generated_plan,
                     answer=message.query,
-                    initiator=start_index,
+                    initiator=start_id,
                     id=str(uuid4()),
                 )
             ],
@@ -138,8 +139,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         )
         return ET.tostring(root, encoding="unicode")
 
-    def _get_human_viz_message_mapping(self, messages: list[AssistantMessageUnion]) -> dict[int, int]:
-        mapping: dict[int, int] = {}
+    def _get_human_viz_message_mapping(self, messages: Sequence[AssistantMessageUnion]) -> dict[str, int]:
+        mapping: dict[str, int] = {}
         for idx, msg in enumerate(messages):
             if isinstance(msg, VisualizationMessage) and msg.initiator is not None:
                 mapping[msg.initiator] = idx
@@ -153,10 +154,10 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         """
         messages = state.get("messages", [])
         generated_plan = state.get("plan", "")
-        start_index = state.get("start_idx") or 0
+        start_id = state.get("start_id")
 
-        if start_index is not None:
-            messages = messages[: start_index + 1]
+        if start_id is not None:
+            messages = slice_messages_to_conversation_start(messages, start_id)
         if len(messages) == 0:
             return []
 
@@ -166,19 +167,18 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             )
         ]
 
-        filtered_messages = filter_messages(messages)
-        msg_mapping = self._get_human_viz_message_mapping(filtered_messages)
-        initiator_message = filtered_messages[-1]
-        last_viz_message = find_last_message_of_type(filtered_messages, VisualizationMessage)
+        msg_mapping = self._get_human_viz_message_mapping(messages)
+        initiator_message = messages[-1]
+        last_viz_message = find_last_message_of_type(messages, VisualizationMessage)
 
-        for idx, message in enumerate(filtered_messages):
+        for message in messages:
             # The initial human message and the new plan are added to the end of the conversation.
             if message == initiator_message:
                 continue
             if isinstance(message, HumanMessage):
-                if viz_message_idx := msg_mapping.get(idx):
+                if message.id and (viz_message_idx := msg_mapping.get(message.id)):
                     # Plans go first.
-                    viz_message = filtered_messages[viz_message_idx]
+                    viz_message = messages[viz_message_idx]
                     if isinstance(viz_message, VisualizationMessage):
                         conversation.append(
                             HumanMessagePromptTemplate.from_template(PLAN_PROMPT, template_format="mustache").format(
@@ -208,12 +208,13 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             )
         # Add the initiator message and the generated plan to the end, so instructions are clear.
         if isinstance(initiator_message, HumanMessage):
-            plan_prompt = PLAN_PROMPT if filtered_messages[0] == initiator_message else NEW_PLAN_PROMPT
-            conversation.append(
-                HumanMessagePromptTemplate.from_template(plan_prompt, template_format="mustache").format(
-                    plan=generated_plan or ""
+            if generated_plan:
+                plan_prompt = PLAN_PROMPT if messages[0] == initiator_message else NEW_PLAN_PROMPT
+                conversation.append(
+                    HumanMessagePromptTemplate.from_template(plan_prompt, template_format="mustache").format(
+                        plan=generated_plan or ""
+                    )
                 )
-            )
             conversation.append(
                 HumanMessagePromptTemplate.from_template(QUESTION_PROMPT, template_format="mustache").format(
                     question=initiator_message.content

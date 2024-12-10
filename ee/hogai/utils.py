@@ -85,20 +85,6 @@ def remove_line_breaks(line: str) -> str:
     return line.replace("\n", " ")
 
 
-def merge_and_deduplicate_messages(messages: list[LangchainHumanMessage]) -> list[LangchainHumanMessage]:
-    """
-    Filters out duplicated messages and merges them into one message.
-    """
-    contents = set()
-    filtered_messages = []
-    for message in messages:
-        if message.content in contents:
-            continue
-        contents.add(message.content)
-        filtered_messages.append(message)
-    return merge_message_runs(filtered_messages)
-
-
 def filter_messages(
     messages: Sequence[AssistantMessageUnion],
     entity_filter: Union[tuple[type[AIMessageUnion], ...], type[AIMessageUnion]] = (
@@ -109,18 +95,18 @@ def filter_messages(
     """
     Filters and merges the message history to be consumable by agents. Returns human and AI messages.
     """
-    stack: list[tuple[int, LangchainHumanMessage]] = []
+    stack: list[LangchainHumanMessage] = []
     filtered_messages: list[AssistantMessageUnion] = []
 
     def _merge_stack(stack: list[LangchainHumanMessage]) -> list[HumanMessage]:
         return [
-            HumanMessage(content=langchain_message.content)
-            for langchain_message in merge_and_deduplicate_messages(stack)
+            HumanMessage(content=langchain_message.content, id=langchain_message.id)
+            for langchain_message in merge_message_runs(stack)
         ]
 
     for message in messages:
         if isinstance(message, HumanMessage):
-            stack.append(LangchainHumanMessage(content=message.content))
+            stack.append(LangchainHumanMessage(content=message.content, id=message.id))
         elif isinstance(message, entity_filter):
             if stack:
                 filtered_messages += _merge_stack(stack)
@@ -138,6 +124,17 @@ T = TypeVar("T", bound=AssistantMessageUnion)
 
 def find_last_message_of_type(messages: Sequence[AssistantMessageUnion], message_type: type[T]) -> Optional[T]:
     return next((msg for msg in reversed(messages) if isinstance(msg, message_type)), None)
+
+
+def slice_messages_to_conversation_start(
+    messages: Sequence[AssistantMessageUnion], start_id: str
+) -> Sequence[AssistantMessageUnion]:
+    result = []
+    for msg in messages:
+        result.append(msg)
+        if msg.id == start_id:
+            break
+    return result
 
 
 def dereference_schema(schema: dict) -> dict:

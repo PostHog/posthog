@@ -16,7 +16,7 @@ from posthog.schema import (
     RouterMessage,
     VisualizationMessage,
 )
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest
 
 TestSchema = SchemaGeneratorOutput[AssistantTrendsQuery]
 
@@ -36,7 +36,7 @@ class DummyGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
+class TestSchemaGeneratorNode(BaseTest):
     def setUp(self):
         super().setUp()
         self.schema = AssistantTrendsQuery(series=[])
@@ -47,22 +47,20 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             generator_model_mock.return_value = RunnableLambda(lambda _: TestSchema(query=self.schema).model_dump())
             new_state = node.run(
                 {
-                    "messages": [HumanMessage(content="Text")],
+                    "messages": [HumanMessage(content="Text", id="0")],
                     "plan": "Plan",
+                    "start_id": "0",
                 },
                 {},
             )
-            self.assertEqual(
-                new_state,
-                {
-                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", done=True)],
-                    "intermediate_steps": None,
-                },
-            )
+            self.assertIsNone(new_state["intermediate_steps"])
+            self.assertEqual(len(new_state["messages"]), 1)
+            self.assertEqual(new_state["messages"][0].type, "ai/viz")
+            self.assertEqual(new_state["messages"][0].answer, self.schema)
 
-    def test_agent_reconstructs_conversation(self):
+    def test_agent_reconstructs_conversation_and_does_not_add_an_empty_plan(self):
         node = DummyGeneratorNode(self.team)
-        history = node._construct_messages({"messages": [HumanMessage(content="Text")]})
+        history = node._construct_messages({"messages": [HumanMessage(content="Text", id="0")], "start_id": "0"})
         self.assertEqual(len(history), 2)
         self.assertEqual(history[0].type, "human")
         self.assertIn("mapping", history[0].content)
@@ -70,7 +68,15 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Answer to this question:", history[1].content)
         self.assertNotIn("{{question}}", history[1].content)
 
-        history = node._construct_messages({"messages": [HumanMessage(content="Text")], "plan": "randomplan"})
+    def test_agent_reconstructs_conversation_adds_plan(self):
+        node = DummyGeneratorNode(self.team)
+        history = node._construct_messages(
+            {
+                "messages": [HumanMessage(content="Text", id="0")],
+                "plan": "randomplan",
+                "start_id": "0",
+            }
+        )
         self.assertEqual(len(history), 3)
         self.assertEqual(history[0].type, "human")
         self.assertIn("mapping", history[0].content)
@@ -83,15 +89,17 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("{{question}}", history[2].content)
         self.assertIn("Text", history[2].content)
 
+    def test_agent_reconstructs_conversation_can_handle_follow_ups(self):
         node = DummyGeneratorNode(self.team)
         history = node._construct_messages(
             {
                 "messages": [
-                    HumanMessage(content="Text"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan"),
-                    HumanMessage(content="Follow Up"),
+                    HumanMessage(content="Text", id="0"),
+                    VisualizationMessage(answer=self.schema, plan="randomplan", id="1", initiator="0"),
+                    HumanMessage(content="Follow Up", id="2"),
                 ],
                 "plan": "newrandomplan",
+                "start_id": "2",
             }
         )
 
@@ -117,35 +125,40 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("{{question}}", history[5].content)
         self.assertIn("Follow Up", history[5].content)
 
-    def test_agent_reconstructs_conversation_and_merges_messages(self):
+    def test_agent_reconstructs_conversation_and_does_not_merge_messages(self):
         node = DummyGeneratorNode(self.team)
         history = node._construct_messages(
-            {"messages": [HumanMessage(content="Te"), HumanMessage(content="xt")], "plan": "randomplan", "start_idx": 1}
+            {
+                "messages": [HumanMessage(content="Te", id="0"), HumanMessage(content="xt", id="1")],
+                "plan": "randomplan",
+                "start_id": "1",
+            }
         )
-        self.assertEqual(len(history), 3)
+        self.assertEqual(len(history), 4)
         self.assertEqual(history[0].type, "human")
         self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("the plan", history[1].content)
-        self.assertNotIn("{{plan}}", history[1].content)
-        self.assertIn("randomplan", history[1].content)
+        self.assertIn("Te", history[1].content)
         self.assertEqual(history[2].type, "human")
-        self.assertIn("Answer to this question:", history[2].content)
-        self.assertNotIn("{{question}}", history[2].content)
-        self.assertIn("Te\nxt", history[2].content)
+        self.assertNotIn("{{plan}}", history[2].content)
+        self.assertIn("randomplan", history[2].content)
+        self.assertEqual(history[3].type, "human")
+        self.assertIn("Answer to this question:", history[3].content)
+        self.assertNotIn("{{question}}", history[3].content)
+        self.assertEqual(history[3].type, "human")
+        self.assertIn("xt", history[3].content)
 
     def test_filters_out_human_in_the_loop_after_initiator(self):
         node = DummyGeneratorNode(self.team)
         history = node._construct_messages(
             {
                 "messages": [
-                    HumanMessage(content="Text"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan", initiator=0),
-                    HumanMessage(content="Follow"),
-                    HumanMessage(content="Up"),
+                    HumanMessage(content="Text", id="0"),
+                    VisualizationMessage(answer=self.schema, plan="randomplan", initiator="0", id="1"),
+                    HumanMessage(content="Follow", id="2"),
+                    HumanMessage(content="Up", id="3"),
                 ],
                 "plan": "newrandomplan",
-                "start_idx": 0,
+                "start_id": "0",
             }
         )
         self.assertEqual(len(history), 3)
@@ -165,14 +178,14 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         history = node._construct_messages(
             {
                 "messages": [
-                    HumanMessage(content="Question 1"),
-                    AssistantMessage(content="Loop"),
-                    HumanMessage(content="Answer"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan", initiator=0),
-                    HumanMessage(content="Question 2"),
+                    HumanMessage(content="Question 1", id="0"),
+                    AssistantMessage(content="Loop", id="1"),
+                    HumanMessage(content="Answer", id="2"),
+                    VisualizationMessage(answer=self.schema, plan="randomplan", initiator="0", id="3"),
+                    HumanMessage(content="Question 2", id="4"),
                 ],
                 "plan": "newrandomplan",
-                "start_idx": 4,
+                "start_id": "4",
             }
         )
         self.assertEqual(len(history), 8)
@@ -201,66 +214,71 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         history = node._construct_messages(
             {
                 "messages": [
-                    HumanMessage(content="Question 1"),
-                    RouterMessage(content="trends"),
-                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator=0),
-                    AssistantMessage(content="Summary 1"),
-                    HumanMessage(content="Question 2"),
-                    RouterMessage(content="funnel"),
-                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", initiator=4),
-                    AssistantMessage(content="Summary 2"),
-                    HumanMessage(content="Question 3"),
-                    RouterMessage(content="funnel"),
+                    HumanMessage(content="Question 1", id="0"),
+                    RouterMessage(content="trends", id="1"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator="0", id="2"),
+                    AssistantMessage(content="Summary 1", id="3"),
+                    HumanMessage(content="Question 2", id="4"),
+                    RouterMessage(content="funnel", id="5"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", initiator="4", id="6"),
+                    AssistantMessage(content="Summary 2", id="7"),
+                    HumanMessage(content="Question 3", id="8"),
+                    RouterMessage(content="funnel", id="9"),
                 ],
                 "plan": "Plan 3",
-                "start_idx": 8,
+                "start_id": "8",
             }
         )
 
-        self.assertEqual(len(history), 9)
+        self.assertEqual(len(history), 10)
         self.assertEqual(history[0].type, "human")
         self.assertIn("mapping", history[0].content)
         self.assertEqual(history[1].type, "human")
         self.assertIn("Plan 1", history[1].content)
         self.assertEqual(history[2].type, "human")
         self.assertIn("Question 1", history[2].content)
-        self.assertEqual(history[3].type, "human")
-        self.assertIn("Plan 2", history[3].content)
+        self.assertEqual(history[3].type, "ai")
+        self.assertEqual(history[3].content, "Summary 1")
         self.assertEqual(history[4].type, "human")
-        self.assertIn("Question 2", history[4].content)
-        self.assertEqual(history[5].type, "ai")
-        self.assertEqual(history[6].type, "human")
-        self.assertIn("Plan 3", history[6].content)
+        self.assertIn("Plan 2", history[4].content)
+        self.assertEqual(history[5].type, "human")
+        self.assertIn("Question 2", history[5].content)
+        self.assertEqual(history[6].type, "ai")
+        self.assertEqual(history[6].content, "Summary 2")
         self.assertEqual(history[7].type, "ai")
-        self.assertEqual(history[7].content, "Summary 2")
         self.assertEqual(history[8].type, "human")
-        self.assertIn("Question 3", history[8].content)
+        self.assertIn("Plan 3", history[8].content)
+        self.assertEqual(history[9].type, "human")
+        self.assertIn("Question 3", history[9].content)
 
-    def test_prompt(self):
+    def test_prompt_messages_merged(self):
         node = DummyGeneratorNode(self.team)
         state = {
             "messages": [
-                HumanMessage(content="Question 1"),
-                RouterMessage(content="trends"),
-                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1"),
-                AssistantMessage(content="Summary 1"),
-                HumanMessage(content="Question 2"),
-                RouterMessage(content="funnel"),
-                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2"),
-                AssistantMessage(content="Summary 2"),
-                HumanMessage(content="Question 3"),
-                RouterMessage(content="funnel"),
+                HumanMessage(content="Question 1", id="0"),
+                RouterMessage(content="trends", id="1"),
+                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator="0", id="2"),
+                AssistantMessage(content="Summary 1", id="3"),
+                HumanMessage(content="Question 2", id="4"),
+                RouterMessage(content="funnel", id="5"),
+                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", initiator="4", id="6"),
+                AssistantMessage(content="Summary 2", id="7"),
+                HumanMessage(content="Question 3", id="8"),
+                RouterMessage(content="funnel", id="9"),
             ],
             "plan": "Plan 3",
+            "start_id": "8",
         }
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
 
             def assert_prompt(prompt):
-                self.assertEqual(len(prompt), 4)
+                self.assertEqual(len(prompt), 6)
                 self.assertEqual(prompt[0].type, "system")
                 self.assertEqual(prompt[1].type, "human")
                 self.assertEqual(prompt[2].type, "ai")
                 self.assertEqual(prompt[3].type, "human")
+                self.assertEqual(prompt[4].type, "ai")
+                self.assertEqual(prompt[5].type, "human")
 
             generator_model_mock.return_value = RunnableLambda(assert_prompt)
             node.run(state, {})
@@ -397,7 +415,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(state, "tools")
 
 
-class TestSchemaGeneratorToolsNode(ClickhouseTestMixin, APIBaseTest):
+class TestSchemaGeneratorToolsNode(BaseTest):
     def test_tools_node(self):
         node = SchemaGeneratorToolsNode(self.team)
         action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
