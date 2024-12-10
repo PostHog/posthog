@@ -3,6 +3,7 @@ import traceback
 
 from datetime import datetime, timedelta, UTC
 from typing import cast
+from collections.abc import Callable
 from dateutil.relativedelta import relativedelta
 
 from celery import shared_task
@@ -15,7 +16,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
-from posthog.models import AlertConfiguration
+from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
 from posthog.tasks.utils import CeleryQueue
 from posthog.schema import (
@@ -36,6 +37,7 @@ from posthog.tasks.alerts.utils import (
     alert_calculation_interval_to_relativedelta,
 )
 from posthog.tasks.alerts.trends import check_trends_alert
+from posthog.ph_client import ph_us_client
 
 
 logger = structlog.get_logger(__name__)
@@ -71,6 +73,8 @@ ALERT_COMPUTED_COUNTER = Counter(
     "alerts_computed",
     "Number of alerts we calculated",
 )
+
+ANIRUDH_DISTINCT_ID = "wcPbDRs08GtNzrNIXfzHvYAkwUaekW7UrAo4y3coznT"
 
 
 @shared_task(ignore_result=True)
@@ -111,6 +115,25 @@ def alerts_backlog_task() -> None:
     ).count()
 
     DAILY_ALERTS_BACKLOG_GAUGE.set(daily_alerts_breaching_sla)
+
+    with ph_us_client() as capture_ph_event:
+        capture_ph_event(
+            ANIRUDH_DISTINCT_ID,
+            "alert check backlog",
+            properties={
+                "calculation_interval": AlertCalculationInterval.DAILY,
+                "backlog": daily_alerts_breaching_sla,
+            },
+        )
+
+        capture_ph_event(
+            ANIRUDH_DISTINCT_ID,
+            "alert check backlog",
+            properties={
+                "calculation_interval": AlertCalculationInterval.HOURLY,
+                "backlog": hourly_alerts_breaching_sla,
+            },
+        )
 
     # sleeping 30s for prometheus to pick up the metrics sent during task
     time.sleep(30)
@@ -194,10 +217,11 @@ def check_alerts_task() -> None:
 )
 # @limit_concurrency(5)  Concurrency controlled by CeleryQueue.ALERTS for now
 def check_alert_task(alert_id: str) -> None:
-    check_alert(alert_id)
+    with ph_us_client() as capture_ph_event:
+        check_alert(alert_id, capture_ph_event)
 
 
-def check_alert(alert_id: str) -> None:
+def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwargs: None) -> None:
     try:
         alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
@@ -240,9 +264,20 @@ def check_alert(alert_id: str) -> None:
     alert.save()
 
     try:
-        check_alert_and_notify_atomically(alert)
+        check_alert_and_notify_atomically(alert, capture_ph_event)
     except Exception as err:
         ALERT_CHECK_ERROR_COUNTER.inc()
+        user = cast(User, alert.created_by)
+
+        capture_ph_event(
+            user.distinct_id,
+            "alert check failed",
+            properties={
+                "alert_id": alert.id,
+                "error": f"AlertCheckError: {err}",
+                "traceback": traceback.format_exc(),
+            },
+        )
 
         logger.exception(AlertCheckException(err))
         capture_exception(
@@ -266,7 +301,7 @@ def check_alert(alert_id: str) -> None:
 
 
 @transaction.atomic
-def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
+def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_event: Callable) -> None:
     """
     Computes insight results, checks alert for breaches and notifies user.
     Only commits updates to alert state if all of the above complete successfully.
@@ -276,6 +311,19 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     set_tag("alert_config_id", alert.id)
 
     ALERT_COMPUTED_COUNTER.inc()
+
+    user = cast(User, alert.created_by)
+
+    # Event to count alert checks
+    capture_ph_event(
+        user.distinct_id,
+        "alert check",
+        properties={
+            "alert_id": alert.id,
+            "calculation_interval": alert.calculation_interval,
+        },
+    )
+
     value = breaches = error = None
 
     # 1. Evaluate insight and get alert value
@@ -288,8 +336,19 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
         # as celery task can be retried according to config
         raise
     except Exception as err:
-        logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
-        set_tag("evaluation_error_message", traceback.format_exc())
+        error_message = f"Alert id = {alert.id}, failed to evaluate"
+
+        capture_ph_event(
+            user.distinct_id,
+            "alert check failed",
+            properties={
+                "alert_id": alert.id,
+                "error": error_message,
+                "traceback": traceback.format_exc(),
+            },
+        )
+
+        logger.exception(error_message, exc_info=err)
         capture_exception(AlertCheckException(err))
 
         # error can be on user side (incorrectly configured insight/alert)
@@ -309,7 +368,6 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
                 logger.info("Check state is %s", alert_check.state, alert_id=alert.id)
             case AlertState.ERRORED:
                 logger.info("Sending alert error notifications", alert_id=alert.id, error=alert_check.error)
-                # TODO: uncomment this after checking errors sent
                 send_notifications_for_errors(alert, alert_check.error)
             case AlertState.FIRING:
                 assert breaches is not None
@@ -317,8 +375,6 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
         logger.exception(error_message, exc_info=err)
-
-        set_tag("evaluation_error_message", traceback.format_exc())
         capture_exception(Exception(error_message))
 
         # don't want alert state to be updated (so that it's retried as next_check_at won't be updated)

@@ -139,7 +139,7 @@ class MatrixManager:
             print(
                 f"Inferred {event_definition_count} event definitions, {property_definition_count} property definitions, and {event_properties_count} event-property pairs."
             )
-        for cohort in Cohort.objects.filter(team=team):
+        for cohort in Cohort.objects.filter(team__project_id=team.project_id):
             cohort.calculate_people_ch(pending_version=0)
         team.project.save()
         team.save()
@@ -204,7 +204,7 @@ class MatrixManager:
         #         )
         #     ]
         # )
-        GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).delete()
+        GroupTypeMapping.objects.filter(project_id=cls.MASTER_TEAM_ID).delete()
 
     def _copy_analytics_data_from_master_team(self, target_team: Team):
         from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
@@ -222,11 +222,11 @@ class MatrixManager:
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
-        GroupTypeMapping.objects.filter(team_id=target_team.pk).delete()
+        GroupTypeMapping.objects.filter(project_id=target_team.project_id).delete()
         GroupTypeMapping.objects.bulk_create(
             (
-                GroupTypeMapping(team=target_team, project_id=target_team.project_id, **record)
-                for record in GroupTypeMapping.objects.filter(team_id=self.MASTER_TEAM_ID).values(
+                GroupTypeMapping(team_id=target_team.id, project_id=target_team.project_id, **record)
+                for record in GroupTypeMapping.objects.filter(project_id=self.MASTER_TEAM_ID).values(
                     "group_type", "group_type_index", "name_singular", "name_plural"
                 )
             ),

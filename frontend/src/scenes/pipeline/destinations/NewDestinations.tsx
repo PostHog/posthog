@@ -5,7 +5,7 @@ import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
-import { AvailableFeature, PipelineStage } from '~/types'
+import { AvailableFeature, HogFunctionTypeType, PipelineStage } from '~/types'
 
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { DestinationsFilters } from './DestinationsFilters'
@@ -13,20 +13,24 @@ import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { DestinationTag } from './DestinationTag'
 import { newDestinationsLogic } from './newDestinationsLogic'
 
-export function NewDestinations(): JSX.Element {
+export interface NewDestinationsProps {
+    types: HogFunctionTypeType[]
+}
+
+export function NewDestinations({ types }: NewDestinationsProps): JSX.Element {
     return (
         <div className="space-y-2">
-            <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
-            <DestinationsFilters hideShowPaused />
-            <DestinationOptionsTable />
+            {types.includes('destination') ? <PayGateMini feature={AvailableFeature.DATA_PIPELINES} /> : null}
+            <DestinationsFilters types={types} hideShowPaused />
+            <DestinationOptionsTable types={types} />
         </div>
     )
 }
 
-export function DestinationOptionsTable(): JSX.Element {
-    const { loading, filteredDestinations, hiddenDestinations } = useValues(newDestinationsLogic)
+export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.Element {
+    const { loading, filteredDestinations, hiddenDestinations } = useValues(newDestinationsLogic({ types }))
     const { canEnableDestination } = useValues(pipelineAccessLogic)
-    const { resetFilters } = useActions(destinationsFiltersLogic)
+    const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
 
     return (
         <>

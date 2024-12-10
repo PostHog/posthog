@@ -292,7 +292,7 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
 def update_surveys_opt_in(sender, instance, **kwargs):
     active_surveys_count = (
         Survey.objects.filter(
-            team_id=instance.team_id,
+            team__project_id=instance.team.project_id,
             start_date__isnull=False,
             end_date__isnull=True,
             archived=False,

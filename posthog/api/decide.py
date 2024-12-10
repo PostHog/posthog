@@ -248,25 +248,12 @@ def get_decide(request: HttpRequest):
                 else False
             )
 
-            if str(team.id) not in settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS:
-                if (
-                    "*" in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS
-                    or str(team.id) in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS
-                ):
-                    if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
-                        response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
+            # this not settings.DEBUG check is a lazy workaround because
+            # NEW_ANALYTICS_CAPTURE_ENDPOINT doesn't currently work in DEBUG mode
+            if not settings.DEBUG and str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):
+                response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
-            if (
-                "*" in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS
-                or str(team.id) in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS
-            ):
-                if random() < settings.NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE:
-                    response["__preview_ingestion_endpoints"] = True
-
-            if (
-                settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS
-                and str(team.id) not in settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS
-            ):
+            if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
                 response["elementsChainAsString"] = True
 
             response["sessionRecording"] = _session_recording_config_response(request, team, token)
@@ -359,6 +346,16 @@ def _session_recording_config_response(request: HttpRequest, team: Team, token: 
                 else:
                     linked_flag = linked_flag_key
 
+            rrweb_script_config = None
+
+            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
+                "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
+                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
+            ):
+                rrweb_script_config = {
+                    "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
+                }
+
             session_recording_config_response = {
                 "endpoint": "/s/",
                 "consoleLogRecordingEnabled": capture_console_logs,
@@ -370,6 +367,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team, token: 
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
+                "scriptConfig": rrweb_script_config,
             }
 
             if isinstance(team.session_replay_config, dict):

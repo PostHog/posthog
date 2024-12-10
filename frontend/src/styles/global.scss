@@ -610,7 +610,7 @@ body {
         --border-tertiary: var(--neutral-cool-750);
         --border-danger: var(--red-500);
         --border-danger-hover: var(--red-400);
-        --border-danger-bold: var(--red-400);
+        --border-danger-bold: var(--red-400)
 
         @include dark-mode-3000-variables;
     }

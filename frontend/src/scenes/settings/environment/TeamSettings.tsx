@@ -1,11 +1,12 @@
 import { urls } from '@posthog/apps-common'
-import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
-import { JSSnippet } from 'lib/components/JSSnippet'
+import { JSSnippet, JSSnippetV2 } from 'lib/components/JSSnippet'
 import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconRefresh } from 'lib/lemon-ui/icons'
@@ -28,14 +29,6 @@ export function TeamDisplayName(): JSX.Element {
     const [name, setName] = useState(currentTeam?.name || '')
 
     const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
-
-    if (currentTeam?.is_demo) {
-        return (
-            <p>
-                <i>The demo {displayNoun} cannot be renamed.</i>
-            </p>
-        )
-    }
 
     return (
         <div className="space-y-4 max-w-160">
@@ -74,6 +67,25 @@ export function WebSnippet(): JSX.Element {
             ) : (
                 <JSSnippet />
             )}
+
+            <FlaggedFeature flag="remote-config">
+                <h3 className="mt-4 flex items-center gap-2">
+                    Web Snippet V2 <LemonTag type="warning">Experimental</LemonTag>
+                </h3>
+                <p>
+                    The V2 version of the snippet is more advanced and includes your project config automatically along
+                    with the PostHog JS code. This generally leads to faster load times and fewer calls needed before
+                    the SDK is fully functional.
+                </p>
+                {currentTeamLoading && !currentTeam ? (
+                    <div className="space-y-4">
+                        <LemonSkeleton className="w-1/2 h-4" />
+                        <LemonSkeleton repeat={3} />
+                    </div>
+                ) : (
+                    <JSSnippetV2 />
+                )}
+            </FlaggedFeature>
         </>
     )
 }

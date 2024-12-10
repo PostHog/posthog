@@ -761,6 +761,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "What the call to feature flag responded with.",
             "examples": ["true", "false"],
         },
+        "$feature_flag_payload": {
+            "label": "Feature Flag Response Payload",
+            "description": "The JSON payload that the call to feature flag responded with (if any)",
+            "examples": ['{"variant": "test"}'],
+        },
         "$feature_flag": {
             "label": "Feature Flag",
             "description": 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try "Active Feature Flags".',

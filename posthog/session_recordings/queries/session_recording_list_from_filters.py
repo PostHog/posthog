@@ -264,18 +264,9 @@ class SessionRecordingListFromFilters:
             console_logs_subquery = ast.SelectQuery(
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
-                where=ast.And(
+                where=self._filter.ast_operand(
                     exprs=[
-                        self._filter.ast_operand(
-                            exprs=[
-                                property_to_expr(self._filter.console_log_filters, team=self._team),
-                            ]
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["log_source"]),
-                            right=ast.Constant(value="session_replay"),
-                        ),
+                        property_to_expr(self._filter.console_log_filters, team=self._team),
                     ]
                 ),
             )

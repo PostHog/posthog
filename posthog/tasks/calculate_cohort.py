@@ -1,20 +1,23 @@
 import time
 from typing import Any, Optional
 
+from django.conf import settings
+
+from posthog.models.team.team import Team
 import structlog
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
 from django.db.models import F, ExpressionWrapper, DurationField, Q
 from django.utils import timezone
 from prometheus_client import Gauge
-from sentry_sdk import set_tag
+from sentry_sdk import capture_exception, set_tag
 
 from datetime import timedelta
 
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
 from posthog.models.cohort import get_and_update_pending_version
-from posthog.models.cohort.util import clear_stale_cohortpeople
+from posthog.models.cohort.util import clear_stale_cohortpeople, get_static_cohort_size
 from posthog.models.user import User
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
@@ -109,37 +112,65 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def calculate_cohort_from_list(cohort_id: int, items: list[str]) -> None:
+def calculate_cohort_from_list(cohort_id: int, items: list[str], team_id: Optional[int] = None) -> None:
+    """
+    team_id is only optional for backwards compatibility with the old celery task signature.
+    All new tasks should pass team_id explicitly.
+    """
     start_time = time.time()
     cohort = Cohort.objects.get(pk=cohort_id)
+    if team_id is None:
+        team_id = cohort.team_id
 
-    cohort.insert_users_by_list(items)
+    cohort.insert_users_by_list(items, team_id=team_id)
     logger.warn("Calculating cohort {} from CSV took {:.2f} seconds".format(cohort.pk, (time.time() - start_time)))
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def insert_cohort_from_insight_filter(cohort_id: int, filter_data: dict[str, Any]) -> None:
-    from posthog.api.cohort import (
-        insert_cohort_actors_into_ch,
-        insert_cohort_people_into_pg,
-    )
+def insert_cohort_from_insight_filter(
+    cohort_id: int, filter_data: dict[str, Any], team_id: Optional[int] = None
+) -> None:
+    """
+    team_id is only optional for backwards compatibility with the old celery task signature.
+    All new tasks should pass team_id explicitly.
+    """
+    from posthog.api.cohort import insert_cohort_actors_into_ch, insert_cohort_people_into_pg
 
     cohort = Cohort.objects.get(pk=cohort_id)
+    if team_id is None:
+        team_id = cohort.team_id
 
-    insert_cohort_actors_into_ch(cohort, filter_data)
-    insert_cohort_people_into_pg(cohort=cohort)
+    insert_cohort_actors_into_ch(cohort, filter_data, team_id=team_id)
+    insert_cohort_people_into_pg(cohort, team_id=team_id)
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def insert_cohort_from_query(cohort_id: int) -> None:
-    from posthog.api.cohort import (
-        insert_cohort_people_into_pg,
-        insert_cohort_query_actors_into_ch,
-    )
+def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> None:
+    """
+    team_id is only optional for backwards compatibility with the old celery task signature.
+    All new tasks should pass team_id explicitly.
+    """
+    from posthog.api.cohort import insert_cohort_people_into_pg, insert_cohort_query_actors_into_ch
 
     cohort = Cohort.objects.get(pk=cohort_id)
-    insert_cohort_query_actors_into_ch(cohort)
-    insert_cohort_people_into_pg(cohort=cohort)
+    if team_id is None:
+        team_id = cohort.team_id
+    team = Team.objects.get(pk=team_id)
+    try:
+        insert_cohort_query_actors_into_ch(cohort, team=team)
+        insert_cohort_people_into_pg(cohort, team_id=team_id)
+        cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)
+        cohort.errors_calculating = 0
+        cohort.last_calculation = timezone.now()
+    except:
+        cohort.errors_calculating = F("errors_calculating") + 1
+        cohort.last_error_at = timezone.now()
+        capture_exception()
+        if settings.DEBUG:
+            raise
+    finally:
+        cohort.is_calculating = False
+        cohort.save()
 
 
 @shared_task(ignore_result=True, max_retries=1)

@@ -821,7 +821,7 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
 
-SetOperator = Literal["UNION ALL", "INTERSECT", "EXCEPT"]
+SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DISTINCT", "EXCEPT"]
 
 
 @dataclass(kw_only=True)
@@ -839,6 +839,9 @@ class SelectSetQuery(Expr):
     type: Optional[SelectSetQueryType] = None
     initial_select_query: Union[SelectQuery, "SelectSetQuery"]
     subsequent_select_queries: list[SelectSetNode]
+
+    def select_queries(self):
+        return [self.initial_select_query] + [node.select_query for node in self.subsequent_select_queries]
 
     @classmethod
     def create_from_queries(
