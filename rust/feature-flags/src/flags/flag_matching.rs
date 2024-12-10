@@ -473,7 +473,7 @@ impl FeatureFlagMatcher {
             }
         }
 
-        // Step 2: Fetch and cache properties for remaining flags
+        // Step 2: Fetch and cache properties for remaining flags (just one DB lookup for all of relevant properties)
         if !flags_needing_db_properties.is_empty() {
             let group_type_indexes_required: HashSet<GroupTypeIndex> = flags_needing_db_properties
                 .iter()
