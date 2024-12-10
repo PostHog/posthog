@@ -38,6 +38,8 @@ export function hogFunctionTypeToPipelineStage(type: string): PipelineStage {
             return PipelineStage.SiteApp
         case 'site-app':
             return PipelineStage.SiteApp
+        case 'transformation':
+            return PipelineStage.Transformation
         default:
             return PipelineStage.Destination
     }
