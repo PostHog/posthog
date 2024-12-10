@@ -629,13 +629,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         getInsightRefreshButtonDisabledReason: [
             (s) => [s.nextAllowedRefresh, s.lastRefresh],
             (nextAllowedRefresh: string | null, lastRefresh: string | null) => (): string => {
-                // No rate limit if user is staff
-                if (userLogic.values.user?.is_staff || userLogic.values.user?.is_impersonated) {
-                    return ''
-                }
-
                 const now = dayjs()
-
                 // Saved insights has a nextAllowedRefresh we use to check if the user can refresh again
                 if (nextAllowedRefresh) {
                     const nextRefreshTime = dayjs(nextAllowedRefresh)
@@ -643,7 +637,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return `You can refresh this insight again ${nextRefreshTime.from(now)}`
                     }
                 }
-
                 // For unsaved insights we check the last refresh time
                 if (lastRefresh) {
                     const earliestRefresh = dayjs(lastRefresh).add(
@@ -654,7 +647,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return `You can refresh this insight again ${earliestRefresh.from(now)}`
                     }
                 }
-
+                // If we don't have a nextAllowedRefresh or lastRefresh, we can refresh, so we
+                // return an empty string
                 return ''
             },
         ],
