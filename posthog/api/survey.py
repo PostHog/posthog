@@ -291,7 +291,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if (
             self.context["request"].method == "POST"
-            and Survey.objects.filter(name=data.get("name"), team_id=self.context["team_id"]).exists()
+            and Survey.objects.filter(name=data.get("name"), team__project_id=self.context["project_id"]).exists()
         ):
             raise serializers.ValidationError("There is already a survey with this name.", code="unique")
 
@@ -300,7 +300,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if (
             existing_survey
             and existing_survey.name != data.get("name")
-            and Survey.objects.filter(name=data.get("name"), team_id=self.context["team_id"])
+            and Survey.objects.filter(name=data.get("name"), team__project_id=self.context["project_id"])
             .exclude(id=existing_survey.id)
             .exists()
         ):
@@ -686,9 +686,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
     def responses_count(self, request: request.Request, **kwargs):
-        earliest_survey_start_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("start_date"))[
-            "start_date__min"
-        ]
+        earliest_survey_start_date = Survey.objects.filter(team__project_id=self.project_id).aggregate(
+            Min("start_date")
+        )["start_date__min"]
         data = sync_execute(
             f"""
             SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
@@ -721,7 +721,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         item_id = kwargs["pk"]
 
-        if not Survey.objects.filter(id=item_id, team_id=self.team_id).exists():
+        if not Survey.objects.filter(id=item_id, team__project_id=self.project_id).exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
@@ -742,7 +742,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         survey_id = kwargs["pk"]
 
-        if not Survey.objects.filter(id=survey_id, team_id=self.team_id).exists():
+        if not Survey.objects.filter(id=survey_id, team__project_id=self.project_id).exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         survey = self.get_object()
