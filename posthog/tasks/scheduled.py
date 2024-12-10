@@ -1,4 +1,3 @@
-from datetime import datetime
 from random import randrange
 from typing import Any
 
@@ -132,10 +131,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Send all periodic digest reports
-    weekly_digest_end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     sender.add_periodic_task(
         crontab(hour="9", minute="0", day_of_week="mon"),
-        send_all_periodic_digest_reports.s(end_date=weekly_digest_end_date.isoformat()),
+        send_all_periodic_digest_reports.s(),
         name="send all weekly digest reports",
     )
 

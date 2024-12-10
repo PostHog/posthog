@@ -233,7 +233,9 @@ def send_all_periodic_digest_reports(
     end_date: Optional[str] = None,
     begin_date: Optional[str] = None,
 ) -> None:
-    period_end = parser.parse(end_date) if end_date else datetime.now()
+    period_end = (
+        parser.parse(end_date) if end_date else datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    )
     period_start = parser.parse(begin_date) if begin_date else period_end - timedelta(days=7)
 
     try:
