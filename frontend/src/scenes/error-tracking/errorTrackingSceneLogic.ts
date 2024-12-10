@@ -26,22 +26,22 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     }),
 
     actions({
-        setOrder: (order: ErrorTrackingQuery['order']) => ({ order }),
-        setSelectedRowIndexes: (ids: number[]) => ({ ids }),
+        setOrderBy: (orderBy: ErrorTrackingQuery['orderBy']) => ({ orderBy }),
+        setSelectedIssueIds: (ids: string[]) => ({ ids }),
     }),
 
     reducers({
-        order: [
-            'last_seen' as ErrorTrackingQuery['order'],
+        orderBy: [
+            'last_seen' as ErrorTrackingQuery['orderBy'],
             { persist: true },
             {
-                setOrder: (_, { order }) => order,
+                setOrderBy: (_, { orderBy }) => orderBy,
             },
         ],
-        selectedRowIndexes: [
-            [] as number[],
+        selectedIssueIds: [
+            [] as string[],
             {
-                setSelectedRowIndexes: (_, { ids }) => ids,
+                setSelectedIssueIds: (_, { ids }) => ids,
             },
         ],
     }),
@@ -49,7 +49,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     selectors({
         query: [
             (s) => [
-                s.order,
+                s.orderBy,
                 s.dateRange,
                 s.assignee,
                 s.filterTestAccounts,
@@ -59,7 +59,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.hasGroupActions,
             ],
             (
-                order,
+                orderBy,
                 dateRange,
                 assignee,
                 filterTestAccounts,
@@ -69,7 +69,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 hasGroupActions
             ): DataTableNode =>
                 errorTrackingQuery({
-                    order,
+                    orderBy,
                     dateRange,
                     assignee,
                     filterTestAccounts,
@@ -84,6 +84,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     }),
 
     subscriptions(({ actions }) => ({
-        query: () => actions.setSelectedRowIndexes([]),
+        query: () => actions.setSelectedIssueIds([]),
     })),
 ])

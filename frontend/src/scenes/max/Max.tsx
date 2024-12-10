@@ -1,5 +1,3 @@
-import './Max.scss'
-
 import { BindLogic, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -35,11 +33,11 @@ export function Max(): JSX.Element {
 }
 
 export function MaxInstance(): JSX.Element {
-    const { thread } = useValues(maxLogic)
+    const { threadGrouped } = useValues(maxLogic)
 
     return (
         <>
-            {!thread.length ? (
+            {!threadGrouped.length ? (
                 <div className="relative flex flex-col gap-3 px-4 items-center grow justify-center">
                     <Intro />
                     <QuestionInput />

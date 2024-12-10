@@ -31,6 +31,7 @@ export interface HogQLQueryEditorLogicProps {
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
     metadataSource?: DataNode
+    queryResponse?: Record<string, any>
 }
 
 export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
@@ -139,10 +140,13 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 kind: NodeKind.HogQLQuery,
                 query: values.queryInput,
             }
-            await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query })
+            const types = props.queryResponse?.types ?? []
+
+            await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query, types })
         },
         onUpdateView: async () => {
-            actions.updateView(values.queryInput)
+            const types = props.queryResponse?.types ?? []
+            actions.updateView(values.queryInput, types)
         },
     })),
 ])

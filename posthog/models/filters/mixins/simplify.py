@@ -108,7 +108,7 @@ class SimplifyFilterMixin:
             from posthog.models.cohort.util import simplified_cohort_filter_properties
 
             try:
-                cohort = Cohort.objects.get(pk=property.value, team_id=team.pk)
+                cohort = Cohort.objects.get(pk=property.value, team__project_id=team.project_id)
             except Cohort.DoesNotExist:
                 # :TODO: Handle non-existing resource in-query instead
                 return PropertyGroup(type=PropertyOperatorType.AND, values=[property])

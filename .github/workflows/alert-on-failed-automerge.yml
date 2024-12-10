@@ -9,7 +9,7 @@ on:
 jobs:
     notify_on_failure:
         if: ${{ github.event.check_suite.conclusion == 'failure' }}
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
 
         steps:
             - name: Checkout code

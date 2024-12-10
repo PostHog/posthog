@@ -190,6 +190,23 @@
             "purpose": ["debug-test"],
             "console": "integratedTerminal",
             "justMyCode": false
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Jest Current File",
+            "program": "${workspaceFolder}/node_modules/jest/bin/jest.js",
+            "args": ["--detectOpenHandles", "${relativeFile}"],
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+            "runtimeExecutable": "${env:HOME}/.nvm/versions/node/${input:pickVersion}/bin/node"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "pickVersion",
+            "type": "command",
+            "command": "extension.node-version"
         }
     ],
     "compounds": [

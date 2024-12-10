@@ -391,7 +391,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(16):
+        with self.assertNumQueries(20):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -2783,9 +2783,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                                     {
                                         "id": action.id,
                                         "name": "user subscribed",
-                                        "description": "",
-                                        "post_to_slack": False,
-                                        "slack_message_format": "",
                                         "steps": [
                                             {
                                                 "event": "$pageview",
@@ -2800,17 +2797,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                                                 "url_matching": "contains",
                                             }
                                         ],
-                                        "created_at": ANY,
-                                        "created_by": None,
-                                        "deleted": False,
-                                        "is_calculating": False,
-                                        "creation_context": None,
-                                        "last_calculated_at": ANY,
-                                        "team_id": self.team.id,
-                                        "is_action": True,
-                                        "bytecode_error": None,
-                                        "pinned_at": None,
-                                        "tags": [],
                                     }
                                 ]
                             }

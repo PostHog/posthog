@@ -267,6 +267,8 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
+greenlet==3.1.1
+    # via sqlalchemy
 grpcio==1.63.2
     # via
     #   -r requirements.in
@@ -283,7 +285,7 @@ h11==0.13.0
     #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.46
+hogql-parser==1.0.47
     # via -r requirements.in
 httpcore==1.0.2
     # via httpx
@@ -389,8 +391,9 @@ more-itertools==9.0.0
     #   simple-salesforce
 msgpack==1.1.0
     # via langgraph-checkpoint
-multidict==6.0.2
+multidict==6.0.5
     # via
+    #   -r requirements.in
     #   aiohttp
     #   yarl
 nanoid==2.0.0
@@ -459,7 +462,7 @@ pluggy==1.5.0
     # via dlt
 ply==3.11
     # via jsonpath-ng
-posthoganalytics==3.6.6
+posthoganalytics==3.7.3
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus

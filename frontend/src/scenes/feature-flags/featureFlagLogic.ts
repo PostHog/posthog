@@ -43,6 +43,7 @@ import {
     MultivariateFlagVariant,
     NewEarlyAccessFeatureType,
     OrganizationFeatureFlag,
+    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     QueryBasedInsightModel,
@@ -96,6 +97,7 @@ const NEW_FLAG: FeatureFlagType = {
     surveys: null,
     performed_rollback: false,
     can_edit: true,
+    user_access_level: 'editor',
     tags: [],
 }
 const NEW_VARIANT = {
@@ -268,6 +270,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['updateFlag', 'deleteFlag'],
             sidePanelStateLogic,
             ['closeSidePanel'],
+            teamLogic,
+            ['addProductIntent'],
         ],
     })),
     actions({
@@ -561,6 +565,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         if (values.roleBasedAccessEnabled && savedFlag.id) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
                         }
+                        actions.addProductIntent({ product_type: ProductKey.FEATURE_FLAGS })
                     } else {
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
@@ -584,13 +589,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 try {
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
-                        savedFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, preparedFlag)
+                        savedFlag = await api.create(
+                            `api/projects/${values.currentProjectId}/feature_flags`,
+                            preparedFlag
+                        )
                         if (values.roleBasedAccessEnabled && savedFlag.id) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
                         }
                     } else {
                         savedFlag = await api.update(
-                            `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
+                            `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
                             preparedFlag
                         )
                     }

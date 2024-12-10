@@ -29,12 +29,15 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                 loadFromRawIds: async ({ rawIds }) => {
                     const loadedRawIds = Object.keys(values.stackFrameRecords)
                     rawIds = rawIds.filter((rawId) => !loadedRawIds.includes(rawId))
-                    const response = await api.errorTracking.stackFrames(rawIds)
-                    return mapStackFrameRecords(response, values.stackFrameRecords)
+                    if (rawIds.length === 0) {
+                        return values.stackFrameRecords
+                    }
+                    const { results } = await api.errorTracking.stackFrames(rawIds)
+                    return mapStackFrameRecords(results, values.stackFrameRecords)
                 },
                 loadForSymbolSet: async ({ symbolSetId }) => {
-                    const response = await api.errorTracking.symbolSetStackFrames(symbolSetId)
-                    return mapStackFrameRecords(response, values.stackFrameRecords)
+                    const { results } = await api.errorTracking.symbolSetStackFrames(symbolSetId)
+                    return mapStackFrameRecords(results, values.stackFrameRecords)
                 },
             },
         ],
