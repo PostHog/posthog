@@ -13,7 +13,7 @@ export interface EditorSizingLogicProps {
 const MINIMUM_NAVIGATOR_WIDTH = 100
 const NAVIGATOR_DEFAULT_WIDTH = 350
 const MINIMUM_QUERY_PANE_HEIGHT = 100
-const DEFAULT_QUERY_PANE_HEIGHT = 600
+const DEFAULT_QUERY_PANE_HEIGHT = 400
 
 export const editorSizingLogic = kea<editorSizingLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'editorSizingLogic']),

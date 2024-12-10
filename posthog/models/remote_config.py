@@ -1,10 +1,9 @@
 import json
 import os
-from typing import Optional
+from typing import Any, Optional
+from collections.abc import Callable
 from django.conf import settings
 from django.db import models
-from django.db.models.signals import post_save
-from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from prometheus_client import Counter
 from sentry_sdk import capture_exception
@@ -12,9 +11,18 @@ import structlog
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.plugin import PluginConfig
+from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel, execute_with_timeout
 
-from posthog.models.team import Team
+from django.core.cache import cache
+from django.db.models.signals import post_save
+from django.dispatch.dispatcher import receiver
+
+
+CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
+
 
 CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
     "posthog_remote_config_sync",
@@ -22,12 +30,17 @@ CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
     labelnames=["result"],
 )
 
+REMOTE_CONFIG_CACHE_COUNTER = Counter(
+    "posthog_remote_config_via_cache",
+    "Metric tracking whether a remote config was fetched from cache or not",
+    labelnames=["result"],
+)
+
+
 logger = structlog.get_logger(__name__)
 
 
 # Load the JS content from the frontend build
-
-
 _array_js_content: Optional[str] = None
 
 
@@ -39,6 +52,16 @@ def get_array_js_content():
             _array_js_content = f.read()
 
     return _array_js_content
+
+
+def indent_js(js_content: str, indent: int = 4) -> str:
+    joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
+
+    return joined
+
+
+def cache_key_for_team_token(team_token: str, suffix: str) -> str:
+    return f"remote_config/{team_token}/{suffix}"
 
 
 class RemoteConfig(UUIDModel):
@@ -179,40 +202,95 @@ class RemoteConfig(UUIDModel):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
+        from posthog.cdp.site_functions import get_transpiled_function
+        from posthog.models import HogFunction
 
         # Add in the site apps as an array of objects
-        site_apps = []
+        site_apps_js = []
         for site_app in get_site_apps_for_team(self.team.id):
             config = get_site_config_from_schema(site_app.config_schema, site_app.config)
-            # NOTE: It is an object as we can later add other properties such as a consent ID
-            site_apps.append(
-                f"{{ token: '{site_app.token}', load: function(posthog) {{ {site_app.source}().inject({{ config:{json.dumps(config)}, posthog:posthog }}) }} }}"
+            site_apps_js.append(
+                indent_js(
+                    f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback();\n  }}\n}}"
+                )
             )
 
-        js_content = f"""
-        (function() {{
-            window._POSTHOG_CONFIG = {json.dumps(self.config)};
-            window._POSTHOG_SITE_APPS = [{','.join(site_apps)}];
-        }})();
+        site_functions = HogFunction.objects.filter(
+            team=self.team, enabled=True, type__in=("site_destination", "site_app")
+        ).all()
+
+        site_functions_js = []
+
+        for site_function in site_functions:
+            try:
+                source = get_transpiled_function(site_function)
+                # NOTE: It is an object as we can later add other properties such as a consent ID
+                # Indentation to make it more readable (and therefore debuggable)
+                site_functions_js.append(
+                    indent_js(
+                        f"\n{{\n  id: '{site_function.id}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
+                    )
+                )
+            except Exception:
+                # TODO: Should we track this to somewhere?
+                logger.exception(f"Failed to build JS for site function {site_function.id}")
+                pass
+
+        js_content = f"""(function() {{
+  window._POSTHOG_CONFIG = {json.dumps(self.config)};
+  window._POSTHOG_JS_APPS = [{','.join(site_apps_js + site_functions_js)}];
+}})();
         """.strip()
 
         return js_content
 
-    def build_array_js_config(self):
-        # NOTE: This is the JS that will be loaded by the SDK.
-        # It includes the dist JS for the frontend and the JSON config
+    @classmethod
+    def _get_via_cache(cls, token: str, suffix: str, fn: Callable[["RemoteConfig"], dict | str]) -> Any:
+        key = cache_key_for_team_token(token, suffix)
 
-        js_content = self.build_js_config()
+        data = cache.get(key)
+        if data == "404":
+            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
+            raise cls.DoesNotExist()
 
-        js_content = f"""
+        if data:
+            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit").inc()
+            return data
+
+        REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
+        try:
+            remote_config = cls.objects.select_related("team").get(team__api_token=token)
+        except cls.DoesNotExist:
+            cache.set(key, "404", timeout=CACHE_TIMEOUT)
+            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
+            raise
+
+        data = fn(remote_config)
+        cache.set(key, data, timeout=CACHE_TIMEOUT)
+
+        return data
+
+    @classmethod
+    def get_config_via_token(cls, token: str) -> dict:
+        return cls._get_via_cache(token, "config", lambda remote_config: remote_config.build_config())
+
+    @classmethod
+    def get_config_js_via_token(cls, token: str) -> str:
+        return cls._get_via_cache(token, "config.js", lambda remote_config: remote_config.build_js_config())
+
+    @classmethod
+    @classmethod
+    def get_array_js_via_token(cls, token: str) -> str:
+        # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
+        data = cls.get_config_js_via_token(token)
+
+        return f"""
         {get_array_js_content()}
 
-        {js_content}
+        {data}
         """
 
-        return js_content
-
-    def sync(self, force=False):
+    def sync(self):
         """
         When called we sync to any configured CDNs as well as redis for the /decide endpoint
         """
@@ -221,12 +299,15 @@ class RemoteConfig(UUIDModel):
 
         try:
             config = self.build_config()
-            # Compare the config to the current one and only update if it has changed
-            if config == self.config and not force:
-                logger.info(f"RemoteConfig for team {self.team_id} has not changed. Skipping sync.")
-                return
-
             self.config = config
+
+            cache.set(cache_key_for_team_token(self.team.api_token, "config"), config, timeout=CACHE_TIMEOUT)
+            cache.set(
+                cache_key_for_team_token(self.team.api_token, "config.js"),
+                self.build_js_config(),
+                timeout=CACHE_TIMEOUT,
+            )
+
             # TODO: Invalidate caches - in particular this will be the Cloudflare CDN cache
             self.synced_at = timezone.now()
             self.save()
@@ -242,17 +323,29 @@ class RemoteConfig(UUIDModel):
         return f"RemoteConfig {self.team_id}"
 
 
-def rebuild_remote_config(team: "Team"):
+def _update_team_remote_config(team_id: int):
     from posthog.tasks.remote_config import update_team_remote_config
 
-    update_team_remote_config.delay(team.id)
+    update_team_remote_config.delay(team_id)
 
 
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: "Team", created, **kwargs):
-    rebuild_remote_config(instance)
+    _update_team_remote_config(instance.id)
 
 
 @receiver(post_save, sender=FeatureFlag)
 def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
-    rebuild_remote_config(instance.team)
+    _update_team_remote_config(instance.team_id)
+
+
+@receiver(post_save, sender=PluginConfig)
+def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
+    if instance.team_id:
+        _update_team_remote_config(instance.team_id)
+
+
+@receiver(post_save, sender=HogFunction)
+def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
+    if instance.enabled and instance.type in ("site_destination", "site_app") and instance.transpiled:
+        _update_team_remote_config(instance.team_id)
