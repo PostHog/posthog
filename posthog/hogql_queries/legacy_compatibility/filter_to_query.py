@@ -229,12 +229,12 @@ insight_to_query_type = {
 
 
 class RetentionFilterWithTemplateVariables(RetentionFilter):
-    returningEntity: Optional[RetentionEntity | str] = None
-    targetEntity: Optional[RetentionEntity | str] = None
+    returningEntity: Optional[RetentionEntity | str] = None  # type: ignore
+    targetEntity: Optional[RetentionEntity | str] = None  # type: ignore
 
 
 class TrendsQueryWithTemplateVariables(TrendsQuery):
-    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, str]] = Field(
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, str]] = Field(  # type: ignore
         ..., description="Events and actions to include"
     )
 
@@ -342,11 +342,11 @@ def _entities(filter: dict, allow_variables: bool = False):
 
     if not has_variables:
         # order by order
-        processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
+        processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)  # type: ignore
 
         # set sequential index values on entities
         for index, entity in enumerate(processed_entities):
-            entity.index = index
+            entity.index = index  # type: ignore
 
     return processed_entities
 
@@ -508,12 +508,12 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
                 retentionReference=filter.get("retention_reference"),
                 totalIntervals=filter.get("total_intervals"),
                 returningEntity=(
-                    to_base_entity_dict(filter.get("returning_entity"))
+                    to_base_entity_dict(filter.get("returning_entity"))  # type: ignore
                     if filter.get("returning_entity") is not None
                     else None
                 ),
                 targetEntity=(
-                    to_base_entity_dict(filter.get("target_entity"))
+                    to_base_entity_dict(filter.get("target_entity"))  # type: ignore
                     if filter.get("target_entity") is not None
                     else None
                 ),
