@@ -24,9 +24,12 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_invalid_tokens(self):
-        response = self.client.get("/array/§$%$&----/config")
+        response = self.client.get("/array/§$%$&/config")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Invalid token"
+
+        response = self.client.get("/array/I-am_technically_v4lid/config")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_valid_config(self):
         with self.assertNumQueries(2):
