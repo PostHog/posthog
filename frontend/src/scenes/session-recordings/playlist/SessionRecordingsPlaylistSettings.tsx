@@ -1,7 +1,8 @@
 import { IconEllipsis } from '@posthog/icons'
 import { IconClock, IconSort } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 
 import { RecordingUniversalFilters } from '~/types'
 
@@ -17,12 +18,6 @@ const SortingKeyToLabel = {
     click_count: 'Clicks',
     keypress_count: 'Keystrokes',
     mouse_activity_count: 'Mouse activity',
-}
-
-const TimestampFormatToLabel = {
-    relative: 'Relative',
-    utc: 'UTC',
-    device: 'Device',
 }
 
 function SortedBy({
@@ -92,7 +87,7 @@ function SortedBy({
                     ],
                 },
             ]}
-            icon={<IconSort />}
+            icon={<IconSort className="text-lg" />}
             label={SortingKeyToLabel[filters.order || 'start_time']}
         />
     )
@@ -102,7 +97,7 @@ export function SessionRecordingPlaylistBottomSettings(): JSX.Element {
     const { hideViewedRecordings, playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setHideViewedRecordings, setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
     return (
-        <div className="flex">
+        <SettingsBar border="top">
             <SettingsToggle
                 active={hideViewedRecordings}
                 title="Hide viewed recordings"
@@ -131,7 +126,7 @@ export function SessionRecordingPlaylistBottomSettings(): JSX.Element {
                 icon={<IconClock />}
                 label={TimestampFormatToLabel[playlistTimestampFormat]}
             />
-        </div>
+        </SettingsBar>
     )
 }
 
@@ -146,7 +141,7 @@ export function SessionRecordingsPlaylistTopSettings({
     const { setAutoplayDirection, setPlaybackMode } = useActions(playerSettingsLogic)
 
     return (
-        <div className="flex">
+        <SettingsBar border="none" className="justify-end">
             {filters && setFilters ? <SortedBy filters={filters} setFilters={setFilters} /> : null}
             <SettingsMenu
                 items={[
@@ -188,6 +183,6 @@ export function SessionRecordingsPlaylistTopSettings({
                 ]}
                 icon={<IconEllipsis className="rotate-90" />}
             />
-        </div>
+        </SettingsBar>
     )
 }

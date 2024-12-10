@@ -49,6 +49,11 @@ pub struct Exception {
 pub struct RawErrProps {
     #[serde(rename = "$exception_list")]
     pub exception_list: Vec<Exception>,
+    #[serde(
+        rename = "$exception_fingerprint",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub fingerprint: Option<String>, // Clients can send us fingerprints, which we'll use if present
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,
@@ -57,6 +62,7 @@ pub struct RawErrProps {
 pub struct FingerprintedErrProps {
     pub exception_list: Vec<Exception>,
     pub fingerprint: String,
+    pub proposed_fingerprint: String, // We suggest a fingerprint, based on hashes, but let users override client-side
     pub other: HashMap<String, Value>,
 }
 
@@ -67,6 +73,8 @@ pub struct OutputErrProps {
     pub exception_list: Vec<Exception>,
     #[serde(rename = "$exception_fingerprint")]
     pub fingerprint: String,
+    #[serde(rename = "$exception_proposed_fingerprint")]
+    pub proposed_fingerprint: String,
     #[serde(rename = "$exception_issue_id")]
     pub issue_id: Uuid,
     #[serde(flatten)]
@@ -76,8 +84,8 @@ pub struct OutputErrProps {
 impl Exception {
     pub fn include_in_fingerprint(&self, h: &mut Sha512) {
         h.update(self.exception_type.as_bytes());
-        h.update(self.exception_message.as_bytes());
         let Some(Stacktrace::Resolved { frames }) = &self.stack else {
+            h.update(self.exception_message.as_bytes());
             return;
         };
 
@@ -119,7 +127,8 @@ impl RawErrProps {
     pub fn to_fingerprinted(self, fingerprint: String) -> FingerprintedErrProps {
         FingerprintedErrProps {
             exception_list: self.exception_list,
-            fingerprint,
+            fingerprint: self.fingerprint.unwrap_or(fingerprint.clone()),
+            proposed_fingerprint: fingerprint,
             other: self.other,
         }
     }
@@ -131,6 +140,7 @@ impl FingerprintedErrProps {
             exception_list: self.exception_list,
             fingerprint: self.fingerprint,
             issue_id,
+            proposed_fingerprint: self.proposed_fingerprint,
             other: self.other,
         }
     }

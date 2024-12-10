@@ -26,7 +26,10 @@ import {
 } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
-export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicProps): JSX.Element {
+export function SessionRecordingsPlaylist({
+    showContent = true,
+    ...props
+}: SessionRecordingPlaylistLogicProps & { showContent?: boolean }): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
@@ -45,6 +48,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
+    const allowReplayHogQLFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS]
 
     const pinnedDescription = isTestingSaved ? 'Saved' : 'Pinned'
 
@@ -92,7 +96,12 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div className="h-full space-y-2">
                 {!notebookNode && (
-                    <RecordingsUniversalFilters filters={filters} setFilters={setFilters} className="border" />
+                    <RecordingsUniversalFilters
+                        filters={filters}
+                        setFilters={setFilters}
+                        className="border"
+                        allowReplayHogQLFilters={allowReplayHogQLFilters}
+                    />
                 )}
                 <Playlist
                     isCollapsed={!playlistOpen}
@@ -116,7 +125,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                     onSelect={(item) => setSelectedRecordingId(item.id)}
                     activeItemId={activeSessionRecordingId}
                     content={({ activeItem }) =>
-                        activeItem ? (
+                        showContent && activeItem ? (
                             <SessionRecordingPlayer
                                 playerKey={props.logicKey ?? 'playlist'}
                                 sessionRecordingId={activeItem.id}

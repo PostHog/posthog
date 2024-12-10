@@ -174,7 +174,8 @@ describe('CDP API', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 2110 bytes",
+                        message:
+                            "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
                     },
                     {
                         level: 'info',
@@ -223,7 +224,8 @@ describe('CDP API', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 2110 bytes",
+                        message:
+                            "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
                     },
                     {
                         level: 'debug',

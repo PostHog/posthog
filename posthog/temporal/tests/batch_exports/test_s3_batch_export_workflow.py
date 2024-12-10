@@ -28,10 +28,10 @@ from posthog.temporal.batch_exports.batch_exports import (
 )
 from posthog.temporal.batch_exports.s3_batch_export import (
     FILE_FORMAT_EXTENSIONS,
-    S3HeartbeatDetails,
     IntermittentUploadPartTimeoutError,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
+    S3HeartbeatDetails,
     S3InsertInputs,
     S3MultiPartUpload,
     get_s3_key,
@@ -387,6 +387,102 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     )
 
 
+@pytest.mark.parametrize("compression", [None, "gzip"], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("file_format", ["Parquet"])
+async def test_insert_into_s3_activity_puts_splitted_parquet_data_into_s3(
+    clickhouse_client,
+    bucket_name,
+    minio_client,
+    activity_environment,
+    compression,
+    exclude_events,
+    file_format,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel | BatchExportSchema | None,
+    ateam,
+):
+    """Test that the insert_into_s3_activity function exports uncorrupted parquet data.
+
+    More specifically, we are interested in what happens when there is the need to split
+    up a parquet file into multiple parts, so we generate a lot of data for this test.
+    """
+    prefix = str(uuid.uuid4())
+
+    events_1, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100000,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        properties={"$prop1": 123},
+    )
+
+    events_2, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100000,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        properties={"$prop1": 123},
+    )
+
+    events_to_export_created = events_1 + events_2
+
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
+
+    insert_inputs = S3InsertInputs(
+        bucket_name=bucket_name,
+        region="us-east-1",
+        prefix=prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        compression=compression,
+        exclude_events=exclude_events,
+        file_format=file_format,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+    )
+
+    with override_settings(
+        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    ):  # 5MB, the minimum for Multipart uploads
+        records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
+
+    assert records_exported == len(events_to_export_created)
+
+    # Takes a long time to re-read this data from ClickHouse, so we just make sure that:
+    # 1. The file exists in S3.
+    # 2. We can read it (so, it's a valid parquet).
+    # 3. It has the same length as the events we have created.
+    s3_data = await assert_file_in_s3(
+        s3_compatible_client=minio_client,
+        bucket_name=bucket_name,
+        key_prefix=prefix,
+        file_format=file_format,
+        compression=compression,
+        json_columns=("properties", "person_properties", "set", "set_once"),
+    )
+
+    assert len(s3_data) == len(events_to_export_created)
+
+
 @pytest.mark.parametrize("model", [model for model in TEST_S3_MODELS if model is not None])
 async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
     clickhouse_client,
@@ -517,7 +613,7 @@ async def s3_batch_export(
     await adelete_batch_export(batch_export, temporal_client)
 
 
-@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+@pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)

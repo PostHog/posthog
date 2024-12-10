@@ -200,10 +200,15 @@ type HogFunctionInputSchemaControlsProps = {
 
 function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunctionInputSchemaControlsProps): JSX.Element {
     const _onChange = (data: Partial<HogFunctionInputSchemaType> | null): void => {
+        if (data?.key?.length === 0) {
+            setLocalVariableError('Input variable name cannot be empty')
+            return
+        }
         onChange(data ? { ...value, ...data } : null)
     }
 
     const [localVariableValue, setLocalVariableValue] = useState(value.key)
+    const [localVariableError, setLocalVariableError] = useState<string | null>(null)
 
     return (
         <div className="flex flex-col gap-2">
@@ -248,7 +253,7 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
                         placeholder="Display label"
                     />
                 </LemonField.Pure>
-                <LemonField.Pure label="Input variable name">
+                <LemonField.Pure label="Input variable name" error={localVariableError}>
                     <LemonInput
                         size="small"
                         value={localVariableValue}
@@ -313,7 +318,7 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const { showSource, configuration } = useValues(hogFunctionConfigurationLogic)
     const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
-    const [editing, setEditing] = useState(showSource)
+    const [editing, setEditing] = useState(false)
 
     const value = configuration.inputs?.[schema.key]
 
@@ -390,7 +395,7 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
                                     {supportsTemplating && (
                                         <LemonButton
                                             size="xsmall"
-                                            to="https://posthog.com/docs/cdp/destinations#input-formatting"
+                                            to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload"
                                             sideIcon={<IconInfo />}
                                             noPadding
                                             className=" opacity-0 group-hover:opacity-100 p-1 transition-opacity"

@@ -191,7 +191,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
-        return GroupTypeMapping.objects.filter(team_id=project.id).exists()
+        return GroupTypeMapping.objects.filter(project_id=project.id).exists()
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)
@@ -344,14 +344,13 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
         should_team_be_saved_too = False
         for attr, value in validated_data.items():
-            if attr in self.Meta.team_passthrough_fields:
+            if attr not in self.Meta.team_passthrough_fields:
+                # This attr is a Project field
+                setattr(instance, attr, value)
+            else:
+                # This attr is actually on the Project's passthrough Team
                 should_team_be_saved_too = True
                 setattr(team, attr, value)
-            else:
-                if attr == "name":  # `name` should be updated on _both_ the Project and Team
-                    should_team_be_saved_too = True
-                    setattr(team, attr, value)
-                setattr(instance, attr, value)
 
         instance.save()
         if should_team_be_saved_too:

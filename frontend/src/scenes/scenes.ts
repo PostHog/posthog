@@ -69,9 +69,9 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Error tracking configuration',
     },
-    [Scene.ErrorTrackingGroup]: {
+    [Scene.ErrorTrackingIssue]: {
         projectBased: true,
-        name: 'Error tracking group',
+        name: 'Error tracking issue',
     },
     [Scene.Insight]: {
         projectBased: true,
@@ -213,6 +213,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         activityScope: ActivityScope.FEATURE_FLAG,
         defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
+    },
+    [Scene.FeatureManagement]: {
+        projectBased: true,
+        name: 'Features',
+        defaultDocsPath: '/docs/feature-flags',
     },
     [Scene.Surveys]: {
         projectBased: true,
@@ -559,7 +564,7 @@ export const routes: Record<string, Scene> = {
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.errorTracking()]: Scene.ErrorTracking,
     [urls.errorTrackingConfiguration()]: Scene.ErrorTrackingConfiguration,
-    [urls.errorTrackingGroup(':fingerprint')]: Scene.ErrorTrackingGroup,
+    [urls.errorTrackingIssue(':id')]: Scene.ErrorTrackingIssue,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,
@@ -571,6 +576,8 @@ export const routes: Record<string, Scene> = {
     [urls.sqlEditor()]: Scene.SQLEditor,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
+    [urls.featureManagement()]: Scene.FeatureManagement,
+    [urls.featureManagement(':id')]: Scene.FeatureManagement,
     [urls.annotations()]: Scene.DataManagement,
     [urls.annotation(':id')]: Scene.DataManagement,
     [urls.projectHomepage()]: Scene.ProjectHomepage,

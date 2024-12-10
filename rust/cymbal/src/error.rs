@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::hack::js_data::JsDataError;
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error(transparent)]
@@ -83,6 +85,8 @@ pub enum JsResolveErr {
     // For redirect loops or too many redirects
     #[error("Redirect error while fetching: {0}")]
     RedirectError(String),
+    #[error("JSDataError: {0}")]
+    JSDataError(#[from] JsDataError),
 }
 
 #[derive(Debug, Error)]
