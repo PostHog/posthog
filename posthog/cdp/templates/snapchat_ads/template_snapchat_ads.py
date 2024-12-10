@@ -24,15 +24,13 @@ let body := {
 if (not empty(event.properties.$current_url)) body.data.1.event_source_url := event.properties.$current_url
 
 for (let key, value in inputs.userData) {
-    // e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 is an empty string hashed
-    if (not empty(value) and value != 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') {
+    if (not empty(value)) {
         body.data.1.user_data[key] := value
     }
 }
 
 for (let key, value in inputs.customData) {
-    // e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 is an empty string hashed
-    if (not empty(value) and value != 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') {
+    if (not empty(value)) {
         body.data.1.custom_data[key] := value
     }
 }
