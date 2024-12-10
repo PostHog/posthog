@@ -861,6 +861,25 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         return survey.conditions
 
 
+def get_surveys_response(team: Team):
+    surveys = SurveyAPISerializer(
+        Survey.objects.filter(team_id=team.id)
+        .exclude(archived=True)
+        .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
+        .prefetch_related("actions"),
+        many=True,
+    ).data
+
+    serialized_survey_config: dict[str, Any] = {}
+    if team.survey_config is not None:
+        serialized_survey_config = SurveyConfigSerializer(team).data
+
+    return {
+        "surveys": surveys,
+        "survey_config": serialized_survey_config.get("survey_config", None),
+    }
+
+
 @csrf_exempt
 def surveys(request: Request):
     token = get_token(None, request)
@@ -892,27 +911,7 @@ def surveys(request: Request):
             ),
         )
 
-    surveys = SurveyAPISerializer(
-        Survey.objects.filter(team__project_id=team.project_id)
-        .exclude(archived=True)
-        .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
-        .prefetch_related("actions"),
-        many=True,
-    ).data
-
-    serialized_survey_config: dict[str, Any] = {}
-    if team.survey_config is not None:
-        serialized_survey_config = SurveyConfigSerializer(team).data
-
-    return cors_response(
-        request,
-        JsonResponse(
-            {
-                "surveys": surveys,
-                "survey_config": serialized_survey_config.get("survey_config", None),
-            }
-        ),
-    )
+    return cors_response(request, JsonResponse(get_surveys_response(team)))
 
 
 @contextmanager
