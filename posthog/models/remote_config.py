@@ -217,7 +217,7 @@ class RemoteConfig(UUIDModel):
             config = get_site_config_from_schema(site_app.config_schema, site_app.config)
             site_apps_js.append(
                 indent_js(
-                    f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback();\n  }}\n}}"
+                    f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    ({indent_js(site_app.source, indent=4)})().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback();\n  }}\n}}"
                 )
             )
 
@@ -234,7 +234,7 @@ class RemoteConfig(UUIDModel):
                 # Indentation to make it more readable (and therefore debuggable)
                 site_functions_js.append(
                     indent_js(
-                        f"\n{{\n  id: '{site_function.id}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
+                        f"\n{{\n  id: '{site_function.id}',\n  init: function(config) {{ return ({indent_js(source, indent=4)})().init(config) }} \n}}"
                     )
                 )
             except Exception:

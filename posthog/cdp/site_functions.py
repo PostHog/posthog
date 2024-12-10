@@ -35,6 +35,29 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
     # Convert the filters to code
     filters_expr = hog_function_filters_to_expr(hog_function.filters or {}, hog_function.team, {})
     filters_code = compiler.visit(filters_expr)
+
+    # Code for mapping, running before STL
+    mapping_code = ""
+    for mapping in hog_function.mappings or []:
+        _inputs = mapping.get("inputs", {})
+        _inputs_schema = mapping.get("inputs_schema", [])
+        mapping_filters_expr = hog_function_filters_to_expr(mapping.get("filters", {}) or {}, hog_function.team, {})
+        mapping_filters_code = compiler.visit(mapping_filters_expr)
+        mapping_code += f"if ({mapping_filters_code}) {{ const newInputs = structuredClone(inputs); \n"
+
+        for key, input in _inputs.items():
+            value = input.get("value")
+            key_string = json.dumps(str(key) or "<empty>")
+            if (isinstance(value, str) and "{" in value) or isinstance(value, dict) or isinstance(value, list):
+                base_code = transpile_template_code(value, compiler)
+                mapping_code += (
+                    f"try {{ newInputs[{json.dumps(key)}] = {base_code}; }} catch (e) {{ console.error(e) }}\n"
+                )
+            else:
+                mapping_code += f"newInputs[{json.dumps(key)}] = {json.dumps(value)};\n"
+        mapping_code += "source.onEvent({ inputs: newInputs, posthog });"
+        mapping_code += "}\n"
+
     # Start with the STL functions
     response += compiler.get_stl_code() + "\n"
 
@@ -59,18 +82,6 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
     response += f"const source = {transpile(hog_function.hog, 'site')}();"
 
-    match_groups = ""
-    if hog_function.filters and hog_function.filters.get("matchGroups"):
-        match_groups += "function getMatchGroups() {"
-        match_groups += "const matchGroups = {};\n"
-        for group in hog_function.filters["matchGroups"]:
-            group_code = hog_function_filters_to_expr(group.get("filters", {}), hog_function.team, {})
-            match_groups += f"try {{ matchGroups[{json.dumps(group.get('key', ''))}] = {compiler.visit(group_code)}; }} catch (e) {{ console.error('Matching error', {json.dumps(group.get('key', ''))}, e); }}\n"
-        match_groups += "return matchGroups;\n"
-        match_groups += "}\n"
-    else:
-        match_groups += "function getMatchGroups() { return {}; }\n"
-
     # We are exposing an init function which is what the client will use to actually run this setup code.
     # The return includes any extra methods that the client might need to use - so far just processEvent
     response += (
@@ -84,10 +95,12 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
             let __getGlobal = (key) => filterGlobals[key];
             const filterMatches = """
         + filters_code
-        + ";\n"
-        + match_groups
+        + """;
+            if (!filterMatches) { return; }
+            """
+        + mapping_code
         + """
-        if (filterMatches) { source.onEvent({ ...globals, matchGroups: getMatchGroups(), inputs, posthog }); }
+        }
     }
 
     function init(config) {
