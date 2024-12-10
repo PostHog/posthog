@@ -6,13 +6,18 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
+    api::handler::{FeatureFlagEvaluationContext, FeatureFlagEvaluationContextBuilder},
     client::{
         database::{get_pool, Client, CustomDatabaseError},
         redis::{Client as RedisClientTrait, RedisClient},
     },
-    cohort::cohort_models::Cohort,
+    cohort::{cohort_cache_manager::CohortCacheManager, cohort_models::Cohort},
     config::{Config, DEFAULT_TEST_CONFIG},
-    flags::flag_models::{FeatureFlag, FeatureFlagRow, TEAM_FLAGS_CACHE_PREFIX},
+    flags::flag_models::{
+        FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagFilters, FlagGroupType,
+        TEAM_FLAGS_CACHE_PREFIX,
+    },
+    properties::property_models::PropertyFilter,
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use rand::{distributions::Alphanumeric, Rng};
@@ -528,4 +533,52 @@ pub async fn create_group_in_pg(
         group_key: group_key.to_string(),
         group_properties,
     })
+}
+
+pub async fn setup_test_context(
+    team_id: i32,
+    distinct_id: &str,
+    flags: Option<FeatureFlagList>,
+) -> FeatureFlagEvaluationContext {
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+    let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+
+    FeatureFlagEvaluationContextBuilder::default()
+        .team_id(team_id)
+        .distinct_id(distinct_id.to_string())
+        .feature_flags(flags.unwrap_or_else(|| FeatureFlagList { flags: vec![] }))
+        .reader(reader)
+        .writer(writer)
+        .cohort_cache(cohort_cache)
+        .build()
+        .expect("Failed to build test context")
+}
+
+pub fn create_test_flag(
+    key: &str,
+    team_id: i32,
+    properties: Option<Vec<PropertyFilter>>,
+    rollout_percentage: f64,
+) -> FeatureFlag {
+    FeatureFlag {
+        name: Some(key.to_string()),
+        id: 1,
+        key: key.to_string(),
+        active: true,
+        deleted: false,
+        team_id,
+        filters: FlagFilters {
+            groups: vec![FlagGroupType {
+                properties,
+                rollout_percentage: Some(rollout_percentage),
+                variant: None,
+            }],
+            multivariate: None,
+            aggregation_group_type_index: None,
+            payloads: None,
+            super_groups: None,
+        },
+        ensure_experience_continuity: false,
+    }
 }

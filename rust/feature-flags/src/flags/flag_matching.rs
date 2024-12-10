@@ -615,10 +615,6 @@ impl FeatureFlagMatcher {
             .flat_map(|c| c.properties.clone().unwrap_or_default())
             .collect();
 
-        println!("flag_property_filters: {:?}", flag_property_filters);
-
-        println!("group_property_overrides: {:?}", group_property_overrides);
-
         let overrides = match flag.get_group_type_index() {
             Some(group_type_index) => {
                 self.get_group_overrides(
@@ -630,8 +626,6 @@ impl FeatureFlagMatcher {
             }
             None => self.get_person_overrides(person_property_overrides, &flag_property_filters),
         };
-
-        println!("overrides: {:?}", overrides);
 
         match overrides {
             Some(props) => self
@@ -658,17 +652,9 @@ impl FeatureFlagMatcher {
             .group_type_index_to_group_type_map()
             .await?;
 
-        println!("index_to_type_map: {:?}", index_to_type_map);
-
         if let Some(group_type) = index_to_type_map.get(&group_type_index) {
-            // this would be "project"
-            println!("group_type: {:?}", group_type);
             if let Some(group_overrides) = group_property_overrides {
-                // this would be something like {"project": {"$group_key": "123"}}
-                println!("group_overrides: {:?}", group_overrides);
                 if let Some(group_overrides_by_type) = group_overrides.get(group_type) {
-                    // this would be {"$group_key": "123"}
-                    println!("group_overrides_by_type: {:?}", group_overrides_by_type);
                     return Ok(locally_computable_property_overrides(
                         &Some(group_overrides_by_type.clone()),
                         flag_property_filters,
@@ -1271,7 +1257,7 @@ impl FeatureFlagMatcher {
                 .cloned()
                 .unwrap_or_default();
 
-            // TODO do empty string if this is empty, to keep parity
+            // TODO do empty string if this is empty, to keep parity with existing flag matching code
             Ok(group_key.to_string())
         } else {
             // Person-based flag
