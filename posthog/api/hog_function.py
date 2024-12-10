@@ -203,7 +203,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     raise serializers.ValidationError({"hog": "Error in TypeScript code"})
                 attrs["bytecode"] = None
             else:
-                attrs["bytecode"] = compile_hog(attrs["hog"])
+                attrs["bytecode"] = compile_hog(attrs["hog"], attrs["type"])
                 attrs["transpiled"] = None
         else:
             attrs["bytecode"] = None
