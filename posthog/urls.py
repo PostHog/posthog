@@ -211,7 +211,6 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
-    path("site_function/<str:id>/<str:hash>/", site_app.get_site_function),
     path("array/<str:token>/config", remote_config.RemoteConfigAPIView.as_view()),
     path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
     path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
@@ -238,6 +237,8 @@ urlpatterns = [
     path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
     path("year_in_posthog/2023/<str:user_uuid>", year_in_posthog.render_2023),
     path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
+    path("year_in_posthog/2024/<str:user_uuid>", year_in_posthog.render_2024),
+    path("year_in_posthog/2024/<str:user_uuid>/", year_in_posthog.render_2024),
 ]
 
 if settings.DEBUG:

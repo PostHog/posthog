@@ -37,6 +37,7 @@ export enum Scene {
     Action = 'Action',
     Experiments = 'Experiments',
     Experiment = 'Experiment',
+    FeatureManagement = 'FeatureManagement',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
     EarlyAccessFeatures = 'EarlyAccessFeatures',

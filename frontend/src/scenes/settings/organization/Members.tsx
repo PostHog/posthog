@@ -1,4 +1,4 @@
-import { LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -18,8 +18,9 @@ import {
     membershipLevelToName,
     organizationMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
-import { useEffect, useState } from 'react'
-import { Setup2FA } from 'scenes/authentication/Setup2FA'
+import { useEffect } from 'react'
+import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
+import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -139,12 +140,12 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 
 export function Members(): JSX.Element | null {
     const { filteredMembers, membersLoading, search } = useValues(membersLogic)
-    const { setSearch, ensureAllMembersLoaded, loadAllMembers } = useActions(membersLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { updateOrganization } = useActions(organizationLogic)
-    const [is2FAModalVisible, set2FAModalVisible] = useState(false)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
+    const { setSearch, ensureAllMembersLoaded, loadAllMembers } = useActions(membersLogic)
+    const { updateOrganization } = useActions(organizationLogic)
+    const { toggleTwoFactorSetupModal } = useActions(twoFactorLogic)
 
     const twoFactorRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
@@ -213,16 +214,13 @@ export function Members(): JSX.Element | null {
             render: function LevelRender(_, member) {
                 return (
                     <>
-                        {member.user.uuid == user.uuid && is2FAModalVisible && (
-                            <LemonModal title="Set up or manage 2FA" onClose={() => set2FAModalVisible(false)}>
-                                <Setup2FA
-                                    onSuccess={() => {
-                                        set2FAModalVisible(false)
-                                        userLogic.actions.updateUser({})
-                                        loadAllMembers()
-                                    }}
-                                />
-                            </LemonModal>
+                        {member.user.uuid == user.uuid && (
+                            <TwoFactorSetupModal
+                                onSuccess={() => {
+                                    userLogic.actions.updateUser({})
+                                    loadAllMembers()
+                                }}
+                            />
                         )}
                         <Tooltip
                             title={
@@ -234,7 +232,7 @@ export function Members(): JSX.Element | null {
                             <LemonTag
                                 onClick={
                                     member.user.uuid == user.uuid && !member.is_2fa_enabled
-                                        ? () => set2FAModalVisible(true)
+                                        ? () => toggleTwoFactorSetupModal(true)
                                         : undefined
                                 }
                                 data-attr="2fa-enabled"

@@ -22,7 +22,7 @@ jobs:
     posthog_build:
         name: Build and push PostHog
         if: github.repository == 'PostHog/posthog'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary

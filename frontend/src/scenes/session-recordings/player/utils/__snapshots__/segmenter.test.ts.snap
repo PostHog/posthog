@@ -3,6 +3,13 @@
 exports[`segmenter can segment to include only one window 1`] = `
 [
   {
+    "durationMs": 10,
+    "endTimestamp": 1672531200010,
+    "isActive": false,
+    "kind": "gap",
+    "startTimestamp": 1672531200000,
+  },
+  {
     "durationMs": 0,
     "endTimestamp": 1672531200010,
     "isActive": false,
