@@ -20,7 +20,7 @@ class TestRemoteConfig(BaseTest):
         configs = RemoteConfig.objects.all()
         assert len(configs) == 1
 
-        last_synced_at = RemoteConfig.objects.last().synced_at
+        last_synced_at = RemoteConfig.objects.get(team=self.team).synced_at
 
         sync_all_remote_configs()
 
