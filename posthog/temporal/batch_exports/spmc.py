@@ -281,15 +281,18 @@ class Consumer:
                     queue.task_done()
                 record_batches_count = 0
 
-        if writer.should_flush():
-            records_count += writer.records_since_last_flush
-            await writer.close_temporary_file()
+        await writer.close_temporary_file()
 
         await self.logger.adebug("Consumed %s records", records_count)
         self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
         return records_count
 
-    async def generate_record_batches_from_queue(self, queue, producer_task):
+    async def generate_record_batches_from_queue(
+        self,
+        queue: RecordBatchQueue,
+        producer_task: asyncio.Task,
+    ):
+        """Yield record batches from provided `queue` until `producer_task` is done."""
         while True:
             try:
                 record_batch = queue.get_nowait()
