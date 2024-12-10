@@ -14,14 +14,19 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline, CodeEditorInlineProps } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
 
-import { HogFunctionInputSchemaType, HogFunctionInputType } from '~/types'
+import {
+    HogFunctionConfigurationType,
+    HogFunctionInputSchemaType,
+    HogFunctionInputType,
+    HogFunctionMappingType,
+} from '~/types'
 
 import { EmailTemplater } from './email-templater/EmailTemplater'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
@@ -35,13 +40,20 @@ export type HogFunctionInputProps = {
     disabled?: boolean
 }
 
+export interface HogFunctionInputsProps {
+    configuration: HogFunctionConfigurationType | HogFunctionMappingType
+    setConfigurationValue: (key: string, value: any) => void
+}
+
 export type HogFunctionInputWithSchemaProps = {
+    configuration: HogFunctionConfigurationType | HogFunctionMappingType
+    setConfigurationValue: (key: string, value: any) => void
     schema: HogFunctionInputSchemaType
 }
 
 const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
 
-function JsonConfigField(props: {
+export function JsonConfigField(props: {
     onChange?: (value: string) => void
     className?: string
     autoFocus?: boolean
@@ -314,10 +326,13 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
     )
 }
 
-export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchemaProps): JSX.Element {
+export function HogFunctionInputWithSchema({
+    schema,
+    configuration,
+    setConfigurationValue,
+}: HogFunctionInputWithSchemaProps): JSX.Element {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
-    const { showSource, configuration } = useValues(hogFunctionConfigurationLogic)
-    const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
+    const { showSource } = useValues(hogFunctionConfigurationLogic)
     const [editing, setEditing] = useState(false)
 
     const value = configuration.inputs?.[schema.key]
@@ -451,11 +466,17 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
     )
 }
 
-export function HogFunctionInputs(): JSX.Element {
-    const { showSource, configuration } = useValues(hogFunctionConfigurationLogic)
-    const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
+export function HogFunctionInputs({
+    configuration,
+    setConfigurationValue,
+}: HogFunctionInputsProps): JSX.Element | null {
+    const { showSource } = useValues(hogFunctionConfigurationLogic)
 
     if (!configuration?.inputs_schema?.length) {
+        if (!('type' in configuration)) {
+            // If this is a mapping, don't show anything.
+            return null
+        }
         return <span className="italic text-muted-alt">This function does not require any input variables.</span>
     }
 
@@ -477,7 +498,14 @@ export function HogFunctionInputs(): JSX.Element {
             >
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
                     {configuration.inputs_schema?.map((schema) => {
-                        return <HogFunctionInputWithSchema key={schema.key} schema={schema} />
+                        return (
+                            <HogFunctionInputWithSchema
+                                key={schema.key}
+                                schema={schema}
+                                configuration={configuration}
+                                setConfigurationValue={setConfigurationValue}
+                            />
+                        )
                     })}
                 </SortableContext>
             </DndContext>

@@ -107,6 +107,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "inputs",
             "filters",
             "masking",
+            "mapping",
             "icon_url",
             "template",
             "template_id",
@@ -153,6 +154,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
             # Without the addon, they cannot deviate from the template
             attrs["inputs_schema"] = template.inputs_schema
+            attrs["mapping"] = template.mapping
             attrs["hog"] = template.hog
 
         if "type" not in attrs:
@@ -163,29 +165,38 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             attrs["filters"] = attrs.get("filters") or {}
             attrs["inputs_schema"] = attrs.get("inputs_schema") or []
             attrs["inputs"] = attrs.get("inputs") or {}
+            attrs["mapping"] = attrs.get("mapping") or []
 
-        if "inputs_schema" in attrs:
-            attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
+        # Used for both top level input validation, and mappings input validation
+        def validate_input_and_filters(attrs: dict, type: str):
+            if "inputs_schema" in attrs:
+                attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
 
-        if "inputs" in attrs:
-            inputs = attrs["inputs"] or {}
-            existing_encrypted_inputs = None
+            if "inputs" in attrs:
+                inputs = attrs["inputs"] or {}
+                existing_encrypted_inputs = None
 
-            if instance and instance.encrypted_inputs:
-                existing_encrypted_inputs = instance.encrypted_inputs
+                if instance and instance.encrypted_inputs:
+                    existing_encrypted_inputs = instance.encrypted_inputs
 
-            attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
-            attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs, attrs["type"])
+                attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
+                attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs, type)
 
-        if "filters" in attrs:
-            if attrs["type"] in TYPES_WITH_COMPILED_FILTERS:
-                attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
-            elif attrs["type"] in TYPES_WITH_TRANSPILED_FILTERS:
-                compiler = JavaScriptCompiler()
-                code = compiler.visit(compile_filters_expr(attrs["filters"], team))
-                attrs["filters"]["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
-                if "bytecode" in attrs["filters"]:
-                    del attrs["filters"]["bytecode"]
+            if "filters" in attrs:
+                if type in TYPES_WITH_COMPILED_FILTERS:
+                    attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
+                elif type in TYPES_WITH_TRANSPILED_FILTERS:
+                    compiler = JavaScriptCompiler()
+                    code = compiler.visit(compile_filters_expr(attrs["filters"], team))
+                    attrs["filters"]["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
+                    if "bytecode" in attrs["filters"]:
+                        del attrs["filters"]["bytecode"]
+
+        validate_input_and_filters(attrs, attrs["type"])
+
+        if "mapping" in attrs:
+            for mapping in attrs["mapping"]:
+                validate_input_and_filters(mapping, attrs["type"])
 
         if "hog" in attrs:
             if attrs["type"] in TYPES_WITH_JAVASCRIPT_SOURCE:
@@ -227,6 +238,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     inputs[schema["key"]] = {"secret": True}
 
         data["inputs"] = inputs
+
+        # TODO: no secret inputs in mapping
 
         return data
 

@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionMapping, HogFunctionTemplate
 
 blank_site_destination: HogFunctionTemplate = HogFunctionTemplate(
     status="client-side",
@@ -52,11 +52,11 @@ export function onEvent({ posthog, matchGroups, ...globals }) {
     ],
 )
 
-blank_site_destination_match_groups: HogFunctionTemplate = HogFunctionTemplate(
+blank_site_destination_with_mapping: HogFunctionTemplate = HogFunctionTemplate(
     status="client-side",
     type="site_destination",
-    id="template-blank-site-destination-match-groups",
-    name="New client-side destination with match groups",
+    id="template-blank-site-destination-with-mapping",
+    name="New client-side destination with mapping",
     description="New destination with complex event matching. Works only with posthog-js when opt_in_site_apps is set to true.",
     icon_url="/static/hedgehog/builder-hog-01.png",
     category=["Custom", "Analytics"],
@@ -67,18 +67,9 @@ export async function onLoad({ inputs, posthog }) {
     await new Promise((resolve) => window.setTimeout(resolve, 1000))
     console.log("🦔 Script loaded")
 }
-export function onEvent({ posthog, matchGroups, ...globals }) {
-    const { event, person } = globals
-    console.log(`🦔 Sending event: ${event.event}`, globals)
-    if (matchGroups.acquisition) {
-        console.log(`🦔 This is an acquisition event!`)
-    }
-    if (matchGroups.conversion) {
-        console.log(`🦔 This is a conversion event!`)
-    }
-    if (matchGroups.retention) {
-        console.log(`🦔 This is a retention event!`)
-    }
+export function onEvent({ inputs, posthog }) {
+    console.log(`🦔 Sending event of type ${inputs.eventType}: ${inputs.payload}`)
+    // fetch('url', { method: 'POST', body: JSON.stringify(inputs.payload) })
 }
 """.strip(),
     inputs_schema=[
@@ -111,13 +102,83 @@ export function onEvent({ posthog, matchGroups, ...globals }) {
             "required": True,
         },
     ],
-    filters={
-        "matchGroups": [
-            {"key": "acquisition", "filters": {"events": [{"id": "$pageview", "type": "events"}]}},
-            {"key": "conversion", "filters": {"events": [{"id": "$autocapture", "type": "events"}]}},
-            {"key": "retention", "filters": {"events": [{"id": "$pageleave", "type": "events"}]}},
-        ],
-    },
+    mappings=[
+        HogFunctionMapping(
+            filters={"events": [{"id": "$pageview", "type": "events"}]},
+            inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "The destination's event type",
+                    "default": "acquisition",
+                    "required": True,
+                },
+                {
+                    "key": "payload",
+                    "type": "json",
+                    "label": "Payload",
+                    "description": "Payload sent to the destination.",
+                    "default": {
+                        "event": "{event}",
+                        "person": "{person}",
+                    },
+                    "secret": False,
+                    "required": True,
+                },
+            ],
+        ),
+        HogFunctionMapping(
+            filters={"events": [{"id": "$autocapture", "type": "events"}]},
+            inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "The destination's event type",
+                    "default": "conversion",
+                    "required": True,
+                },
+                {
+                    "key": "payload",
+                    "type": "json",
+                    "label": "Payload",
+                    "description": "Payload sent to the destination.",
+                    "default": {
+                        "event": "{event}",
+                        "person": "{person}",
+                    },
+                    "secret": False,
+                    "required": True,
+                },
+            ],
+        ),
+        HogFunctionMapping(
+            filters={"events": [{"id": "$pageleave", "type": "events"}]},
+            inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "The destination's event type",
+                    "default": "retention",
+                    "required": True,
+                },
+                {
+                    "key": "payload",
+                    "type": "json",
+                    "label": "Payload",
+                    "description": "Payload sent to the destination.",
+                    "default": {
+                        "event": "{event}",
+                        "person": "{person}",
+                    },
+                    "secret": False,
+                    "required": True,
+                },
+            ],
+        ),
+    ],
 )
 
 blank_site_app: HogFunctionTemplate = HogFunctionTemplate(

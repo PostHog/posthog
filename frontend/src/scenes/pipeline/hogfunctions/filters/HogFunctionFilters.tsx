@@ -1,12 +1,10 @@
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { id } from 'chartjs-plugin-trendline'
 import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import React from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -45,25 +43,18 @@ function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFilters
     return sanitized
 }
 
-function hogFunctionFiltersToFilters(filters: HogFunctionFiltersType): FilterType {
-    // TODO: yuk
-    return filters as FilterType
-}
-
-const defaultMatchGroupFilters = {
-    // TODO: or screen
-    events: [{ id: '$pageview', name: '$pageview', type: EntityTypes.EVENTS, order: 0, properties: [] }],
-    actions: [],
-}
-
 export function HogFunctionFilters(): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type, showSource } = useValues(hogFunctionConfigurationLogic)
+    const { configuration, type, useMapping } = useValues(hogFunctionConfigurationLogic)
 
     if (type === 'broadcast') {
         return (
             <div className="border bg-bg-light rounded p-3 space-y-2">
-                <LemonField name="filters" label="Filters">
+                <LemonField
+                    name="filters"
+                    label={useMapping ? 'Global filters' : 'Filters'}
+                    info={useMapping ? 'Filters applied to all events before they reach a mapping' : null}
+                >
                     {({ value, onChange }) => (
                         <PropertyFilters
                             propertyFilters={value?.properties ?? []}
@@ -88,7 +79,8 @@ export function HogFunctionFilters(): JSX.Element {
     }
 
     const showMasking = type === 'destination'
-    const allowMatchGroups = type === 'site_destination'
+    const useMatchGroups = type === 'site_destination'
+
     return (
         <div className="border bg-bg-light rounded p-3 space-y-2">
             <LemonField name="filters" label="Filters">
@@ -118,134 +110,12 @@ export function HogFunctionFilters(): JSX.Element {
                                 }}
                                 pageKey={`HogFunctionPropertyFilters.${id}`}
                             />
-                            <div className="flex w-full gap-2 justify-between">
-                                <LemonLabel>Match events and actions</LemonLabel>
-                                {showSource && allowMatchGroups ? (
-                                    <LemonSelect
-                                        value={
-                                            filters.matchGroups && filters.matchGroups.length > 0 ? 'match' : 'filters'
-                                        }
-                                        onChange={(v) => {
-                                            if (v === 'filters') {
-                                                onChange({ ...filters, matchGroups: null })
-                                            } else {
-                                                onChange({
-                                                    ...filters,
-                                                    events: [],
-                                                    actions: [],
-                                                    matchGroups: [{ key: '', filters: defaultMatchGroupFilters }],
-                                                })
-                                            }
-                                        }}
-                                        options={[
-                                            {
-                                                value: 'filters',
-                                                label: 'Simple filters',
-                                            },
-                                            {
-                                                value: 'match',
-                                                label: 'Match groups',
-                                            },
-                                        ]}
-                                    />
-                                ) : null}
-                            </div>
-                            {filters.matchGroups && allowMatchGroups ? (
+
+                            {!useMatchGroups ? (
                                 <>
-                                    <p className="mb-0 text-muted-alt text-xs">
-                                        Specify the match group key and its filters. The destination will only run if
-                                        any group matches. The matched groups are available under the variable{' '}
-                                        <code>matchGroups</code>.
-                                    </p>
-                                    {filters.matchGroups?.map(({ key, filters: matchFilters }, index) => (
-                                        <React.Fragment key={index}>
-                                            <div className="flex items-center gap-2">
-                                                <LemonLabel>#{index + 1}</LemonLabel>
-                                                <LemonInput
-                                                    value={key}
-                                                    onChange={(e) => {
-                                                        onChange({
-                                                            ...filters,
-                                                            matchGroups: (filters.matchGroups ?? []).map((m, i) =>
-                                                                i === index ? { ...m, key: e } : m
-                                                            ),
-                                                        })
-                                                    }}
-                                                    placeholder="Match group key"
-                                                    fullWidth
-                                                />
-                                                <LemonButton
-                                                    key="delete"
-                                                    icon={<IconTrash />}
-                                                    title="Delete graph series"
-                                                    data-attr={`delete-prop-filter-${index}`}
-                                                    onClick={() => {
-                                                        onChange({
-                                                            ...filters,
-                                                            matchGroups: (filters.matchGroups ?? []).filter(
-                                                                (_, i) => i !== index
-                                                            ),
-                                                        })
-                                                    }}
-                                                />
-                                            </div>
-                                            <ActionFilter
-                                                bordered
-                                                filters={hogFunctionFiltersToFilters(matchFilters ?? {})}
-                                                setFilters={(f) =>
-                                                    onChange({
-                                                        ...filters,
-                                                        matchGroups: (filters.matchGroups ?? []).map((m, i) =>
-                                                            i === index ? { ...m, filters: f } : m
-                                                        ),
-                                                    })
-                                                }
-                                                typeKey={`match-group-${index}`}
-                                                mathAvailability={MathAvailability.None}
-                                                hideRename
-                                                hideDuplicate
-                                                showNestedArrow={false}
-                                                actionsTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.Events,
-                                                    TaxonomicFilterGroupType.Actions,
-                                                ]}
-                                                propertiesTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.EventProperties,
-                                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                                    TaxonomicFilterGroupType.Elements,
-                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                    TaxonomicFilterGroupType.HogQLExpression,
-                                                    ...groupsTaxonomicTypes,
-                                                ]}
-                                                propertyFiltersPopover
-                                                addFilterDefaultOptions={{
-                                                    id: '$pageview',
-                                                    name: '$pageview',
-                                                    type: EntityTypes.EVENTS,
-                                                }}
-                                                buttonCopy="Add event matcher"
-                                            />
-                                        </React.Fragment>
-                                    ))}
-                                    <LemonButton
-                                        type="tertiary"
-                                        data-attr="add-action-event-button"
-                                        icon={<IconPlusSmall />}
-                                        onClick={() =>
-                                            onChange({
-                                                ...filters,
-                                                matchGroups: [
-                                                    ...(filters.matchGroups ?? []),
-                                                    { key: '', filters: defaultMatchGroupFilters },
-                                                ],
-                                            })
-                                        }
-                                    >
-                                        Add match group
-                                    </LemonButton>
-                                </>
-                            ) : (
-                                <>
+                                    <div className="flex w-full gap-2 justify-between">
+                                        <LemonLabel>Match events and actions</LemonLabel>
+                                    </div>
                                     <p className="mb-0 text-muted-alt text-xs">
                                         If set, the destination will only run if the <b>event matches any</b> of the
                                         below.
@@ -285,7 +155,7 @@ export function HogFunctionFilters(): JSX.Element {
                                         buttonCopy="Add event matcher"
                                     />
                                 </>
-                            )}
+                            ) : null}
                         </>
                     )
                 }}
