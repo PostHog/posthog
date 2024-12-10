@@ -17,12 +17,17 @@ import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
 
 export function PrimaryGoalTrends(): JSX.Element {
-    const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
+    const { experiment, isExperimentRunning, featureFlags, editingPrimaryMetricIndex } = useValues(experimentLogic)
     const { setExperiment, setTrendsMetric } = useActions(experimentLogic)
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
-    const metricIdx = 0
+    if (!editingPrimaryMetricIndex && editingPrimaryMetricIndex !== 0) {
+        console.warn('editingPrimaryMetricIndex is null or undefined')
+        return <></>
+    }
+
+    const metricIdx = editingPrimaryMetricIndex
     const currentMetric = experiment.metrics[metricIdx] as ExperimentTrendsQuery
 
     return (

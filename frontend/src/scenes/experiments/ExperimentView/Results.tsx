@@ -14,8 +14,8 @@ export function Results(): JSX.Element {
     return (
         <div>
             <ResultsHeader />
-            <SummaryTable />
             {featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] && <DeltaViz />}
+            <SummaryTable />
             <ResultsQuery targetResults={experimentResults} showTable={true} />
         </div>
     )

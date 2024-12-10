@@ -25,11 +25,16 @@ import {
 } from './Selectors'
 export function PrimaryGoalFunnels(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
+    const { experiment, isExperimentRunning, featureFlags, editingPrimaryMetricIndex } = useValues(experimentLogic)
     const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
-    const metricIdx = 0
+    if (!editingPrimaryMetricIndex && editingPrimaryMetricIndex !== 0) {
+        console.warn('editingPrimaryMetricIndex is null or undefined')
+        return <></>
+    }
+
+    const metricIdx = editingPrimaryMetricIndex
     const currentMetric = experiment.metrics[metricIdx] as ExperimentFunnelsQuery
 
     const actionFilterProps = {

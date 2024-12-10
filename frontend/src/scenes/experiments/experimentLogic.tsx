@@ -263,6 +263,8 @@ export const experimentLogic = kea<experimentLogicType>([
             isSecondary,
         }),
         setTabKey: (tabKey: string) => ({ tabKey }),
+        openPrimaryMetricModal: (index: number) => ({ index }),
+        closePrimaryMetricModal: true,
     }),
     reducers({
         experiment: [
@@ -471,6 +473,20 @@ export const experimentLogic = kea<experimentLogicType>([
                 setTabKey: (_, { tabKey }) => tabKey,
             },
         ],
+        isPrimaryMetricModalOpen: [
+            false,
+            {
+                openPrimaryMetricModal: () => true,
+                closePrimaryMetricModal: () => false,
+            },
+        ],
+        editingPrimaryMetricIndex: [
+            null as number | null,
+            {
+                openPrimaryMetricModal: (_, { index }) => index,
+                closePrimaryMetricModal: () => null,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
@@ -647,6 +663,9 @@ export const experimentLogic = kea<experimentLogicType>([
             if (values.experimentValuesChangedLocally) {
                 actions.loadExperiment()
             }
+        },
+        closePrimaryMetricModal: () => {
+            // actions.loadExperiment()
         },
         resetRunningExperiment: async () => {
             actions.updateExperiment({ start_date: null, end_date: null, archived: false })

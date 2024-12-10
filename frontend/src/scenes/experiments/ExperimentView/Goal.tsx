@@ -246,8 +246,7 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 export function Goal(): JSX.Element {
     const { experiment, experimentId, getMetricType, experimentMathAggregationForTrends, hasGoalSet, featureFlags } =
         useValues(experimentLogic)
-    const { setExperiment, loadExperiment } = useActions(experimentLogic)
-    const [isModalOpen, setIsModalOpen] = useState(false)
+    const { setExperiment, openPrimaryMetricModal } = useActions(experimentLogic)
     const metricType = getMetricType(0)
 
     return (
@@ -292,7 +291,7 @@ export function Goal(): JSX.Element {
                                     filters: getDefaultFilters(InsightType.FUNNELS, undefined),
                                 })
                             }
-                            setIsModalOpen(true)
+                            openPrimaryMetricModal(0)
                         }}
                     >
                         Add goal
@@ -318,7 +317,7 @@ export function Goal(): JSX.Element {
                         ) : (
                             <MetricDisplayOld filters={experiment.filters} />
                         )}
-                        <LemonButton size="xsmall" type="secondary" onClick={() => setIsModalOpen(true)}>
+                        <LemonButton size="xsmall" type="secondary" onClick={() => openPrimaryMetricModal(0)}>
                             Change goal
                         </LemonButton>
                     </div>
@@ -334,14 +333,7 @@ export function Goal(): JSX.Element {
                     )}
                 </div>
             )}
-            <PrimaryMetricModal
-                experimentId={experimentId}
-                isOpen={isModalOpen}
-                onClose={() => {
-                    setIsModalOpen(false)
-                    loadExperiment()
-                }}
-            />
+            <PrimaryMetricModal experimentId={experimentId} />
         </div>
     )
 }
