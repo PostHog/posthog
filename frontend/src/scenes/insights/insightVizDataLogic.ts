@@ -100,6 +100,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
+        setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
     }),
 
     reducers({
@@ -118,7 +119,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     // If interval is explicitly included in the update, mark it as manually set
                     return 'interval' in querySource ? true : state
                 },
-                resetIntervalManuallySet: () => false,
+                setIsIntervalManuallySet: (_, { isIntervalManuallySet }) => isIntervalManuallySet,
             },
         ],
     }),
