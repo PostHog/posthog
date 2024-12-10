@@ -211,7 +211,12 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                     if threshold.type == InsightThresholdType.ABSOLUTE:
                         increase = current_interval_value - prev_interval_value
                     elif threshold.type == InsightThresholdType.PERCENTAGE:
-                        increase = (current_interval_value - prev_interval_value) / prev_interval_value
+                        if prev_interval_value == 0 and current_interval_value == 0:
+                            increase = 0
+                        elif prev_interval_value == 0:
+                            increase = float("inf")
+                        else:
+                            increase = (current_interval_value - prev_interval_value) / prev_interval_value
                     else:
                         raise ValueError(
                             f"Neither relative nor absolute threshold configured for alert condition RELATIVE_INCREASE"
@@ -235,7 +240,12 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 if threshold.type == InsightThresholdType.ABSOLUTE:
                     increase = prev_interval_value - prev_prev_interval_value
                 elif threshold.type == InsightThresholdType.PERCENTAGE:
-                    increase = (prev_interval_value - prev_prev_interval_value) / prev_prev_interval_value
+                    if prev_prev_interval_value == 0 and prev_interval_value == 0:
+                        increase = 0
+                    elif prev_prev_interval_value == 0:
+                        increase = float("inf")
+                    else:
+                        increase = (prev_interval_value - prev_prev_interval_value) / prev_prev_interval_value
                 else:
                     raise ValueError(
                         f"Neither relative nor absolute threshold configured for alert condition RELATIVE_INCREASE"
@@ -298,7 +308,12 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 if threshold.type == InsightThresholdType.ABSOLUTE:
                     decrease = prev_prev_interval_value - prev_interval_value
                 elif threshold.type == InsightThresholdType.PERCENTAGE:
-                    decrease = (prev_prev_interval_value - prev_interval_value) / prev_prev_interval_value
+                    if prev_prev_interval_value == 0 and prev_interval_value == 0:
+                        decrease = 0
+                    elif prev_prev_interval_value == 0:
+                        decrease = float("inf")
+                    else:
+                        decrease = (prev_prev_interval_value - prev_interval_value) / prev_prev_interval_value
                 else:
                     raise ValueError(
                         f"Neither relative nor absolute threshold configured for alert condition RELATIVE_INCREASE"
