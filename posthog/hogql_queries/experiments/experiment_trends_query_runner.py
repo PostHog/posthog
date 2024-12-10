@@ -174,30 +174,49 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         if uses_math_aggregation:
             prepared_exposure_query = TrendsQuery(**self.query.count_query.model_dump())
-            count_event = self.query.count_query.series[0]
+            prepared_exposure_query.dateRange = self._get_insight_date_range()
+            prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
 
-            if hasattr(count_event, "event"):
-                prepared_exposure_query.dateRange = self._get_insight_date_range()
-                prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()
-                prepared_exposure_query.trendsFilter = TrendsFilter(
-                    display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
-                )
-                prepared_exposure_query.series = [
-                    EventsNode(
-                        event=count_event.event,
-                        math=BaseMathType.DAU,
-                    )
-                ]
+            # For a data warehouse query, we can use the unique users for the series
+            if self._is_data_warehouse_query(prepared_exposure_query):
+                prepared_exposure_query.breakdownFilter = self._get_data_warehouse_breakdown_filter()
+                prepared_exposure_query.series[0].math = BaseMathType.DAU
+                prepared_exposure_query.series[0].math_property = None
+                prepared_exposure_query.series[0].math_property_type = None
                 prepared_exposure_query.properties = [
-                    EventPropertyFilter(
-                        key=self.breakdown_key,
+                    DataWarehousePropertyFilter(
+                        key="events.event",
+                        value="$feature_flag_called",
+                        operator=PropertyOperator.EXACT,
+                        type="data_warehouse",
+                    ),
+                    DataWarehousePropertyFilter(
+                        key=f"events.properties.{self.breakdown_key}",
                         value=self.variants,
                         operator=PropertyOperator.EXACT,
-                        type="event",
-                    )
+                        type="data_warehouse",
+                    ),
                 ]
             else:
-                raise ValueError("Expected first series item to have an 'event' attribute")
+                count_event = self.query.count_query.series[0]
+                if hasattr(count_event, "event"):
+                    prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()
+                    prepared_exposure_query.series = [
+                        EventsNode(
+                            event=count_event.event,
+                            math=BaseMathType.DAU,
+                        )
+                    ]
+                    prepared_exposure_query.properties = [
+                        EventPropertyFilter(
+                            key=self.breakdown_key,
+                            value=self.variants,
+                            operator=PropertyOperator.EXACT,
+                            type="event",
+                        )
+                    ]
+                else:
+                    raise ValueError("Expected first series item to have an 'event' attribute")
 
         # 2. Otherwise, if an exposure query is provided, we use it as is, adapting the date range and breakdown
         elif self.query.exposure_query:
