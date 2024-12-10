@@ -69,7 +69,7 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
         # No person can match an empty cohort
         return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
 
-    query_builder = DataCheckWrapperCohortQuery(
+    query_builder = CohortQuery(
         Filter(
             data={"properties": cohort.properties},
             team=cohort.team,
