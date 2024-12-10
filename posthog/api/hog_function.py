@@ -127,7 +127,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "inputs_schema": {"required": False},
             "template_id": {"write_only": True},
             "deleted": {"write_only": True},
-            "type": {"write_only": True, "required": True},
+            "type": {"required": True},
         }
 
     def validate_type(self, value):

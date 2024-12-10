@@ -20,6 +20,7 @@ EXAMPLE_FULL = {
     "name": "HogHook",
     "hog": "fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.payload,\n  'method': inputs.method\n});",
     "type": "destination",
+    "enabled": True,
     "inputs_schema": [
         {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
         {"key": "payload", "type": "json", "label": "JSON Payload", "required": True},
@@ -197,7 +198,13 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_create_hog_function(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={"name": "Fetch URL", "description": "Test description", "hog": "fetch(inputs.url);", "inputs": {}},
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "description": "Test description",
+                "hog": "fetch(inputs.url);",
+                "inputs": {},
+            },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["created_by"]["id"] == self.user.id
@@ -458,6 +465,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_secret_inputs_not_updated_if_not_changed(self, *args):
         payload = {
+            "type": "destination",
             "name": "Fetch URL",
             "hog": "fetch(inputs.url);",
             "inputs_schema": [
@@ -797,13 +805,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Fetch URL",
-                    "description": "Test description",
-                    "hog": "fetch(inputs.url);",
-                    "template_id": template_webhook.id,
-                    "enabled": True,
-                },
+                data=EXAMPLE_FULL,
             )
             assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -817,13 +819,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Fetch URL",
-                    "description": "Test description",
-                    "hog": "fetch(inputs.url);",
-                    "template_id": template_webhook.id,
-                    "enabled": True,
-                },
+                data=EXAMPLE_FULL,
             )
             assert response.status_code == status.HTTP_201_CREATED, response.json()
             response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
@@ -837,7 +833,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_functions/",
-                    data={"name": "Fetch URL", "hog": "fetch(inputs.url);", "enabled": True},
+                    data={"type": "destination", "name": "Fetch URL", "hog": "fetch(inputs.url);", "enabled": True},
                 )
                 id = response.json()["id"]
 
