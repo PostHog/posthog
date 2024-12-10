@@ -89,7 +89,6 @@ class TestFeatureAPI(APIBaseTest):
                 "description": "New Description",
                 "documentation_url": "http://example.com/new",
                 "issue_url": "http://github.com/example/new",
-                "status": "alpha",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -101,12 +100,10 @@ class TestFeatureAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/features/{self.feature.id}/",
             {
                 "name": "Updated Feature",
-                "status": "beta",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Updated Feature")
-        self.assertEqual(response.json()["status"], "beta")
 
     def test_delete_not_allowed(self):
         response = self.client.delete(f"/api/projects/{self.team.id}/features/{self.feature.id}/")
@@ -124,7 +121,7 @@ class TestFeatureAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/features/{self.feature.id}/primary_early_access_feature/"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["key"], "test-flag")
+        self.assertEqual(response.json()["name"], "Test Flag")
 
     def test_get_experiments(self):
         Experiment.objects.create(

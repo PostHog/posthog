@@ -17,7 +17,6 @@ class FeatureSerializer(serializers.ModelSerializer):
             "description",
             "documentation_url",
             "issue_url",
-            "status",
             "primary_early_access_feature_id",
             "created_at",
             "updated_at",
@@ -30,9 +29,9 @@ class FeatureSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def get_primary_early_access_feature(self, feature: Feature):
-        from posthog.api.feature_flag import FeatureFlagSerializer
+        from posthog.api.early_access_feature import EarlyAccessFeatureSerializer
 
-        return FeatureFlagSerializer(feature.primary_early_access_feature, context=self.context).data
+        return EarlyAccessFeatureSerializer(feature.primary_early_access_feature, context=self.context).data
 
     def get_early_access_features(self, feature: Feature):
         from posthog.api.early_access_feature import EarlyAccessFeatureSerializer
@@ -45,9 +44,9 @@ class FeatureSerializer(serializers.ModelSerializer):
         return WebExperimentsAPISerializer(feature.experiment_set, many=True).data
 
     def get_feature_flags(self, feature: Feature):
-        from posthog.api.feature_flag import FeatureFlagSerializer
+        from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
-        return FeatureFlagSerializer(feature.featureflag_set, context=self.context, many=True).data
+        return MinimalFeatureFlagSerializer(feature.featureflag_set, context=self.context, many=True).data
 
 
 class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
