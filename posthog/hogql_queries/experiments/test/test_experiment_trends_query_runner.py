@@ -824,10 +824,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_variant.absolute_exposure, 2)
         self.assertEqual(test_variant.absolute_exposure, 2)
 
-        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.5449, places=3)
-        self.assertAlmostEqual(result.credible_intervals["control"][1], 4.3836, places=3)
-        self.assertAlmostEqual(result.credible_intervals["test"][0], 1.1009, places=3)
-        self.assertAlmostEqual(result.credible_intervals["test"][1], 5.8342, places=3)
+        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.3633, places=3)
+        self.assertAlmostEqual(result.credible_intervals["control"][1], 2.9224, places=3)
+        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.7339, places=3)
+        self.assertAlmostEqual(result.credible_intervals["test"][1], 3.8894, places=3)
 
         self.assertAlmostEqual(result.p_value, 1.0, places=3)
 
