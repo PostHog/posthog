@@ -1,9 +1,9 @@
 from posthog.hogql_queries.experiments import MIN_PROBABILITY_FOR_SIGNIFICANCE
 from posthog.schema import ExperimentVariantTrendsBaseStats, ExperimentSignificanceCode
-from posthog.hogql_queries.experiments.experiment_trends_statistics import (
-    calculate_probabilities as calculate_probabilities_v2,
-    are_results_significant as are_results_significant_v2,
-    calculate_credible_intervals as calculate_credible_intervals_v2,
+from posthog.hogql_queries.experiments.trends_statistics_v2 import (
+    calculate_probabilities_v2,
+    are_results_significant_v2,
+    calculate_credible_intervals_v2,
 )
 from posthog.hogql_queries.experiments.trends_statistics import (
     calculate_probabilities,
