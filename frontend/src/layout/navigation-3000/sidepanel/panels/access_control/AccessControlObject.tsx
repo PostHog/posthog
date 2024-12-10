@@ -49,9 +49,11 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                 <AccessControlObjectDefaults />
 
                 <h3>Members</h3>
-                <AccessControlObjectUsers />
+                <PayGateMini feature={AvailableFeature.PROJECT_BASED_PERMISSIONING}>
+                    <AccessControlObjectUsers />
+                </PayGateMini>
 
-                <h3>Groups</h3>
+                <h3>Roles</h3>
                 <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
                     <AccessControlObjectRoles />
                 </PayGateMini>
