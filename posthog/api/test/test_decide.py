@@ -102,11 +102,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.client = Client(enforce_csrf_checks=True)
         self.client.force_login(self.user)
 
-        if self.use_remote_config:
-            settings.DECIDE_TOKENS_FOR_REMOTE_CONFIG = [self.team.api_token]
-        else:
-            settings.DECIDE_TOKENS_FOR_REMOTE_CONFIG = []
-
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
 
@@ -133,8 +128,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             groups = {}
 
         def do_request():
+            url = f"/decide/?v={api_version}"
+            if self.use_remote_config:
+                url += "&use_remote_config=true"
             return self.client.post(
-                f"/decide/?v={api_version}",
+                url,
                 {
                     "data": self._dict_to_b64(
                         data
@@ -3596,6 +3594,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
 class TestDecideRemoteConfig(TestDecide):
     use_remote_config = True
+
+    def test_definitely_loads_via_remote_config(self, *args):
+        response = self._post_decide(api_version=3)
+        # NOTE: Using these as a sanity check as they are subtly different in format
+        assert response.json()["surveys"] == []
+        assert response.json()["hasFeatureFlags"] is False
 
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
