@@ -20,6 +20,7 @@ import {
     PluginType,
 } from '~/types'
 
+import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import {
     BatchExportDestination,
@@ -28,15 +29,15 @@ import {
     FunctionDestination,
     PipelineBackend,
     SiteApp,
+    Transformation,
     WebhookDestination,
 } from '../types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
-import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 
 // Helping kea-typegen navigate the exported default class for Fuse
-export interface Fuse extends FuseClass<Destination | SiteApp> {}
+export interface Fuse extends FuseClass<Destination | Transformation | SiteApp> {}
 
 export interface PipelineDestinationsLogicProps {
     types: HogFunctionTypeType[]
@@ -241,7 +242,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 hogFunctions,
                 user,
                 featureFlags
-            ): (Destination | SiteApp)[] => {
+            ): (Destination | Transformation | SiteApp)[] => {
                 // Migrations are shown only in impersonation mode, for us to be able to trigger them.
                 const httpEnabled =
                     featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
@@ -282,7 +283,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         filteredDestinations: [
             (s) => [s.filters, s.destinations, s.destinationsFuse],
-            (filters, destinations, destinationsFuse): (Destination | SiteApp)[] => {
+            (filters, destinations, destinationsFuse): (Destination | Transformation | SiteApp)[] => {
                 const { search, showPaused, kind } = filters
 
                 return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
@@ -299,7 +300,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         hiddenDestinations: [
             (s) => [s.destinations, s.filteredDestinations],
-            (destinations, filteredDestinations): (Destination | SiteApp)[] => {
+            (destinations, filteredDestinations): (Destination | Transformation | SiteApp)[] => {
                 return destinations.filter((dest) => !filteredDestinations.includes(dest))
             },
         ],
