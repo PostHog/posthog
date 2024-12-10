@@ -32,7 +32,7 @@ import { EventPipelineRunner } from './runner'
 // mean adjusting the number based on whether the event was pre or post identify, or was itself the identify event.
 
 const TIMEZONE_FALLBACK = 'UTC'
-const SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID = '$sentinel_cookieless_server_hash'
+const COOKIELESS_SENTINEL_VALUE = '$posthog_cklsh'
 const MAX_NEGATIVE_TIMEZONE_HOURS = 12
 const MAX_POSITIVE_TIMEZONE_HOURS = 14
 const MAX_INGESTION_LAG_HOURS = 24
@@ -46,7 +46,7 @@ export async function cookielessServerHashStep(
     event: PluginEvent
 ): Promise<[PluginEvent | undefined]> {
     // if events aren't using this mode, skip all processing
-    if (event.properties?.['$device_id'] !== SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID) {
+    if (event.properties?.['$device_id'] !== COOKIELESS_SENTINEL_VALUE) {
         return [event]
     }
 
@@ -65,15 +65,12 @@ export async function cookielessServerHashStep(
         return [undefined]
     }
     const sessionId = event.properties['$session_id']
-    if (sessionId !== SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID) {
+    if (sessionId !== COOKIELESS_SENTINEL_VALUE) {
         // TODO log
         return [undefined]
     }
     // if it's an identify event, it must have the sentinel distinct id
-    if (
-        event.event === '$identify' &&
-        event.properties['$anon_distinct_id'] !== SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID
-    ) {
+    if (event.event === '$identify' && event.properties['$anon_distinct_id'] !== COOKIELESS_SENTINEL_VALUE) {
         // TODO log
         return [undefined]
     }
@@ -108,7 +105,7 @@ export async function cookielessServerHashStep(
 
         // set the distinct id to the new hash value
         event.properties[`$anon_distinct_id`] = hashValue
-    } else if (event.distinct_id === SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID) {
+    } else if (event.distinct_id === COOKIELESS_SENTINEL_VALUE) {
         const numIdentifies = await runner.hub.db.redisSCard(identifiesRedisKey)
         hashValue = await doHash(runner.hub.db, timestampMs, timezone, teamId, ip, host, userAgent, numIdentifies)
         // event before identify has been called, distinct id is the sentinel and needs to be replaced
