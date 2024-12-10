@@ -20,7 +20,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clamp, downloadFile } from 'lib/utils'
+import { clamp, downloadFile, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
@@ -860,7 +860,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // Check if we're seeking to a new segment
             const segment = values.segmentForTimestamp(timestamp)
 
-            if (segment && segment !== values.currentSegment) {
+            if (segment && !objectsEqual(segment, values.currentSegment)) {
                 actions.setCurrentSegment(segment)
             }
 

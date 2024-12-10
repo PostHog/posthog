@@ -36,7 +36,7 @@ export function OutputPane(): JSX.Element {
     const { setActiveTab } = useActions(outputPaneLogic)
     const { variablesForInsight } = useValues(variablesLogic)
 
-    const { editingView, sourceQuery, exportContext, isValidView } = useValues(multitabEditorLogic)
+    const { editingView, sourceQuery, exportContext, isValidView, error } = useValues(multitabEditorLogic)
     const { saveAsInsight, saveAsView, setSourceQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading } = useValues(dataNodeLogic)
@@ -178,7 +178,12 @@ export function OutputPane(): JSX.Element {
                             Save as view
                         </LemonButton>
                     )}
-                    <LemonButton loading={responseLoading} type="primary" onClick={() => loadData(true)}>
+                    <LemonButton
+                        disabledReason={error ? error : ''}
+                        loading={responseLoading}
+                        type="primary"
+                        onClick={() => loadData(true)}
+                    >
                         <span className="mr-1">Run</span>
                         <KeyboardShortcut command enter />
                     </LemonButton>

@@ -143,8 +143,8 @@ def clean_varying_query_parts(query, replace_all_numbers):
     )
     # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
     query = re.sub(
-        r"\"posthog_survey_actions\".\"survey_id\" IN \('[^']+'::uuid, '[^']+'::uuid\)",
-        r"'posthog_survey_actions'.'survey_id' IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
+        r"\"posthog_survey_actions\"\.\"survey_id\" IN \('[^']+'::uuid(, '[^']+'::uuid)*\)",
+        r"'posthog_survey_actions'.'survey_id' IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid, /* ... */])",
         query,
     )
     # replace session uuids
