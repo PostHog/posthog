@@ -6,18 +6,13 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    api::handler::{FeatureFlagEvaluationContext, FeatureFlagEvaluationContextBuilder},
     client::{
         database::{get_pool, Client, CustomDatabaseError},
         redis::{Client as RedisClientTrait, RedisClient},
     },
-    cohort::{cohort_cache_manager::CohortCacheManager, cohort_models::Cohort},
+    cohort::cohort_models::Cohort,
     config::{Config, DEFAULT_TEST_CONFIG},
-    flags::flag_models::{
-        FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagFilters, FlagGroupType,
-        TEAM_FLAGS_CACHE_PREFIX,
-    },
-    properties::property_models::PropertyFilter,
+    flags::flag_models::{FeatureFlag, FeatureFlagRow, TEAM_FLAGS_CACHE_PREFIX},
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use rand::{distributions::Alphanumeric, Rng};

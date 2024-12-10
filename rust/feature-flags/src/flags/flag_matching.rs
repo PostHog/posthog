@@ -17,7 +17,6 @@ use anyhow::Result;
 use common_metrics::inc;
 use petgraph::algo::{is_cyclic_directed, toposort};
 use petgraph::graph::DiGraph;
-use serde::Deserialize;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, FromRow, Row};
@@ -1239,11 +1238,13 @@ impl FeatureFlagMatcher {
                 .await?
                 .get(&group_type_index)
                 .and_then(|group_type_name| self.groups.get(group_type_name))
-                .cloned()
-                .unwrap_or_default();
+                .and_then(|v| v.as_str())
+                // NB: we currently use empty string ("") as the hashed identifier for group flags without a group key,
+                // and I don't want to break parity with the old service since I don't want the hash values to change
+                .unwrap_or("")
+                .to_string();
 
-            // TODO do empty string if this is empty, to keep parity with existing flag matching code
-            Ok(group_key.to_string())
+            Ok(group_key)
         } else {
             // Person-based flag
             // Use hash key overrides for experience continuity
@@ -1272,9 +1273,9 @@ impl FeatureFlagMatcher {
             .hashed_identifier(feature_flag, hash_key_overrides)
             .await?;
         if hashed_identifier.is_empty() {
-            // Return a hash value that will make the flag evaluate to false
-            // TODO make this cleaner – we should have a way to return a default value
-            return Ok(0.0);
+            // Return a hash value that will make the flag evaluate to false; since we
+            // can't evaluate a flag without an identifier.
+            return Ok(0.0); // NB: A flag with 0.0 hash will always evaluate to false
         }
         let hash_key = format!("{}.{}{}", feature_flag.key, hashed_identifier, salt);
         let mut hasher = Sha1::new();
@@ -1615,7 +1616,7 @@ async fn fetch_and_locally_cache_all_relevant_properties(
 
     let row: (Option<i32>, Option<Value>, Option<Value>) = sqlx::query_as(query)
         .bind(&distinct_id)
-        .bind(&team_id)
+        .bind(team_id)
         .bind(&group_type_indexes_vec)
         .bind(&group_keys_vec) // Bind group_keys_vec to $4
         .fetch_optional(&mut *conn)
