@@ -73,7 +73,7 @@ NON_RETRYABLE_ERROR_TYPES = [
 
 
 def get_bigquery_fields_from_record_schema(
-    record_schema: pa.Schema, known_json_columns: list[str]
+    record_schema: pa.Schema, known_json_columns: collections.abc.Sequence[str]
 ) -> list[bigquery.SchemaField]:
     """Generate a list of supported BigQuery fields from PyArrow schema.
 
@@ -237,7 +237,77 @@ class BigQueryClient(bigquery.Client):
             yield table
         finally:
             if delete is True:
-                await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
+                try:
+                    await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
+                except Forbidden:
+                    await logger.awarning(
+                        "Missing delete permissions to delete %s.%s.%s", project_id, dataset_id, table_id
+                    )
+
+    async def amerge_tables(
+        self,
+        final_table: bigquery.Table,
+        stage_table: bigquery.Table,
+        mutable: bool,
+        stage_fields_cast_to_json: collections.abc.Sequence[str] | None = None,
+        merge_key: collections.abc.Iterable[bigquery.SchemaField] | None = None,
+    ):
+        """Merge two tables in BigQuery.
+
+        When `mutable` is `False`, we will do a simple `INSERT INTO final FROM stage`,
+        whereas when `mutable` is `True` we will do the more complex `MERGE` query.
+        This is because inmutable tables do not need to concern themselves with
+        the conflict resolution options provided by `MERGE` as each row is unique.
+
+        Arguments:
+            final_table: The BigQuery table we are merging into.
+            stage_table: The BigQuery table we are merging from.
+            mutable: Whether the table is mutable and requires a merge, or not.
+            stage_fields_cast_to_json: Fields that must be cast to `JSON` from
+                `stage_table` when inserting them in `final_table`.
+            merge_key: If table is mutable, the merge key columns.
+        """
+        if mutable is False:
+            return await self.ainsert_into_from_stage_table(
+                final_table, stage_table, stage_fields_cast_to_json=stage_fields_cast_to_json
+            )
+        else:
+            if merge_key is None:
+                raise ValueError("Merge key must be defined when merging a mutable model")
+
+            return await self.amerge_person_tables(
+                final_table, stage_table, merge_key=merge_key, stage_fields_cast_to_json=stage_fields_cast_to_json
+            )
+
+    async def ainsert_into_from_stage_table(
+        self,
+        into_table: bigquery.Table,
+        stage_table: bigquery.Table,
+        stage_fields_cast_to_json: collections.abc.Sequence[str] | None = None,
+    ):
+        """Insert data from `stage_table` into `into_table`."""
+        job_config = bigquery.QueryJobConfig()
+        into_table_fields = ",".join(f"`{field.name}`" for field in into_table.schema)
+
+        if stage_fields_cast_to_json is not None:
+            fields_to_cast = set(stage_fields_cast_to_json)
+        else:
+            fields_to_cast = set()
+        stage_table_fields = ",".join(
+            f"PARSE_JSON(`{field.name}`)" if field.name in fields_to_cast else f"`{field.name}`"
+            for field in into_table.schema
+        )
+
+        query = f"""
+        INSERT INTO `{into_table.full_table_id.replace(":", ".", 1)}`
+          ({into_table_fields})
+        SELECT
+          {stage_table_fields}
+        FROM `{stage_table.full_table_id.replace(":", ".", 1)}`
+        """
+
+        query_job = self.query(query, job_config=job_config)
+        return await asyncio.to_thread(query_job.result)
 
     async def amerge_person_tables(
         self,
@@ -246,9 +316,15 @@ class BigQueryClient(bigquery.Client):
         merge_key: collections.abc.Iterable[bigquery.SchemaField],
         person_version_key: str = "person_version",
         person_distinct_id_version_key: str = "person_distinct_id_version",
+        stage_fields_cast_to_json: collections.abc.Sequence[str] | None = None,
     ):
         """Merge two identical person model tables in BigQuery."""
         job_config = bigquery.QueryJobConfig()
+
+        if stage_fields_cast_to_json is not None:
+            fields_to_cast = set(stage_fields_cast_to_json)
+        else:
+            fields_to_cast = set()
 
         merge_condition = "ON "
 
@@ -267,9 +343,12 @@ class BigQueryClient(bigquery.Client):
                 values += ", "
                 field_names += ", "
 
-            update_clause += f"final.`{field.name}` = stage.`{field.name}`"
+            stage_field = (
+                f"PARSE_JSON(stage.`{field.name}`)" if field.name in fields_to_cast else f"stage.`{field.name}`"
+            )
+            update_clause += f"final.`{field.name}` = {stage_field}"
             field_names += f"`{field.name}`"
-            values += f"stage.`{field.name}`"
+            values += stage_field
 
         if not update_clause:
             raise ValueError("Empty update clause")
@@ -302,7 +381,14 @@ class BigQueryClient(bigquery.Client):
             self.load_table_from_file, parquet_file, table, job_config=job_config, rewind=True
         )
         await logger.adebug("Waiting for BigQuery load job for Parquet file '%s'", parquet_file)
-        result = await asyncio.to_thread(load_job.result)
+
+        try:
+            result = await asyncio.to_thread(load_job.result)
+        except Forbidden as err:
+            if err.reason == "quotaExceeded":
+                raise BigQueryQuotaExceededError(err.message) from err
+            raise
+
         return result
 
     async def load_jsonl_file(self, jsonl_file, table, table_schema):
@@ -321,7 +407,6 @@ class BigQueryClient(bigquery.Client):
         load_job = await asyncio.to_thread(
             self.load_table_from_file, jsonl_file, table, job_config=job_config, rewind=True
         )
-
         await logger.adebug("Waiting for BigQuery load job for JSONL file '%s'", jsonl_file)
 
         try:
@@ -415,7 +500,7 @@ class BigQueryConsumer(Consumer):
             self.bigquery_table,
         )
 
-        await self.bigquery_client.load_jsonl_file(batch_export_file, self.bigquery_table, self.table_schema)
+        await self.bigquery_client.load_parquet_file(batch_export_file, self.bigquery_table, self.table_schema)
 
         await self.logger.adebug("Loaded %s to BigQuery table '%s'", records_since_last_flush, self.bigquery_table)
         self.rows_exported_counter.add(records_since_last_flush)
@@ -508,7 +593,6 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             # between batches.
             [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
         )
-
         if inputs.use_json_type is True:
             json_type = "JSON"
             json_columns = ["properties", "set", "set_once", "person_properties"]
@@ -534,15 +618,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         else:
             schema = get_bigquery_fields_from_record_schema(record_batch_schema, known_json_columns=json_columns)
 
-        # TODO: Expose this as a configuration parameter
-        # Currently, only allow merging persons model, as it's required.
-        # Although all exports could potentially benefit from merging, merging can have an impact on cost,
-        # so users should decide whether to opt-in or not.
-        requires_merge = (
-            isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
-        )
+        stage_schema = [
+            bigquery.SchemaField(field.name, "STRING") if field.name in json_columns else field for field in schema
+        ]
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}" if requires_merge else inputs.table_id
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}"
 
         with bigquery_client(inputs) as bq_client:
             async with (
@@ -557,9 +637,9 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     project_id=inputs.project_id,
                     dataset_id=inputs.dataset_id,
                     table_id=stage_table_name,
-                    table_schema=schema,
-                    create=requires_merge,
-                    delete=requires_merge,
+                    table_schema=stage_schema,
+                    create=True,
+                    delete=True,
                 ) as bigquery_stage_table,
             ):
                 records_completed = await run_consumer_loop(
@@ -571,25 +651,27 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     data_interval_end=data_interval_end,
                     data_interval_start=data_interval_start,
                     schema=record_batch_schema,
-                    writer_format=WriterFormat.JSONL,
+                    writer_format=WriterFormat.PARQUET,
                     max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                    non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
-                    json_columns=json_columns,
+                    json_columns=(),
                     bigquery_client=bq_client,
-                    bigquery_table=bigquery_stage_table if requires_merge else bigquery_table,
-                    table_schema=schema,
+                    bigquery_table=bigquery_stage_table,
+                    table_schema=stage_schema,
+                    writer_file_kwargs={"compression": "zstd"},
+                    multiple_files=True,
                 )
 
-                if requires_merge:
-                    merge_key = (
-                        bigquery.SchemaField("team_id", "INT64"),
-                        bigquery.SchemaField("distinct_id", "STRING"),
-                    )
-                    await bq_client.amerge_person_tables(
-                        final_table=bigquery_table,
-                        stage_table=bigquery_stage_table,
-                        merge_key=merge_key,
-                    )
+                merge_key = (
+                    bigquery.SchemaField("team_id", "INT64"),
+                    bigquery.SchemaField("distinct_id", "STRING"),
+                )
+                await bq_client.amerge_tables(
+                    final_table=bigquery_table,
+                    stage_table=bigquery_stage_table,
+                    mutable=True if model_name == "persons" else False,
+                    merge_key=merge_key,
+                    stage_fields_cast_to_json=json_columns,
+                )
 
         return records_completed
 
@@ -671,4 +753,5 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             interval=inputs.interval,
             non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
             finish_inputs=finish_inputs,
+            maximum_retry_interval_seconds=240,
         )

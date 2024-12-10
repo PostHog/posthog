@@ -11,6 +11,7 @@ import structlog
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.feedback.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
@@ -81,6 +82,7 @@ class RemoteConfig(UUIDModel):
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
+        from posthog.api.survey import get_surveys_response
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -177,8 +179,12 @@ class RemoteConfig(UUIDModel):
                 config["quotaLimited"] = ["recordings"]
                 config["sessionRecording"] = False
 
-        config["surveys"] = True if team.surveys_opt_in else False
         config["heatmaps"] = True if team.heatmaps_opt_in else False
+        surveys_response = get_surveys_response(team)
+        config["surveys"] = surveys_response["surveys"]
+        if surveys_response["survey_config"]:
+            config["survey_config"] = surveys_response["survey_config"]
+
         try:
             default_identified_only = team.pk >= int(settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN)
         except Exception:
@@ -349,3 +355,8 @@ def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
 def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
     if instance.enabled and instance.type in ("site_destination", "site_app") and instance.transpiled:
         _update_team_remote_config(instance.team_id)
+
+
+@receiver(post_save, sender=Survey)
+def survey_saved(sender, instance: "Survey", created, **kwargs):
+    _update_team_remote_config(instance.team_id)
