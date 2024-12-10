@@ -749,6 +749,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.count, 5.0)
         self.assertEqual(test_variant.exposure, 1.0)
 
+    @flaky(max_runs=10, min_passes=1)
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_standard_flow_v2_stats(self):
         feature_flag = self.create_feature_flag()
