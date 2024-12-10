@@ -99,7 +99,7 @@ def merge_and_deduplicate_messages(messages: list[LangchainHumanMessage]) -> lis
     return merge_message_runs(filtered_messages)
 
 
-def filter_visualization_conversation(
+def filter_messages(
     messages: Sequence[AssistantMessageUnion],
     entity_filter: Union[tuple[type[AIMessageUnion], ...], type[AIMessageUnion]] = (
         AssistantMessage,

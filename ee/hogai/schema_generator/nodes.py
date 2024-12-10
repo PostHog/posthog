@@ -31,7 +31,7 @@ from ee.hogai.utils import (
     AssistantMessageUnion,
     AssistantNode,
     AssistantState,
-    filter_visualization_conversation,
+    filter_messages,
     find_last_message_of_type,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -165,7 +165,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             )
         ]
 
-        filtered_messages = filter_visualization_conversation(messages)
+        filtered_messages = filter_messages(messages)
         msg_mapping = self._get_human_viz_message_mapping(filtered_messages)
         initiator_message = messages[start_index]
         last_viz_message = find_last_message_of_type(filtered_messages, VisualizationMessage)
