@@ -623,7 +623,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         return []
 
     cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id)
-    matcher_cache = FlagsMatcherCache(team_id=team_id)
+    matcher_cache = FlagsMatcherCache(project_id=project_id)
     uuids_to_add_to_cohort = []
     cohorts_cache: dict[int, CohortOrEmpty] = {}
 
@@ -697,6 +697,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
 
                     try:
                         match = FeatureFlagMatcher(
+                            project_id,
                             [feature_flag],
                             distinct_id,
                             groups={},
