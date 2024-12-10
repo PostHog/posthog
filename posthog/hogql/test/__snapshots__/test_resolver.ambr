@@ -577,6 +577,23 @@
         }
       },
       {
+        alias: "event_person_id"
+        expr: {
+          chain: [
+            "event_person_id"
+          ]
+          type: {
+            name: "event_person_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_person_id"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "event_issue_id"
         expr: {
           chain: [
@@ -607,23 +624,6 @@
         hidden: True
         type: {
           alias: "issue_id"
-          type: <recursion ...>
-        }
-      },
-      {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        hidden: True
-        type: {
-          alias: "event_person_id"
           type: <recursion ...>
         }
       }
@@ -963,6 +963,17 @@
             type: <recursion ...>
           },
           {
+            alias: "event_person_id"
+            expr: {
+              chain: [
+                "event_person_id"
+              ]
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
+          },
+          {
             alias: "event_issue_id"
             expr: {
               args: [
@@ -1161,17 +1172,6 @@
               ]
               distinct: False
               name: "if"
-              type: <recursion ...>
-            }
-            hidden: True
-            type: <recursion ...>
-          },
-          {
-            alias: "event_person_id"
-            expr: {
-              chain: [
-                "event_person_id"
-              ]
               type: <recursion ...>
             }
             hidden: True
@@ -1738,6 +1738,23 @@
         }
       },
       {
+        alias: "event_person_id"
+        expr: {
+          chain: [
+            "event_person_id"
+          ]
+          type: {
+            name: "event_person_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_person_id"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "event_issue_id"
         expr: {
           args: [
@@ -1976,23 +1993,6 @@
         hidden: True
         type: {
           alias: "issue_id"
-          type: <recursion ...>
-        }
-      },
-      {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        hidden: True
-        type: {
-          alias: "event_person_id"
           type: <recursion ...>
         }
       }
@@ -3294,6 +3294,23 @@
         }
       },
       {
+        alias: "event_person_id"
+        expr: {
+          chain: [
+            "event_person_id"
+          ]
+          type: {
+            name: "event_person_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_person_id"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "event_issue_id"
         expr: {
           chain: [
@@ -3324,23 +3341,6 @@
         hidden: True
         type: {
           alias: "issue_id"
-          type: <recursion ...>
-        }
-      },
-      {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        hidden: True
-        type: {
-          alias: "event_person_id"
           type: <recursion ...>
         }
       }
@@ -3681,6 +3681,17 @@
               type: <recursion ...>
             },
             {
+              alias: "event_person_id"
+              expr: {
+                chain: [
+                  "event_person_id"
+                ]
+                type: <recursion ...>
+              }
+              hidden: True
+              type: <recursion ...>
+            },
+            {
               alias: "event_issue_id"
               expr: {
                 args: [
@@ -3879,17 +3890,6 @@
                 ]
                 distinct: False
                 name: "if"
-                type: <recursion ...>
-              }
-              hidden: True
-              type: <recursion ...>
-            },
-            {
-              alias: "event_person_id"
-              expr: {
-                chain: [
-                  "event_person_id"
-                ]
                 type: <recursion ...>
               }
               hidden: True
@@ -4418,6 +4418,23 @@
                   }
                 },
                 {
+                  alias: "event_person_id"
+                  expr: {
+                    chain: [
+                      "event_person_id"
+                    ]
+                    type: {
+                      name: "event_person_id"
+                      table_type: <recursion ...>
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "event_person_id"
+                    type: <recursion ...>
+                  }
+                },
+                {
                   alias: "event_issue_id"
                   expr: {
                     args: [
@@ -4656,23 +4673,6 @@
                   hidden: True
                   type: {
                     alias: "issue_id"
-                    type: <recursion ...>
-                  }
-                },
-                {
-                  alias: "event_person_id"
-                  expr: {
-                    chain: [
-                      "event_person_id"
-                    ]
-                    type: {
-                      name: "event_person_id"
-                      table_type: <recursion ...>
-                    }
-                  }
-                  hidden: True
-                  type: {
-                    alias: "event_person_id"
                     type: <recursion ...>
                   }
                 }
@@ -5491,6 +5491,23 @@
         }
       },
       {
+        alias: "event_person_id"
+        expr: {
+          chain: [
+            "event_person_id"
+          ]
+          type: {
+            name: "event_person_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_person_id"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "event_issue_id"
         expr: {
           args: [
@@ -5729,23 +5746,6 @@
         hidden: True
         type: {
           alias: "issue_id"
-          type: <recursion ...>
-        }
-      },
-      {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        hidden: True
-        type: {
-          alias: "event_person_id"
           type: <recursion ...>
         }
       }
@@ -6308,6 +6308,23 @@
         }
       },
       {
+        alias: "event_person_id"
+        expr: {
+          chain: [
+            "event_person_id"
+          ]
+          type: {
+            name: "event_person_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_person_id"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "event_issue_id"
         expr: {
           args: [
@@ -6546,23 +6563,6 @@
         hidden: True
         type: {
           alias: "issue_id"
-          type: <recursion ...>
-        }
-      },
-      {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        hidden: True
-        type: {
-          alias: "event_person_id"
           type: <recursion ...>
         }
       }
