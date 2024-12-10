@@ -353,9 +353,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="refresh integrations",
     )
 
-    add_periodic_task_with_expiry(
-        sender,
-        # once a day
+    sender.add_periodic_task(
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
