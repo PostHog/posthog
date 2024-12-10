@@ -1,6 +1,6 @@
 @mixin secondary-variables {
     --lemon-button-border-color: var(--border-tertiary);
-    --lemon-button-bg-color-active: var(--background-primary);
+    --lemon-button-bg-color-active: transparent;
     --lemon-button-border-color-hover: var(--border-secondary);
     --lemon-button-frame-bg-color: var(--background-tertiary);
 }
@@ -197,6 +197,7 @@
         --lemon-button-color: var(--content-primary);
 
         [theme='dark'] & {
+            --lemon-button-bg-color: var(--background-button);
             --lemon-button-border-color-hover: var(--border-button-bold-hover);
         }
 
@@ -224,11 +225,18 @@
     &.LemonButton--status-danger,
     &.LemonButton--primary.LemonButton--status-danger,
     &.LemonButton--secondary.LemonButton--status-danger {
+        --lemon-button-bg-color: var(--background-danger-subtle);
         --lemon-button-color: var(--content-danger-bold);
         --lemon-button-border-color: var(--border-danger);
-        --lemon-button-border-color-hover: var(--border-danger);
+        --lemon-button-border-color-hover: var(--border-danger-bold);
         --lemon-button-frame-bg-color: var(--background-danger-bold);
         --lemon-button-icon-opacity: 1;
+
+        [theme='dark'] & {
+            --lemon-button-border-color: var(--border-danger);
+            --lemon-button-bg-color: var(--background-button-subtle);
+            --lemon-button-border-color-hover: var(--border-danger-hover);
+        }
 
         &[aria-disabled='true']:not(.LemonButton--loading) {
             --lemon-button-color: var(--content-danger-bold-disabled);

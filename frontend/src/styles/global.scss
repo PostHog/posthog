@@ -225,7 +225,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --background-brand: var(--brand-500);
     --background-brand-hover: var(--brand-600);
     --background-brand-pressed: var(--brand-700);
-    --background-button: var(--yellow-600);
+    --background-button: var(--yellow-500);
     --background-button-hover: var(--yellow-700);
     --background-button-pressed: var(--yellow-800);
     --background-button-subtle: var(--yellow-500);
@@ -245,6 +245,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --border-focus: var(--blue-500);
     --border-warning: var(--orange-500);
     --border-danger: var(--red-500);
+    --border-danger-bold: var(--red-600);
     --border-success: var(--green-500);
     --border-button: var(--yellow-600);
     --border-button-hover: var(--yellow-700);
@@ -601,11 +602,15 @@ body {
         --border-button-hover: var(--yellow-700);
         --border-button-bold-hover: var(--yellow-500);
         --border-button-subtle: var(--yellow-500);
+        --background-button: var(--yellow-800);
         --background-button-subtle: var(--yellow-900);
         --background-button-subtle-hover: var(--yellow-500);
         --background-success-subtle: var(--green-800);
         --border-secondary: var(--neutral-cool-650);
         --border-tertiary: var(--neutral-cool-750);
+        --border-danger: var(--red-500);
+        --border-danger-hover: var(--red-400);
+        --border-danger-bold: var(--red-400);
 
         @include dark-mode-3000-variables;
     }
