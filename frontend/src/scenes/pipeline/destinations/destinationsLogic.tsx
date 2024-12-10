@@ -33,6 +33,7 @@ import {
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
+import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<Destination | SiteApp> {}
@@ -262,7 +263,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 const convertedDestinations = rawDestinations.map((d) =>
                     convertToPipelineNode(
                         d,
-                        'type' in d && d.type === 'site_app' ? PipelineStage.SiteApp : PipelineStage.Destination
+                        'type' in d ? hogFunctionTypeToPipelineStage(d.type) : PipelineStage.Destination
                     )
                 )
                 const enabledFirst = convertedDestinations.sort((a, b) => Number(b.enabled) - Number(a.enabled))
