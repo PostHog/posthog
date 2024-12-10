@@ -251,18 +251,12 @@ class Consumer:
 
         record_batches_count = 0
         records_count = 0
-        record_batch_generator = self.generate_record_batches_from_queue(queue, producer_task)
 
         await self.logger.adebug("Starting record batch writing loop")
 
-        writer._batch_export_file = writer.create_temporary_file()
+        writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
 
-        while True:
-            try:
-                record_batch = await anext(record_batch_generator)
-            except StopAsyncIteration:
-                break
-
+        async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
             record_batches_count += 1
             record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
 
@@ -273,7 +267,7 @@ class Consumer:
 
                 if multiple_files:
                     await writer.close_temporary_file()
-                    writer._batch_export_file = writer.create_temporary_file()
+                    writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
                 else:
                     await writer.flush()
 
