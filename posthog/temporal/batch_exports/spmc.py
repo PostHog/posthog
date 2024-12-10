@@ -281,6 +281,7 @@ class Consumer:
                     queue.task_done()
                 record_batches_count = 0
 
+        records_count += writer.records_since_last_flush
         await writer.close_temporary_file()
 
         await self.logger.adebug("Consumed %s records", records_count)
