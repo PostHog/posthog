@@ -155,11 +155,28 @@ export async function onLoad({ inputs, posthog }) {
     u.parentNode.insertBefore(r,u);})(window,document,
     'https://sc-static.net/scevent.min.js');
 
-    snaptr('init', '{inputs.pixelId}', {});
+    let userProperties = {};
+
+    for (let { key, value } in inputs.userProperties) {
+        if (value) {
+            userProperties[key] = value;
+        }
+    };
+
+    snaptr('init', '{inputs.pixelId}', userProperties);
 }
-export function onEvent({ posthog, ...globals }) {
-    const { event, person } = globals
+
+export function onEvent({ posthog, globals }) {
+    const { event, person } = globals;
     if (event.event === '$pageview') {
+        let eventProperties = {};
+
+        for (let { key, value } in inputs.userProperties) {
+            if (value) {
+                eventProperties[key] = value;
+            }
+        };
+
         snaptr('track', 'PAGE_VIEW');
     }
 }
@@ -169,8 +186,35 @@ export function onEvent({ posthog, ...globals }) {
             "key": "pixelId",
             "type": "string",
             "label": "Pixel ID",
+            "description": "You must obtain a Pixel ID to use the Snapchat Pixel. If you’ve already set up a Pixel for your website, we recommend that you use the same Pixel ID for your browser and server events.",
             "default": "",
+            "secret": False,
             "required": True,
-        }
+        },
+        {
+            "key": "userProperties",
+            "type": "dictionary",
+            "description": "Map of Snapchat user parameters and their values. Check out this page for more details: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+            "label": "User parameters",
+            "default": {
+                "user_email": "{person.properties.email}",
+                "ip_address": "{person.user.ip_address}",
+            },
+            "secret": False,
+            "required": False,
+        },
+        {
+            "key": "eventProperties",
+            "type": "dictionary",
+            "description": "Map of Snapchat event attributes and their values. Check out this page for more details: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+            "label": "Event parameters",
+            "default": {
+                "currency": "{event.properties.currency}",
+                "price": "{event.properties.price}",
+                "client_dedup_id": "{event.uuid}",
+            },
+            "secret": False,
+            "required": False,
+        },
     ],
 )
