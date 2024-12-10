@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 
 
 class TestRemoteConfig(BaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         project, team = Project.objects.create_with_team(
             initiating_user=self.user,
@@ -14,7 +14,7 @@ class TestRemoteConfig(BaseTest):
         )
         self.other_team = team
 
-    def test_sync_task_syncs_all_remote_configs(self):
+    def test_sync_task_syncs_all_remote_configs(self) -> None:
         # Delete one teams config
         RemoteConfig.objects.get(team=self.other_team).delete()
         configs = RemoteConfig.objects.all()
