@@ -2,7 +2,7 @@ import copy
 import json
 import re
 from enum import StrEnum
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union, cast
 
 from pydantic import Field
 
@@ -59,6 +59,10 @@ funnels_math_types = [
 ]
 
 
+def is_entity_variable(item: any) -> bool:
+    return isinstance(item, str) and item.startswith("{") and item.endswith("}")
+
+
 def clean_display(display: str):
     if display not in [c.value for c in ChartDisplayType]:
         return None
@@ -113,8 +117,16 @@ def transform_legacy_hidden_legend_keys(hidden_legend_keys):
 
 
 def legacy_entity_to_node(
-    entity: LegacyEntity, include_properties: bool, math_availability: MathAvailability
-) -> EventsNode | ActionsNode | DataWarehouseNode:
+    entity: LegacyEntity | str,
+    include_properties: bool,
+    math_availability: MathAvailability,
+    allow_variables: bool = False,
+) -> EventsNode | ActionsNode | DataWarehouseNode | str:
+    if allow_variables and is_entity_variable(entity):
+        return cast(str, entity)
+
+    assert not isinstance(entity, str)
+
     """
     Takes a legacy entity and converts it into an EventsNode or ActionsNode.
     """
@@ -192,7 +204,7 @@ def exlusion_entity_to_node(entity) -> FunnelExclusionEventsNode | FunnelExclusi
 # TODO: remove this method that returns legacy entities
 def to_base_entity_dict(entity: dict | str):
     if isinstance(entity, str):
-        if entity.startswith("{") and entity.endswith("}"):
+        if is_entity_variable(entity):
             return entity
         raise ValueError("Expecting valid entity or template variable")
 
@@ -220,6 +232,12 @@ class RetentionFilterWithTemplateVariables(RetentionFilter):
     targetEntity: Optional[RetentionEntity | str] = None
 
 
+class TrendsQueryWithTemplateVariables(TrendsQuery):
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, str]] = Field(
+        ..., description="Events and actions to include"
+    )
+
+
 class RetentionQueryWithTemplateVariables(RetentionQuery):
     retentionFilter: RetentionFilterWithTemplateVariables = Field(
         ..., description="Properties specific to the retention insight"
@@ -227,7 +245,7 @@ class RetentionQueryWithTemplateVariables(RetentionQuery):
 
 
 insight_to_query_type_with_variables = {
-    "TRENDS": TrendsQuery,
+    "TRENDS": TrendsQueryWithTemplateVariables,
     "FUNNELS": FunnelsQuery,
     "RETENTION": RetentionQueryWithTemplateVariables,
     "PATHS": PathsQuery,
@@ -261,12 +279,12 @@ def _interval(filter: dict):
     return {"interval": filter.get("interval")}
 
 
-def _series(filter: dict):
+def _series(filter: dict, allow_variables: bool = False):
     if _insight_type(filter) == "RETENTION" or _insight_type(filter) == "PATHS":
         return {}
 
     # remove templates gone wrong
-    if filter.get("events") is not None:
+    if not allow_variables and filter.get("events") is not None:
         filter["events"] = [event for event in filter.get("events") if not (isinstance(event, str))]
 
     math_availability: MathAvailability = MathAvailability.Unavailable
@@ -281,15 +299,16 @@ def _series(filter: dict):
 
     return {
         "series": [
-            legacy_entity_to_node(entity, include_properties, math_availability)
-            for entity in _entities(filter)
-            if not (entity.type == "actions" and entity.id is None)
+            legacy_entity_to_node(entity, include_properties, math_availability, allow_variables)
+            for entity in _entities(filter, allow_variables)
+            if isinstance(entity, str) or not (entity.type == "actions" and entity.id is None)
         ]
     }
 
 
-def _entities(filter: dict):
-    processed_entities: list[LegacyEntity] = []
+def _entities(filter: dict, allow_variables: bool = False):
+    processed_entities: list[LegacyEntity | str] = []
+    has_variables = False
 
     # add actions
     actions = filter.get("actions", [])
@@ -301,7 +320,18 @@ def _entities(filter: dict):
     events = filter.get("events", [])
     if isinstance(events, str):
         events = json.loads(events)
-    processed_entities.extend([LegacyEntity({**entity, "type": "events"}) for entity in events])
+
+    def process_event(entity) -> LegacyEntity | str:
+        nonlocal has_variables
+
+        # strings represent template variables, return them as-is
+        if allow_variables and isinstance(entity, str):
+            has_variables = True
+            return entity
+        else:
+            return LegacyEntity({**entity, "type": "events"})
+
+    processed_entities.extend([process_event(entity) for entity in events])
 
     # add data warehouse
     warehouse = filter.get("data_warehouse", [])
@@ -309,12 +339,13 @@ def _entities(filter: dict):
         warehouse = json.loads(warehouse)
     processed_entities.extend([LegacyEntity({**entity, "type": "data_warehouse"}) for entity in warehouse])
 
-    # order by order
-    processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
+    if not has_variables:
+        # order by order
+        processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
 
-    # set sequential index values on entities
-    for index, entity in enumerate(processed_entities):
-        entity.index = index
+        # set sequential index values on entities
+        for index, entity in enumerate(processed_entities):
+            entity.index = index
 
     return processed_entities
 
@@ -568,7 +599,7 @@ def filter_to_query(filter: dict, allow_variables: bool = False) -> InsightQuery
     data = {
         **_date_range(filter),
         **_interval(filter),
-        **_series(filter),
+        **_series(filter, allow_variables),
         **_sampling_factor(filter),
         **_filter_test_accounts(filter),
         **_properties(filter),
