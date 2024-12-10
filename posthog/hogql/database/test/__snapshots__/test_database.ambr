@@ -478,6 +478,40 @@
                   "schema_valid": true,
                   "table": "person_distinct_id_overrides",
                   "type": "lazy_table"
+              },
+              "event_issue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_issue_id",
+                  "id": null,
+                  "name": "event_issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "exception_issue_override": {
+                  "chain": null,
+                  "fields": [
+                      "team_id",
+                      "fingerprint",
+                      "issue_id"
+                  ],
+                  "hogql_value": "exception_issue_override",
+                  "id": "exception_issue_override",
+                  "name": "exception_issue_override",
+                  "schema_valid": true,
+                  "table": "error_tracking_issue_fingerprint_overrides",
+                  "type": "lazy_table"
+              },
+              "issue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_id",
+                  "id": null,
+                  "name": "issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
               }
           },
           "id": "events",
@@ -848,7 +882,10 @@
                       "elements_chain_ids",
                       "elements_chain_elements",
                       "event_person_id",
-                      "override"
+                      "override",
+                      "event_issue_id",
+                      "exception_issue_override",
+                      "issue_id"
                   ],
                   "hogql_value": "events",
                   "id": "events",
@@ -2105,6 +2142,40 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "array"
+              },
+              "event_issue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_issue_id",
+                  "id": null,
+                  "name": "event_issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "exception_issue_override": {
+                  "chain": null,
+                  "fields": [
+                      "team_id",
+                      "fingerprint",
+                      "issue_id"
+                  ],
+                  "hogql_value": "exception_issue_override",
+                  "id": "exception_issue_override",
+                  "name": "exception_issue_override",
+                  "schema_valid": true,
+                  "table": "error_tracking_issue_fingerprint_overrides",
+                  "type": "lazy_table"
+              },
+              "issue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_id",
+                  "id": null,
+                  "name": "issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
               }
           },
           "id": "events",
@@ -2473,7 +2544,10 @@
                       "elements_chain_href",
                       "elements_chain_texts",
                       "elements_chain_ids",
-                      "elements_chain_elements"
+                      "elements_chain_elements",
+                      "event_issue_id",
+                      "exception_issue_override",
+                      "issue_id"
                   ],
                   "hogql_value": "events",
                   "id": "events",
