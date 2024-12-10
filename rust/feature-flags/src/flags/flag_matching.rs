@@ -532,6 +532,7 @@ impl FeatureFlagMatcher {
                 }
                 Err(e) => {
                     error_while_computing_flags = true;
+                    // TODO add sentry exception tracking
                     error!("Error fetching properties: {:?}", e);
                     let reason = parse_exception_for_prometheus_label(&e);
                     inc(
@@ -558,6 +559,7 @@ impl FeatureFlagMatcher {
                     }
                     Err(e) => {
                         error_while_computing_flags = true;
+                        // TODO add sentry exception tracking
                         error!(
                             "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                             flag.key, self.distinct_id, e
