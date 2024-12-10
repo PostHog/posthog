@@ -53,7 +53,14 @@ pub async fn handle_event(
     props.exception_list = results;
     let fingerprinted = props.to_fingerprinted(fingerprint.clone());
 
-    let mut output = resolve_issue(&context.pool, event.team_id, fingerprinted).await?;
+    let mut output = resolve_issue(
+        &context.pool,
+        event.team_id,
+        fingerprinted,
+        &context.kafka_producer,
+        &context.config.events_topic,
+    )
+    .await?;
 
     // TODO - I'm not sure we actually want to do this? Maybe junk drawer stuff should end up in clickhouse, and
     // be directly queryable by users? Stripping it for now, so it only ends up in postgres

@@ -1,8 +1,11 @@
+use common_types::ClickHouseEvent;
+use rdkafka::producer::FutureProducer;
 use sqlx::postgres::any::AnyConnectionBackend;
 use uuid::Uuid;
 
 use crate::{
     error::UnhandledError,
+    hack::kafka::{send_keyed_iter_to_kafka, KafkaContext},
     types::{FingerprintedErrProps, OutputErrProps},
 };
 
@@ -138,6 +141,8 @@ pub async fn resolve_issue<'c, A>(
     con: A,
     team_id: i32,
     fingerprinted: FingerprintedErrProps,
+    producer: &FutureProducer<KafkaContext>,
+    events_topic: &str,
 ) -> Result<OutputErrProps, UnhandledError>
 where
     A: sqlx::Acquire<'c, Database = sqlx::Postgres>,
@@ -179,7 +184,46 @@ where
         conn.rollback().await?;
     } else {
         conn.commit().await?;
+        produce_issue_creation_event(team_id, producer, events_topic).await?;
     }
 
     Ok(fingerprinted.to_output(issue_override.issue_id))
+}
+
+pub async fn produce_issue_creation_event(
+    team_id: i32,
+    producer: &FutureProducer<KafkaContext>,
+    topic: &str,
+) -> Result<(), UnhandledError> {
+    let props = serde_json::json!({
+        "uuid": Uuid::now_v7(),
+        "team_id": team_id,
+        "event": "$exception_issue_created"
+    });
+
+    let event: ClickHouseEvent = serde_json::from_value(props)?;
+
+    send_keyed_iter_to_kafka(producer, topic, |ev| Some(ev.uuid.to_string()), &[event])
+        .await
+        .expect("Failed to send event to Kafka");
+
+    Ok(())
+
+    // pub project_id: i64,
+    // pub distinct_id: String,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // pub properties: Option<String>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // pub person_id: Option<String>,
+    // // TODO: verify timestamp format
+    // pub timestamp: String,
+    // // TODO: verify timestamp format
+    // pub created_at: String,
+    // pub elements_chain: String,
+    // // TODO: verify timestamp format
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // pub person_created_at: Option<String>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // pub person_properties: Option<String>,
+    // pub person_mode: PersonMode,
 }
