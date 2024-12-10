@@ -284,7 +284,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         mock_capture.delay.reset_mock()
 
         # Check that messaging record was created
-        record = MessagingRecord.objects.get(
+        record = MessagingRecord.objects.get(  # type: ignore
             raw_email=f"team_{self.team.id}", campaign_key="periodic_digest_2024-01-20_7d"
         )
         self.assertIsNotNone(record.sent_at)
@@ -317,7 +317,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         mock_capture.delay.assert_called_once()
 
         # Verify two different records exist
-        records = MessagingRecord.objects.filter(raw_email=f"team_{self.team.id}")
+        records = MessagingRecord.objects.filter(raw_email=f"team_{self.team.id}")  # type: ignore
         self.assertEqual(records.count(), 2)
         campaign_keys = sorted([r.campaign_key for r in records])
         self.assertEqual(campaign_keys, ["periodic_digest_2024-01-20_30d", "periodic_digest_2024-01-20_7d"])
