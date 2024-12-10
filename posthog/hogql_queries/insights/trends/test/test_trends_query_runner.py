@@ -4953,30 +4953,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["data"] == [1.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.1]
 
     def test_trends_aggregation_first_matching_event_for_user(self):
-        # self._create_events(
-        #     [
-        #         SeriesTestData(
-        #             distinct_id="p1",
-        #             events=[
-        #                 Series(event="$pageview", timestamps=["2020-01-08T12:00:00Z"]),
-        #                 Series(event="$pageview", timestamps=["2020-01-09T12:00:00Z"]),
-        #             ],
-        #             properties={
-        #                 "$browser": "Chrome",
-        #             },
-        #         ),
-        #         SeriesTestData(
-        #             distinct_id="p2",
-        #             events=[
-        #                 Series(event="$pageview", timestamps=["2020-01-10T12:00:00Z"]),
-        #                 Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"]),
-        #             ],
-        #             properties={
-        #                 "$browser": "Firefox",
-        #             },
-        #         ),
-        #     ]
-        # )
         _create_person(
             team=self.team,
             distinct_ids=["p1"],
