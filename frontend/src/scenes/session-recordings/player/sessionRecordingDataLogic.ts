@@ -394,7 +394,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 'webVitalsEvents',
             ],
         ],
-        actions: [sessionRecordingEventDataLogic(props), ['loadEvents', 'loadFulLEventData']],
+        actions: [sessionRecordingEventDataLogic(props), ['loadEvents', 'loadFullEventData']],
     })),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
