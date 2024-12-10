@@ -15,7 +15,7 @@ export const OverviewTab = (): JSX.Element => {
 
     return (
         <div className="ErrorTracking__issue">
-            <div className="h-full space-y-2">
+            <div className="flex h-full space-y-2">
                 <Playlist
                     loading={issueLoading || eventsLoading}
                     title="Exceptions"
@@ -64,6 +64,7 @@ export const OverviewTab = (): JSX.Element => {
                         }
                     }}
                 />
+                <div>Sidebar</div>
             </div>
         </div>
     )

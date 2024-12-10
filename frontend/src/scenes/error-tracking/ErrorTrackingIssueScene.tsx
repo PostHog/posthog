@@ -1,6 +1,6 @@
 import './ErrorTracking.scss'
 
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect } from 'react'
@@ -9,10 +9,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ErrorTrackingIssue } from '~/queries/schema'
 
 import { AssigneeSelect } from './AssigneeSelect'
-import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { OverviewTab } from './groups/OverviewTab'
-import { SymbolSetUploadModal } from './SymbolSetUploadModal'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -76,11 +74,17 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     )
                 }
             />
-            <ErrorTrackingFilters.FilterGroup />
+            {/* <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
-            <ErrorTrackingFilters.Options isGroup />
-            <OverviewTab />
-            <SymbolSetUploadModal />
+            <ErrorTrackingFilters.Options isGroup /> */}
+
+            <LemonTabs
+                activeKey="overview"
+                tabs={[
+                    { key: 'overview', label: 'Overview', content: <OverviewTab /> },
+                    { key: 'events', label: 'Events', content: <OverviewTab /> },
+                ]}
+            />
         </>
     )
 }
