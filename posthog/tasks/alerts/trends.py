@@ -93,6 +93,9 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 filters_override=filters_override,
             )
 
+            if not calculation_result.result:
+                raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
+
             interval = query.interval if not is_non_time_series else None
 
             if threshold.bounds.upper is not None:
@@ -182,11 +185,11 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 filters_override=filters_overrides,
             )
 
-            results_to_evaluate = []
+            results_to_evaluate: list[TrendResult] = []
 
             if has_breakdown:
                 # for breakdowns, we need to check all values in calculation_result.result
-                breakdown_results = calculation_result.result
+                breakdown_results = cast(list[TrendResult], calculation_result.result)
                 results_to_evaluate.extend(breakdown_results)
             else:
                 # for non breakdowns, we pick the series (config.series_index) from calculation_result.result
