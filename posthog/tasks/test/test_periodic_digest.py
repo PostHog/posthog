@@ -119,8 +119,8 @@ class TestPeriodicDigestReport(APIBaseTest):
             "users_who_signed_up": [],
             "users_who_signed_up_count": 0,
             "period": {
-                "end_inclusive": "2024-01-20T00:01:00",
-                "start_inclusive": "2024-01-13T00:01:00",
+                "end_inclusive": "2024-01-20T00:00:00+00:00",
+                "start_inclusive": "2024-01-13T00:00:00+00:00",
             },
             "plugins_enabled": {},
             "plugins_installed": {},
@@ -186,6 +186,7 @@ class TestPeriodicDigestReport(APIBaseTest):
                     "key": "test-flag",
                 }
             ],
+            "digest_items_with_data": 8,
         }
 
         mock_capture.delay.assert_called_once_with(
@@ -258,6 +259,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             "new_external_data_sources": [],
             "new_surveys_launched": [],
             "new_feature_flags": [],
+            "digest_items_with_data": 1,
         }
 
         mock_capture.delay.assert_called_once_with(
@@ -271,10 +273,11 @@ class TestPeriodicDigestReport(APIBaseTest):
     @patch("posthog.tasks.periodic_digest.capture_report")
     def test_periodic_digest_report_idempotency(self, mock_capture: MagicMock) -> None:
         # Create test data
-        Dashboard.objects.create(
-            team=self.team,
-            name="Test Dashboard",
-        )
+        with freeze_time("2024-01-15T00:01:00Z"):
+            Dashboard.objects.create(
+                team=self.team,
+                name="Test Dashboard",
+            )
 
         # First run - should send the digest
         send_all_periodic_digest_reports()
@@ -300,10 +303,11 @@ class TestPeriodicDigestReport(APIBaseTest):
     @patch("posthog.tasks.periodic_digest.capture_report")
     def test_periodic_digest_different_periods(self, mock_capture: MagicMock) -> None:
         # Create test data
-        Dashboard.objects.create(
-            team=self.team,
-            name="Test Dashboard",
-        )
+        with freeze_time("2024-01-15T00:01:00Z"):
+            Dashboard.objects.create(
+                team=self.team,
+                name="Test Dashboard",
+            )
 
         # Send weekly digest
         send_all_periodic_digest_reports()

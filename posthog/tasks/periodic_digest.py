@@ -107,8 +107,8 @@ def convert_team_digest_items_to_dict(items: QuerySet) -> dict[int, QuerySet]:
     return {team_id: items.filter(team_id=team_id) for team_id in items.values_list("team_id", flat=True).distinct()}
 
 
-def has_non_zero_digest(report: periodicDigestReport) -> bool:
-    return any(len(getattr(report, key)) > 0 for key in report.__dataclass_fields__)
+def count_non_zero_digest_items(report: periodicDigestReport) -> int:
+    return sum(1 for key in report.__dataclass_fields__ if len(getattr(report, key)) > 0)
 
 
 def _get_all_digest_data_as_team_rows(period_start: datetime, period_end: datetime) -> dict[str, Any]:
@@ -192,6 +192,7 @@ def send_periodic_digest_report(
     instance_metadata: dict[str, Any],
     period_end: datetime,
     period_start: datetime,
+    digest_items_with_data: int,
 ) -> None:
     period_str = period_end.strftime("%Y-%m-%d")
     days = (period_end - period_start).days
@@ -211,6 +212,7 @@ def send_periodic_digest_report(
         "team_id": team_id,
         "team_name": team_name,
         "template": "periodic_digest_report",
+        "digest_items_with_data": digest_items_with_data,
         **periodic_digest_report,
         **instance_metadata,
     }
@@ -234,7 +236,9 @@ def send_all_periodic_digest_reports(
     begin_date: Optional[str] = None,
 ) -> None:
     period_end = (
-        parser.parse(end_date) if end_date else datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        parser.parse(end_date)
+        if end_date
+        else datetime.now(tz=timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     )
     period_start = parser.parse(begin_date) if begin_date else period_end - timedelta(days=7)
 
@@ -246,9 +250,10 @@ def send_all_periodic_digest_reports(
             report = get_periodic_digest_report(all_digest_data, team)
             full_report_dict = dataclasses.asdict(report)
             instance_metadata = dataclasses.asdict(get_instance_metadata((period_start, period_end)))
+            digest_items_with_data = count_non_zero_digest_items(report)
 
             # Then capture as events to PostHog, so they can be sent via email
-            if has_non_zero_digest(report) and not dry_run:
+            if digest_items_with_data > 0 and not dry_run:
                 send_periodic_digest_report.delay(
                     team_id=team.id,
                     team_name=team.name,
@@ -256,6 +261,7 @@ def send_all_periodic_digest_reports(
                     instance_metadata=instance_metadata,
                     period_end=period_end,
                     period_start=period_start,
+                    digest_items_with_data=digest_items_with_data,
                 )
         time_since = datetime.now() - time_now
         logger.debug(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
