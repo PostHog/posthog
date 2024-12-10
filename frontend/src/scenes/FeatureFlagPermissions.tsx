@@ -1,5 +1,5 @@
-import { IconGear, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { IconGear, IconOpenSidebar, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
@@ -7,8 +7,8 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
-import { AccessLevel, AvailableFeature, FeatureFlagType, Resource, RoleType } from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { AccessLevel, AvailableFeature, FeatureFlagType, Resource, RoleType, SidePanelTab } from '~/types'
 
 import { featureFlagPermissionsLogic } from './feature-flags/featureFlagPermissionsLogic'
 import { permissionsLogic } from './settings/organization/Permissions/permissionsLogic'
@@ -46,13 +46,29 @@ export function FeatureFlagPermissions({ featureFlag }: { featureFlag: FeatureFl
     const { setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
     )
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const newAccessControls = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
     if (newAccessControls) {
         if (!featureFlag.id) {
             return <p>Not supported</p>
         }
-        return <AccessControlObject resource="feature_flag" resource_id={`${featureFlag.id}`} />
+        return (
+            <div>
+                <LemonBanner type="info" className="mb-4">
+                    Permissions have moved! We're rolling out our new access control system. Click below to open it.
+                </LemonBanner>
+                <LemonButton
+                    type="primary"
+                    icon={<IconOpenSidebar />}
+                    onClick={() => {
+                        openSidePanel(SidePanelTab.AccessControl)
+                    }}
+                >
+                    Open access control
+                </LemonButton>
+            </div>
+        )
     }
 
     return (
@@ -107,7 +123,7 @@ export function ResourcePermission({
                                 icon={
                                     <LemonButton
                                         icon={<IconGear />}
-                                        to={`${urls.settings('organization-role-based-access-control')}`}
+                                        to={`${urls.settings('organization-roles')}`}
                                         targetBlank
                                         size="small"
                                         noPadding
