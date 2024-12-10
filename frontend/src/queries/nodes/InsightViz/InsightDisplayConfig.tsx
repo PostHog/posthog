@@ -135,7 +135,6 @@ export function InsightDisplayConfig(): JSX.Element {
                         <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
                     </ConfigFilter>
                 )}
-
                 {showInterval && (
                     <ConfigFilter>
                         <IntervalFilter />
