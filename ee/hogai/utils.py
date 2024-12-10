@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Optional, TypedDict, Union
+from typing import Annotated, Optional, TypedDict, TypeVar, Union
 
 from jsonref import replace_refs
 from langchain_core.agents import AgentAction
@@ -24,9 +24,8 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-AssistantMessageUnion = Union[
-    AssistantMessage, HumanMessage, VisualizationMessage, FailureMessage, RouterMessage, ReasoningMessage
-]
+AIMessageUnion = Union[AssistantMessage, VisualizationMessage, FailureMessage, RouterMessage, ReasoningMessage]
+AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
 
 
 class Conversation(BaseModel):
@@ -86,9 +85,9 @@ def remove_line_breaks(line: str) -> str:
     return line.replace("\n", " ")
 
 
-def merge_human_messages(messages: list[LangchainHumanMessage]) -> list[LangchainHumanMessage]:
+def merge_and_deduplicate_messages(messages: list[LangchainHumanMessage]) -> list[LangchainHumanMessage]:
     """
-    Filters out duplicated human messages and merges them into one message.
+    Filters out duplicated messages and merges them into one message.
     """
     contents = set()
     filtered_messages = []
@@ -102,23 +101,27 @@ def merge_human_messages(messages: list[LangchainHumanMessage]) -> list[Langchai
 
 def filter_visualization_conversation(
     messages: Sequence[AssistantMessageUnion],
-    filter_until_idx: Optional[int] = None,
-):
+    entity_filter: Union[tuple[type[AIMessageUnion], ...], type[AIMessageUnion]] = (
+        AssistantMessage,
+        VisualizationMessage,
+    ),
+) -> list[AssistantMessageUnion]:
     """
     Filters and merges the message history to be consumable by agents. Returns human and AI messages.
     """
     stack: list[LangchainHumanMessage] = []
-    filtered_messages: list[HumanMessage | AssistantMessage | VisualizationMessage] = []
+    filtered_messages: list[AssistantMessageUnion] = []
 
     def _merge_stack(stack: list[LangchainHumanMessage]) -> list[HumanMessage]:
-        return [HumanMessage(content=langchain_message.content) for langchain_message in merge_human_messages(stack)]
+        return [
+            HumanMessage(content=langchain_message.content)
+            for langchain_message in merge_and_deduplicate_messages(stack)
+        ]
 
-    for i, message in enumerate(messages):
-        if filter_until_idx is not None and i >= filter_until_idx:
-            break
+    for message in messages:
         if isinstance(message, HumanMessage):
             stack.append(LangchainHumanMessage(content=message.content))
-        elif isinstance(message, VisualizationMessage) or isinstance(message, AssistantMessage):
+        elif isinstance(message, entity_filter):
             if stack:
                 filtered_messages += _merge_stack(stack)
                 stack = []
@@ -128,6 +131,13 @@ def filter_visualization_conversation(
         filtered_messages += _merge_stack(stack)
 
     return filtered_messages
+
+
+T = TypeVar("T", bound=AssistantMessageUnion)
+
+
+def find_last_message_of_type(messages: Sequence[AssistantMessageUnion], message_type: type[T]) -> Optional[T]:
+    return next((msg for msg in reversed(messages) if isinstance(msg, message_type)), None)
 
 
 def dereference_schema(schema: dict) -> dict:

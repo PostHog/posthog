@@ -12781,6 +12781,9 @@
                 "done": {
                     "type": "boolean"
                 },
+                "initiator": {
+                    "type": "integer"
+                },
                 "plan": {
                     "type": "string"
                 },

@@ -2513,6 +2513,7 @@ export interface VisualizationMessage {
     plan?: string
     answer?: AssistantTrendsQuery | AssistantFunnelsQuery
     done?: boolean
+    initiator?: integer
 }
 
 export interface FailureMessage {

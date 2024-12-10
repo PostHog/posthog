@@ -5387,6 +5387,7 @@ class VisualizationMessage(BaseModel):
     )
     answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
     done: Optional[bool] = None
+    initiator: Optional[int] = None
     plan: Optional[str] = None
     type: Literal["ai/viz"] = "ai/viz"
 

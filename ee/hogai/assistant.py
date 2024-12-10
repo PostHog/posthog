@@ -89,6 +89,7 @@ class Assistant:
     _graph: CompiledStateGraph
     _user: Optional[User]
     _conversation: Conversation
+    _state: Optional[AssistantState]
 
     def __init__(self, team: Team, conversation: Conversation, user: Optional[User] = None):
         self._team = team
@@ -96,6 +97,7 @@ class Assistant:
         self._conversation = conversation
         self._graph = AssistantGraph(team).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
+        self._state = None
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -168,6 +170,7 @@ class Assistant:
         snapshot = self._graph.get_state(config)
         if snapshot.next:
             saved_state = cast(AssistantState, snapshot.values)
+            self._state = saved_state
             intermediate_steps = saved_state.get("intermediate_steps")
             if intermediate_steps:
                 last_message = self._conversation.messages[-1].root
@@ -181,7 +184,9 @@ class Assistant:
                         },
                     )
             return None
-        return self._initial_state
+        initial_state = self._initial_state
+        self._state = initial_state
+        return initial_state
 
     def _node_to_reasoning_message(
         self, node_name: AssistantNodeName, input: AssistantState
@@ -223,7 +228,9 @@ class Assistant:
                 return None
 
     def _process_update(self, update: Any) -> BaseModel | None:
-        if is_value_update(update):
+        if is_state_update(update):
+            self._state = update[1]
+        elif is_value_update(update):
             _, state_update = update
 
             if AssistantNodeName.ROUTER in state_update and "messages" in state_update[AssistantNodeName.ROUTER]:
@@ -249,7 +256,8 @@ class Assistant:
                         self._chunks.tool_calls[0]["args"]
                     )
                     if parsed_message:
-                        return VisualizationMessage(answer=parsed_message.query)
+                        initiator_idx = self._state.get("start_idx") if self._state is not None else None
+                        return VisualizationMessage(answer=parsed_message.query, initiator=initiator_idx)
                 elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
                     self._chunks += langchain_message  # type: ignore
                     return AssistantMessage(content=self._chunks.content)

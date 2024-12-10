@@ -198,8 +198,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
-        filtered_messages = filter_visualization_conversation(state.get("messages", []))
         start_index = state.get("start_idx")
+        filtered_messages = filter_visualization_conversation(state.get("messages", []))
         conversation = []
 
         for idx, message in enumerate(filtered_messages):
