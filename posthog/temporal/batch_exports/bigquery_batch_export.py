@@ -338,9 +338,12 @@ class BigQueryClient(bigquery.Client):
                 values += ", "
                 field_names += ", "
 
-            update_clause += f"final.`{field.name}` = PARSE_JSON(stage.`{field.name}`)"
+            stage_field = (
+                f"PARSE_JSON(stage.`{field.name}`)" if field.name in fields_to_cast else f"stage.`{field.name}`"
+            )
+            update_clause += f"final.`{field.name}` = {stage_field}"
             field_names += f"`{field.name}`"
-            values += f"PARSE_JSON(stage.`{field.name}`)" if field.name in fields_to_cast else f"stage.`{field.name}`"
+            values += stage_field
 
         if not update_clause:
             raise ValueError("Empty update clause")
