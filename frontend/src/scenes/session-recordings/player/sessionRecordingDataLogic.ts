@@ -17,7 +17,6 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -33,7 +32,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import {
     EncodedRecordingSnapshot,
     RecordingEventsFilters,
-    RecordingEventType,
     RecordingReportLoadTimes,
     RecordingSegment,
     RecordingSnapshot,
@@ -388,7 +386,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             teamLogic,
             ['currentTeam'],
             sessionRecordingEventDataLogic(props),
-            ['sessionEventsDataLoading', 'loadEventsSuccess', 'loadEventsFailure'],
+            [
+                'sessionEventsDataLoading',
+                'loadEventsSuccess',
+                'loadEventsFailure',
+                'sessionEventsData',
+                'webVitalsEvents',
+            ],
         ],
         actions: [sessionRecordingEventDataLogic(props), ['loadEvents', 'loadFulLEventData']],
     })),
@@ -572,6 +576,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
         loadSnapshotSources: () => {
             // We only load events once we actually start loading the recording
+            if (!cache.eventsStartTime) {
+                cache.eventsStartTime = performance.now()
+            }
             actions.loadEvents(values.sessionPlayerData)
         },
         loadRecordingMetaSuccess: () => {
@@ -973,14 +980,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return snapshots.filter((snapshot) => snapshot.type === EventType.Custom).map((x) => x as customEvent)
             },
         ],
-    })),
-    subscriptions(({ actions, values }) => ({
-        webVitalsEvents: (value: RecordingEventType[]) => {
-            // we preload all web vitals data, so it can be used before user interaction
-            if (!values.sessionEventsDataLoading) {
-                actions.loadFullEventData(value)
-            }
-        },
     })),
     afterMount(({ cache }) => {
         resetTimingsCache(cache)

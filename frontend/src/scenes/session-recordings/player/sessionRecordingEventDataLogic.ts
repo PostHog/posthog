@@ -1,6 +1,7 @@
 import { captureException } from '@sentry/react'
 import { actions, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { chainToElements } from 'lib/utils/elements-chain'
@@ -8,14 +9,7 @@ import { SessionRecordingDataLogicProps } from 'scenes/session-recordings/player
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
-import {
-    AnyPropertyFilter,
-    PersonType,
-    PropertyFilterType,
-    PropertyOperator,
-    RecordingEventType,
-    SessionPlayerData,
-} from '~/types'
+import { PersonType, RecordingEventType, SessionPlayerData } from '~/types'
 
 import type { sessionRecordingEventDataLogicType } from './sessionRecordingEventDataLogicType'
 
@@ -23,30 +17,38 @@ const BUFFER_MS = 60000 // +- before and after start and end of a recording to q
 
 function makeEventsQuery(
     person: PersonType | null,
-    distinctId: string | null,
+    distinctIds: string[] | null,
     start: Dayjs,
     end: Dayjs,
-    properties: AnyPropertyFilter[]
+    sessionId: string
 ): Promise<unknown> {
+    if (person === null && sessionId === '') {
+        console.error('replay event queries must always have a session id or a person')
+        return Promise.resolve({
+            results: [],
+        })
+    }
     return api.query({
-        kind: NodeKind.EventsQuery,
-        // NOTE: Be careful adding fields here. We want to keep the payload as small as possible to load all events quickly
-        select: [
-            'uuid',
-            'event',
-            'timestamp',
-            'elements_chain',
-            'properties.$window_id',
-            'properties.$current_url',
-            'properties.$event_type',
-        ],
-        orderBy: ['timestamp ASC'],
-        limit: 1000000,
-        personId: person ? String(person.id) : undefined,
-        after: start.subtract(BUFFER_MS, 'ms').format(),
-        before: end.add(BUFFER_MS, 'ms').format(),
-        properties: properties,
-        where: distinctId ? [`distinct_id = ('${distinctId}')`] : undefined,
+        kind: NodeKind.HogQLQuery,
+        query: `
+        select  uuid,
+            event,
+            timestamp,
+            elements_chain,
+            properties.$window_id,
+            properties.$current_url,
+            properties.$event_type,
+            from events
+        where timestamp > ${start.subtract(BUFFER_MS, 'ms').format()}
+        and timestamp < ${end.add(BUFFER_MS, 'ms').format()}
+        and ${person ? `person_id = ${person.id}` : '1=1'}
+        and ${distinctIds?.length ? `distinct_id in ${distinctIds}` : '1=1'}
+        and $session_id = ${sessionId}
+        -- if we're not querying by session id then we can take advantage of knowing that posthog-js always sets it
+        -- and filter by $lib which is always materialized so should be pretty fast
+        and ${sessionId === '' ? "properties.$lib != 'web'" : '1=1'}
+        order by timestamp asc
+        limit 1000000`,
     })
 }
 
@@ -58,29 +60,18 @@ export const sessionRecordingEventDataLogic = kea<sessionRecordingEventDataLogic
         loadEvents: (sessionPlayerData: SessionPlayerData) => ({ ...sessionPlayerData }),
         loadFullEventData: (event: RecordingEventType | RecordingEventType[]) => ({ event }),
     }),
-    loaders(({ values, props, cache }) => ({
+    loaders(({ values, props }) => ({
         sessionEventsData: [
             null as null | RecordingEventType[],
             {
                 loadEvents: async ({ start, end, person }) => {
-                    if (!cache.eventsStartTime) {
-                        cache.eventsStartTime = performance.now()
-                    }
-
                     if (!person || !start || !end) {
                         return null
                     }
 
                     const [sessionEvents, relatedEvents]: any[] = await Promise.all([
                         // make one query for all events that are part of the session
-                        makeEventsQuery(null, null, start, end, [
-                            {
-                                key: '$session_id',
-                                value: [props.sessionRecordingId],
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ]),
+                        makeEventsQuery(null, null, start, end, props.sessionRecordingId),
                         // make a second for all events from that person,
                         // not marked as part of the session
                         // but in the same time range
@@ -88,20 +79,7 @@ export const sessionRecordingEventDataLogic = kea<sessionRecordingEventDataLogic
                         // but with no session id
                         // since posthog-js must always add session id we can also
                         // take advantage of lib being materialized and further filter
-                        makeEventsQuery(null, person?.distinctId || null, start, end, [
-                            {
-                                key: '$session_id',
-                                value: '',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                            {
-                                key: '$lib',
-                                value: ['web'],
-                                operator: PropertyOperator.IsNot,
-                                type: PropertyFilterType.Event,
-                            },
-                        ]),
+                        makeEventsQuery(null, person?.distinct_ids || null, start, end, props.sessionRecordingId),
                     ])
 
                     return [...sessionEvents.results, ...relatedEvents.results].map(
@@ -208,4 +186,12 @@ export const sessionRecordingEventDataLogic = kea<sessionRecordingEventDataLogic
                 (sessionEventsData || []).filter((e) => e.event === '$web_vitals'),
         ],
     }),
+    subscriptions(({ actions, values }) => ({
+        webVitalsEvents: (value: RecordingEventType[]) => {
+            // we preload all web vitals data, so it can be used before user interaction
+            if (!values.sessionEventsDataLoading) {
+                actions.loadFullEventData(value)
+            }
+        },
+    })),
 ])
