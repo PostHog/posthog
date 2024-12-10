@@ -167,7 +167,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         filtered_messages = filter_messages(messages)
         msg_mapping = self._get_human_viz_message_mapping(filtered_messages)
-        initiator_message = messages[start_index]
+        initiator_message = filtered_messages[-1]
         last_viz_message = find_last_message_of_type(filtered_messages, VisualizationMessage)
 
         for idx, message in enumerate(filtered_messages):
@@ -207,13 +207,17 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             )
         # Add the initiator message and the generated plan to the end, so instructions are clear.
         if isinstance(initiator_message, HumanMessage):
-            plan_prompt = PLAN_PROMPT if start_index == 0 else NEW_PLAN_PROMPT
+            plan_prompt = PLAN_PROMPT if filtered_messages[0] == initiator_message else NEW_PLAN_PROMPT
             conversation.append(
                 HumanMessagePromptTemplate.from_template(plan_prompt, template_format="mustache").format(
                     plan=generated_plan or ""
                 )
             )
-            conversation.append(LangchainHumanMessage(content=initiator_message.content))
+            conversation.append(
+                HumanMessagePromptTemplate.from_template(QUESTION_PROMPT, template_format="mustache").format(
+                    question=initiator_message.content
+                )
+            )
 
         # Retries must be added to the end of the conversation.
         if validation_error_message:

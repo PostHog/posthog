@@ -71,3 +71,18 @@ class TestTrendsUtils(BaseTest):
                 AssistantMessage(content="Summary 2"),
             ],
         )
+
+    def test_joins_human_messages(self):
+        messages = filter_messages(
+            [
+                HumanMessage(content="Question 1"),
+                HumanMessage(content="Question 2"),
+            ]
+        )
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(
+            messages,
+            [
+                HumanMessage(content="Question 1\nQuestion 2"),
+            ],
+        )

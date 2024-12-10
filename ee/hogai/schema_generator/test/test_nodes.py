@@ -120,10 +120,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
     def test_agent_reconstructs_conversation_and_merges_messages(self):
         node = DummyGeneratorNode(self.team)
         history = node._construct_messages(
-            {
-                "messages": [HumanMessage(content="Te"), HumanMessage(content="xt")],
-                "plan": "randomplan",
-            }
+            {"messages": [HumanMessage(content="Te"), HumanMessage(content="xt")], "plan": "randomplan", "start_idx": 1}
         )
         self.assertEqual(len(history), 3)
         self.assertEqual(history[0].type, "human")
@@ -137,20 +134,21 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("{{question}}", history[2].content)
         self.assertIn("Te\nxt", history[2].content)
 
+    def test_filters_out_human_in_the_loop_after_initiator(self):
         node = DummyGeneratorNode(self.team)
         history = node._construct_messages(
             {
                 "messages": [
                     HumanMessage(content="Text"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan"),
+                    VisualizationMessage(answer=self.schema, plan="randomplan", initiator=0),
                     HumanMessage(content="Follow"),
                     HumanMessage(content="Up"),
                 ],
                 "plan": "newrandomplan",
+                "start_idx": 0,
             }
         )
-
-        self.assertEqual(len(history), 6)
+        self.assertEqual(len(history), 3)
         self.assertEqual(history[0].type, "human")
         self.assertIn("mapping", history[0].content)
         self.assertEqual(history[1].type, "human")
@@ -161,16 +159,42 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Answer to this question:", history[2].content)
         self.assertNotIn("{{question}}", history[2].content)
         self.assertIn("Text", history[2].content)
+
+    def test_preserves_human_in_the_loop_before_initiator(self):
+        node = DummyGeneratorNode(self.team)
+        history = node._construct_messages(
+            {
+                "messages": [
+                    HumanMessage(content="Question 1"),
+                    AssistantMessage(content="Loop"),
+                    HumanMessage(content="Answer"),
+                    VisualizationMessage(answer=self.schema, plan="randomplan", initiator=0),
+                    HumanMessage(content="Question 2"),
+                ],
+                "plan": "newrandomplan",
+                "start_idx": 4,
+            }
+        )
+        self.assertEqual(len(history), 8)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("mapping", history[0].content)
+        self.assertEqual(history[1].type, "human")
+        self.assertIn("the plan", history[1].content)
+        self.assertNotIn("{{plan}}", history[1].content)
+        self.assertIn("randomplan", history[1].content)
+        self.assertNotIn("{{question}}", history[2].content)
+        self.assertIn("Question 1", history[2].content)
         self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[3].content, self.schema.model_dump_json())
+        self.assertEqual("Loop", history[3].content)
         self.assertEqual(history[4].type, "human")
-        self.assertIn("the new plan", history[4].content)
-        self.assertNotIn("{{plan}}", history[4].content)
-        self.assertIn("newrandomplan", history[4].content)
-        self.assertEqual(history[5].type, "human")
-        self.assertIn("Answer to this question:", history[5].content)
-        self.assertNotIn("{{question}}", history[5].content)
-        self.assertIn("Follow\nUp", history[5].content)
+        self.assertEqual("Answer", history[4].content)
+        self.assertEqual(history[5].type, "ai")
+        self.assertEqual(history[6].type, "human")
+        self.assertIn("the new plan", history[6].content)
+        self.assertIn("newrandomplan", history[6].content)
+        self.assertEqual(history[7].type, "human")
+        self.assertNotIn("{{question}}", history[7].content)
+        self.assertIn("Question 2", history[7].content)
 
     def test_agent_reconstructs_typical_conversation(self):
         node = DummyGeneratorNode(self.team)
@@ -179,19 +203,21 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
                 "messages": [
                     HumanMessage(content="Question 1"),
                     RouterMessage(content="trends"),
-                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator=0),
                     AssistantMessage(content="Summary 1"),
                     HumanMessage(content="Question 2"),
                     RouterMessage(content="funnel"),
-                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", initiator=4),
                     AssistantMessage(content="Summary 2"),
                     HumanMessage(content="Question 3"),
                     RouterMessage(content="funnel"),
                 ],
                 "plan": "Plan 3",
+                "start_idx": 8,
             }
         )
-        self.assertEqual(len(history), 8)
+
+        self.assertEqual(len(history), 9)
         self.assertEqual(history[0].type, "human")
         self.assertIn("mapping", history[0].content)
         self.assertEqual(history[1].type, "human")
@@ -205,8 +231,10 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(history[5].type, "ai")
         self.assertEqual(history[6].type, "human")
         self.assertIn("Plan 3", history[6].content)
-        self.assertEqual(history[7].type, "human")
-        self.assertIn("Question 3", history[7].content)
+        self.assertEqual(history[7].type, "ai")
+        self.assertEqual(history[7].content, "Summary 2")
+        self.assertEqual(history[8].type, "human")
+        self.assertIn("Question 3", history[8].content)
 
     def test_prompt(self):
         node = DummyGeneratorNode(self.team)
