@@ -34,7 +34,7 @@ export function SettingsBar({
             className={clsx(
                 border === 'bottom' && 'border-b',
                 border === 'top' && 'border-t',
-                'flex flex-row w-full overflow-hidden font-light text-small bg-bg-3000',
+                'flex flex-row w-full overflow-hidden font-light text-xs bg-bg-3000 items-center',
                 className
             )}
         >

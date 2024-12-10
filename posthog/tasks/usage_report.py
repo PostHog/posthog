@@ -19,7 +19,6 @@ from sentry_sdk import capture_exception
 
 from posthog import version_requirement
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns
 from posthog.client import sync_execute
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import FlagRequestType
@@ -29,6 +28,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
+from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
@@ -460,10 +460,8 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
-    materialized_columns = get_enabled_materialized_columns("events")
-
     # Check if $lib is materialized
-    lib_expression = materialized_columns.get(("$lib", "properties"), "JSONExtractString(properties, '$lib')")
+    lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
     results = sync_execute(
         f"""
@@ -475,7 +473,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 event LIKE 'keywords_ai%%', 'keywords_ai_events',
                 event LIKE 'traceloop%%', 'traceloop_events',
                 {lib_expression} = 'web', 'web_events',
-                {lib_expression} = 'posthog-js-lite', 'web_lite_events',
+                {lib_expression} = 'js', 'web_lite_events',
                 {lib_expression} = 'posthog-node', 'node_events',
                 {lib_expression} = 'posthog-android', 'android_events',
                 {lib_expression} = 'posthog-flutter', 'flutter_events',

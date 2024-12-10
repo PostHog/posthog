@@ -251,26 +251,13 @@ STATICFILES_DIRS = [
 ]
 STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
 
-
-def add_vary_headers(headers, _path, _url):
-    """
-    we might serve static content on multiple domains, so we need to vary on Origin
-    as well as accept-encoding to avoid caching issues
-    see: https://github.com/evansd/whitenoise/blob/b3d250fd17da0e280d58b6dc4935c4573ebe8b55/docs/django.rst?plain=1#L392-L422
-    which says: The function should not return anything; changes should be made by modifying the headers dictionary directly.
-    """
-    headers["Vary"] = "Origin, Accept-Encoding"
-
-
-WHITENOISE_STATIC_HEADERS = add_vary_headers
-
 AUTH_USER_MODEL = "posthog.User"
 
 LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -368,6 +355,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^api/projects/@current/feature_flags/my_flags/?$",
                 "^/?api/projects/\\d+/query/?$",
                 "^/?api/instance_status/?$",
+                "^/array/.*$",
             ]
         ),
     )

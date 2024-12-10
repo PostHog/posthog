@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, date
 from typing import Any, Literal, Optional
 from collections.abc import Iterator, Sequence
 import uuid
@@ -6,8 +7,16 @@ import uuid
 import dlt
 from django.conf import settings
 from django.db.models import Prefetch
+import dlt.common
+import dlt.common.libs
+import dlt.common.libs.pyarrow
+import dlt.extract
+import dlt.extract.incremental
+import dlt.extract.incremental.transform
 from dlt.pipeline.exceptions import PipelineStepFailed
 from deltalake import DeltaTable
+import pendulum
+import pyarrow
 
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
@@ -43,6 +52,21 @@ from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+
+
+def _from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
+    """Converts arrow scalar into Python type. Currently adds "UTC" to naive date times and converts all others to UTC"""
+    row_value = arrow_value.as_py()
+
+    if isinstance(row_value, date) and not isinstance(row_value, datetime):
+        return row_value
+    elif isinstance(row_value, datetime):
+        row_value = pendulum.instance(row_value).in_tz("UTC")
+    return row_value
+
+
+dlt.common.libs.pyarrow.from_arrow_scalar = _from_arrow_scalar
+dlt.extract.incremental.transform.from_arrow_scalar = _from_arrow_scalar
 
 
 @dataclass
@@ -372,6 +396,10 @@ class DataImportPipelineSync:
             job_id=self.inputs.run_id, schema_id=str(self.inputs.schema_id), team_id=self.inputs.team_id
         )
 
+        if self._incremental:
+            self.logger.debug("Saving last incremental value...")
+            save_last_incremental_value(str(self.inputs.schema_id), str(self.inputs.team_id), self.source, self.logger)
+
         # Cleanup: delete local state from the file system
         pipeline.drop()
 
@@ -396,6 +424,28 @@ def update_last_synced_at_sync(job_id: str, schema_id: str, team_id: int) -> Non
     schema.last_synced_at = job.created_at
 
     schema.save()
+
+
+def save_last_incremental_value(schema_id: str, team_id: str, source: DltSource, logger: FilteringBoundLogger) -> None:
+    schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
+
+    incremental_field = schema.sync_type_config.get("incremental_field")
+    resource = next(iter(source.resources.values()))
+
+    incremental: dict | None = resource.state.get("incremental")
+
+    if incremental is None:
+        return
+
+    incremental_object: dict | None = incremental.get(incremental_field)
+    if incremental_object is None:
+        return
+
+    last_value = incremental_object.get("last_value")
+
+    logger.debug(f"Updating incremental_field_last_value with {last_value}")
+
+    schema.update_incremental_field_last_value(last_value)
 
 
 def validate_schema_and_update_table_sync(

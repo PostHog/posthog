@@ -76,7 +76,7 @@ export type NewDestinationItemType = {
     name: string
     description: string
     backend: PipelineBackend
-    status?: 'stable' | 'beta' | 'alpha' | 'free' | 'deprecated'
+    status?: 'stable' | 'beta' | 'alpha' | 'free' | 'deprecated' | 'client-side'
 }
 
 export type NewDestinationFilters = {
@@ -84,7 +84,6 @@ export type NewDestinationFilters = {
     kind?: PipelineBackend
 }
 
-// Legacy: Site apps
 export interface SiteApp extends PluginBasedNode {
     stage: PipelineStage.SiteApp
 }
@@ -131,12 +130,17 @@ export function convertToPipelineNode<S extends PipelineStage>(
             stage: stage as PipelineStage.Destination,
             backend: PipelineBackend.HogFunction,
             interval: 'realtime',
-            id: candidate.type === 'destination' ? `hog-${candidate.id}` : candidate.id,
+            id:
+                candidate.type === 'destination' ||
+                candidate.type === 'site_destination' ||
+                candidate.type === 'site_app'
+                    ? `hog-${candidate.id}`
+                    : candidate.id,
             name: candidate.name,
             description: candidate.description,
             enabled: candidate.enabled,
             created_at: candidate.created_at,
-            updated_at: candidate.created_at,
+            updated_at: candidate.updated_at,
             hog_function: candidate,
         }
     } else if (isPluginConfig(candidate)) {

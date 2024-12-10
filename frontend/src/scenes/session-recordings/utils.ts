@@ -1,5 +1,11 @@
 import { LegacyRecordingFilters, RecordingUniversalFilters, UniversalFiltersGroup, UniversalFilterValue } from '~/types'
 
+export const TimestampFormatToLabel = {
+    relative: 'Relative',
+    utc: 'UTC',
+    device: 'Device',
+}
+
 export const isUniversalFilters = (
     filters: RecordingUniversalFilters | LegacyRecordingFilters
 ): filters is RecordingUniversalFilters => {

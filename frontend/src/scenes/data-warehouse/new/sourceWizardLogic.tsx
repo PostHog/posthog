@@ -513,18 +513,60 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: 'COMPUTE_WAREHOUSE',
             },
             {
-                name: 'user',
-                label: 'User',
-                type: 'text',
+                type: 'select',
+                name: 'auth_type',
+                label: 'Authentication type',
                 required: true,
-                placeholder: 'user',
-            },
-            {
-                name: 'password',
-                label: 'Password',
-                type: 'password',
-                required: true,
-                placeholder: '',
+                defaultValue: 'password',
+                options: [
+                    {
+                        label: 'Password',
+                        value: 'password',
+                        fields: [
+                            {
+                                name: 'username',
+                                label: 'Username',
+                                type: 'text',
+                                required: true,
+                                placeholder: 'User1',
+                            },
+                            {
+                                name: 'password',
+                                label: 'Password',
+                                type: 'password',
+                                required: true,
+                                placeholder: '',
+                            },
+                        ],
+                    },
+                    {
+                        label: 'Key pair',
+                        value: 'keypair',
+                        fields: [
+                            {
+                                name: 'username',
+                                label: 'Username',
+                                type: 'text',
+                                required: true,
+                                placeholder: 'User1',
+                            },
+                            {
+                                name: 'private_key',
+                                label: 'Private key',
+                                type: 'textarea',
+                                required: true,
+                                placeholder: '',
+                            },
+                            {
+                                name: 'passphrase',
+                                label: 'Passphrase',
+                                type: 'password',
+                                required: false,
+                                placeholder: '',
+                            },
+                        ],
+                    },
+                ],
             },
             {
                 name: 'role',
