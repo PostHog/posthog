@@ -189,15 +189,18 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         if "hog" in attrs:
             if attrs["type"] in TYPES_WITH_JAVASCRIPT_SOURCE:
-                # Upon creation, this code will be run before the model has an "id".
-                # If that's the case, the code just makes sure transpilation doesn't throw. We'll re-transpile after creation.
-                id = str(instance.id) if instance else "__"
                 try:
+                    # Validate transpilation using the model instance
                     attrs["transpiled"] = get_transpiled_function(
-                        id, attrs["hog"], attrs["filters"], attrs["inputs"], team
+                        HogFunction(
+                            team=team,
+                            hog=attrs["hog"],
+                            filters=attrs["filters"],
+                            inputs=attrs["inputs"],
+                        )
                     )
                 except TranspilerError:
-                    raise serializers.ValidationError({"hog": f"Error in TypeScript code"})
+                    raise serializers.ValidationError({"hog": "Error in TypeScript code"})
                 attrs["bytecode"] = None
             else:
                 attrs["bytecode"] = compile_hog(attrs["hog"])
@@ -231,11 +234,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
         hog_function = super().create(validated_data=validated_data)
-        if validated_data.get("type") in TYPES_WITH_JAVASCRIPT_SOURCE:
-            # Re-run the transpilation now that we have an ID
-            hog_function.transpiled = get_transpiled_function(
-                str(hog_function.id), hog_function.hog, hog_function.filters, hog_function.inputs, hog_function.team
-            )
+
         return hog_function
 
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:

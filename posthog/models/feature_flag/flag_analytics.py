@@ -139,9 +139,10 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
     for row in result:
         team_id = row[0]
         flag_key = row[1]
+        team = Team.objects.only("project_id").get(id=team_id)
 
         try:
-            flag = FeatureFlag.objects.get(team_id=team_id, key=flag_key)
+            flag = FeatureFlag.objects.get(team__project_id=team.project_id, key=flag_key)
             if not flag.has_enriched_analytics:
                 flag.has_enriched_analytics = True
                 flag.save()
