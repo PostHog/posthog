@@ -15,7 +15,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.errors import ResolutionError
 
-ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_FIELDS = {
+ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "fingerprint": StringDatabaseField(name="fingerprint"),
     "issue_id": StringDatabaseField(name="issue_id"),
