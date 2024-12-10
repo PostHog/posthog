@@ -59,7 +59,7 @@ funnels_math_types = [
 ]
 
 
-def is_entity_variable(item: any) -> bool:
+def is_entity_variable(item: Any) -> bool:
     return isinstance(item, str) and item.startswith("{") and item.endswith("}")
 
 
@@ -187,6 +187,7 @@ def exlusion_entity_to_node(entity) -> FunnelExclusionEventsNode | FunnelExclusi
     base_entity = legacy_entity_to_node(
         LegacyEntity(entity), include_properties=False, math_availability=MathAvailability.Unavailable
     )
+    assert isinstance(base_entity, EventsNode | ActionsNode)
     if isinstance(base_entity, EventsNode):
         return FunnelExclusionEventsNode(
             **base_entity.model_dump(),
