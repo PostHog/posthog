@@ -16,7 +16,6 @@ import {
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { shouldCancelQuery, uuid } from 'lib/utils'
@@ -469,7 +468,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
     })),
-    selectors(({ cache, values }) => ({
+    selectors(({ cache }) => ({
         variableOverridesAreSet: [
             (_, p) => [p.variablesOverride ?? (() => ({}))],
             (variablesOverride) => !!variablesOverride,
@@ -630,8 +629,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         getInsightRefreshButtonDisabledReason: [
             (s) => [s.nextAllowedRefresh, s.lastRefresh],
             (nextAllowedRefresh: string | null, lastRefresh: string | null) => (): string => {
-                // No rate limit if feature flag is on
-                if (values.featureFlags[FEATURE_FLAGS.BYPASS_INSIGHT_REFRESH_RATE_LIMIT]) {
+                // No rate limit if user is staff
+                if (userLogic.values.user?.is_staff || userLogic.values.user?.is_impersonated) {
                     return ''
                 }
 
