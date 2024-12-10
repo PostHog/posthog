@@ -186,9 +186,9 @@ def calculate_credible_intervals(variants, lower_bound=0.025, upper_bound=0.975)
 
     for variant in variants:
         try:
-            # Calculate posterior parameters
+            # Calculate posterior parameters using absolute_exposure
             alpha_posterior = PRIOR_ALPHA + variant.count
-            beta_posterior = PRIOR_BETA + variant.exposure
+            beta_posterior = PRIOR_BETA + variant.absolute_exposure
 
             # Calculate credible intervals using the posterior distribution
             credible_interval = gamma.ppf([lower_bound, upper_bound], alpha_posterior, scale=1 / beta_posterior)
