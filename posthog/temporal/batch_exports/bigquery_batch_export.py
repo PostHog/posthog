@@ -237,7 +237,12 @@ class BigQueryClient(bigquery.Client):
             yield table
         finally:
             if delete is True:
-                await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
+                try:
+                    await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
+                except Forbidden:
+                    await logger.awarning(
+                        "Missing delete permissions to delete %s.%s.%s", project_id, dataset_id, table_id
+                    )
 
     async def amerge_tables(
         self,
