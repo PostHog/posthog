@@ -154,7 +154,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
             # Without the addon, they cannot deviate from the template
             attrs["inputs_schema"] = template.inputs_schema
-            attrs["mapping"] = template.mapping
+            attrs["mappings"] = template.mappings
             attrs["hog"] = template.hog
 
         if "type" not in attrs:
@@ -165,7 +165,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             attrs["filters"] = attrs.get("filters") or {}
             attrs["inputs_schema"] = attrs.get("inputs_schema") or []
             attrs["inputs"] = attrs.get("inputs") or {}
-            attrs["mapping"] = attrs.get("mapping") or []
+            attrs["mappings"] = attrs.get("mappings") or []
 
         # Used for both top level input validation, and mappings input validation
         def validate_input_and_filters(attrs: dict, type: str):
