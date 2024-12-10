@@ -17,8 +17,7 @@ class FeatureSerializer(serializers.ModelSerializer):
             "description",
             "documentation_url",
             "issue_url",
-            "status",
-            "primary_feature_flag_id",
+            "primary_early_access_feature_id",
             "created_at",
             "updated_at",
             "archived",
@@ -29,10 +28,10 @@ class FeatureSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         return super().create(validated_data)
 
-    def get_primary_feature_flag(self, feature: Feature):
-        from posthog.api.feature_flag import FeatureFlagSerializer
+    def get_primary_early_access_feature(self, feature: Feature):
+        from posthog.api.early_access_feature import EarlyAccessFeatureSerializer
 
-        return FeatureFlagSerializer(feature.primary_feature_flag, context=self.context).data
+        return EarlyAccessFeatureSerializer(feature.primary_early_access_feature, context=self.context).data
 
     def get_early_access_features(self, feature: Feature):
         from posthog.api.early_access_feature import EarlyAccessFeatureSerializer
@@ -45,9 +44,9 @@ class FeatureSerializer(serializers.ModelSerializer):
         return WebExperimentsAPISerializer(feature.experiment_set, many=True).data
 
     def get_feature_flags(self, feature: Feature):
-        from posthog.api.feature_flag import FeatureFlagSerializer
+        from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
-        return FeatureFlagSerializer(feature.featureflag_set, context=self.context, many=True).data
+        return MinimalFeatureFlagSerializer(feature.featureflag_set, context=self.context, many=True).data
 
 
 class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
@@ -59,8 +58,8 @@ class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
         # Base queryset with team filtering
         queryset = Feature.objects.filter(team_id=self.team_id)
 
-        if self.action == "primary_feature_flag":
-            queryset = queryset.select_related("primary_feature_flag")
+        if self.action == "primary_early_access_feature":
+            queryset = queryset.select_related("primary_early_access_feature")
         elif self.action == "experiments":
             queryset = queryset.prefetch_related("experiment_set")
         elif self.action == "early_access_features":
@@ -71,14 +70,13 @@ class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
         return queryset
 
     @action(detail=True, methods=["get"])
-    def primary_feature_flag(self, request, pk=None, **kwargs):
+    def primary_early_access_feature(self, request, pk=None, **kwargs):
         """
         Get primary feature flag associated with a specific feature.
         """
         feature = self.get_object()
-        serializer = self.get_serializer(feature)
-        primary_feature_flag = serializer.get_primary_feature_flag(feature)
-        return Response(primary_feature_flag)
+        primary_early_access_feature = FeatureSerializer().get_primary_early_access_feature(feature)
+        return Response(primary_early_access_feature)
 
     @action(detail=True, methods=["get"])
     def feature_flags(self, request, pk=None, **kwargs):
@@ -86,8 +84,7 @@ class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
         Get all feature flags associated with a specific feature.
         """
         feature = self.get_object()
-        serializer = self.get_serializer(feature)
-        flags = serializer.get_feature_flags(feature)
+        flags = FeatureSerializer().get_feature_flags(feature)
         return Response(flags)
 
     @action(detail=True, methods=["get"])
@@ -96,8 +93,7 @@ class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
         Get experiments associated with a specific feature.
         """
         feature = self.get_object()
-        serializer = self.get_serializer(feature)
-        experiments = serializer.get_experiments(feature)
+        experiments = FeatureSerializer().get_experiments(feature)
         return Response(experiments)
 
     @action(detail=True, methods=["get"])
@@ -106,6 +102,5 @@ class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
         Get early access features associated with a specific feature.
         """
         feature = self.get_object()
-        serializer = self.get_serializer(feature)
-        early_access_features = serializer.get_early_access_features(feature)
+        early_access_features = FeatureSerializer().get_early_access_features(feature)
         return Response(early_access_features)

@@ -13,7 +13,6 @@ class TestFeatureAPI(APIBaseTest):
             description="Test Description",
             documentation_url="http://example.com",
             issue_url="http://github.com/example",
-            status="beta",
         )
 
     def test_list_features(self):
@@ -21,19 +20,19 @@ class TestFeatureAPI(APIBaseTest):
         Experiment.objects.create(
             team=self.team,
             name="Test Experiment",
-            feature=self.feature,
+            feature_management=self.feature,
             feature_flag=FeatureFlag.objects.create(
                 team=self.team,
                 name="Test Flag for Experiment",
                 key="test-flag-for-experiment-list",
-                feature=self.feature,
+                feature_management=self.feature,
             ),
         )
         EarlyAccessFeature.objects.create(
             team=self.team,
             name="Test EAF",
             description="Test Description",
-            feature=self.feature,
+            feature_management=self.feature,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/features/")
@@ -53,19 +52,19 @@ class TestFeatureAPI(APIBaseTest):
         Experiment.objects.create(
             team=self.team,
             name="Test Experiment",
-            feature=self.feature,
+            feature_management=self.feature,
             feature_flag=FeatureFlag.objects.create(
                 team=self.team,
                 name="Test Flag for Experiment",
                 key="test-flag-for-experiment-retrieve",
-                feature=self.feature,
+                feature_management=self.feature,
             ),
         )
         EarlyAccessFeature.objects.create(
             team=self.team,
             name="Test EAF",
             description="Test Description",
-            feature=self.feature,
+            feature_management=self.feature,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/features/{self.feature.id}/")
@@ -90,7 +89,6 @@ class TestFeatureAPI(APIBaseTest):
                 "description": "New Description",
                 "documentation_url": "http://example.com/new",
                 "issue_url": "http://github.com/example/new",
-                "status": "alpha",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -102,30 +100,28 @@ class TestFeatureAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/features/{self.feature.id}/",
             {
                 "name": "Updated Feature",
-                "status": "beta",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Updated Feature")
-        self.assertEqual(response.json()["status"], "beta")
 
     def test_delete_not_allowed(self):
         response = self.client.delete(f"/api/projects/{self.team.id}/features/{self.feature.id}/")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    def test_get_primary_feature_flag(self):
-        flag = FeatureFlag.objects.create(
+    def test_get_primary_early_access_feature(self):
+        eaf = EarlyAccessFeature.objects.create(
             team=self.team,
             name="Test Flag",
-            key="test-flag",
-            feature=self.feature,
         )
-        self.feature.primary_feature_flag = flag
+        self.feature.primary_early_access_feature = eaf
         self.feature.save()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/features/{self.feature.id}/primary_feature_flag/")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/features/{self.feature.id}/primary_early_access_feature/"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["key"], "test-flag")
+        self.assertEqual(response.json()["name"], "Test Flag")
 
     def test_get_experiments(self):
         Experiment.objects.create(
@@ -136,7 +132,7 @@ class TestFeatureAPI(APIBaseTest):
                 name="Test Flag",
                 key="test-flag",
             ),
-            feature=self.feature,
+            feature_management=self.feature,
             description="Test Description",
         )
 
@@ -150,7 +146,7 @@ class TestFeatureAPI(APIBaseTest):
             team=self.team,
             name="Test EAF",
             description="Test Description",
-            feature=self.feature,
+            feature_management=self.feature,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/features/{self.feature.id}/early_access_features/")
@@ -163,7 +159,7 @@ class TestFeatureAPI(APIBaseTest):
             team=self.team,
             name="Test Flag",
             key="test-flag",
-            feature=self.feature,
+            feature_management=self.feature,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/features/{self.feature.id}/feature_flags/")
