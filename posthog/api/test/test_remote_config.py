@@ -27,7 +27,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert response.json()["detail"] == "Invalid token"
 
     def test_valid_config(self):
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response = self.client.get(f"/array/{self.team.api_token}/config")
 
         with self.assertNumQueries(0):
@@ -47,7 +47,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
                 "analytics": {"endpoint": "/i/v0/e/"},
                 "elementsChainAsString": True,
                 "sessionRecording": False,
-                "surveys": False,
+                "surveys": [],
                 "heatmaps": False,
                 "defaultIdentifiedOnly": False,
                 "siteApps": [],
@@ -64,7 +64,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.headers["Content-Type"] == "application/javascript"
         assert response.content == snapshot(
-            b'(function() {\n  window._POSTHOG_CONFIG = {"token": "token123", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};\n  window._POSTHOG_JS_APPS = [];\n})();'
+            b'(function() {\n  window._POSTHOG_CONFIG = {"token": "token123", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};\n  window._POSTHOG_JS_APPS = [];\n})();'
         )
 
     @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
@@ -79,7 +79,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert response.content
 
         assert response.content == snapshot(
-            b'\n        [MOCKED_ARRAY_JS_CONTENT]\n\n        (function() {\n  window._POSTHOG_CONFIG = {"token": "token123", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};\n  window._POSTHOG_JS_APPS = [];\n})();\n        '
+            b'\n        [MOCKED_ARRAY_JS_CONTENT]\n\n        (function() {\n  window._POSTHOG_CONFIG = {"token": "token123", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};\n  window._POSTHOG_JS_APPS = [];\n})();\n        '
         )
 
         # NOT actually testing the content here as it will change dynamically

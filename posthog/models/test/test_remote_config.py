@@ -270,7 +270,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         assert cache.get(cache_key_for_team_token(self.team.api_token, "config.js"))
 
     def test_gets_via_redis_cache(self):
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             data = RemoteConfig.get_config_via_token(self.team.api_token)
         assert data == self.remote_config.config
 
