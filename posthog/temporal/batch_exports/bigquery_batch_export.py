@@ -294,7 +294,9 @@ class BigQueryClient(bigquery.Client):
         else:
             fields_to_cast = set()
         stage_table_fields = ",".join(
-            f"PARSE_JSON(`{field.name}`)" if field.name in fields_to_cast else f"`{field.name}`"
+            f"PARSE_JSON(`{field.name}`, wide_number_mode=>'round')"
+            if field.name in fields_to_cast
+            else f"`{field.name}`"
             for field in into_table.schema
         )
 
@@ -344,7 +346,9 @@ class BigQueryClient(bigquery.Client):
                 field_names += ", "
 
             stage_field = (
-                f"PARSE_JSON(stage.`{field.name}`)" if field.name in fields_to_cast else f"stage.`{field.name}`"
+                f"PARSE_JSON(stage.`{field.name}`, wide_number_mode=>'round')"
+                if field.name in fields_to_cast
+                else f"stage.`{field.name}`"
             )
             update_clause += f"final.`{field.name}` = {stage_field}"
             field_names += f"`{field.name}`"
