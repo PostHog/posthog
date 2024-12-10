@@ -40,6 +40,7 @@ const SALT_TTL_SECONDS =
     (MAX_POSITIVE_TIMEZONE_HOURS + MAX_NEGATIVE_TIMEZONE_HOURS + MAX_INGESTION_LAG_HOURS + 24) * 60 * 60
 const SESSION_TTL_SECONDS = 60 * 60 * 24
 const IDENTIFIES_TTL_SECONDS = 60 * 60 * 24
+const DELETE_EXPIRED_SALTS_INTERVAL_MS = 60 * 60 * 1000
 
 export async function cookielessServerHashStep(
     runner: EventPipelineRunner,
@@ -65,7 +66,7 @@ export async function cookielessServerHashStep(
         return [undefined]
     }
     const sessionId = event.properties['$session_id']
-    if (sessionId !== COOKIELESS_SENTINEL_VALUE) {
+    if (sessionId != null) {
         // TODO log
         return [undefined]
     }
@@ -308,3 +309,5 @@ export function deleteExpiredSalts(): void {
         }
     }
 }
+
+setInterval(deleteExpiredSalts, DELETE_EXPIRED_SALTS_INTERVAL_MS)
