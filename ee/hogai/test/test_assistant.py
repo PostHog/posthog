@@ -2,20 +2,26 @@ import json
 from typing import Any
 from unittest.mock import patch
 from uuid import uuid4
+
+from langchain_core.agents import AgentAction
+from langgraph.graph.state import CompiledStateGraph
+
 from ee.hogai.utils import Conversation
 from posthog.schema import AssistantMessage, HumanMessage
+from posthog.test.base import NonAtomicBaseTest
+
 from ..assistant import Assistant
-from langgraph.graph.state import CompiledStateGraph
 from ..graph import AssistantGraph, AssistantNodeName
-from posthog.test.base import BaseTest
-from langchain_core.agents import AgentAction
 
 
-class TestAssistant(BaseTest):
+class TestAssistant(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def _run_assistant_graph(self, test_graph: CompiledStateGraph) -> list[tuple[str, Any]]:
         # Create assistant instance with our test graph
         assistant = Assistant(
             team=self.team,
+            user=self.user,
             conversation=Conversation(messages=[HumanMessage(content="Hello")], session_id=str(uuid4())),
         )
         assistant._graph = test_graph
