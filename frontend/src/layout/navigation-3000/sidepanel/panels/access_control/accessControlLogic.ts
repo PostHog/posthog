@@ -69,8 +69,19 @@ export const accessControlLogic = kea<accessControlLogicType>([
             null as AccessControlResponseType | null,
             {
                 loadAccessControls: async () => {
-                    const response = await api.get<AccessControlResponseType>(values.endpoint)
-                    return response
+                    try {
+                        const response = await api.get<AccessControlResponseType>(values.endpoint)
+                        return response
+                    } catch (error) {
+                        // Return empty access controls
+                        return {
+                            access_controls: [],
+                            available_access_levels: ['none', 'viewer', 'editor'],
+                            user_access_level: 'none',
+                            default_access_level: 'none',
+                            user_can_edit_access_levels: false,
+                        }
+                    }
                 },
 
                 updateAccessControlDefault: async ({ level }) => {
