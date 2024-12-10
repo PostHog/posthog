@@ -1,5 +1,6 @@
-import { IconLock, IconTrash, IconUnlock } from '@posthog/icons'
+import { IconLock, IconOpenSidebar, IconTrash, IconUnlock } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'
@@ -11,9 +12,10 @@ import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { urls } from 'scenes/urls'
 
-import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
-import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, SidePanelTab, UserType } from '~/types'
 
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 
@@ -38,6 +40,9 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
     const { deleteExplicitCollaborator, setExplicitCollaboratorsToBeAdded, addExplicitCollaborators } = useActions(
         dashboardCollaboratorsLogic({ dashboardId })
     )
+    const { push } = useActions(router)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+
     const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
 
     if (!dashboard) {
@@ -46,9 +51,22 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
 
     if (newAccessControl) {
         return (
-            <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
-                <AccessControlObject resource="dashboard" resource_id={`${dashboard.id}`} />
-            </PayGateMini>
+            <div>
+                <h3>Access control</h3>
+                <LemonBanner type="info" className="mb-4">
+                    Permissions have moved! We're rolling out our new access control system. Click below to open it.
+                </LemonBanner>
+                <LemonButton
+                    type="primary"
+                    icon={<IconOpenSidebar />}
+                    onClick={() => {
+                        openSidePanel(SidePanelTab.AccessControl)
+                        push(urls.dashboard(dashboard.id))
+                    }}
+                >
+                    Open access control
+                </LemonButton>
+            </div>
         )
     }
 
