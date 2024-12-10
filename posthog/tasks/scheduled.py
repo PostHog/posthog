@@ -57,6 +57,8 @@ from posthog.tasks.tasks import (
 )
 from posthog.utils import get_crontab
 
+from posthog.tasks.remote_config import sync_all_remote_configs
+
 
 def add_periodic_task_with_expiry(
     sender: Celery,
@@ -349,4 +351,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         60,
         refresh_integrations.s(),
         name="refresh integrations",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        # once a day
+        crontab(hour="0", minute=str(randrange(0, 40))),
+        sync_all_remote_configs.s(),
+        name="sync all remote configs",
     )
