@@ -94,7 +94,8 @@
         "tldts": "^6.1.57",
         "uuid": "^9.0.1",
         "v8-profiler-next": "^1.9.0",
-        "vm2": "3.9.18"
+        "vm2": "3.9.18",
+        "siphash": "git://github.com/robbie-c/siphash-js.git#34055d9"
     },
     "devDependencies": {
         "0x": "^5.5.0",
