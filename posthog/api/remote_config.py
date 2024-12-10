@@ -15,7 +15,7 @@ class BaseRemoteConfigAPIView(APIView):
 
     def check_token(self, token: str):
         # Simple check rather than involving a whole serializer
-        if len(token) > 200 or not re.match(r"^[a-zA-Z0-9_]+$", token):
+        if len(token) > 200 or not re.match(r"^[a-zA-Z0-9_-]+$", token):
             raise ValidationError("Invalid token")
         return token
 
