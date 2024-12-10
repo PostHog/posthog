@@ -261,8 +261,6 @@ def create_hogql_database(
     modifiers = create_default_modifiers_for_team(team, modifiers)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
-    _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
-
     if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
         # no change
         database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
@@ -313,6 +311,8 @@ def create_hogql_database(
             join_function=join_replay_table_to_sessions_table_v2,
         )
         cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
+
+    _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
