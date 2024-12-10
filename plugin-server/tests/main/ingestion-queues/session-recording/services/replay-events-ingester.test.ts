@@ -12,18 +12,11 @@ import { castTimestampOrNow } from '../../../../../src/utils/utils'
 jest.mock('../../../../../src/utils/status')
 jest.mock('../../../../../src/kafka/producer')
 
-const makeIncomingMessage = (
-    source: string | null,
-    timestamp: number,
-    extraWindowedEvents?: Record<string, Record<string, any>[]>
-): IncomingRecordingMessage => {
+const makeIncomingMessage = (source: string | null, timestamp: number): IncomingRecordingMessage => {
     return {
         distinct_id: '',
         eventsRange: { start: timestamp, end: timestamp },
-        eventsByWindowId: {
-            '': [{ data: { any: 'thing' }, type: 2, timestamp: timestamp }],
-            ...(extraWindowedEvents || {}),
-        },
+        eventsByWindowId: { '': [{ data: { any: 'thing' }, type: 2, timestamp: timestamp }] },
         metadata: {
             lowOffset: 0,
             highOffset: 0,
@@ -112,7 +105,6 @@ describe('replay events ingester', () => {
             snapshot_source: "mickey's fun house",
             team_id: 0,
             uuid: expect.any(String),
-            urls: [],
         })
     })
 
@@ -146,50 +138,6 @@ describe('replay events ingester', () => {
             snapshot_source: 'web',
             team_id: 0,
             uuid: expect.any(String),
-            urls: [],
-        })
-    })
-
-    test('it adds URLs', async () => {
-        const ts = new Date().getTime()
-        await ingester.consume(
-            makeIncomingMessage("mickey's fun house", ts, {
-                anotherwindow: [
-                    { data: { href: 'thing' }, type: 2, timestamp: ts },
-                    // should be deduplicated
-                    { data: { href: 'thing' }, type: 2, timestamp: ts },
-                    { data: { href: 'thing2' }, type: 2, timestamp: ts },
-                ],
-            })
-        )
-
-        expect(jest.mocked(status.debug).mock.calls).toEqual([])
-        expect(jest.mocked(produce).mock.calls).toHaveLength(1)
-        expect(jest.mocked(produce).mock.calls[0]).toHaveLength(1)
-        const call = jest.mocked(produce).mock.calls[0][0]
-        expect(call.topic).toEqual('clickhouse_session_replay_events_test')
-        // call.value is a Buffer convert it to a string
-        const value = call.value ? JSON.parse(call.value.toString()) : null
-        expect(value).toEqual({
-            active_milliseconds: 0,
-            click_count: 0,
-            console_error_count: 0,
-            console_log_count: 0,
-            console_warn_count: 0,
-            distinct_id: '',
-            event_count: 4,
-            first_timestamp: expect.any(String),
-            first_url: 'thing',
-            keypress_count: 0,
-            last_timestamp: expect.any(String),
-            message_count: 1,
-            mouse_activity_count: 0,
-            session_id: '',
-            size: 245,
-            snapshot_source: "mickey's fun house",
-            team_id: 0,
-            uuid: expect.any(String),
-            urls: ['thing', 'thing2'],
         })
     })
 })
