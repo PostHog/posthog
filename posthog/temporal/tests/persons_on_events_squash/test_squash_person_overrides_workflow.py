@@ -179,6 +179,7 @@ async def test_parse_empty_mutation_counts(clickhouse_client):
     query = f"""
     SELECT mutation_id, is_done
     FROM clusterAllReplicas('posthog', 'system', mutations)
+    LIMIT 0
     """
 
     response = await clickhouse_client.read_query(query)
