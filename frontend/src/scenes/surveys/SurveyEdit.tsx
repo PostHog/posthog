@@ -100,6 +100,27 @@ export default function SurveyEdit(): JSX.Element {
         ? undefined
         : 'Upgrade your plan to use an adaptive limit on survey responses'
 
+    const surveyLimitOptions = [
+        {
+            value: 'until_stopped',
+            label: 'Keep collecting responses until the survey is stopped',
+            'data-attr': 'survey-collection-until-stopped',
+        },
+        {
+            value: 'until_limit',
+            label: 'Stop displaying the survey after reaching a certain number of completed surveys',
+            'data-attr': 'survey-collection-until-limit',
+        },
+    ]
+
+    if (featureFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_LIMITS]) {
+        surveyLimitOptions.push({
+            value: 'until_adaptive_limit',
+            label: 'Collect a certain number of surveys per day, week or month',
+            'data-attr': 'survey-collection-until-adaptive-limit',
+            disabledReason: surveysAdaptiveLimitsDisabledReason,
+        })
+    }
     useMemo(() => {
         if (surveyUsesLimit) {
             setDataCollectionType('until_limit')
@@ -912,24 +933,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     }
                                                     setDataCollectionType(newValue)
                                                 }}
-                                                options={[
-                                                    {
-                                                        value: 'until_stopped',
-                                                        label: 'Keep collecting responses until the survey is stopped',
-                                                        'data-attr': 'survey-collection-until-stopped',
-                                                    },
-                                                    {
-                                                        value: 'until_limit',
-                                                        label: 'Stop displaying the survey after reaching a certain number of completed surveys',
-                                                        'data-attr': 'survey-collection-until-limit',
-                                                    },
-                                                    {
-                                                        value: 'until_adaptive_limit',
-                                                        label: 'Collect a certain number of surveys per day, week or month',
-                                                        'data-attr': 'survey-collection-until-adaptive-limit',
-                                                        disabledReason: surveysAdaptiveLimitsDisabledReason,
-                                                    },
-                                                ]}
+                                                options={surveyLimitOptions}
                                             />
                                         </LemonField.Pure>
                                     </div>
