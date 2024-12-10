@@ -27,10 +27,11 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_survey"."archived"
          AND "posthog_survey"."end_date" IS NULL
          AND "posthog_survey"."start_date" IS NOT NULL
-         AND "posthog_survey"."team_id" = 99999
+         AND "posthog_team"."project_id" = 99999
          AND NOT ("posthog_survey"."type" = 'api'))
   '''
 # ---
@@ -482,10 +483,11 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_survey"."archived"
          AND "posthog_survey"."end_date" IS NULL
          AND "posthog_survey"."start_date" IS NOT NULL
-         AND "posthog_survey"."team_id" = 99999
+         AND "posthog_team"."project_id" = 99999
          AND NOT ("posthog_survey"."type" = 'api'))
   '''
 # ---
@@ -630,21 +632,6 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
-         T4."id",
-         T4."key",
-         T4."name",
-         T4."filters",
-         T4."rollout_percentage",
-         T4."team_id",
-         T4."created_by_id",
-         T4."created_at",
-         T4."deleted",
-         T4."active",
-         T4."rollback_conditions",
-         T4."performed_rollback",
-         T4."ensure_experience_continuity",
-         T4."usage_dashboard_id",
-         T4."has_enriched_analytics",
          T5."id",
          T5."key",
          T5."name",
@@ -659,12 +646,28 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T6."id",
+         T6."key",
+         T6."name",
+         T6."filters",
+         T6."rollout_percentage",
+         T6."team_id",
+         T6."created_by_id",
+         T6."created_at",
+         T6."deleted",
+         T6."active",
+         T6."rollback_conditions",
+         T6."performed_rollback",
+         T6."ensure_experience_continuity",
+         T6."usage_dashboard_id",
+         T6."has_enriched_analytics"
   FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
-  LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
-  LEFT OUTER JOIN "posthog_featureflag" T5 ON ("posthog_survey"."internal_targeting_flag_id" = T5."id")
-  WHERE ("posthog_survey"."team_id" = 99999
+  LEFT OUTER JOIN "posthog_featureflag" T5 ON ("posthog_survey"."targeting_flag_id" = T5."id")
+  LEFT OUTER JOIN "posthog_featureflag" T6 ON ("posthog_survey"."internal_targeting_flag_id" = T6."id")
+  WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_survey"."archived"))
   '''
 # ---
