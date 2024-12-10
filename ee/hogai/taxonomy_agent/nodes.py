@@ -1,4 +1,3 @@
-import itertools
 import xml.etree.ElementTree as ET
 from abc import ABC
 from functools import cached_property
@@ -7,7 +6,12 @@ from typing import cast
 from git import Optional
 from langchain.agents.format_scratchpad import format_log_to_str
 from langchain_core.agents import AgentAction
-from langchain_core.messages import AIMessage as LangchainAssistantMessage, BaseMessage, merge_message_runs
+from langchain_core.messages import (
+    AIMessage as LangchainAssistantMessage,
+    BaseMessage,
+    HumanMessage as LangchainHumanMessage,
+    merge_message_runs,
+)
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
@@ -40,8 +44,11 @@ from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQuer
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
+    AssistantMessage,
     CachedTeamTaxonomyQueryResponse,
+    HumanMessage,
     TeamTaxonomyQuery,
+    VisualizationMessage,
 )
 
 
@@ -191,33 +198,34 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
-        human_messages, visualization_messages = filter_visualization_conversation(state.get("messages", []))
-
-        if not human_messages:
-            return []
-
+        filtered_messages = filter_visualization_conversation(state.get("messages", []))
+        start_index = state.get("start_idx")
         conversation = []
 
-        for idx, messages in enumerate(itertools.zip_longest(human_messages, visualization_messages)):
-            human_message, viz_message = messages
-
-            if human_message:
+        for idx, message in enumerate(filtered_messages):
+            if isinstance(message, HumanMessage):
+                # Add initial instructions.
                 if idx == 0:
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(REACT_USER_PROMPT, template_format="mustache").format(
-                            question=human_message.content
+                            question=message.content
                         )
                     )
-                else:
+                # Add follow-up instructions only for the human message that initiated a generation.
+                elif idx == start_index:
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(
                             REACT_FOLLOW_UP_PROMPT,
                             template_format="mustache",
-                        ).format(feedback=human_message.content)
+                        ).format(feedback=message.content)
                     )
-
-            if viz_message:
-                conversation.append(LangchainAssistantMessage(content=viz_message.plan or ""))
+                # Everything else leave as is.
+                else:
+                    conversation.append(LangchainHumanMessage(content=message.content))
+            elif isinstance(message, VisualizationMessage):
+                conversation.append(LangchainAssistantMessage(content=message.plan or ""))
+            elif isinstance(message, AssistantMessage):
+                conversation.append(LangchainAssistantMessage(content=message.content))
 
         return conversation
 
