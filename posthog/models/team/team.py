@@ -519,7 +519,7 @@ class Team(UUIDClassicModel):
             return ", ".join(self.app_urls)
         return str(self.pk)
 
-    __repr__ = sane_repr("uuid", "name", "api_token")
+    __repr__ = sane_repr("id", "uuid", "project_id", "name", "api_token")
 
 
 @mutable_receiver(post_save, sender=Team)
