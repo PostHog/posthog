@@ -48,10 +48,10 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                 <h3>Default access to {suffix}</h3>
                 <AccessControlObjectDefaults />
 
-                <h3>Members with explicit access to {suffix}</h3>
+                <h3>Members</h3>
                 <AccessControlObjectUsers />
 
-                <h3>Roles with explicit access to {suffix}</h3>
+                <h3>Groups</h3>
                 <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
                     <AccessControlObjectRoles />
                 </PayGateMini>
@@ -196,7 +196,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
             render: (_, { role }) => (
                 <span className="whitespace-nowrap">
                     <LemonTableLink
-                        to={urls.settings('organization-role-based-access-control') + `#role=${role}`}
+                        to={urls.settings('organization-roles') + `#role=${role}`}
                         title={rolesById[role]?.name}
                     />
                 </span>

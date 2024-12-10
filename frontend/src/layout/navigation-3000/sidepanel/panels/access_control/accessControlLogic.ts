@@ -3,6 +3,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, selecto
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { toSentenceCase } from 'lib/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -161,7 +162,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 const options = availableLevelsWithNone.map((level) => ({
                     value: level,
                     // TODO: Correct "a" and "an"
-                    label: level === 'none' ? 'No access by default' : `Everyone is a ${level} by default`,
+                    label: level === 'none' ? 'No access' : toSentenceCase(level),
                 }))
 
                 return options

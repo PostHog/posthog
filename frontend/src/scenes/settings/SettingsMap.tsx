@@ -407,12 +407,12 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
-        id: 'organization-role-based-access-control',
-        title: 'Role-based access control',
+        id: 'organization-roles',
+        title: 'Roles',
         settings: [
             {
-                id: 'organization-role-based-access-control',
-                title: 'Role-based access control',
+                id: 'organization-roles',
+                title: 'Roles',
                 component: <RoleBasedAccess />,
             },
         ],

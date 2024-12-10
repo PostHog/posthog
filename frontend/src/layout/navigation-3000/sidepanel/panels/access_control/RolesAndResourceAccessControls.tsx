@@ -1,3 +1,4 @@
+import { IconPlus } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
@@ -120,10 +121,7 @@ export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndRes
 
     return (
         <div className="space-y-2">
-            <p>
-                Edit organizational default permission levels for PostHog resources. Use roles to group your
-                organization members and assign them permissions.
-            </p>
+            <p>Use roles to group your organization members and assign them permissions.</p>
 
             <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
                 <div className="space-y-2">
@@ -140,8 +138,8 @@ export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndRes
                         }}
                     />
 
-                    <LemonButton type="primary" onClick={() => setEditingRoleId('new')}>
-                        Create role
+                    <LemonButton type="primary" onClick={() => setEditingRoleId('new')} icon={<IconPlus />}>
+                        Add a role
                     </LemonButton>
                     <RoleModal />
                 </div>
@@ -213,7 +211,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                         onClick={() => setEditingRoleId(role.id)}
                         disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
                     >
-                        Edit role
+                        Edit
                     </LemonButton>
                 </div>
             </div>
@@ -295,7 +293,7 @@ function RoleModal(): JSX.Element {
             <LemonModal
                 isOpen={!!editingRoleId}
                 onClose={() => setEditingRoleId(null)}
-                title={!isEditing ? 'Create role' : `Edit role`}
+                title={!isEditing ? 'Create' : `Edit`}
                 footer={
                     <>
                         <div className="flex-1">
