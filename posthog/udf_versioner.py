@@ -16,7 +16,7 @@ from xml import etree
 UDF_VERSION = 4  # Last modified by: @aspicer, 2024-12-6
 
 # Clean up all versions less than this
-EARLIEST_UDF_VERSION = 2
+EARLIEST_UDF_VERSION = 3
 
 CLICKHOUSE_XML_FILENAME = "user_defined_function.xml"
 ACTIVE_XML_CONFIG = "../../docker/clickhouse/user_defined_function.xml"
