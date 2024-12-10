@@ -6,7 +6,9 @@ aiobotocore==2.7.0
     # via
     #   aioboto3
     #   s3fs
-aiohttp==3.9.3
+aiohappyeyeballs==2.4.4
+    # via aiohttp
+aiohttp==3.11.10
     # via
     #   -r requirements.in
     #   aiobotocore
@@ -468,6 +470,10 @@ prometheus-client==0.14.1
     # via django-prometheus
 prompt-toolkit==3.0.39
     # via click-repl
+propcache==0.2.1
+    # via
+    #   aiohttp
+    #   yarl
 proto-plus==1.22.3
     # via google-cloud-bigquery-storage
 protobuf==4.22.1
@@ -800,7 +806,7 @@ xmlsec==1.3.13
     # via
     #   -r requirements.in
     #   python3-saml
-yarl==1.9.4
+yarl==1.18.3
     # via aiohttp
 zeep==4.2.1
     # via simple-salesforce
