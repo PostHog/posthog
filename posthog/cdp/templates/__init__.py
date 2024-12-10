@@ -39,7 +39,10 @@ from .google_cloud_storage.template_google_cloud_storage import (
     TemplateGoogleCloudStorageMigrator,
 )
 from .airtable.template_airtable import template as airtable
-from .snapchat_ads.template_snapchat_ads import template as snapchat_ads
+from .snapchat_ads.template_snapchat_ads import (
+    template as snapchat_ads,
+    template_site_destination as snapchat_ads_site_destination,
+)
 from .brevo.template_brevo import template as brevo
 from ._siteapps.template_early_access_features import template as early_access_features
 from ._siteapps.template_hogdesk import template as hogdesk
@@ -92,6 +95,7 @@ HOG_FUNCTION_TEMPLATES = [
     salesforce_update,
     sendgrid,
     snapchat_ads,
+    snapchat_ads_site_destination,
     zapier,
     zendesk,
     early_access_features,

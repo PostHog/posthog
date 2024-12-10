@@ -137,3 +137,40 @@ if (res.status >= 400) {
         "filter_test_accounts": True,
     },
 )
+
+template_site_destination: HogFunctionTemplate = HogFunctionTemplate(
+    status="client-side",
+    type="site_destination",
+    id="template-snapchat-site-destination",
+    name="Snapchat Pixel",
+    description="Track how many Snapchat users interact with your website.",
+    icon_url="/static/services/snapchat.png",
+    category=["Advertisement"],
+    hog="""
+export async function onLoad({ inputs, posthog }) {
+    (function(e,t,n){if(e.snaptr)return;var a=e.snaptr=function()
+    {a.handleRequest?a.handleRequest.apply(a,arguments):a.queue.push(arguments)};
+    a.queue=[];var s='script';r=t.createElement(s);r.async=!0;
+    r.src=n;var u=t.getElementsByTagName(s)[0];
+    u.parentNode.insertBefore(r,u);})(window,document,
+    'https://sc-static.net/scevent.min.js');
+
+    snaptr('init', '{inputs.pixelId}', {});
+}
+export function onEvent({ posthog, ...globals }) {
+    const { event, person } = globals
+    if (event.event === '$pageview') {
+        snaptr('track', 'PAGE_VIEW');
+    }
+}
+""".strip(),
+    inputs_schema=[
+        {
+            "key": "pixelId",
+            "type": "string",
+            "label": "Pixel ID",
+            "default": "",
+            "required": True,
+        }
+    ],
+)
