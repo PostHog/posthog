@@ -10,6 +10,9 @@ from django.db.models import Prefetch
 import dlt.common
 import dlt.common.libs
 import dlt.common.libs.pyarrow
+import dlt.extract
+import dlt.extract.incremental
+import dlt.extract.incremental.transform
 from dlt.pipeline.exceptions import PipelineStepFailed
 from deltalake import DeltaTable
 import pendulum
@@ -49,6 +52,21 @@ from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+
+
+def _from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
+    """Converts arrow scalar into Python type. Currently adds "UTC" to naive date times and converts all others to UTC"""
+    row_value = arrow_value.as_py()
+
+    if isinstance(row_value, date) and not isinstance(row_value, datetime):
+        return row_value
+    elif isinstance(row_value, datetime):
+        row_value = pendulum.instance(row_value).in_tz("UTC")
+    return row_value
+
+
+dlt.common.libs.pyarrow.from_arrow_scalar = _from_arrow_scalar
+dlt.extract.incremental.transform.from_arrow_scalar = _from_arrow_scalar
 
 
 @dataclass
@@ -159,21 +177,10 @@ class DataImportPipelineSync:
             for i in range(0, len(lst), n):
                 yield lst[i : i + n]
 
-        def from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
-            """Converts arrow scalar into Python type. Currently adds "UTC" to naive date times and converts all others to UTC"""
-            row_value = arrow_value.as_py()
-
-            if isinstance(row_value, date) and not isinstance(row_value, datetime):
-                return row_value
-            elif isinstance(row_value, datetime):
-                row_value = pendulum.instance(row_value).in_tz("UTC")
-            return row_value
-
         # Monkey patch to fix large memory consumption until https://github.com/dlt-hub/dlt/pull/2031 gets merged in
         FilesystemDestinationClientConfiguration.delta_jobs_per_write = 1
         FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
         FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
-        dlt.common.libs.pyarrow.from_arrow_scalar = from_arrow_scalar
 
         dlt.config["data_writer.file_max_items"] = 500_000
         dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
