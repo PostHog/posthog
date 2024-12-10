@@ -110,13 +110,21 @@ def register_grandfathered_environment_nested_viewset(
     return environment_nested, legacy_project_nested
 
 
-register_grandfathered_environment_nested_viewset(
-    r"plugin_configs", plugin.PluginConfigViewSet, "environment_plugin_configs", ["team_id"]
+environment_plugins_configs_router, legacy_project_plugins_configs_router = (
+    register_grandfathered_environment_nested_viewset(
+        r"plugin_configs", plugin.PluginConfigViewSet, "environment_plugin_configs", ["team_id"]
+    )
 )
-register_grandfathered_environment_nested_viewset(
+environment_plugins_configs_router.register(
     r"logs",
     plugin_log_entry.PluginLogEntryViewSet,
     "environment_plugin_config_logs",
+    ["team_id", "plugin_config_id"],
+)
+legacy_project_plugins_configs_router.register(
+    r"logs",
+    plugin_log_entry.PluginLogEntryViewSet,
+    "project_plugin_config_logs",
     ["team_id", "plugin_config_id"],
 )
 register_grandfathered_environment_nested_viewset(
