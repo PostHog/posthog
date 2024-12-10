@@ -6,26 +6,24 @@ from uuid import UUID
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
-    aget_active_event_batch_exports,
-    aupdate_expected_records_count,
-)
+from posthog.batch_exports.models import BatchExport
+from posthog.batch_exports.service import aupdate_expected_records_count
 from posthog.batch_exports.sql import EVENT_COUNT_BY_INTERVAL
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 
 
-class NoActiveBatchExportsFoundError(Exception):
-    """Exception raised when no active events batch exports are found for a given team."""
+class BatchExportNotFoundError(Exception):
+    """Exception raised when batch export is not found."""
 
-    def __init__(self, team_id: int):
-        super().__init__(f"No active events batch exports found for team {team_id}")
+    def __init__(self, batch_export_id: UUID):
+        super().__init__(f"Batch export with id {batch_export_id} not found")
 
 
 class NoValidBatchExportsFoundError(Exception):
-    """Exception raised when no valid events batch exports are found for a given team."""
+    """Exception raised when no valid batch export is found."""
 
-    def __init__(self, message: str = "No valid events batch exports found for team"):
+    def __init__(self, message: str = "No valid batch exports found"):
         super().__init__(message)
 
 
@@ -34,12 +32,10 @@ class BatchExportMonitoringInputs:
     """Inputs for the BatchExportMonitoringWorkflow.
 
     Attributes:
-        team_id: The team id to monitor batch exports for.
+        batch_export_id: The batch export id to monitor.
     """
 
-    # TODO - make this a list of team ids or single?
-    # or maybe a (list of) batch export id(s) instead?
-    team_id: int
+    batch_export_id: UUID
 
 
 @dataclass
@@ -51,22 +47,29 @@ class BatchExportDetails:
 
 
 @activity.defn
-async def get_batch_export(team_id: int) -> BatchExportDetails:
-    """Get the number of records completed for a given team."""
-    models = await aget_active_event_batch_exports(team_id)
-    if len(models) == 0:
-        raise NoActiveBatchExportsFoundError(team_id)
-    if len(models) > 1:
-        activity.logger.warning("More than one active events batch export found; using first one...")
-    model = models[0]
-    if model.interval_time_delta != dt.timedelta(minutes=5):
+async def get_batch_export(batch_export_id: UUID) -> BatchExportDetails:
+    """Fetch a batch export from the database and return its details."""
+    batch_export = (
+        await BatchExport.objects.filter(id=batch_export_id, model="events", paused=False, deleted=False)
+        .prefetch_related("destination")
+        .afirst()
+    )
+    if batch_export is None:
+        raise BatchExportNotFoundError(batch_export_id)
+    if batch_export.deleted is True:
+        raise NoValidBatchExportsFoundError("Batch export has been deleted")
+    if batch_export.paused is True:
+        raise NoValidBatchExportsFoundError("Batch export is paused")
+    if batch_export.model != "events":
+        raise NoValidBatchExportsFoundError("Batch export model is not 'events'")
+    if batch_export.interval_time_delta != dt.timedelta(minutes=5):
         raise NoValidBatchExportsFoundError(
             "Only batch exports with interval of 5 minutes are supported for monitoring at this time."
         )
-    config = model.destination.config
+    config = batch_export.destination.config
     return BatchExportDetails(
-        id=model.id,
-        interval=model.interval,
+        id=batch_export.id,
+        interval=batch_export.interval,
         exclude_events=config.get("exclude_events", []),
         include_events=config.get("include_events", []),
     )
@@ -174,11 +177,13 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
     async def run(self, inputs: BatchExportMonitoringInputs):
         """Workflow implementation to monitor batch exports for a given team."""
         # TODO - check if this is the right way to do logging since there seems to be a few different ways
-        workflow.logger.info("Starting batch exports monitoring workflow for team %s", inputs.team_id)
+        workflow.logger.info(
+            "Starting batch exports monitoring workflow for batch export id %s", inputs.batch_export_id
+        )
 
         batch_export_details = await workflow.execute_activity(
             get_batch_export,
-            inputs.team_id,
+            inputs.batch_export_id,
             start_to_close_timeout=dt.timedelta(minutes=1),
             retry_policy=RetryPolicy(
                 maximum_attempts=3,

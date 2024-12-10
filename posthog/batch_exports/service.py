@@ -796,16 +796,6 @@ async def aupdate_batch_export_backfill_status(backfill_id: UUID, status: str) -
     return await model.aget()
 
 
-async def aget_active_event_batch_exports(team_id: int) -> list[BatchExport]:
-    """Get active (non-paused, non-deleted) event batch exports for a given team."""
-    return [
-        model
-        async for model in BatchExport.objects.filter(
-            team_id=team_id, model="events", paused=False, deleted=False
-        ).prefetch_related("destination")
-    ]
-
-
 async def aupdate_expected_records_count(
     batch_export_id: UUID, interval_start: dt.datetime, interval_end: dt.datetime, count: int
 ) -> int:

@@ -104,7 +104,7 @@ async def generate_batch_export_runs(
 
 async def test_monitoring_workflow_when_no_event_data(batch_export):
     workflow_id = str(uuid.uuid4())
-    inputs = BatchExportMonitoringInputs(team_id=batch_export.team_id)
+    inputs = BatchExportMonitoringInputs(batch_export_id=batch_export.id)
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
@@ -144,7 +144,11 @@ async def test_monitoring_workflow_when_no_event_data(batch_export):
     indirect=True,
 )
 async def test_monitoring_workflow(
-    batch_export, generate_test_data, data_interval_start, interval, generate_batch_export_runs
+    batch_export,
+    generate_test_data,
+    data_interval_start,
+    interval,
+    generate_batch_export_runs,
 ):
     """Test the monitoring workflow with a batch export that has data.
 
@@ -157,7 +161,7 @@ async def test_monitoring_workflow(
     completed.
     """
     workflow_id = str(uuid.uuid4())
-    inputs = BatchExportMonitoringInputs(team_id=batch_export.team_id)
+    inputs = BatchExportMonitoringInputs(batch_export_id=batch_export.id)
 
     with freeze_time(dt.datetime(2023, 4, 25, 15, 30, 0, tzinfo=dt.UTC)) as frozen_time:
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
