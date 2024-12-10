@@ -45,10 +45,10 @@ def calculate_probabilities_v2(
 
     Example:
     --------
-    >>> control = ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1000)
-    >>> test = ExperimentVariantTrendsBaseStats(key="test", count=120, exposure=1000)
-    >>> probabilities = calculate_probabilities(control, [test])
-    >>> # Returns: [0.3, 0.7] indicating the test variant is more likely to be the best
+    >>> control = ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1000, absolute_exposure=1000)
+    >>> test = ExperimentVariantTrendsBaseStats(key="test", count=120, exposure=1000, absolute_exposure=1000)
+    >>> probabilities = calculate_probabilities_v2(control, [test])
+    >>> # Returns: [0.085, 0.915] indicating the test variant is more likely to be the best
     """
     if len(test_variants) >= 10:
         raise ValidationError("Can't calculate experiment results for more than 10 variants", code="too_much_data")
@@ -176,11 +176,11 @@ def calculate_credible_intervals_v2(variants, lower_bound=0.025, upper_bound=0.9
     Example:
     --------
     >>> variants = [
-    ...     ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1000),
-    ...     ExperimentVariantTrendsBaseStats(key="test", count=150, exposure=1000)
+    ...     ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1000, absolute_exposure=1000),
+    ...     ExperimentVariantTrendsBaseStats(key="test", count=150, exposure=1000, absolute_exposure=1000)
     ... ]
-    >>> intervals = calculate_credible_intervals(variants)
-    >>> # Returns: {"control": (0.082, 0.119), "test": (0.129, 0.173)}
+    >>> intervals = calculate_credible_intervals_v2(variants)
+    >>> # Returns: {"control": (0.082, 0.122), "test": (0.128, 0.176)}
     """
     intervals = {}
 
