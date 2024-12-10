@@ -56,6 +56,7 @@ from posthog.models.feature_flag.flag_matching import check_flag_evaluation_quer
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
+from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker, FeatureFlagStatus
 from posthog.queries.base import (
     determine_parsed_date_for_property_matching,
 )
@@ -256,7 +257,9 @@ class FeatureFlagSerializer(
 
                 if prop.type == "cohort":
                     try:
-                        initial_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
+                        initial_cohort: Cohort = Cohort.objects.get(
+                            pk=prop.value, team__project_id=self.context["project_id"]
+                        )
                         dependent_cohorts = get_dependent_cohorts(initial_cohort)
                         for cohort in [initial_cohort, *dependent_cohorts]:
                             if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
@@ -352,7 +355,7 @@ class FeatureFlagSerializer(
 
         try:
             FeatureFlag.objects.filter(
-                key=validated_data["key"], team_id=self.context["team_id"], deleted=True
+                key=validated_data["key"], team__project_id=self.context["project_id"], deleted=True
             ).delete()
         except deletion.RestrictedError:
             raise exceptions.ValidationError(
@@ -382,7 +385,9 @@ class FeatureFlagSerializer(
         request = self.context["request"]
         validated_key = validated_data.get("key", None)
         if validated_key:
-            FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
+            FeatureFlag.objects.filter(
+                key=validated_key, team__project_id=instance.team.project_id, deleted=True
+            ).delete()
         self._update_filters(validated_data)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
@@ -516,11 +521,11 @@ class FeatureFlagViewSet(
                 .prefetch_related("surveys_linked_flag")
             )
 
-            survey_targeting_flags = Survey.objects.filter(team=self.team, targeting_flag__isnull=False).values_list(
-                "targeting_flag_id", flat=True
-            )
+            survey_targeting_flags = Survey.objects.filter(
+                team__project_id=self.team.project_id, targeting_flag__isnull=False
+            ).values_list("targeting_flag_id", flat=True)
             survey_internal_targeting_flags = Survey.objects.filter(
-                team=self.team, internal_targeting_flag__isnull=False
+                team__project_id=self.team.project_id, internal_targeting_flag__isnull=False
             ).values_list("internal_targeting_flag_id", flat=True)
             queryset = queryset.exclude(Q(id__in=survey_targeting_flags)).exclude(
                 Q(id__in=survey_internal_targeting_flags)
@@ -647,7 +652,9 @@ class FeatureFlagViewSet(
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
-        feature_flags = list(FeatureFlag.objects.filter(team=self.team, deleted=False).order_by("-created_at"))
+        feature_flags = list(
+            FeatureFlag.objects.filter(team__project_id=self.team.project_id, deleted=False).order_by("-created_at")
+        )
 
         if not feature_flags:
             return Response([])
@@ -683,7 +690,7 @@ class FeatureFlagViewSet(
             seen_cohorts_cache = {
                 cohort.pk: cohort
                 for cohort in Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-                    team_id=self.team_id, deleted=False
+                    team__project_id=self.project_id, deleted=False
                 )
             }
 
@@ -771,9 +778,9 @@ class FeatureFlagViewSet(
                 "evaluation": reasons[flag_key],
             }
 
-        disabled_flags = FeatureFlag.objects.filter(team_id=self.team_id, active=False, deleted=False).values_list(
-            "key", flat=True
-        )
+        disabled_flags = FeatureFlag.objects.filter(
+            team__project_id=self.project_id, active=False, deleted=False
+        ).values_list("key", flat=True)
 
         for flag_key in disabled_flags:
             flags_with_evaluation_reasons[flag_key] = {
@@ -836,13 +843,27 @@ class FeatureFlagViewSet(
 
         return activity_page_response(activity_page, limit, page, request)
 
+    @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
+    def status(self, request: request.Request, **kwargs):
+        feature_flag_id = kwargs["pk"]
+
+        checker = FeatureFlagStatusChecker(
+            feature_flag_id=feature_flag_id,
+        )
+        flag_status, reason = checker.get_status()
+
+        return Response(
+            {"status": flag_status, "reason": reason},
+            status=status.HTTP_404_NOT_FOUND if flag_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK,
+        )
+
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
         item_id = kwargs["pk"]
-        if not FeatureFlag.objects.filter(id=item_id, team_id=self.team_id).exists():
+        if not FeatureFlag.objects.filter(id=item_id, team__project_id=self.project_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
