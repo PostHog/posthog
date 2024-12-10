@@ -53,21 +53,6 @@ pub struct FeatureFlagMatch {
     pub payload: Option<Value>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct GroupRelationship {
-    pub group_type: String,
-    pub group_key: String,
-}
-
-impl GroupRelationship {
-    pub fn new(group_type: String, group_key: String) -> Self {
-        Self {
-            group_type,
-            group_key,
-        }
-    }
-}
-
 #[derive(Debug, FromRow)]
 pub struct GroupTypeMapping {
     pub group_type: String,
