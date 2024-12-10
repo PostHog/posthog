@@ -14,7 +14,7 @@ class BaseRemoteConfigAPIView(APIView):
     permission_classes = []
 
     def check_token(self, token: str):
-        # Simple check rather than involving a whole serializer
+        # Most tokens are phc_xxx but there are some older ones that are random strings including underscores and dashes
         if len(token) > 200 or not re.match(r"^[a-zA-Z0-9_-]+$", token):
             raise ValidationError("Invalid token")
         return token
