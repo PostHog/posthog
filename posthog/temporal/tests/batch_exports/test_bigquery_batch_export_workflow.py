@@ -10,6 +10,7 @@ import warnings
 import pyarrow as pa
 import pytest
 import pytest_asyncio
+from django.test import override_settings
 from freezegun.api import freeze_time
 from google.cloud import bigquery
 from temporalio import activity
@@ -361,7 +362,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         **bigquery_config,
     )
 
-    with freeze_time(TEST_TIME) as frozen_time:
+    with freeze_time(TEST_TIME) as frozen_time, override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
         await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
 
         ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
