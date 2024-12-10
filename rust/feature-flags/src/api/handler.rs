@@ -45,9 +45,12 @@ impl Compression {
 pub struct FlagsQueryParams {
     #[serde(alias = "v")]
     pub version: Option<String>,
+
     pub compression: Option<Compression>,
+
     #[serde(alias = "ver")]
     pub lib_version: Option<String>,
+
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
 }
