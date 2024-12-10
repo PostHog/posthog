@@ -133,8 +133,17 @@ export const notebookLogic = kea<notebookLogicType>([
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
         insertComment: (context: Record<string, any>) => ({ context }),
         selectComment: (itemContextId: string) => ({ itemContextId }),
+        openShareModal: true,
+        closeShareModal: true,
     }),
     reducers(({ props }) => ({
+        isShareModalOpen: [
+            false,
+            {
+                openShareModal: () => true,
+                closeShareModal: () => false,
+            },
+        ],
         localContent: [
             null as JSONContent | null,
             { persist: props.mode !== 'canvas', prefix: NOTEBOOKS_VERSION },
