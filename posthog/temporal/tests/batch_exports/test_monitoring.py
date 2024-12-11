@@ -3,7 +3,6 @@ import uuid
 
 import pytest
 import pytest_asyncio
-from freezegun.api import freeze_time
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -24,6 +23,11 @@ from posthog.temporal.tests.utils.models import (
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+
+GENERATE_TEST_DATA_END = dt.datetime.now(tz=dt.UTC).replace(
+    minute=0, second=0, microsecond=0, tzinfo=dt.UTC
+) - dt.timedelta(hours=1)
+GENERATE_TEST_DATA_START = GENERATE_TEST_DATA_END - dt.timedelta(hours=1)
 
 
 @pytest_asyncio.fixture
@@ -129,13 +133,14 @@ async def test_monitoring_workflow_when_no_event_data(batch_export):
             assert batch_export_runs_updated == 0
 
 
-@freeze_time()
 @pytest.mark.parametrize(
     "data_interval_start",
-    # This is hardcoded relative to the `data_interval_end` used in all or most tests, since that's also
-    # passed to `generate_test_data` to determine the timestamp for the generated data.
-    # This will generate 2 hours of data between 13:00 and 15:00.
-    [dt.datetime(2023, 4, 25, 13, 0, 0, tzinfo=dt.UTC)],
+    [GENERATE_TEST_DATA_START],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "data_interval_end",
+    [GENERATE_TEST_DATA_END],
     indirect=True,
 )
 @pytest.mark.parametrize(
@@ -147,6 +152,7 @@ async def test_monitoring_workflow(
     batch_export,
     generate_test_data,
     data_interval_start,
+    data_interval_end,
     interval,
     generate_batch_export_runs,
 ):
@@ -162,45 +168,34 @@ async def test_monitoring_workflow(
     """
     workflow_id = str(uuid.uuid4())
     inputs = BatchExportMonitoringInputs(batch_export_id=batch_export.id)
-
-    with freeze_time(dt.datetime(2023, 4, 25, 15, 30, 0, tzinfo=dt.UTC)) as frozen_time:
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                # TODO - not sure if this is the right task queue
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            # TODO - not sure if this is the right task queue
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[BatchExportMonitoringWorkflow],
+            activities=[
+                get_batch_export,
+                get_event_counts,
+                update_batch_export_runs,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                BatchExportMonitoringWorkflow.run,
+                inputs,
+                id=workflow_id,
                 task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[BatchExportMonitoringWorkflow],
-                activities=[
-                    get_batch_export,
-                    get_event_counts,
-                    update_batch_export_runs,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                await activity_environment.client.execute_workflow(
-                    BatchExportMonitoringWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=30),
-                )
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=30),
+            )
 
-        # the monitoring workflow checks a single hour of data
-        check_interval_end = frozen_time().replace(minute=0, second=0, microsecond=0, tzinfo=dt.UTC) - dt.timedelta(
-            hours=1
-        )
-        check_interval_start = check_interval_end - dt.timedelta(hours=1)
-        batch_export_runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
-        for run in batch_export_runs:
-            if run.data_interval_start is None:
-                continue
-            if run.data_interval_start >= check_interval_end or run.data_interval_end < check_interval_start:
-                # we shouldn't have updated this run
-                assert run.records_total_count is None
-            elif run.records_completed == 0:
-                # TODO: in the actual monitoring activity it would be better to
-                # update the actual count to 0 rather than None
-                assert run.records_total_count is None
-            else:
-                assert run.records_completed == run.records_total_count
+    batch_export_runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+
+    for run in batch_export_runs:
+        if run.records_completed == 0:
+            # TODO: in the actual monitoring activity it would be better to
+            # update the actual count to 0 rather than None
+            assert run.records_total_count is None
+        else:
+            assert run.records_completed == run.records_total_count
