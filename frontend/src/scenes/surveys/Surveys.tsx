@@ -18,6 +18,7 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -27,6 +28,7 @@ import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
@@ -67,6 +69,8 @@ export function Surveys(): JSX.Element {
     const { user } = useValues(userLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const [editableSurveyConfig, setEditableSurveyConfig] = useState(
         currentTeam?.survey_config?.appearance || defaultSurveyAppearance
     )
@@ -78,6 +82,7 @@ export function Surveys(): JSX.Element {
     }
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
     const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
+    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <div>
@@ -224,8 +229,8 @@ export function Surveys(): JSX.Element {
                                 }}
                                 className="mb-2"
                             >
-                                Survey popovers are currently disabled for this project but there are active surveys
-                                running. Re-enable them in the settings.
+                                Survey popovers are currently disabled for this {settingLevel} but there are active
+                                surveys running. Re-enable them in the settings.
                             </LemonBanner>
                         ) : null}
                     </div>

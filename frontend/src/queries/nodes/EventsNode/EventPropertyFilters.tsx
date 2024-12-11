@@ -1,7 +1,9 @@
+import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
 
+import { groupsModel } from '~/models/groupsModel'
 import { EventsNode, EventsQuery, HogQLQuery, SessionAttributionExplorerQuery } from '~/queries/schema'
 import { isHogQLQuery, isSessionAttributionExplorerQuery } from '~/queries/utils'
 import { AnyPropertyFilter } from '~/types'
@@ -21,6 +23,7 @@ export function EventPropertyFilters<
         isHogQLQuery(query) || isSessionAttributionExplorerQuery(query) ? query.filters?.properties : query.properties
     const eventNames =
         isHogQLQuery(query) || isSessionAttributionExplorerQuery(query) ? [] : query.event ? [query.event] : []
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return !properties || Array.isArray(properties) ? (
         <PropertyFilters
@@ -30,6 +33,7 @@ export function EventPropertyFilters<
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
+                    ...groupsTaxonomicTypes,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
                     TaxonomicFilterGroupType.HogQLExpression,
