@@ -81,7 +81,6 @@ jobs:
     tests:
         name: Plugin Server Tests (${{matrix.shard}})
         needs: changes
-        # if: needs.changes.outputs.plugin-server == 'true' # <- Can't add this here because it's a required check
         runs-on: ubuntu-24.04
 
         strategy:
@@ -97,6 +96,7 @@ jobs:
 
         steps:
             - name: Code check out
+              # NOTE: We need this check on every step so that it still runs if skipped as we need it to suceed for the CI
               if: needs.changes.outputs.plugin-server == 'true'
               uses: actions/checkout@v3
 
@@ -121,14 +121,12 @@ jobs:
 
             # uv is a fast pip alternative: https://github.com/astral-sh/uv/
             - run: pip install uv
-              if: needs.changes.outputs.plugin-server == 'true'
 
             - name: Install rust
               if: needs.changes.outputs.plugin-server == 'true'
               uses: dtolnay/rust-toolchain@1.82
 
             - uses: actions/cache@v4
-              if: needs.changes.outputs.plugin-server == 'true'
               with:
                   path: |
                       ~/.cargo/registry
@@ -195,7 +193,6 @@ jobs:
     functional-tests:
         name: Functional tests
         needs: changes
-        # if: needs.changes.outputs.plugin-server == 'true' # <- Can't add this here because it's a required check
         runs-on: ubuntu-24.04
 
         env:
@@ -233,7 +230,6 @@ jobs:
 
             # uv is a fast pip alternative: https://github.com/astral-sh/uv/
             - run: pip install uv
-              if: needs.changes.outputs.plugin-server == 'true'
 
             - name: Install SAML (python3-saml) dependencies
               if: needs.changes.outputs.plugin-server == 'true'
