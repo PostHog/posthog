@@ -53,7 +53,7 @@ export type HogFunctionInputWithSchemaProps = {
 
 const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
 
-export function JsonConfigField(props: {
+function JsonConfigField(props: {
     onChange?: (value: string) => void
     className?: string
     autoFocus?: boolean
@@ -474,7 +474,7 @@ export function HogFunctionInputs({
 
     if (!configuration?.inputs_schema?.length) {
         if (!('type' in configuration)) {
-            // If this is a mapping, don't show anything.
+            // If this is a mapping, don't show any error message.
             return null
         }
         return <span className="italic text-muted-alt">This function does not require any input variables.</span>

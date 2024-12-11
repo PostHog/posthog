@@ -50,11 +50,7 @@ export function HogFunctionFilters(): JSX.Element {
     if (type === 'broadcast') {
         return (
             <div className="border bg-bg-light rounded p-3 space-y-2">
-                <LemonField
-                    name="filters"
-                    label={useMapping ? 'Global filters' : 'Filters'}
-                    info={useMapping ? 'Filters applied to all events before they reach a mapping' : null}
-                >
+                <LemonField name="filters" label="Filters">
                     {({ value, onChange }) => (
                         <PropertyFilters
                             propertyFilters={value?.properties ?? []}
@@ -79,11 +75,14 @@ export function HogFunctionFilters(): JSX.Element {
     }
 
     const showMasking = type === 'destination'
-    const useMatchGroups = type === 'site_destination'
 
     return (
         <div className="border bg-bg-light rounded p-3 space-y-2">
-            <LemonField name="filters" label="Filters">
+            <LemonField
+                name="filters"
+                label={useMapping ? 'Global filters' : 'Filters'}
+                info={useMapping ? 'Filters applied to all events before they reach a mapping' : null}
+            >
                 {({ value, onChange }) => {
                     const filters = (value ?? {}) as HogFunctionFiltersType
                     return (
@@ -111,7 +110,7 @@ export function HogFunctionFilters(): JSX.Element {
                                 pageKey={`HogFunctionPropertyFilters.${id}`}
                             />
 
-                            {!useMatchGroups ? (
+                            {!useMapping ? (
                                 <>
                                     <div className="flex w-full gap-2 justify-between">
                                         <LemonLabel>Match events and actions</LemonLabel>
