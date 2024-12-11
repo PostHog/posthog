@@ -36,19 +36,25 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         dashboard,
         name="Website Unique Users (Total)",
         description="Shows the number of unique users that use your app every day.",
-        filters={
-            "events": [
-                {
-                    "id": "$pageview",
-                    "math": "dau",
-                    "type": "events",
-                }
-            ],
+        query={
+            "breakdownFilter": {"breakdown_type": "event"},
+            "compareFilter": {"compare": True},
+            "dateRange": {"date_from": "-30d", "explicitDate": False},
+            "filterTestAccounts": False,
             "interval": "day",
-            "insight": "TRENDS",
-            "date_from": "-30d",
-            "display": "BoldNumber",
-            "compare": True,
+            "kind": "TrendsQuery",
+            "properties": [],
+            "series": [{"event": "$pageview", "kind": "EventsNode", "math": "dau", "name": "$pageview"}],
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "BoldNumber",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
+            },
         },
         layouts={
             "sm": {"i": "21", "x": 0, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
@@ -69,40 +75,35 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         dashboard,
         name="Organic SEO Unique Users (Total)",
         description="",
-        filters={
-            "events": [
-                {
-                    "id": "$pageview",
-                    "math": "dau",
-                    "type": "events",
-                }
-            ],
+        query={
+            "breakdownFilter": {"breakdown_type": "event"},
+            "compareFilter": {"compare": True},
+            "dateRange": {"date_from": "-30d", "explicitDate": False},
+            "filterTestAccounts": False,
             "interval": "day",
-            "insight": "TRENDS",
-            "date_from": "-30d",
-            "display": "BoldNumber",
-            "compare": True,
+            "kind": "TrendsQuery",
             "properties": {
                 "type": "AND",
                 "values": [
                     {
                         "type": "AND",
                         "values": [
-                            {
-                                "key": "$referring_domain",
-                                "type": "event",
-                                "value": "google",
-                                "operator": "icontains",
-                            },
-                            {
-                                "key": "utm_source",
-                                "type": "event",
-                                "value": "is_not_set",
-                                "operator": "is_not_set",
-                            },
+                            {"key": "$referring_domain", "operator": "icontains", "type": "event", "value": "google"},
+                            {"key": "utm_source", "operator": "is_not_set", "type": "event", "value": "is_not_set"},
                         ],
                     }
                 ],
+            },
+            "series": [{"event": "$pageview", "kind": "EventsNode", "math": "dau", "name": "$pageview"}],
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "BoldNumber",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
             },
         },
         layouts={
@@ -125,18 +126,24 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         dashboard,
         name="Website Unique Users (Breakdown)",
         description="",
-        filters={
-            "events": [
-                {
-                    "id": "$pageview",
-                    "math": "dau",
-                    "type": "events",
-                }
-            ],
+        query={
+            "breakdownFilter": {"breakdown_type": "event"},
+            "dateRange": {"date_from": "-30d", "explicitDate": False},
+            "filterTestAccounts": False,
             "interval": "week",
-            "insight": "TRENDS",
-            "date_from": "-30d",
-            "display": "ActionsBar",
+            "kind": "TrendsQuery",
+            "properties": [],
+            "series": [{"event": "$pageview", "kind": "EventsNode", "math": "dau", "name": "$pageview"}],
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsBar",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
+            },
         },
         layouts={
             "sm": {"i": "23", "x": 0, "y": 5, "w": 6, "h": 5, "minW": 3, "minH": 5},
@@ -157,32 +164,35 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         dashboard,
         name="Organic SEO Unique Users (Breakdown)",
         description="",
-        filters={
-            "events": [
+        query={
+            "breakdownFilter": {"breakdown_type": "event"},
+            "dateRange": {"date_from": "-30d", "explicitDate": False},
+            "filterTestAccounts": False,
+            "interval": "week",
+            "kind": "TrendsQuery",
+            "properties": [],
+            "series": [
                 {
-                    "id": "$pageview",
+                    "event": "$pageview",
+                    "kind": "EventsNode",
                     "math": "dau",
-                    "type": "events",
+                    "name": "$pageview",
                     "properties": [
-                        {
-                            "key": "$referring_domain",
-                            "type": "event",
-                            "value": "google",
-                            "operator": "icontains",
-                        },
-                        {
-                            "key": "utm_source",
-                            "type": "event",
-                            "value": "is_not_set",
-                            "operator": "is_not_set",
-                        },
+                        {"key": "$referring_domain", "operator": "icontains", "type": "event", "value": "google"},
+                        {"key": "utm_source", "operator": "is_not_set", "type": "event", "value": "is_not_set"},
                     ],
                 }
             ],
-            "interval": "week",
-            "insight": "TRENDS",
-            "date_from": "-30d",
-            "display": "ActionsBar",
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsBar",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
+            },
         },
         layouts={
             "sm": {"i": "24", "x": 6, "y": 5, "w": 6, "h": 5, "minW": 3, "minH": 5},
@@ -197,30 +207,28 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         dashboard,
         name="Sessions Per User",
         description="",
-        filters={
-            "events": [
-                {
-                    "id": "$pageview",
-                    "math": "dau",
-                    "name": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "properties": [],
-                },
-                {
-                    "id": "$pageview",
-                    "math": "unique_session",
-                    "name": "$pageview",
-                    "type": "events",
-                    "order": 1,
-                    "properties": [],
-                },
-            ],
+        query={
+            "breakdownFilter": {"breakdown_type": "event"},
+            "dateRange": {"date_from": "-30d", "explicitDate": False},
+            "filterTestAccounts": False,
             "interval": "week",
-            "insight": "TRENDS",
-            "date_from": "-30d",
-            "display": "ActionsLineGraph",
-            "formula": "B/A",
+            "kind": "TrendsQuery",
+            "properties": [],
+            "series": [
+                {"event": "$pageview", "kind": "EventsNode", "math": "dau", "name": "$pageview"},
+                {"event": "$pageview", "kind": "EventsNode", "math": "unique_session", "name": "$pageview"},
+            ],
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "formula": "B/A",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
+            },
         },
         layouts={
             "sm": {"i": "25", "x": 0, "y": 10, "w": 6, "h": 5, "minW": 3, "minH": 5},
@@ -241,30 +249,28 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         dashboard,
         name="Pages Per User",
         description="",
-        filters={
-            "events": [
-                {
-                    "id": "$pageview",
-                    "math": "total",
-                    "name": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "properties": [],
-                },
-                {
-                    "id": "$pageview",
-                    "math": "dau",
-                    "name": "$pageview",
-                    "type": "events",
-                    "order": 1,
-                    "properties": [],
-                },
-            ],
+        query={
+            "breakdownFilter": {"breakdown_type": "event"},
+            "dateRange": {"date_from": "-30d", "explicitDate": False},
+            "filterTestAccounts": False,
             "interval": "week",
-            "insight": "TRENDS",
-            "date_from": "-30d",
-            "display": "ActionsLineGraph",
-            "formula": "A/B",
+            "kind": "TrendsQuery",
+            "properties": [],
+            "series": [
+                {"event": "$pageview", "kind": "EventsNode", "math": "total", "name": "$pageview"},
+                {"event": "$pageview", "kind": "EventsNode", "math": "dau", "name": "$pageview"},
+            ],
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "formula": "A/B",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
+            },
         },
         layouts={
             "sm": {"i": "26", "x": 6, "y": 10, "w": 6, "h": 5, "minW": 3, "minH": 5},
@@ -287,37 +293,31 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         dashboard,
         name="Top Website Pages (Overall)",
         description="",
-        filters={
-            "events": [
-                {
-                    "id": "$pageview",
-                    "math": "unique_session",
-                    "name": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                }
-            ],
+        query={
+            "breakdownFilter": {"breakdown": "$current_url", "breakdown_type": "event"},
+            "dateRange": {"date_from": "-30d", "explicitDate": False},
+            "filterTestAccounts": False,
             "interval": "day",
-            "insight": "TRENDS",
-            "date_from": "-30d",
-            "display": "ActionsBarValue",
-            "breakdown": "$current_url",
-            "breakdown_type": "event",
+            "kind": "TrendsQuery",
             "properties": {
                 "type": "AND",
                 "values": [
                     {
                         "type": "AND",
-                        "values": [
-                            {
-                                "key": "$current_url",
-                                "type": "event",
-                                "value": "?",
-                                "operator": "not_icontains",
-                            }
-                        ],
+                        "values": [{"key": "$current_url", "operator": "not_icontains", "type": "event", "value": "?"}],
                     }
                 ],
+            },
+            "series": [{"event": "$pageview", "kind": "EventsNode", "math": "unique_session", "name": "$pageview"}],
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsBarValue",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
             },
         },
         layouts={
@@ -339,43 +339,34 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         dashboard,
         name="Top Website Pages (via Google)",
         description="",
-        filters={
-            "events": [
-                {
-                    "id": "$pageview",
-                    "math": "unique_session",
-                    "name": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                }
-            ],
+        query={
+            "breakdownFilter": {"breakdown": "$current_url", "breakdown_type": "event"},
+            "dateRange": {"date_from": "-30d", "explicitDate": False},
+            "filterTestAccounts": False,
             "interval": "day",
-            "insight": "TRENDS",
-            "date_from": "-30d",
-            "display": "ActionsBarValue",
-            "breakdown": "$current_url",
-            "breakdown_type": "event",
+            "kind": "TrendsQuery",
             "properties": {
                 "type": "AND",
                 "values": [
                     {
                         "type": "AND",
                         "values": [
-                            {
-                                "key": "$current_url",
-                                "type": "event",
-                                "value": "?",
-                                "operator": "not_icontains",
-                            },
-                            {
-                                "key": "$referring_domain",
-                                "type": "event",
-                                "value": "google",
-                                "operator": "icontains",
-                            },
+                            {"key": "$current_url", "operator": "not_icontains", "type": "event", "value": "?"},
+                            {"key": "$referring_domain", "operator": "icontains", "type": "event", "value": "google"},
                         ],
                     }
                 ],
+            },
+            "series": [{"event": "$pageview", "kind": "EventsNode", "math": "unique_session", "name": "$pageview"}],
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsBarValue",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
             },
         },
         layouts={
@@ -391,22 +382,24 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         dashboard,
         name="Website Users by Location",
         description="",
-        filters={
-            "events": [
-                {
-                    "id": "$pageview",
-                    "math": "dau",
-                    "name": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                }
-            ],
+        query={
+            "breakdownFilter": {"breakdown": "$geoip_country_code", "breakdown_type": "person"},
+            "dateRange": {"date_from": "-30d", "explicitDate": False},
+            "filterTestAccounts": False,
             "interval": "day",
-            "insight": "TRENDS",
-            "date_from": "-30d",
-            "display": "WorldMap",
-            "breakdown": "$geoip_country_code",
-            "breakdown_type": "person",
+            "kind": "TrendsQuery",
+            "properties": [],
+            "series": [{"event": "$pageview", "kind": "EventsNode", "math": "dau", "name": "$pageview"}],
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "WorldMap",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
+            },
         },
         layouts={
             "sm": {"i": "29", "x": 0, "y": 23, "w": 12, "h": 8, "minW": 3, "minH": 5},
@@ -492,10 +485,10 @@ def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: dict, color:
 def _create_tile_for_insight(
     dashboard: Dashboard,
     name: str,
-    filters: dict,
     description: str,
     layouts: dict,
     color: Optional[str],
+    filters: Optional[dict] = None,
     query: Optional[dict] = None,
 ) -> None:
     filter_test_accounts = filters.get("filter_test_accounts", True)
@@ -503,7 +496,7 @@ def _create_tile_for_insight(
         team=dashboard.team,
         name=name,
         description=description,
-        filters={**filters, "filter_test_accounts": filter_test_accounts},
+        filters=None if filters is None else {**filters, "filter_test_accounts": filter_test_accounts},
         is_sample=True,
         query=query,
     )
@@ -546,36 +539,34 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
         dashboard,
         name="Feature Flag Called Total Volume",
         description="Shows the number of total calls made on feature flag with key: " + feature_flag.key,
-        filters={
-            "events": [
-                {
-                    "id": "$feature_flag_called",
-                    "name": "$feature_flag_called",
-                    "type": "events",
-                }
-            ],
+        query={
+            "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+            "dateRange": {"date_from": "-30d", "explicitDate": False},
+            "filterTestAccounts": False,
             "interval": "day",
-            "insight": "TRENDS",
-            "date_from": "-30d",
-            "display": "ActionsLineGraph",
+            "kind": "TrendsQuery",
             "properties": {
                 "type": "AND",
                 "values": [
                     {
                         "type": "AND",
                         "values": [
-                            {
-                                "key": "$feature_flag",
-                                "type": "event",
-                                "value": feature_flag.key,
-                            },
+                            {"key": "$feature_flag", "operator": "exact", "type": "event", "value": feature_flag.key}
                         ],
                     }
                 ],
             },
-            "breakdown": "$feature_flag_response",
-            "breakdown_type": "event",
-            "filter_test_accounts": False,
+            "series": [{"event": "$feature_flag_called", "kind": "EventsNode", "name": "$feature_flag_called"}],
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
+            },
         },
         layouts={
             "sm": {"i": "21", "x": 0, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
@@ -597,37 +588,36 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
         name="Feature Flag calls made by unique users per variant",
         description="Shows the number of unique user calls made on feature flag per variant with key: "
         + feature_flag.key,
-        filters={
-            "events": [
-                {
-                    "id": "$feature_flag_called",
-                    "name": "$feature_flag_called",
-                    "math": "dau",
-                    "type": "events",
-                }
-            ],
+        query={
+            "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+            "dateRange": {"date_from": "-30d", "explicitDate": False},
+            "filterTestAccounts": False,
             "interval": "day",
-            "insight": "TRENDS",
-            "date_from": "-30d",
-            "display": "ActionsTable",
+            "kind": "TrendsQuery",
             "properties": {
                 "type": "AND",
                 "values": [
                     {
                         "type": "AND",
                         "values": [
-                            {
-                                "key": "$feature_flag",
-                                "type": "event",
-                                "value": feature_flag.key,
-                            },
+                            {"key": "$feature_flag", "operator": "exact", "type": "event", "value": feature_flag.key}
                         ],
                     }
                 ],
             },
-            "breakdown": "$feature_flag_response",
-            "breakdown_type": "event",
-            "filter_test_accounts": False,
+            "series": [
+                {"event": "$feature_flag_called", "kind": "EventsNode", "math": "dau", "name": "$feature_flag_called"}
+            ],
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsTable",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
+            },
         },
         layouts={
             "sm": {"i": "22", "x": 6, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
@@ -651,40 +641,37 @@ def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Das
         dashboard,
         name=f"{ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER} Total Volume",
         description="Shows the total number of times this feature was viewed and interacted with",
-        filters={
-            "events": [
-                {
-                    "id": "$feature_view",
-                    "name": "Feature View - Total",
-                    "type": "events",
-                },
-                {
-                    "id": "$feature_view",
-                    "name": "Feature View - Unique users",
-                    "type": "events",
-                    "math": "dau",
-                },
-            ],
+        query={
+            "breakdownFilter": {"breakdown_type": "event"},
+            "dateRange": {"date_from": "-30d", "explicitDate": False},
+            "filterTestAccounts": False,
             "interval": "day",
-            "insight": "TRENDS",
-            "date_from": "-30d",
-            "display": "ActionsLineGraph",
+            "kind": "TrendsQuery",
             "properties": {
                 "type": "AND",
                 "values": [
                     {
                         "type": "AND",
                         "values": [
-                            {
-                                "key": "feature_flag",
-                                "type": "event",
-                                "value": feature_flag.key,
-                            },
+                            {"key": "feature_flag", "operator": "exact", "type": "event", "value": feature_flag.key}
                         ],
                     }
                 ],
             },
-            "filter_test_accounts": False,
+            "series": [
+                {"event": "$feature_view", "kind": "EventsNode", "name": "Feature View - Total"},
+                {"event": "$feature_view", "kind": "EventsNode", "math": "dau", "name": "Feature View - Unique users"},
+            ],
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
+            },
         },
         layouts={},
         color=None,
@@ -694,40 +681,42 @@ def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Das
         dashboard,
         name="Feature Interaction Total Volume",
         description="Shows the total number of times this feature was viewed and interacted with",
-        filters={
-            "events": [
-                {
-                    "id": "$feature_interaction",
-                    "name": "Feature Interaction - Total",
-                    "type": "events",
-                },
-                {
-                    "id": "$feature_interaction",
-                    "name": "Feature Interaction - Unique users",
-                    "type": "events",
-                    "math": "dau",
-                },
-            ],
+        query={
+            "breakdownFilter": {"breakdown_type": "event"},
+            "dateRange": {"date_from": "-30d", "explicitDate": False},
+            "filterTestAccounts": False,
             "interval": "day",
-            "insight": "TRENDS",
-            "date_from": "-30d",
-            "display": "ActionsLineGraph",
+            "kind": "TrendsQuery",
             "properties": {
                 "type": "AND",
                 "values": [
                     {
                         "type": "AND",
                         "values": [
-                            {
-                                "key": "feature_flag",
-                                "type": "event",
-                                "value": feature_flag.key,
-                            },
+                            {"key": "feature_flag", "operator": "exact", "type": "event", "value": feature_flag.key}
                         ],
                     }
                 ],
             },
-            "filter_test_accounts": False,
+            "series": [
+                {"event": "$feature_interaction", "kind": "EventsNode", "name": "Feature Interaction - Total"},
+                {
+                    "event": "$feature_interaction",
+                    "kind": "EventsNode",
+                    "math": "dau",
+                    "name": "Feature Interaction - Unique users",
+                },
+            ],
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
+            },
         },
         layouts={},
         color=None,
