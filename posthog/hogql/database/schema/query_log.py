@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     IntegerDatabaseField,
@@ -46,13 +48,13 @@ INT_FIELDS = {"created_by": ["user_id"]}
 class QueryLogTable(LazyTable):
     fields: dict[str, FieldOrTable] = QUERY_LOG_FIELDS
 
-    def to_printed_clickhouse(self, context):
+    def to_printed_clickhouse(self, context) -> str:
         return "query_log"
 
-    def to_printed_hogql(self):
+    def to_printed_hogql(self) -> str:
         return "query_log"
 
-    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node) -> Any:
         requested_fields = table_to_add.fields_accessed
 
         raw_table_name = "raw_query_log"
@@ -121,8 +123,8 @@ class RawQueryLogTable(FunctionCallTable):
 
     name: str = "raw_query_log"
 
-    def to_printed_clickhouse(self, context):
+    def to_printed_clickhouse(self, context) -> str:
         return "clusterAllReplicas(posthog, system.query_log)"
 
-    def to_printed_hogql(self, context):
+    def to_printed_hogql(self, context) -> str:
         return "query_log"
