@@ -110,34 +110,19 @@ FROM events
 WHERE and(
     events.`$session_id` IS NOT NULL,
     {event_type_expr},
-    or(
-        and(timestamp >= {current_date_range_start}, timestamp < {current_date_range_end}),
-        and(timestamp >= {previous_date_range_start}, timestamp < {previous_date_range_end})
-    ),
+    {inside_timestamp_period},
     {event_properties},
     {session_properties}
 )
 GROUP BY session_id
-HAVING or(
-    and(start_timestamp >= {current_date_range_start}, start_timestamp < {current_date_range_end}),
-    and(start_timestamp >= {previous_date_range_start}, start_timestamp < {previous_date_range_end})
-)
+HAVING {inside_start_timestamp_period}
         """,
             placeholders={
                 "event_properties": self.event_properties(),
                 "session_properties": self.session_properties(),
                 "event_type_expr": self.event_type_expr,
-                # It's ok that we return ast.Constant(value=None) for previous_date_range_start
-                # and previous_date_range_end if there's no compare_to date range
-                # because HogQL will simply ignore that part of the where clause, it's that good!
-                "current_date_range_start": self.query_date_range.date_from_as_hogql(),
-                "current_date_range_end": self.query_date_range.date_to_as_hogql(),
-                "previous_date_range_start": self.query_compare_to_date_range.date_from_as_hogql()
-                if self.query_compare_to_date_range
-                else ast.Constant(value=None),
-                "previous_date_range_end": self.query_compare_to_date_range.date_to_as_hogql()
-                if self.query_compare_to_date_range
-                else ast.Constant(value=None),
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "inside_start_timestamp_period": self._periods_expression("start_timestamp"),
             },
         )
         assert isinstance(parsed_select, ast.SelectQuery)

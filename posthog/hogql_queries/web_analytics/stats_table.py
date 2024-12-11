@@ -351,52 +351,6 @@ GROUP BY session_id, breakdown_value
 
         return query
 
-    def _current_period_expression(self, field="start_timestamp"):
-        return ast.Call(
-            name="and",
-            args=[
-                ast.CompareOperation(
-                    left=ast.Field(chain=[field]),
-                    right=self.query_date_range.date_from_as_hogql(),
-                    op=ast.CompareOperationOp.GtEq,
-                ),
-                ast.CompareOperation(
-                    left=ast.Field(chain=[field]),
-                    right=self.query_date_range.date_to_as_hogql(),
-                    op=ast.CompareOperationOp.Lt,
-                ),
-            ],
-        )
-
-    def _previous_period_expression(self, field="start_timestamp"):
-        if not self.query_compare_to_date_range:
-            return ast.Constant(value=None)
-
-        return ast.Call(
-            name="and",
-            args=[
-                ast.CompareOperation(
-                    left=ast.Field(chain=[field]),
-                    right=self.query_compare_to_date_range.date_from_as_hogql(),
-                    op=ast.CompareOperationOp.GtEq,
-                ),
-                ast.CompareOperation(
-                    left=ast.Field(chain=[field]),
-                    right=self.query_compare_to_date_range.date_to_as_hogql(),
-                    op=ast.CompareOperationOp.Lt,
-                ),
-            ],
-        )
-
-    def _periods_expression(self, field="timestamp"):
-        return ast.Call(
-            name="or",
-            args=[
-                self._current_period_expression(field),
-                self._previous_period_expression(field),
-            ],
-        )
-
     def _period_comparison_tuple(self, column, alias, function_name):
         return ast.Alias(
             alias=alias,
