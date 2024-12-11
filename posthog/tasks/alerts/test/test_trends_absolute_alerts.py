@@ -1,8 +1,9 @@
 from typing import Optional, Any
 from unittest.mock import ANY, MagicMock, patch
-import dateutil
-
 from freezegun import freeze_time
+
+import dateutil
+import pytz
 
 from posthog.models.alert import AlertCheck
 from posthog.models.instance_setting import set_instance_setting
@@ -40,7 +41,12 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     def create_alert(
-        self, insight: dict, series_index: int, lower: Optional[int] = None, upper: Optional[int] = None
+        self,
+        insight: dict,
+        series_index: int,
+        lower: Optional[int] = None,
+        upper: Optional[int] = None,
+        calculation_interval: AlertCalculationInterval = AlertCalculationInterval.DAILY,
     ) -> dict:
         alert = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
@@ -53,14 +59,17 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                     "series_index": series_index,
                 },
                 "condition": {"type": "absolute_value"},
-                "calculation_interval": AlertCalculationInterval.DAILY,
+                "calculation_interval": calculation_interval,
                 "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": lower, "upper": upper}}},
             },
         ).json()
 
         return alert
 
-    def create_time_series_trend_insight(self, breakdown: Optional[BreakdownFilter] = None) -> dict[str, Any]:
+    def create_time_series_trend_insight(
+        self,
+        breakdown: Optional[BreakdownFilter] = None,
+    ) -> dict[str, Any]:
         query_dict = TrendsQuery(
             series=[
                 EventsNode(
@@ -131,7 +140,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
         assert updated_alert.last_checked_at == FROZEN_TIME
         assert updated_alert.last_notified_at == FROZEN_TIME
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+        assert updated_alert.next_check_at == (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(
+            hour=1, minute=0, tzinfo=pytz.UTC
+        )
 
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 0
@@ -165,7 +176,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+        assert updated_alert.next_check_at == (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(
+            hour=1, minute=0, tzinfo=pytz.UTC
+        )
 
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 2
@@ -178,9 +191,11 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
     def test_trend_no_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
         insight = self.create_time_series_trend_insight()
-        alert = self.create_alert(insight, series_index=0, lower=0, upper=2)
+        alert = self.create_alert(
+            insight, series_index=0, lower=0, upper=2, calculation_interval=AlertCalculationInterval.MONTHLY
+        )
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
+        with freeze_time(FROZEN_TIME):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -193,10 +208,39 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+        # first day of next month at 1 AM
+        assert updated_alert.next_check_at == pytz.datetime.datetime(2024, 7, 1, 1, 0, tzinfo=pytz.UTC)
 
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
-        assert alert_check.calculated_value == 1
+        assert alert_check.calculated_value == 0
+        assert alert_check.state == AlertState.NOT_FIRING
+        assert alert_check.error is None
+
+    def test_trend_no_threshold_breached_weekly(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        insight = self.create_time_series_trend_insight()
+        alert = self.create_alert(
+            insight, series_index=0, lower=0, upper=2, calculation_interval=AlertCalculationInterval.WEEKLY
+        )
+
+        with freeze_time(FROZEN_TIME):
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="1",
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+        check_alert(alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
+        assert updated_alert.state == AlertState.NOT_FIRING
+        assert updated_alert.next_check_at == pytz.datetime.datetime(2024, 6, 3, 1, 0, tzinfo=pytz.UTC)
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.calculated_value == 0
         assert alert_check.state == AlertState.NOT_FIRING
         assert alert_check.error is None
 
@@ -231,7 +275,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+        assert updated_alert.next_check_at == (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(
+            hour=1, minute=0, tzinfo=pytz.UTC
+        )
 
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 2
@@ -273,7 +319,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+        assert updated_alert.next_check_at == (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(
+            hour=1, minute=0, tzinfo=pytz.UTC
+        )
 
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 1
@@ -315,7 +363,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+        assert updated_alert.next_check_at == (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(
+            hour=1, minute=0, tzinfo=pytz.UTC
+        )
 
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.calculated_value is None
@@ -355,7 +405,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+        assert updated_alert.next_check_at == (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(
+            hour=1, minute=0, tzinfo=pytz.UTC
+        )
 
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 3
@@ -397,7 +449,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+        assert updated_alert.next_check_at == (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(
+            hour=1, minute=0, tzinfo=pytz.UTC
+        )
 
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 2
