@@ -55,9 +55,10 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         history = node._construct_messages(
             {
                 "messages": [
-                    HumanMessage(content="Text"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan"),
-                ]
+                    HumanMessage(content="Text", id="0"),
+                    VisualizationMessage(answer=self.schema, plan="randomplan", id="1", initiator="0"),
+                ],
+                "start_id": "1",
             }
         )
         self.assertEqual(len(history), 2)
@@ -70,10 +71,11 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         history = node._construct_messages(
             {
                 "messages": [
-                    HumanMessage(content="Text"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan"),
-                    HumanMessage(content="Text"),
-                ]
+                    HumanMessage(content="Text", id="0"),
+                    VisualizationMessage(answer=self.schema, plan="randomplan", id="1", initiator="0"),
+                    HumanMessage(content="Text", id="2"),
+                ],
+                "start_id": "2",
             }
         )
         self.assertEqual(len(history), 3)
@@ -91,9 +93,11 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         history = node._construct_messages(
             {
                 "messages": [
-                    HumanMessage(content="Text"),
-                    AssistantMessage(content="test"),
-                ]
+                    HumanMessage(content="Text", id="0"),
+                    RouterMessage(content="trends", id="1"),
+                    AssistantMessage(content="test", id="2"),
+                ],
+                "start_id": "0",
             }
         )
         self.assertEqual(len(history), 1)
@@ -122,30 +126,58 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         history = node._construct_messages(
             {
                 "messages": [
-                    HumanMessage(content="Question 1"),
-                    RouterMessage(content="trends"),
-                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1"),
-                    AssistantMessage(content="Summary 1"),
-                    HumanMessage(content="Question 2"),
-                    RouterMessage(content="funnel"),
-                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2"),
-                    AssistantMessage(content="Summary 2"),
-                    HumanMessage(content="Question 3"),
-                    RouterMessage(content="funnel"),
-                ]
-            }
+                    HumanMessage(content="Question 1", id="0"),
+                    RouterMessage(content="trends", id="1"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", id="2", initiator="0"),
+                    AssistantMessage(content="Summary 1", id="3"),
+                    HumanMessage(content="Question 2", id="4"),
+                    RouterMessage(content="funnel", id="5"),
+                    AssistantMessage(content="Loop 1", id="6"),
+                    HumanMessage(content="Loop Answer 1", id="7"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", id="8", initiator="4"),
+                    AssistantMessage(content="Summary 2", id="9"),
+                    HumanMessage(content="Question 3", id="10"),
+                    RouterMessage(content="funnel", id="11"),
+                ],
+                "start_id": "10",
+            },
         )
-        self.assertEqual(len(history), 5)
+        self.assertEqual(len(history), 9)
         self.assertEqual(history[0].type, "human")
         self.assertIn("Question 1", history[0].content)
         self.assertEqual(history[1].type, "ai")
         self.assertEqual(history[1].content, "Plan 1")
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Question 2", history[2].content)
-        self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[3].content, "Plan 2")
-        self.assertEqual(history[4].type, "human")
-        self.assertIn("Question 3", history[4].content)
+        self.assertEqual(history[2].type, "ai")
+        self.assertEqual(history[2].content, "Summary 1")
+        self.assertEqual(history[3].type, "human")
+        self.assertIn("Question 2", history[3].content)
+        self.assertEqual(history[4].type, "ai")
+        self.assertEqual(history[4].content, "Loop 1")
+        self.assertEqual(history[5].type, "human")
+        self.assertEqual(history[5].content, "Loop Answer 1")
+        self.assertEqual(history[6].content, "Plan 2")
+        self.assertEqual(history[6].type, "ai")
+        self.assertEqual(history[7].type, "ai")
+        self.assertEqual(history[7].content, "Summary 2")
+        self.assertEqual(history[8].type, "human")
+        self.assertIn("Question 3", history[8].content)
+
+    def test_agent_reconstructs_conversation_without_messages_after_parent(self):
+        node = self._get_node()
+        history = node._construct_messages(
+            {
+                "messages": [
+                    HumanMessage(content="Question 1", id="0"),
+                    RouterMessage(content="trends", id="1"),
+                    AssistantMessage(content="Loop 1", id="2"),
+                    HumanMessage(content="Loop Answer 1", id="3"),
+                ],
+                "start_id": "0",
+            }
+        )
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("Question 1", history[0].content)
 
     def test_agent_filters_out_low_count_events(self):
         _create_person(distinct_ids=["test"], team=self.team)

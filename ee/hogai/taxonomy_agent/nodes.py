@@ -39,7 +39,13 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_USER_PROMPT,
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
-from ee.hogai.utils import AssistantNode, AssistantState, filter_messages, remove_line_breaks
+from ee.hogai.utils import (
+    AssistantNode,
+    AssistantState,
+    filter_messages,
+    remove_line_breaks,
+    slice_messages_to_conversation_start,
+)
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -198,8 +204,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
-        start_index = state.get("start_idx")
-        filtered_messages = filter_messages(state.get("messages", []))
+        start_id = state.get("start_id")
+        filtered_messages = filter_messages(slice_messages_to_conversation_start(state.get("messages", []), start_id))
         conversation = []
 
         for idx, message in enumerate(filtered_messages):
@@ -212,7 +218,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         )
                     )
                 # Add follow-up instructions only for the human message that initiated a generation.
-                elif idx == start_index:
+                elif message.id == start_id:
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(
                             REACT_FOLLOW_UP_PROMPT,
