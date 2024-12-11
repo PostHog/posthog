@@ -194,7 +194,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         validate_input_and_filters(attrs, attrs["type"])
 
-        if "mappings" in attrs:
+        if "mappings" in attrs and attrs["mappings"] is not None:
             for mapping in attrs["mappings"]:
                 validate_input_and_filters(mapping, attrs["type"])
 
