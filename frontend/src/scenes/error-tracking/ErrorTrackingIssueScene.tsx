@@ -36,7 +36,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         if (!issueLoading) {
             loadIssue()
         }
-    }, [])
+    }, [issueLoading, loadIssue])
 
     return (
         <AlphaAccessScenePrompt>

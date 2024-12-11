@@ -1,10 +1,7 @@
 import { PersonDisplay, TZLabel } from '@posthog/apps-common'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
-import { Playlist } from 'lib/components/Playlist/Playlist'
-import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton'
+import PanelLayout from 'lib/components/PanelLayout/PanelLayout'
 import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 
 import { ErrorTrackingEvent, errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
@@ -14,59 +11,71 @@ export const OverviewTab = (): JSX.Element => {
     const { loadEvents, setActiveEventUUID } = useActions(errorTrackingIssueSceneLogic)
 
     return (
-        <div className="ErrorTracking__issue">
-            <div className="flex h-full space-y-2">
-                <Playlist
-                    loading={issueLoading || eventsLoading}
-                    title="Exceptions"
-                    sections={[
-                        {
-                            key: 'exceptions',
-                            title: 'Exceptions',
-                            items: events.map((e) => ({ ...e, id: e.uuid })),
-                            render: ListItemException,
-                        },
-                    ]}
-                    onSelect={({ uuid }) => {
-                        setActiveEventUUID(uuid)
-                    }}
-                    activeItemId={activeEventUUID}
-                    listEmptyState={<div className="flex justify-center p-4">No exceptions found</div>}
-                    content={({ activeItem: event }) =>
-                        event ? (
-                            <div className="h-full overflow-auto">
-                                <div className="bg-bg-light p-1 flex justify-end border-b min-h-[42px]">
-                                    <ViewRecordingButton
-                                        size="small"
-                                        sessionId={event.properties.$session_id}
-                                        timestamp={event.timestamp}
-                                        disabledReason={
-                                            mightHaveRecording(event.properties)
-                                                ? undefined
-                                                : 'Replay was not active when capturing this event'
-                                        }
-                                    />
-                                </div>
-                                <div className="pl-2">
-                                    <ErrorDisplay eventProperties={event.properties} />
-                                </div>
-                            </div>
-                        ) : (
-                            <EmptyMessage
-                                title="No exception selected"
-                                description="Please select an exception from the list on the left"
-                            />
-                        )
-                    }
-                    onScrollListEdge={(edge) => {
-                        if (edge === 'bottom' && !eventsLoading) {
-                            loadEvents()
-                        }
-                    }}
-                />
-                <div>Sidebar</div>
-            </div>
-        </div>
+        <PanelLayout>
+            <PanelLayout.Container primary={false}>
+                <PanelLayout.Panel primary={false}>Sidebar</PanelLayout.Panel>
+            </PanelLayout.Container>
+            <PanelLayout.Container primary>
+                <PanelLayout.Panel primary={false}>Recording</PanelLayout.Panel>
+                <PanelLayout.Panel primary={false}>Metadata</PanelLayout.Panel>
+                <PanelLayout.Panel primary={false}>Stacktrace</PanelLayout.Panel>
+                <PanelLayout.Panel primary={false}>Another</PanelLayout.Panel>
+            </PanelLayout.Container>
+        </PanelLayout>
+
+        // <div className="ErrorTracking__issue">
+        //     <div className="flex h-full space-y-2">
+        //         <div>Sidebar</div>
+        //         <Playlist
+        //             loading={issueLoading || eventsLoading}
+        //             title="Exceptions"
+        //             sections={[
+        //                 {
+        //                     key: 'exceptions',
+        //                     title: 'Exceptions',
+        //                     items: events.map((e) => ({ ...e, id: e.uuid })),
+        //                     render: ListItemException,
+        //                 },
+        //             ]}
+        //             onSelect={({ uuid }) => {
+        //                 setActiveEventUUID(uuid)
+        //             }}
+        //             activeItemId={activeEventUUID}
+        //             listEmptyState={<div className="flex justify-center p-4">No exceptions found</div>}
+        //             content={({ activeItem: event }) =>
+        //                 event ? (
+        //                     <div className="h-full overflow-auto">
+        //                         <div className="bg-bg-light p-1 flex justify-end border-b min-h-[42px]">
+        //                             <ViewRecordingButton
+        //                                 size="small"
+        //                                 sessionId={event.properties.$session_id}
+        //                                 timestamp={event.timestamp}
+        //                                 disabledReason={
+        //                                     mightHaveRecording(event.properties)
+        //                                         ? undefined
+        //                                         : 'Replay was not active when capturing this event'
+        //                                 }
+        //                             />
+        //                         </div>
+        //                         <div className="pl-2">
+        //                             <ErrorDisplay eventProperties={event.properties} />
+        //                         </div>
+        //                     </div>
+        //                 ) : (
+        //                     <EmptyMessage
+        //                         title="No exception selected"
+        //                         description="Please select an exception from the list on the left"
+        //                     />
+        //                 )
+        //             }
+        //             onScrollListEdge={(edge) => {
+        //                 if (edge === 'bottom' && !eventsLoading) {
+        //                     loadEvents()
+        //                 }
+        //             }}
+        //         />
+        //     </div>
+        // </div>
     )
 }
 
