@@ -272,63 +272,6 @@ function AccessControlObjectRoles(): JSX.Element | null {
     )
 }
 
-// function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
-//     const { user } = useValues(userLogic)
-//     const { currentTeam } = useValues(teamLogic)
-//     const { changeUserAccessLevel } = useActions(teamMembersLogic)
-
-//     const myMembershipLevel = isAuthenticatedTeam(currentTeam) ? currentTeam.effective_membership_level : null
-
-//     if (!user) {
-//         return null
-//     }
-
-//     const isImplicit = member.organization_level >= OrganizationMembershipLevel.Admin
-//     const levelName = membershipLevelToName.get(member.level) ?? `unknown (${member.level})`
-
-//     const allowedLevels = teamMembershipLevelIntegers.filter(
-//         (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
-//     )
-
-//     const possibleOptions = member.explicit_team_level
-//         ? allowedLevels.concat([member.explicit_team_level])
-//         : allowedLevels
-
-//     const disallowedReason = isImplicit
-//         ? `This user is a member of the project implicitly due to being an organization ${levelName}.`
-//         : getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
-
-//     return disallowedReason ? (
-//         <Tooltip title={disallowedReason}>
-//             <LemonSnack className="capitalize">
-//                 {member.level === OrganizationMembershipLevel.Owner && <IconCrown className="mr-2" />}
-//                 {levelName}
-//             </LemonSnack>
-//         </Tooltip>
-//     ) : (
-//         <LemonSelect
-//             dropdownMatchSelectWidth={false}
-//             onChange={(listLevel) => {
-//                 if (listLevel !== null) {
-//                     changeUserAccessLevel(member.user, listLevel)
-//                 }
-//             }}
-//             options={possibleOptions.map(
-//                 (listLevel) =>
-//                     ({
-//                         value: listLevel,
-//                         disabled: listLevel === member.explicit_team_level,
-//                         label:
-//                             listLevel > member.level
-//                                 ? membershipLevelToName.get(listLevel)
-//                                 : membershipLevelToName.get(listLevel),
-//                     } as LemonSelectOption<TeamMembershipLevel>)
-//             )}
-//             value={member.explicit_team_level}
-//         />
-//     )
-// }
-
 function SimplLevelComponent(props: {
     size?: LemonSelectProps<any>['size']
     level: AccessControlType['access_level'] | null
