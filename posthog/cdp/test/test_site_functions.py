@@ -77,7 +77,8 @@ function onLoad() {
             const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
             let __getGlobal = (key) => filterGlobals[key];
             const filterMatches = true;
-            if (filterMatches) { source.onEvent({ ...globals, inputs, posthog }); }
+            if (!filterMatches) { return; }
+            ;
         }
     }
 
@@ -131,7 +132,8 @@ function onLoad() {
         assert "console.log(event.event);" in result
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
-        assert "if (filterMatches) { source.onEvent({" in result
+        assert "const filterMatches = !!(!!((__getGlobal" in result
+        assert "if (!filterMatches) { return; }" in result
 
     def test_get_transpiled_function_with_invalid_template_input(self):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.greeting); }"

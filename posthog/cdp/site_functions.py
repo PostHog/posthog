@@ -98,7 +98,7 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
         + """;
             if (!filterMatches) { return; }
             """
-        + mapping_code
+        + (mapping_code or ";")
         + """
         }
     }
