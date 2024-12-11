@@ -4645,16 +4645,10 @@ export type HogFunctionFilterPropertyFilter = (
     | HogQLPropertyFilter
 )[]
 
-// export interface HogFunctionMatchGroup {
-//     key: string
-//     filters: HogFunct ionFiltersType
-// }
-
 export interface HogFunctionFiltersType {
     events?: HogFunctionFilterEvents[]
     actions?: HogFunctionFilterActions[]
     properties?: HogFunctionFilterPropertyFilter[]
-    // matchGroups?: HogFunctionMatchGroup[] | null
     filter_test_accounts?: boolean
     bytecode?: any[]
     bytecode_error?: string
