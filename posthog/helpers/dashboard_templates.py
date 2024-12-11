@@ -446,7 +446,7 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> N
     dashboard.save()
 
     for template_tile in template.tiles:
-        if template_tile["type"] == "insight":
+        if template_tile["type"] == "INSIGHT":
             query = template_tile.get("query", None)
             _create_tile_for_insight(
                 dashboard,
