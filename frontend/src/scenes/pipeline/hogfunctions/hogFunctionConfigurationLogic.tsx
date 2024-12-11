@@ -331,7 +331,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
-                    if (values.type !== 'destination') {
+                    if (values.type !== 'destination' && values.type !== 'site_destination') {
                         return null
                     }
                     if (values.sparkline === null) {
@@ -699,7 +699,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQuery: [
             (s) => [s.configuration, s.matchingFilters, s.type],
             (configuration, matchingFilters, type): TrendsQuery | null => {
-                if (type !== 'destination') {
+                if (type !== 'destination' && type !== 'site_destination') {
                     return null
                 }
                 return {
