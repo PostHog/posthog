@@ -75,7 +75,7 @@ class QueryLogTable(LazyTable):
                 )
                 return ast.Alias(alias=name, expr=expr)
             if name == "is_personal_api_key_request":
-                expr = ast.CompareOperation(
+                cmp_expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Constant(value="personal_api_key"),
                     right=ast.Call(
@@ -83,7 +83,7 @@ class QueryLogTable(LazyTable):
                         args=[ast.Field(chain=["log_comment"]), ast.Constant(value="access_method")],
                     ),
                 )
-                return ast.Alias(alias=name, expr=expr)
+                return ast.Alias(alias=name, expr=cmp_expr)
             return ast.Alias(alias=name, expr=ast.Field(chain=[raw_table_name, *chain]))
 
         fields: list[ast.Expr] = [get_alias(name, chain) for name, chain in requested_fields.items()]
@@ -126,5 +126,5 @@ class RawQueryLogTable(FunctionCallTable):
     def to_printed_clickhouse(self, context) -> str:
         return "clusterAllReplicas(posthog, system.query_log)"
 
-    def to_printed_hogql(self, context) -> str:
+    def to_printed_hogql(self) -> str:
         return "query_log"
