@@ -1,15 +1,11 @@
-import { decideResponse } from '../fixtures/api/decide'
 import { createInsight, createInsightWithBreakdown } from '../productAnalytics'
+import { setupFeatureFlags } from '../support/decide'
 
 describe('Alerts', () => {
     beforeEach(() => {
-        cy.intercept('**/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    alerts: true,
-                })
-            )
-        )
+        setupFeatureFlags({
+            alerts: true,
+        })
         createInsight('insight')
     })
 

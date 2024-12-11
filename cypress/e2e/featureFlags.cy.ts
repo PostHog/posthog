@@ -1,10 +1,10 @@
-import { decideResponse } from '../fixtures/api/decide'
+import { setupFeatureFlags } from '../support/decide'
 
 describe('Feature Flags', () => {
     let name
 
     beforeEach(() => {
-        cy.intercept('**/decide/*', (req) => req.reply(decideResponse({})))
+        setupFeatureFlags({})
 
         cy.intercept('/api/projects/*/property_definitions?type=person*', {
             fixture: 'api/feature-flags/property_definition',
