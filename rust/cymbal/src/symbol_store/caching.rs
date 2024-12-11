@@ -6,7 +6,8 @@ use tokio::sync::Mutex;
 use crate::{
     error::Error,
     metric_consts::{
-        STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_HITS, STORE_CACHE_MISSES,
+        STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_EVICTION_RUNS, STORE_CACHE_HITS,
+        STORE_CACHE_MISSES,
     },
 };
 
@@ -117,7 +118,7 @@ impl SymbolSetCache {
             return;
         }
 
-        metrics::counter!(STORE_CACHE_EVICTIONS).increment(1);
+        metrics::counter!(STORE_CACHE_EVICTION_RUNS).increment(1);
 
         let mut vals: Vec<_> = self.cached.iter().collect();
 
@@ -135,6 +136,11 @@ impl SymbolSetCache {
             let (to_remove_key, to_remove_val) = vals.pop().unwrap();
             self.held_bytes -= to_remove_val.bytes;
             to_remove.push(to_remove_key.clone());
+        }
+
+        for key in to_remove {
+            metrics::counter!(STORE_CACHE_EVICTIONS).increment(1);
+            self.cached.remove(&key);
         }
 
         metrics::gauge!(STORE_CACHED_BYTES).set(self.held_bytes as f64);
