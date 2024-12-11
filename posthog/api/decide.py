@@ -262,7 +262,7 @@ def get_decide(request: HttpRequest):
                 ),
             )
 
-        token = cast(str, token)  # we know it's not None if we found a team
+        token = team.api_token
 
         structlog.contextvars.bind_contextvars(team_id=team.id)
 
