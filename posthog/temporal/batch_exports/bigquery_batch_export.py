@@ -69,7 +69,17 @@ NON_RETRYABLE_ERROR_TYPES = [
     # Raised when table_id isn't valid. Sadly, `ValueError` is rather generic, but we
     # don't anticipate a `ValueError` thrown from our own export code.
     "ValueError",
+    # Raised when attempting to run a batch export without required BigQuery permissions.
+    # Our own version of `Forbidden`.
+    "MissingRequiredPermissionsError",
 ]
+
+
+class MissingRequiredPermissionsError(Exception):
+    """Raised when missing required permissions in BigQuery."""
+
+    def __init__(self):
+        super().__init__("Missing required permissions to run this batch export")
 
 
 def get_bigquery_fields_from_record_schema(
@@ -494,11 +504,12 @@ class BigQueryConsumer(Consumer):
         heartbeater: Heartbeater,
         heartbeat_details: BigQueryHeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        writer_format: WriterFormat,
         bigquery_client: BigQueryClient,
         bigquery_table: bigquery.Table,
         table_schema: list[BatchExportField],
     ):
-        super().__init__(heartbeater, heartbeat_details, data_interval_start)
+        super().__init__(heartbeater, heartbeat_details, data_interval_start, writer_format)
         self.bigquery_client = bigquery_client
         self.bigquery_table = bigquery_table
         self.table_schema = table_schema
@@ -521,7 +532,10 @@ class BigQueryConsumer(Consumer):
             self.bigquery_table,
         )
 
-        await self.bigquery_client.load_parquet_file(batch_export_file, self.bigquery_table, self.table_schema)
+        if self.writer_format == WriterFormat.PARQUET:
+            await self.bigquery_client.load_parquet_file(batch_export_file, self.bigquery_table, self.table_schema)
+        else:
+            await self.bigquery_client.load_jsonl_file(batch_export_file, self.bigquery_table, self.table_schema)
 
         await self.logger.adebug("Loaded %s to BigQuery table '%s'", records_since_last_flush, self.bigquery_table)
         self.rows_exported_counter.add(records_since_last_flush)
@@ -655,13 +669,20 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             ) as bigquery_table:
                 has_query_permissions = await bq_client.acheck_for_query_permissions_on_table(bigquery_table)
 
+                if not has_query_permissions:
+                    await logger.awarning(
+                        "Missing query permissions on BigQuery table, will attempt direct load into final table"
+                    )
+                    if model_name == "persons":
+                        raise MissingRequiredPermissionsError()
+
                 async with bq_client.managed_table(
                     project_id=inputs.project_id,
                     dataset_id=inputs.dataset_id,
-                    table_id=stage_table_name,
+                    table_id=stage_table_name if has_query_permissions else inputs.table_id,
                     table_schema=stage_schema,
-                    create=True and has_query_permissions,
-                    delete=True and has_query_permissions,
+                    create=has_query_permissions,
+                    delete=has_query_permissions,
                 ) as bigquery_stage_table:
                     records_completed = await run_consumer_loop(
                         queue=queue,
@@ -679,7 +700,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         bigquery_table=bigquery_stage_table if has_query_permissions else bigquery_table,
                         table_schema=stage_schema if has_query_permissions else schema,
                         writer_file_kwargs={"compression": "zstd"} if has_query_permissions else {},
-                        multiple_files=True and has_query_permissions,
+                        multiple_files=True,
                     )
 
                     if has_query_permissions:
