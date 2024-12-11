@@ -12,6 +12,7 @@ import {
     AngularInstructions,
     AstroInstructions,
     BubbleInstructions,
+    FlutterInstructions,
     FramerInstructions,
     HTMLSnippetInstructions,
     iOSInstructions,
@@ -20,11 +21,11 @@ import {
     NuxtJSInstructions,
     ReactInstructions,
     RemixInstructions,
+    RNInstructions,
     SvelteInstructions,
     VueInstructions,
     WebflowInstructions,
 } from '.'
-import { RNInstructions } from './react-native'
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
@@ -43,6 +44,7 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.IOS]: iOSInstructions,
     [SDKKey.ANDROID]: AndroidInstructions,
     [SDKKey.REACT_NATIVE]: RNInstructions,
+    [SDKKey.FLUTTER]: FlutterInstructions,
 }
 
 export function AdvertiseMobileReplay({

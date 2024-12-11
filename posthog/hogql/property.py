@@ -346,6 +346,34 @@ def property_to_expr(
             chain = ["events", "properties"]
         elif property.type == "session" and scope == "replay_entity":
             chain = ["events", "session"]
+        elif property.type == "data_warehouse":
+            if not isinstance(property.key, str):
+                raise QueryError("Data warehouse property filter value must be a string")
+            else:
+                split = property.key.split(".")
+                chain = split[:-1]
+                property.key = split[-1]
+
+            if isinstance(value, list) and len(value) > 1:
+                field = ast.Field(chain=[*chain, property.key])
+                exprs = [
+                    _expr_to_compare_op(
+                        expr=field,
+                        value=v,
+                        operator=operator,
+                        team=team,
+                        property=property,
+                        is_json_field=False,
+                    )
+                    for v in value
+                ]
+                if (
+                    operator == PropertyOperator.NOT_ICONTAINS
+                    or operator == PropertyOperator.NOT_REGEX
+                    or operator == PropertyOperator.IS_NOT
+                ):
+                    return ast.And(exprs=exprs)
+                return ast.Or(exprs=exprs)
         elif property.type == "data_warehouse_person_property":
             if isinstance(property.key, str):
                 table, key = property.key.split(".")
@@ -478,7 +506,7 @@ def property_to_expr(
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
-        cohort = Cohort.objects.get(team=team, id=property.value)
+        cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
             op=ast.CompareOperationOp.NotInCohort

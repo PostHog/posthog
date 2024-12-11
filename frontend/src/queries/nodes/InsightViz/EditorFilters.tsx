@@ -22,6 +22,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
 import { InsightQueryNode } from '~/queries/schema'
 import {
     AvailableFeature,
@@ -56,6 +57,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isRetention,
         isPaths,
         isLifecycle,
+        isStickiness,
         isTrendsLike,
         display,
         breakdownFilter,
@@ -75,7 +77,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isStepsFunnel ||
         isTrendsFunnel
     const hasPathsAdvanced = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
-    const hasAttribution = isStepsFunnel
+    const hasAttribution = isStepsFunnel || isTrendsFunnel
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
 
     const editorFilters: InsightEditorFilterGroup[] = [
@@ -161,6 +163,31 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                           label: 'Lifecycle Toggles',
                           position: 'right',
                           component: LifecycleToggles as (props: EditorFilterProps) => JSX.Element | null,
+                      }
+                    : null,
+                isStickiness
+                    ? {
+                          key: 'stickinessCriteria',
+                          label: () => (
+                              <div className="flex">
+                                  <span>Stickiness Criteria</span>
+                                  <Tooltip
+                                      closeDelayMs={200}
+                                      title={
+                                          <div className="space-y-2">
+                                              <div>
+                                                  The stickiness criteria defines how many times a user must perform an
+                                                  event inside of a given interval in order to be considered "sticky."
+                                              </div>
+                                          </div>
+                                      }
+                                  >
+                                      <IconInfo className="text-xl text-muted-alt shrink-0 ml-1" />
+                                  </Tooltip>
+                              </div>
+                          ),
+                          position: 'right',
+                          component: StickinessCriteria as (props: EditorFilterProps) => JSX.Element | null,
                       }
                     : null,
                 {

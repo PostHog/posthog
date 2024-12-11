@@ -7,7 +7,7 @@ import {
     IconWarning,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonRow, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
@@ -15,13 +15,14 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import posthog from 'posthog-js'
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+import { twMerge } from 'tailwind-merge'
 
 import { Query } from '~/queries/Query/Query'
 import {
     AssistantMessage,
-    AssistantMessageType,
     FailureMessage,
     HumanMessage,
     InsightVizNode,
@@ -35,59 +36,132 @@ import {
     isAssistantMessage,
     isFailureMessage,
     isHumanMessage,
+    isReasoningMessage,
     isVisualizationMessage,
 } from './utils'
 
 export function Thread(): JSX.Element | null {
-    const { thread, threadLoading } = useValues(maxLogic)
+    const { threadGrouped } = useValues(maxLogic)
 
     return (
         <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-4">
-            {thread.map((message, index) => {
-                if (isHumanMessage(message)) {
-                    return (
-                        <MessageTemplate
-                            key={index}
-                            type="human"
-                            className={message.status === 'error' ? 'border-danger' : undefined}
-                        >
-                            <LemonMarkdown>{message.content || '*No text.*'}</LemonMarkdown>
-                        </MessageTemplate>
-                    )
-                } else if (isAssistantMessage(message) || isFailureMessage(message)) {
-                    return <TextAnswer key={index} message={message} index={index} />
-                } else if (isVisualizationMessage(message)) {
-                    return <VisualizationAnswer key={index} message={message} status={message.status} />
-                }
-                return null // We currently skip other types of messages
-            })}
-            {threadLoading && (
-                <MessageTemplate type="ai" className="w-fit select-none">
-                    <div className="flex items-center gap-2">
-                        Let me think…
-                        <Spinner className="text-xl" />
-                    </div>
-                </MessageTemplate>
-            )}
+            {threadGrouped.map((group, index) => (
+                <MessageGroup key={index} messages={group} index={index} isFinal={index === threadGrouped.length - 1} />
+            ))}
         </div>
     )
 }
 
-const MessageTemplate = React.forwardRef<
-    HTMLDivElement,
-    { type: 'human' | 'ai'; className?: string; action?: React.ReactNode; children: React.ReactNode }
->(function MessageTemplate({ type, children, className, action }, ref) {
-    if (type === AssistantMessageType.Human) {
-        return (
-            <div className={clsx('mt-1 mb-3 text-2xl font-medium', className)} ref={ref}>
-                {children}
-            </div>
-        )
-    }
+interface MessageGroupProps {
+    messages: ThreadMessage[]
+    isFinal: boolean
+    index: number
+}
+
+function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupIndex }: MessageGroupProps): JSX.Element {
+    const { user } = useValues(userLogic)
+
+    const groupType = messages[0].type === 'human' ? 'human' : 'ai'
 
     return (
-        <div className="space-y-2">
-            <div className={clsx('border p-2 rounded bg-bg-light', className)} ref={ref}>
+        <div className={clsx('relative flex gap-2', groupType === 'human' ? 'flex-row-reverse ml-10' : 'mr-10')}>
+            <Tooltip placement={groupType === 'human' ? 'right' : 'left'} title={groupType === 'human' ? 'You' : 'Max'}>
+                <ProfilePicture
+                    user={
+                        groupType === 'human'
+                            ? { ...user, hedgehog_config: undefined }
+                            : { hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }
+                    }
+                    size="lg"
+                    className="mt-1 border"
+                />
+            </Tooltip>
+            <div
+                className={clsx(
+                    'flex flex-col gap-2 min-w-0 w-full',
+                    groupType === 'human' ? 'items-end' : 'items-start'
+                )}
+            >
+                {messages.map((message, messageIndex) => {
+                    if (isHumanMessage(message)) {
+                        return (
+                            <MessageTemplate
+                                key={messageIndex}
+                                type="human"
+                                boxClassName={message.status === 'error' ? 'border-danger' : undefined}
+                            >
+                                <LemonMarkdown>{message.content || '*No text.*'}</LemonMarkdown>
+                            </MessageTemplate>
+                        )
+                    } else if (isAssistantMessage(message) || isFailureMessage(message)) {
+                        return (
+                            <TextAnswer
+                                key={messageIndex}
+                                message={message}
+                                rateable={messageIndex === messages.length - 1}
+                                retriable={messageIndex === messages.length - 1 && isGroupFinal}
+                                messageGroupIndex={messageGroupIndex}
+                            />
+                        )
+                    } else if (isVisualizationMessage(message)) {
+                        return <VisualizationAnswer key={messageIndex} message={message} status={message.status} />
+                    } else if (isReasoningMessage(message)) {
+                        return (
+                            <MessageTemplate key={messageIndex} type="ai">
+                                <div className="flex items-center gap-2">
+                                    <span>{message.content}…</span>
+                                    <Spinner className="text-xl" />
+                                </div>
+                                {message.substeps?.map((substep, substepIndex) => (
+                                    <LemonMarkdown
+                                        key={substepIndex}
+                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-accent-3000 rounded w-fit"
+                                    >
+                                        {substep}
+                                    </LemonMarkdown>
+                                ))}
+                            </MessageTemplate>
+                        )
+                    }
+                    return null // We currently skip other types of messages
+                })}
+                {messages.at(-1)?.status === 'error' && (
+                    <MessageTemplate type="ai" boxClassName="border-warning">
+                        <div className="flex items-center gap-1.5">
+                            <IconWarning className="text-xl text-warning" />
+                            <i>Max is generating this answer one more time because the previous attempt has failed.</i>
+                        </div>
+                    </MessageTemplate>
+                )}
+            </div>
+        </div>
+    )
+}
+
+interface MessageTemplateProps {
+    type: 'human' | 'ai'
+    action?: React.ReactNode
+    className?: string
+    boxClassName?: string
+    children: React.ReactNode
+}
+
+const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
+    { type, children, className, boxClassName, action },
+    ref
+) {
+    return (
+        <div
+            className={twMerge('flex flex-col gap-1 w-full', type === 'human' ? 'items-end' : 'items-start', className)}
+            ref={ref}
+        >
+            <div
+                className={twMerge(
+                    'border py-2 px-3 rounded-lg bg-bg-light',
+                    type === 'human' && 'font-medium',
+                    boxClassName
+                )}
+            >
                 {children}
             </div>
             {action}
@@ -95,25 +169,31 @@ const MessageTemplate = React.forwardRef<
     )
 })
 
-const TextAnswer = React.forwardRef<
-    HTMLDivElement,
-    { message: (AssistantMessage | FailureMessage) & ThreadMessage; index: number }
->(function TextAnswer({ message, index }, ref) {
-    const { thread } = useValues(maxLogic)
+interface TextAnswerProps {
+    message: (AssistantMessage | FailureMessage) & ThreadMessage
+    rateable: boolean
+    retriable: boolean
+    messageGroupIndex: number
+}
 
+const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function TextAnswer(
+    { message, rateable, retriable, messageGroupIndex },
+    ref
+) {
     return (
         <MessageTemplate
             type="ai"
-            className={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
+            boxClassName={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
             ref={ref}
             action={
-                message.type === 'ai/failure' && index === thread.length - 1 ? (
-                    <RetriableAnswerActions />
-                ) : message.type === 'ai' &&
-                  message.status === 'completed' &&
-                  (thread[index + 1] === undefined || thread[index + 1].type === 'human') ? (
+                message.status === 'completed' &&
+                message.type === 'ai/failure' &&
+                !message.content?.includes('usage limit') && // Don't show retry button when rate-limited
+                retriable ? (
+                    <RetriableFailureActions />
+                ) : message.status === 'completed' && message.type === 'ai' && rateable ? (
                     // Show answer actions if the assistant's response is complete at this point
-                    <SuccessfulAnswerActions messageIndex={index} />
+                    <SuccessActions retriable={retriable} messageGroupIndex={messageGroupIndex} />
                 ) : null
             }
         >
@@ -130,7 +210,7 @@ function VisualizationAnswer({
 }: {
     message: VisualizationMessage
     status?: MessageStatus
-}): JSX.Element {
+}): JSX.Element | null {
     const query = useMemo<InsightVizNode | null>(() => {
         if (message.answer) {
             return {
@@ -143,63 +223,42 @@ function VisualizationAnswer({
         return null
     }, [message])
 
-    return (
-        <>
-            {message.reasoning_steps && (
-                <MessageTemplate
-                    type="ai"
-                    action={
-                        status === 'error' && (
-                            <LemonRow icon={<IconWarning />} status="warning" size="small">
-                                Max is generating this answer one more time because the previous attempt has failed.
-                            </LemonRow>
-                        )
-                    }
-                    className={status === 'error' ? 'border-warning' : undefined}
-                >
-                    <ul className="list-disc ml-4">
-                        {message.reasoning_steps.map((step, index) => (
-                            <li key={index}>{step}</li>
-                        ))}
-                    </ul>
-                </MessageTemplate>
-            )}
-            {status === 'completed' && query && (
-                <>
-                    <MessageTemplate type="ai">
-                        <div className="h-96 flex">
-                            <Query query={query} readOnly embedded />
-                        </div>
-                        <div className="relative mb-1">
-                            <LemonButton
-                                to={urls.insightNew(undefined, undefined, query)}
-                                sideIcon={<IconOpenInNew />}
-                                size="xsmall"
-                                targetBlank
-                                className="absolute right-0 -top-px"
-                            >
-                                Open as new insight
-                            </LemonButton>
-                            <SeriesSummary query={query.source} heading={<TopHeading query={query} />} />
-                            <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                                <PropertiesSummary properties={query.source.properties} />
-                                <BreakdownSummary query={query.source} />
-                            </div>
-                        </div>
-                    </MessageTemplate>
-                </>
-            )}
-        </>
-    )
+    return status !== 'completed'
+        ? null
+        : query && (
+              <>
+                  <MessageTemplate type="ai" className="w-full" boxClassName="w-full">
+                      <div className="min-h-80 flex">
+                          <Query query={query} readOnly embedded />
+                      </div>
+                      <div className="relative mb-1">
+                          <LemonButton
+                              to={urls.insightNew(undefined, undefined, query)}
+                              sideIcon={<IconOpenInNew />}
+                              size="xsmall"
+                              targetBlank
+                              className="absolute right-0 -top-px"
+                          >
+                              Open as new insight
+                          </LemonButton>
+                          <SeriesSummary query={query.source} heading={<TopHeading query={query} />} />
+                          <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                              <PropertiesSummary properties={query.source.properties} />
+                              <BreakdownSummary query={query.source} />
+                          </div>
+                      </div>
+                  </MessageTemplate>
+              </>
+          )
 }
 
-function RetriableAnswerActions(): JSX.Element {
+function RetriableFailureActions(): JSX.Element {
     const { retryLastMessage } = useActions(maxLogic)
 
     return (
         <LemonButton
             icon={<IconRefresh />}
-            type="secondary"
+            type="tertiary"
             size="small"
             tooltip="Try again"
             onClick={() => retryLastMessage()}
@@ -209,23 +268,29 @@ function RetriableAnswerActions(): JSX.Element {
     )
 }
 
-function SuccessfulAnswerActions({ messageIndex }: { messageIndex: number }): JSX.Element {
-    const { thread } = useValues(maxLogic)
+function SuccessActions({
+    messageGroupIndex,
+    retriable,
+}: {
+    messageGroupIndex: number
+    retriable: boolean
+}): JSX.Element {
+    const { threadGrouped } = useValues(maxLogic)
     const { retryLastMessage } = useActions(maxLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
     const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
-    const hasScrolledFeedbackInputIntoView = useRef<boolean>(false)
 
     const [relevantHumanMessage, relevantVisualizationMessage] = useMemo(() => {
         // We need to find the relevant visualization message (which might be a message earlier if the most recent one
         // is a results summary message), and the human message that triggered it.
-        const relevantMessages = thread.slice(0, messageIndex + 1).reverse()
-        const visualizationMessage = relevantMessages.find(isVisualizationMessage) as VisualizationMessage
-        const humanMessage = relevantMessages.find(isHumanMessage) as HumanMessage
+        const visualizationMessage = threadGrouped[messageGroupIndex].find(
+            isVisualizationMessage
+        ) as VisualizationMessage
+        const humanMessage = threadGrouped[messageGroupIndex - 1][0] as HumanMessage
         return [humanMessage, visualizationMessage]
-    }, [thread, messageIndex])
+    }, [threadGrouped, messageGroupIndex])
 
     function submitRating(newRating: 'good' | 'bad'): void {
         if (rating) {
@@ -275,7 +340,7 @@ function SuccessfulAnswerActions({ messageIndex }: { messageIndex: number }): JS
                         onClick={() => submitRating('bad')}
                     />
                 )}
-                {messageIndex === thread.length - 1 && (
+                {retriable && (
                     <LemonButton
                         icon={<IconRefresh />}
                         type="tertiary"
@@ -286,16 +351,7 @@ function SuccessfulAnswerActions({ messageIndex }: { messageIndex: number }): JS
                 )}
             </div>
             {feedbackInputStatus !== 'hidden' && (
-                <MessageTemplate
-                    type="ai"
-                    ref={(el) => {
-                        if (el && !hasScrolledFeedbackInputIntoView.current) {
-                            // When the feedback input is first rendered, scroll it into view
-                            el.scrollIntoView({ behavior: 'smooth' })
-                            hasScrolledFeedbackInputIntoView.current = true
-                        }
-                    }}
-                >
+                <MessageTemplate type="ai">
                     <div className="flex items-center">
                         <h4 className="m-0 text-sm grow">
                             {feedbackInputStatus === 'pending'

@@ -92,7 +92,6 @@ export enum NodeKind {
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
-    WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
@@ -127,12 +126,12 @@ export type AnyDataNode =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
-    | WebTopClicksQuery
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
+    | RecordingsQuery
 
 /**
  * @discriminator kind
@@ -155,7 +154,6 @@ export type QuerySchema =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
-    | WebTopClicksQuery
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
@@ -214,6 +212,7 @@ export type AnyResponseType =
     | HogQLAutocompleteResponse
     | EventsNode['response']
     | EventsQueryResponse
+    | ErrorTrackingQueryResponse
 
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
@@ -327,6 +326,9 @@ export type RecordingOrder =
 
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
+    /**
+     * @default "-3d"
+     * */
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -335,9 +337,15 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     console_log_filters?: LogEntryPropertyFilter[]
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
     filter_test_accounts?: boolean
+    /**
+     * @default "AND"
+     * */
     operand?: FilterLogicalOperator
     session_ids?: string[]
     person_uuid?: string
+    /**
+     * @default "start_time"
+     * */
     order?: RecordingOrder
     limit?: integer
     offset?: integer
@@ -617,7 +625,6 @@ export interface DataTableNode
                     | WebOverviewQuery
                     | WebStatsTableQuery
                     | WebExternalClicksTableQuery
-                    | WebTopClicksQuery
                     | WebGoalsQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
@@ -638,7 +645,6 @@ export interface DataTableNode
         | WebOverviewQuery
         | WebStatsTableQuery
         | WebExternalClicksTableQuery
-        | WebTopClicksQuery
         | WebGoalsQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
@@ -829,7 +835,7 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
     /**
      * Groups aggregation
      */
-    aggregation_group_type_index?: integer
+    aggregation_group_type_index?: integer | null
     /** Sampling rate */
     samplingFactor?: number | null
     /** Modifiers used when performing the query */
@@ -1098,16 +1104,16 @@ export interface AssistantTrendsFilter {
     formula?: TrendsFilterLegacy['formula']
 
     /**
-     * Changes the visualization type.
-     * `ActionsLineGraph` - if the user wants to see dynamics in time like a line graph. Prefer this option.
-     * `ActionsLineGraphCumulative` - if the user wants to see cumulative dynamics across time.
-     * `ActionsBarValue` - if the data is categorical and needs to be visualized as a bar chart.
-     * `ActionsBar` - if the data is categorical and can be visualized as a stacked bar chart.
-     * `ActionsPie` - if the data is easy to understand in a pie chart.
-     * `BoldNumber` - if the user asks a question where you can answer with a single number. You can't use this option with breakdowns.
-     * `ActionsTable` - if the user wants to see a table.
-     * `ActionsAreaGraph` - if the data is better visualized in an area graph.
-     * `WorldMap` - if the user has only one series and wants to see data from particular countries. It can only be used with the `$geoip_country_name` breakdown.
+     * Visualization type. Available values:
+     * `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time.
+     * `ActionsBar` - time-series bar chart.
+     * `ActionsAreaGraph` - time-series area chart.
+     * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
+     * `BoldNumber` - total value single large number. You can't use this with breakdown; use when user explicitly asks for a single output number.
+     * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
+     * `ActionsPie` - total value pie chart; good for visualizing proportions.
+     * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
+     * `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.
      * @default ActionsLineGraph
      */
     display?: AssistantTrendsDisplayType
@@ -1500,11 +1506,20 @@ export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */
 export type StickinessFilterLegacy = Omit<StickinessFilterType, keyof FilterType | 'stickiness_days' | 'shown_as'>
 
+export type StickinessOperator =
+    | PropertyOperator.GreaterThanOrEqual
+    | PropertyOperator.LessThanOrEqual
+    | PropertyOperator.Exact
+
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     hiddenLegendIndexes?: integer[]
+    stickinessCriteria?: {
+        operator: StickinessOperator
+        value: integer
+    }
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
@@ -1783,7 +1798,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
-    compare?: boolean
+    compareFilter?: CompareFilter | null
     includeLCPScore?: boolean
 }
 
@@ -1810,17 +1825,6 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<Web
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
 
-export interface WebTopClicksQuery extends WebAnalyticsQueryBase<WebTopClicksQueryResponse> {
-    kind: NodeKind.WebTopClicksQuery
-}
-export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
-    types?: unknown[]
-    columns?: unknown[]
-    samplingRate?: SamplingRate
-}
-
-export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQueryResponse>
-
 export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
@@ -1840,10 +1844,13 @@ export enum WebStatsBreakdown {
     Country = 'Country',
     Region = 'Region',
     City = 'City',
+    Timezone = 'Timezone',
+    Language = 'Language',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
+    compareFilter?: CompareFilter | null
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     doPathCleaning?: boolean
@@ -1923,25 +1930,25 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    fingerprint?: string[]
+    issueId?: string
     select?: HogQLExpression[]
-    order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
     assignee?: integer | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
     limit?: integer
+    offset?: integer
 }
 
-export interface ErrorTrackingGroup {
-    fingerprint: string[]
-    exception_type: string | null
-    merged_fingerprints: string[][]
+export interface ErrorTrackingIssue {
+    id: string
+    name: string | null
+    description: string | null
     occurrences: number
     sessions: number
     users: number
-    description: string | null
     /**  @format date-time */
     first_seen: string
     /**  @format date-time */
@@ -1952,7 +1959,7 @@ export interface ErrorTrackingGroup {
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
 }
 
-export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingGroup[]> {
+export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1998,6 +2005,7 @@ export interface ExperimentTrendsQueryResponse {
     probability: Record<string, number>
     significant: boolean
     significance_code: ExperimentSignificanceCode
+    stats_version: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
 }
@@ -2033,6 +2041,7 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     // Defaults to $feature_flag_called if not specified
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
+    stats_version?: integer
 }
 
 /**
@@ -2472,6 +2481,7 @@ export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<Acto
 export enum AssistantMessageType {
     Human = 'human',
     Assistant = 'ai',
+    Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     Failure = 'ai/failure',
     Router = 'ai/router',
@@ -2494,10 +2504,16 @@ export interface AssistantMessage {
     done?: boolean
 }
 
+export interface ReasoningMessage {
+    type: AssistantMessageType.Reasoning
+    content: string
+    substeps?: string[]
+    done: true
+}
+
 export interface VisualizationMessage {
     type: AssistantMessageType.Visualization
     plan?: string
-    reasoning_steps?: string[] | null
     answer?: AssistantTrendsQuery | AssistantFunnelsQuery
     done?: boolean
 }
@@ -2517,6 +2533,7 @@ export interface RouterMessage {
 
 export type RootAssistantMessage =
     | VisualizationMessage
+    | ReasoningMessage
     | AssistantMessage
     | HumanMessage
     | FailureMessage
@@ -2558,10 +2575,33 @@ export interface CustomChannelCondition {
     key: CustomChannelField
     value?: string | string[]
     op: CustomChannelOperator
+    id: string // the ID is only needed for the drag and drop, so only needs to be unique with one set of rules
 }
 
 export interface CustomChannelRule {
-    conditions: CustomChannelCondition[]
+    items: CustomChannelCondition[]
     combiner: FilterLogicalOperator
     channel_type: string
+    id: string // the ID is only needed for the drag and drop, so only needs to be unique with one set of rules
+}
+
+export enum DefaultChannelTypes {
+    CrossNetwork = 'Cross Network',
+    PaidSearch = 'Paid Search',
+    PaidSocial = 'Paid Social',
+    PaidVideo = 'Paid Video',
+    PaidShopping = 'Paid Shopping',
+    PaidUnknown = 'Paid Unknown',
+    Direct = 'Direct',
+    OrganicSearch = 'Organic Search',
+    OrganicSocial = 'Organic Social',
+    OrganicVideo = 'Organic Video',
+    OrganicShopping = 'Organic Shopping',
+    Push = 'Push',
+    SMS = 'SMS',
+    Audio = 'Audio',
+    Email = 'Email',
+    Referral = 'Referral',
+    Affiliate = 'Affiliate',
+    Unknown = 'Unknown',
 }

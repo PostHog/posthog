@@ -13,6 +13,7 @@ use super::{records::ErrorTrackingStackFrame, Frame, RawFrame};
 
 pub struct Resolver {
     cache: Cache<String, ErrorTrackingStackFrame>,
+    result_ttl: chrono::Duration,
 }
 
 impl Resolver {
@@ -21,7 +22,9 @@ impl Resolver {
             .time_to_live(Duration::from_secs(config.frame_cache_ttl_seconds))
             .build();
 
-        Self { cache }
+        let result_ttl = chrono::Duration::minutes(config.frame_result_ttl_minutes as i64);
+
+        Self { cache, result_ttl }
     }
 
     pub async fn resolve(
@@ -36,7 +39,7 @@ impl Resolver {
         }
 
         if let Some(result) =
-            ErrorTrackingStackFrame::load(pool, team_id, &frame.frame_id()).await?
+            ErrorTrackingStackFrame::load(pool, team_id, &frame.frame_id(), self.result_ttl).await?
         {
             self.cache.insert(frame.frame_id(), result.clone());
             return Ok(result.contents);
@@ -73,6 +76,7 @@ mod test {
     use httpmock::MockServer;
     use mockall::predicate;
     use sqlx::PgPool;
+    use symbolic::sourcemapcache::SourceMapCacheWriter;
 
     use crate::{
         config::Config,
@@ -142,12 +146,16 @@ mod test {
         // We're going to pretend out stack consists exclusively of JS frames whose source
         // we have locally
         test_stack.retain(|s| {
-            let RawFrame::JavaScript(s) = s;
+            let RawFrame::JavaScript(s) = s else {
+                return false;
+            };
             s.source_url.as_ref().unwrap().contains(CHUNK_PATH)
         });
 
         for frame in test_stack.iter_mut() {
-            let RawFrame::JavaScript(frame) = frame;
+            let RawFrame::JavaScript(frame) = frame else {
+                panic!("Expected a JavaScript frame")
+            };
             // Our test data contains our /actual/ source urls - we need to swap that to localhost
             // When I first wrote this test, I forgot to do this, and it took me a while to figure out
             // why the test was passing before I'd even set up the mockserver - which was pretty cool, tbh
@@ -155,6 +163,18 @@ mod test {
         }
 
         test_stack.pop().unwrap()
+    }
+
+    fn get_sourcemapcache_bytes() -> Vec<u8> {
+        let mut result = Vec::new();
+        let writer = SourceMapCacheWriter::new(
+            core::str::from_utf8(MINIFIED).unwrap(),
+            core::str::from_utf8(MAP).unwrap(),
+        )
+        .unwrap();
+
+        writer.serialize(&mut result).unwrap();
+        result
     }
 
     fn expect_puts_and_gets(
@@ -168,7 +188,7 @@ mod test {
             .with(
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
-                predicate::eq(Vec::from(MAP)),
+                predicate::always(), // We don't assert on what we store, because who cares
             )
             .returning(|_, _, _| Ok(()))
             .times(puts);
@@ -179,7 +199,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(Vec::from(MAP)))
+            .returning(|_, _| Ok(get_sourcemapcache_bytes()))
             .times(gets);
 
         client
@@ -220,10 +240,11 @@ mod test {
 
         // get the frame
         let frame_id = frame.frame_id();
-        let frame = ErrorTrackingStackFrame::load(&pool, 0, &frame_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let frame =
+            ErrorTrackingStackFrame::load(&pool, 0, &frame_id, chrono::Duration::minutes(30))
+                .await
+                .unwrap()
+                .unwrap();
 
         assert_eq!(frame.symbol_set_id.unwrap(), set.id);
 

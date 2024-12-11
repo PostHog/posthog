@@ -2,28 +2,30 @@ import {
     IconAI,
     IconChevronDown,
     IconDatabase,
-    IconDecisionTree,
     IconFeatures,
+    IconGraph,
     IconHelmet,
     IconMap,
     IconMessage,
     IconPieChart,
+    IconPlug,
     IconRewindPlay,
     IconStack,
+    IconTestTube,
     IconToggle,
-    IconTrends,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
 import React from 'react'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductKey, SidePanelTab } from '~/types'
+import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
 
 import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
@@ -40,7 +42,7 @@ const PRODUCTS = [
     {
         name: 'Product analytics',
         slug: 'product-analytics',
-        icon: <IconTrends className="text-brand-blue h-5 w-5" />,
+        icon: <IconGraph className="text-[#2F80FA] h-5 w-5" />,
     },
     {
         name: 'Web analytics',
@@ -55,7 +57,12 @@ const PRODUCTS = [
     {
         name: 'Feature flags',
         slug: 'feature-flags',
-        icon: <IconToggle className="text-success h-5 w-5" />,
+        icon: <IconToggle className="text-[#30ABC6] h-5 w-5" />,
+    },
+    {
+        name: 'Experiments',
+        slug: 'experiments',
+        icon: <IconTestTube className="text-[#B62AD9] h-5 w-5" />,
     },
     {
         name: 'Surveys',
@@ -65,7 +72,7 @@ const PRODUCTS = [
     {
         name: 'Data pipelines',
         slug: 'cdp',
-        icon: <IconDecisionTree className="text-[#2EA2D3] h-5 w-5" />,
+        icon: <IconPlug className="text-[#2EA2D3] h-5 w-5" />,
     },
     {
         name: 'Data warehouse',
@@ -89,7 +96,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
-    // const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
+    const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
 
     return (
         <Section title="Email an engineer">
@@ -118,16 +125,14 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
             <br />
             <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light pt-4">
                 <div className="col-span-full flex justify-between border-b bg-bg-white py-1">
-                    <div>
-                        <strong>We're making improvements:</strong> Our team is attending an offsite so we can make
-                        long-term enhancements. We're working different hours, so non-urgent inquiries without priority
-                        support may experience a slight delay. We’ll be back to full speed next week!
-                    </div>
+                    {/* If placing a support message, replace the line below with explanation */}
+                    <strong>Avg support response times</strong>
                     <div>
                         <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
                     </div>
                 </div>
-                {/* {supportPlans?.map((plan) => {
+                {/* If placing a support message, comment out (don't remove) the section below */}
+                {supportPlans?.map((plan) => {
                     // If they have an addon plan, only show the addon plan
                     const currentPlan = plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
                     return (
@@ -142,12 +147,11 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                                 )}
                             </div>
                             <div className={currentPlan ? 'font-bold' : undefined}>
-                                // TODO(@zach): remove fallback after updated plans w/ support levels are shipped
                                 {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
                             </div>
                         </React.Fragment>
                     )
-                })} */}
+                })}
             </div>
         </Section>
     )

@@ -9,7 +9,16 @@ import {
     BREAKDOWN_OTHER_STRING_LABEL,
 } from 'scenes/insights/utils'
 
-import { EventsNode, InsightQueryNode, LifecycleQuery, MathType, TrendsFilter, TrendsQuery } from '~/queries/schema'
+import {
+    BreakdownFilter,
+    EventsNode,
+    InsightQueryNode,
+    LifecycleQuery,
+    MathType,
+    TrendsFilter,
+    TrendsQuery,
+} from '~/queries/schema'
+import { isValidBreakdown } from '~/queries/utils'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -124,6 +133,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
+        isBreakdownValid: [
+            (s) => [s.breakdownFilter],
+            (breakdownFilter: BreakdownFilter | null) => isValidBreakdown(breakdownFilter),
+        ],
+
         indexedResults: [
             (s) => [s.results, s.display, s.lifecycleFilter],
             (results, display, lifecycleFilter): IndexedTrendResult[] => {
@@ -185,7 +199,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (s) => [s.series, s.querySource, s.isLifecycle],
             (series, querySource, isLifecycle): 'people' | 'none' | number => {
                 // Find the commonly shared aggregation group index if there is one.
-                let firstAggregationGroupTypeIndex: 'people' | 'none' | number | undefined
+                let firstAggregationGroupTypeIndex: 'people' | 'none' | number | undefined | null
                 if (isLifecycle) {
                     firstAggregationGroupTypeIndex = (querySource as LifecycleQuery)?.aggregation_group_type_index
                 } else {

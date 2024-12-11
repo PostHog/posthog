@@ -1,13 +1,13 @@
 import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -39,8 +39,9 @@ const Filters = (): JSX.Element => {
     const {
         webAnalyticsFilters,
         dateFilter: { dateTo, dateFrom },
+        compareFilter,
     } = useValues(webAnalyticsLogic)
-    const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
+    const { setWebAnalyticsFilters, setDates, setCompareFilter } = useActions(webAnalyticsLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { conversionGoal } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -54,6 +55,10 @@ const Filters = (): JSX.Element => {
         >
             <div className="flex flex-row flex-wrap gap-2">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PERIOD_COMPARISON] ? (
+                    <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+                ) : null}
+
                 <WebPropertyFilters
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
@@ -130,8 +135,13 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 layout.className
             )}
         >
-            {title && <h2 className="m-0 mb-3">{title}</h2>}
-            {docs && <LearnMorePopover docsURL={docs.docsUrl} title={docs.title} description={docs.description} />}
+            {title && (
+                <h2 className="flex-1 m-0 flex flex-row ml-1">
+                    {title}
+                    {docs && <LearnMorePopover url={docs.url} title={docs.title} description={docs.description} />}
+                </h2>
+            )}
+
             <WebQuery
                 query={query}
                 insightProps={insightProps}
@@ -206,7 +216,7 @@ export const WebTabs = ({
         query: QuerySchema
         docs:
             | {
-                  docsUrl: PostHogComDocsURL
+                  url?: PostHogComDocsURL
                   title: string
                   description: string | JSX.Element
               }
@@ -248,34 +258,26 @@ export const WebTabs = ({
     return (
         <div className={clsx(className, 'flex flex-col')}>
             <div className="flex flex-row items-center self-stretch mb-3">
-                <h2 className="flex-1 m-0 flex flex-row">
+                <h2 className="flex-1 m-0 flex flex-row ml-1">
                     {activeTab?.title}
                     {activeTab?.docs && (
                         <LearnMorePopover
-                            docsURL={activeTab.docs.docsUrl}
+                            url={activeTab.docs.url}
                             title={activeTab.docs.title}
                             description={activeTab.docs.description}
                         />
                     )}
                 </h2>
 
-                {tabs.length > 4 ? (
-                    <LemonSelect
-                        size="small"
-                        disabled={false}
-                        value={activeTabId}
-                        dropdownMatchSelectWidth={false}
-                        onChange={setActiveTabId}
-                        options={tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))}
-                    />
-                ) : (
-                    <LemonSegmentedButton
-                        size="small"
-                        options={tabs.map(({ id, linkText }) => ({ label: linkText, value: id }))}
-                        onChange={(value) => setActiveTabId(value)}
-                        value={activeTabId}
-                    />
-                )}
+                <LemonSegmentedSelect
+                    shrinkOn={7}
+                    size="small"
+                    disabled={false}
+                    value={activeTabId}
+                    dropdownMatchSelectWidth={false}
+                    onChange={setActiveTabId}
+                    options={tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))}
+                />
             </div>
             <div className="flex-1 flex flex-col">{activeTab?.content}</div>
             {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
@@ -284,12 +286,12 @@ export const WebTabs = ({
 }
 
 export interface LearnMorePopoverProps {
-    docsURL: PostHogComDocsURL
+    url?: PostHogComDocsURL
     title: string
     description: string | JSX.Element
 }
 
-export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopoverProps): JSX.Element => {
+export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverProps): JSX.Element => {
     const [isOpen, setIsOpen] = useState(false)
 
     return (
@@ -304,25 +306,27 @@ export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopov
                             targetBlank
                             type="tertiary"
                             onClick={() => setIsOpen(false)}
-                            size="xsmall"
+                            size="small"
                             icon={<IconX />}
                         />
                     </div>
                     <div className="text-sm text-gray-700">{description}</div>
-                    <div className="flex justify-end mt-4">
-                        <LemonButton
-                            to={docsURL}
-                            onClick={() => setIsOpen(false)}
-                            targetBlank={true}
-                            sideIcon={<IconOpenSidebar />}
-                        >
-                            Learn more
-                        </LemonButton>
-                    </div>
+                    {url && (
+                        <div className="flex justify-end mt-4">
+                            <LemonButton
+                                to={url}
+                                onClick={() => setIsOpen(false)}
+                                targetBlank={true}
+                                sideIcon={<IconOpenSidebar />}
+                            >
+                                Learn more
+                            </LemonButton>
+                        </div>
+                    )}
                 </div>
             }
         >
-            <LemonButton onClick={() => setIsOpen(!isOpen)} size="small" icon={<IconInfo />} />
+            <LemonButton onClick={() => setIsOpen(!isOpen)} size="small" icon={<IconInfo />} className="ml-1 mb-1" />
         </Popover>
     )
 }

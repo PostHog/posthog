@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { range } from 'lib/utils'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -31,7 +32,7 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
     path(['scenes', 'data-management', 'ingestion-warnings', 'ingestionWarningsLogic']),
 
     connect({
-        values: [teamLogic, ['currentTeamId', 'timezone']],
+        values: [teamLogic, ['timezone'], projectLogic, ['currentProjectId']],
     }),
 
     loaders(({ values }) => ({
@@ -39,7 +40,7 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
             [] as IngestionWarningSummary[],
             {
                 loadData: async () => {
-                    const { results } = await api.get(`api/projects/${values.currentTeamId}/ingestion_warnings`)
+                    const { results } = await api.get(`api/projects/${values.currentProjectId}/ingestion_warnings`)
                     return results
                 },
             },

@@ -142,17 +142,17 @@ export const GenerationFailureThread: StoryFn = () => {
     })
 
     const { askMax, setMessageStatus } = useActions(maxLogic({ sessionId: SESSION_ID }))
-    const { thread, threadLoading } = useValues(maxLogic({ sessionId: SESSION_ID }))
+    const { threadRaw, threadLoading } = useValues(maxLogic({ sessionId: SESSION_ID }))
 
     useEffect(() => {
         askMax('What are my most popular pages?')
     }, [])
 
     useEffect(() => {
-        if (thread.length === 2 && !threadLoading) {
+        if (threadRaw.length === 2 && !threadLoading) {
             setMessageStatus(1, 'error')
         }
-    }, [thread.length, threadLoading])
+    }, [threadRaw.length, threadLoading])
 
     return <Template sessionId={SESSION_ID} />
 }
@@ -168,6 +168,23 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
 
     useEffect(() => {
         askMax('What are my most popular pages?')
+    }, [])
+
+    return <Template sessionId={SESSION_ID} />
+}
+
+export const ThreadWithRateLimit: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/query/chat/': (_, res, ctx) =>
+                res(ctx.text(chatResponseChunk), ctx.status(429)),
+        },
+    })
+
+    const { askMax } = useActions(maxLogic({ sessionId: SESSION_ID }))
+
+    useEffect(() => {
+        askMax('Is Bielefeld real?')
     }, [])
 
     return <Template sessionId={SESSION_ID} />

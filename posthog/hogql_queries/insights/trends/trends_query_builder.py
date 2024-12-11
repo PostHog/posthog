@@ -26,6 +26,7 @@ from posthog.schema import (
     ActionsNode,
     ChartDisplayType,
     DataWarehouseNode,
+    DataWarehousePropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
     TrendsQuery,
@@ -293,14 +294,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             return wrapper
         # Just complex series aggregation
-        elif (
-            self._aggregation_operation.requires_query_orchestration()
-            and self._aggregation_operation.is_first_time_ever_math()
+        elif self._aggregation_operation.requires_query_orchestration() and (
+            self._aggregation_operation.is_first_time_ever_math()
+            or self._aggregation_operation.is_first_matching_event()
         ):
             return self._aggregation_operation.get_first_time_math_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
                 event_name_filter=self._event_or_action_where_expr(),
+                is_first_matching_event=self._aggregation_operation.is_first_matching_event(),
             ).build()
         elif self._aggregation_operation.requires_query_orchestration():
             return self._aggregation_operation.get_actors_query_orchestrator(
@@ -699,8 +701,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 filters.append(property_to_expr(property, self.team))
 
         # Properties
-        if self.query.properties is not None and self.query.properties != [] and not is_data_warehouse_series:
-            filters.append(property_to_expr(self.query.properties, self.team))
+        if self.query.properties is not None and self.query.properties != []:
+            if is_data_warehouse_series:
+                data_warehouse_properties = [
+                    p for p in self.query.properties if isinstance(p, DataWarehousePropertyFilter)
+                ]
+                if data_warehouse_properties:
+                    filters.append(property_to_expr(data_warehouse_properties, self.team))
+            else:
+                filters.append(property_to_expr(self.query.properties, self.team))
 
         # Series Filters
         if series.properties is not None and series.properties != []:

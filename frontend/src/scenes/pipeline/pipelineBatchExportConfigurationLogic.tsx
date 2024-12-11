@@ -10,6 +10,7 @@ import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { humanizeBatchExportName } from './batch-exports/utils'
+import { DESTINATION_TYPES } from './destinations/constants'
 import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
@@ -186,6 +187,12 @@ const personsTable: DatabaseSchemaBatchExportTable = {
             name: 'person_distinct_id_version',
             hogql_value: 'person_distinct_id_version',
             type: 'integer',
+            schema_valid: true,
+        },
+        created_at: {
+            name: 'created_at',
+            hogql_value: 'created_at',
+            type: 'datetime',
             schema_valid: true,
         },
     },
@@ -404,7 +411,9 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             // Reset so that form doesn't think there are unsaved changes.
             actions.resetConfiguration(getConfigurationFromBatchExportConfig(batchExportConfig))
 
-            pipelineDestinationsLogic.findMounted()?.actions.updateBatchExportConfig(batchExportConfig)
+            pipelineDestinationsLogic
+                .findMounted({ types: DESTINATION_TYPES })
+                ?.actions.updateBatchExportConfig(batchExportConfig)
         },
         setConfigurationValue: async ({ name, value }) => {
             if (name[0] === 'json_config_file' && value) {

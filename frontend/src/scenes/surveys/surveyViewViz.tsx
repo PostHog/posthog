@@ -1,3 +1,4 @@
+import { offset } from '@floating-ui/react'
 import {
     IconInfo,
     IconSparkles,
@@ -5,8 +6,9 @@ import {
     IconThumbsDownFilled,
     IconThumbsUp,
     IconThumbsUpFilled,
+    IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, Popover, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -21,6 +23,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { surveyDataProcessingLogic } from 'scenes/surveys/suveyDataProcessingLogic'
 
 import { GraphType } from '~/types'
 import { InsightLogicProps, SurveyQuestionType } from '~/types'
@@ -105,7 +108,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                         {[
                             {
                                 count: seen,
-                                label: 'Shown',
+                                label: 'Unanswered',
                                 classes: `rounded-l ${dismissed === 0 && sent === 0 ? 'rounded-r' : ''}`,
                                 style: { backgroundColor: '#1D4AFF', width: `${seenPercentage}%` },
                             },
@@ -162,7 +165,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                     <div className="w-full flex justify-center">
                         <div className="flex items-center">
                             {[
-                                { count: seen, label: 'Viewed', style: { backgroundColor: '#1D4AFF' } },
+                                { count: seen, label: 'Unanswered', style: { backgroundColor: '#1D4AFF' } },
                                 { count: dismissed, label: 'Dismissed', style: { backgroundColor: '#E3A506' } },
                                 { count: partial, label: 'Partial response', style: { backgroundColor: '#99ccff' } },
                                 { count: completed, label: 'Completed', style: { backgroundColor: '#529B08' } },
@@ -662,29 +665,76 @@ export function OpenTextViz({
 }
 
 function ResponseSummariesButton({ questionIndex }: { questionIndex: number | undefined }): JSX.Element {
+    const [popOverClosed, setPopOverClosed] = useState(false)
+
     const { summarize } = useActions(surveyLogic)
     const { responseSummary, responseSummaryLoading } = useValues(surveyLogic)
+    const { surveyDataProcessingAccepted, surveyDataProcessingRefused } = useValues(surveyDataProcessingLogic)
+    const { acceptSurveyDataProcessing, refuseSurveyDataProcessing } = useActions(surveyDataProcessingLogic)
 
+    const summarizeButton = (
+        <LemonButton
+            type="secondary"
+            data-attr="summarize-survey"
+            onClick={() => summarize({ questionIndex })}
+            disabledReason={
+                surveyDataProcessingRefused
+                    ? 'OpenAI processing refused'
+                    : responseSummaryLoading
+                    ? 'Let me think...'
+                    : responseSummary
+                    ? 'Already summarized'
+                    : undefined
+            }
+            icon={<IconSparkles />}
+        >
+            {responseSummaryLoading ? (
+                <>
+                    Let me think...
+                    <Spinner />
+                </>
+            ) : (
+                <>Summarize responses</>
+            )}
+        </LemonButton>
+    )
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
-            <LemonButton
-                type="secondary"
-                data-attr="summarize-survey"
-                onClick={() => summarize({ questionIndex })}
-                disabledReason={
-                    responseSummaryLoading ? 'Let me think...' : responseSummary ? 'already summarized' : undefined
-                }
-                icon={<IconSparkles />}
-            >
-                {responseSummaryLoading ? (
-                    <>
-                        Let me think...
-                        <Spinner />
-                    </>
-                ) : (
-                    <>Summarize responses</>
-                )}
-            </LemonButton>
+            {surveyDataProcessingAccepted ? (
+                summarizeButton
+            ) : (
+                <Popover
+                    overlay={
+                        <div className="mx-1.5 my 0.5 flex flex-col gap-1">
+                            <div className="flex justify-end">
+                                <LemonButton size="small" icon={<IconX />} onClick={() => setPopOverClosed(true)} />
+                            </div>
+                            <div>
+                                <p className="font-medium text-pretty mb-1.5">
+                                    Uses OpenAI services to analyze your survey responses,
+                                    <br />
+                                    This <em>can</em> include personal data of your users,
+                                    <br />
+                                    if they include it in their responses.
+                                    <br />
+                                    <em>Your data won't be used for training models.</em>
+                                </p>
+                            </div>
+                            <LemonButton type="secondary" size="small" onClick={() => acceptSurveyDataProcessing()}>
+                                Got it, I accept OpenAI processing survey data
+                            </LemonButton>
+                            <LemonButton type="secondary" size="small" onClick={() => refuseSurveyDataProcessing()}>
+                                No thanks, I don't want OpenAI processing survey data
+                            </LemonButton>
+                        </div>
+                    }
+                    middleware={[offset(-12)]}
+                    showArrow
+                    visible={!popOverClosed && !surveyDataProcessingAccepted && !surveyDataProcessingRefused}
+                >
+                    {summarizeButton}
+                </Popover>
+            )}
         </FlaggedFeature>
     )
 }
@@ -714,7 +764,7 @@ function ResponseSummaryFeedback({ surveyId }: { surveyId: string }): JSX.Elemen
             return // Already rated
         }
         setRating(newRating)
-        posthog.capture('chat rating', {
+        posthog.capture('survey_resonse_rated', {
             survey_id: surveyId,
             answer_rating: rating,
         })

@@ -58,7 +58,6 @@ from posthog.schema import (
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTopClicksQuery,
 )
 from posthog.schema_helpers import to_dict, to_json
 from posthog.utils import generate_cache_key, get_from_dict_or_attr
@@ -144,7 +143,6 @@ RunnableQueryNode = Union[
     SessionsTimelineQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTopClicksQuery,
     WebGoalsQuery,
     SessionAttributionExplorerQuery,
 ]
@@ -306,16 +304,7 @@ def get_query_runner(
             modifiers=modifiers,
             limit_context=limit_context,
         )
-    if kind == "WebTopClicksQuery":
-        from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
-        return WebTopClicksQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-        )
     if kind == "WebStatsTableQuery":
         from .web_analytics.stats_table import WebStatsTableQueryRunner
 
@@ -715,7 +704,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
-    def to_hogql(self) -> str:
+    def to_hogql(self, **kwargs) -> str:
         with self.timings.measure("to_hogql"):
             return print_ast(
                 self.to_query(),
@@ -726,6 +715,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     modifiers=self.modifiers,
                 ),
                 "hogql",
+                **kwargs,
             )
 
     def get_cache_payload(self) -> dict:

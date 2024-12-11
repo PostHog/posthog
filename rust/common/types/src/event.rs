@@ -39,7 +39,7 @@ pub enum PersonMode {
 pub struct ClickHouseEvent {
     pub uuid: Uuid,
     pub team_id: i32,
-    pub project_id: i32,
+    pub project_id: i64,
     pub event: String,
     pub distinct_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
