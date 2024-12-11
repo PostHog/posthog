@@ -15,6 +15,8 @@ from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
@@ -46,6 +48,27 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             interval=None,
             now=datetime.now(),
         )
+
+    @cached_property
+    def query_compare_to_date_range(self):
+        if self.query.compareFilter is not None:
+            if isinstance(self.query.compareFilter.compare_to, str):
+                return QueryCompareToDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=None,
+                    now=datetime.now(),
+                    compare_to=self.query.compareFilter.compare_to,
+                )
+            elif self.query.compareFilter.compare:
+                return QueryPreviousPeriodDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=None,
+                    now=datetime.now(),
+                )
+
+        return None
 
     @cached_property
     def pathname_property_filter(self) -> Optional[EventPropertyFilter]:

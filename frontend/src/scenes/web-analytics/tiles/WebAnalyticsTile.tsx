@@ -48,6 +48,8 @@ const VariationCell = (
         isPercentage ? `${(value * 100).toFixed(1)}%` : value.toLocaleString()
 
     return function Cell({ value }) {
+        const { compareFilter } = useValues(webAnalyticsLogic)
+
         if (!value) {
             return null
         }
@@ -57,10 +59,11 @@ const VariationCell = (
         }
 
         const [current, previous] = value as [number, number]
+
         const pctChangeFromPrevious =
             previous === 0 && current === 0 // Special case, render as flatline
                 ? 0
-                : current === null
+                : current === null || !compareFilter || compareFilter.compare === false
                 ? null
                 : previous === null || previous === 0
                 ? Infinity
