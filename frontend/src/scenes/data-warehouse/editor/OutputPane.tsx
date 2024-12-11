@@ -69,24 +69,28 @@ export function OutputPane(): JSX.Element {
         })
     }, [response])
 
+    const ErrorState = useMemo((): JSX.Element | null => {
+        return (
+            <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
+                <InsightErrorState
+                    query={sourceQuery}
+                    excludeDetail
+                    title={
+                        queryCancelled
+                            ? 'The query was cancelled'
+                            : response && 'error' in response
+                            ? (response as any).error
+                            : responseError
+                    }
+                />
+            </div>
+        )
+    }, [responseError, sourceQuery, queryCancelled, response])
+
     const Content = (): JSX.Element | null => {
         if (activeTab === OutputTab.Results) {
             if (responseError) {
-                return (
-                    <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
-                        <InsightErrorState
-                            query={sourceQuery}
-                            excludeDetail
-                            title={
-                                queryCancelled
-                                    ? 'The query was cancelled'
-                                    : response && 'error' in response
-                                    ? (response as any).error
-                                    : responseError
-                            }
-                        />
-                    </div>
-                )
+                return ErrorState
             }
 
             return responseLoading ? (
@@ -106,21 +110,7 @@ export function OutputPane(): JSX.Element {
 
         if (activeTab === OutputTab.Visualization) {
             if (responseError) {
-                return (
-                    <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
-                        <InsightErrorState
-                            query={sourceQuery}
-                            excludeDetail
-                            title={
-                                queryCancelled
-                                    ? 'The query was cancelled'
-                                    : response && 'error' in response
-                                    ? (response as any).error
-                                    : responseError
-                            }
-                        />
-                    </div>
-                )
+                return ErrorState
             }
 
             return !response ? (
