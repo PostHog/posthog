@@ -653,9 +653,6 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         else:
             schema = get_bigquery_fields_from_record_schema(record_batch_schema, known_json_columns=json_columns)
 
-        stage_schema = [
-            bigquery.SchemaField(field.name, "STRING") if field.name in json_columns else field for field in schema
-        ]
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}"
 
