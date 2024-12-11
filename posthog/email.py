@@ -12,6 +12,8 @@ from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
 from sentry_sdk import capture_exception
+from decimal import Decimal
+import requests
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
@@ -51,20 +53,78 @@ EMAIL_TASK_KWARGS = {
 }
 
 
-@shared_task(**EMAIL_TASK_KWARGS)
-def _send_email(
-    campaign_key: str,
+def _send_via_customerio(
     to: list[dict[str, str]],
+    campaign_key: str,
     subject: str,
+    html_body: str,
     headers: dict,
-    txt_body: str = "",
-    html_body: str = "",
     reply_to: Optional[str] = None,
 ) -> None:
-    """
-    Sends built email message asynchronously.
-    """
+    """Sends emails using Customer.io API"""
+    customerio_api_key = settings.CUSTOMER_IO_API_KEY
 
+    if not customerio_api_key:
+        raise Exception(f"Missing Customer.io API key: {customerio_api_key}")
+
+    api_headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {customerio_api_key}",
+    }
+
+    try:
+        for dest in to:
+            with transaction.atomic():
+                record, _ = MessagingRecord.objects.get_or_create(
+                    raw_email=dest["raw_email"], campaign_key=campaign_key
+                )
+
+                # Lock object while sending
+                record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
+                if record.sent_at:
+                    continue
+
+                # Prepare properties for Customer.io
+                properties = {
+                    "subject": subject,
+                    "body": html_body,
+                    "reply_to": reply_to or get_instance_setting("EMAIL_REPLY_TO"),
+                    **headers,
+                }
+
+                # Convert any Decimal values to float for JSON serialization
+                properties = {k: float(v) if isinstance(v, Decimal) else v for k, v in properties.items()}
+
+                payload = {
+                    "transactional_message_id": campaign_key,
+                    "to": dest["raw_email"],
+                    "identifiers": {"email": dest["raw_email"]},
+                    "message_data": properties,
+                }
+
+                response = requests.post("https://api.customer.io/v1/send/email", headers=api_headers, json=payload)
+
+                if response.status_code != 200:
+                    raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")
+
+                record.sent_at = timezone.now()
+                record.save()
+
+    except Exception as err:
+        print("Could not send email via Customer.io:", err, file=sys.stderr)
+        capture_exception(err)
+
+
+def _send_via_smtp(
+    to: list[dict[str, str]],
+    campaign_key: str,
+    subject: str,
+    txt_body: str,
+    html_body: str,
+    headers: dict,
+    reply_to: Optional[str] = None,
+) -> None:
+    """Sends emails using SMTP"""
     messages: list = []
     records: list = []
 
@@ -72,11 +132,9 @@ def _send_email(
         for dest in to:
             record, _ = MessagingRecord.objects.get_or_create(raw_email=dest["raw_email"], campaign_key=campaign_key)
 
-            # Lock object (database-level) while the message is sent
             record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
-            # If an email for this campaign was already sent to this user, skip recipient
             if record.sent_at:
-                record.save()  # release DB lock
+                record.save()
                 continue
 
             records.append(record)
@@ -113,12 +171,9 @@ def _send_email(
                 record.save()
 
         except Exception as err:
-            # Handle exceptions gracefully to avoid breaking the entire task for all teams
-            # but make sure they're tracked on Sentry.
             print("Could not send email:", err, file=sys.stderr)
             capture_exception(err)
         finally:
-            # Ensure that connection has been closed
             try:
                 connection.close()  # type: ignore
             except Exception as err:
@@ -127,6 +182,41 @@ def _send_email(
                     err,
                     file=sys.stderr,
                 )
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def _send_email(
+    campaign_key: str,
+    to: list[dict[str, str]],
+    subject: str,
+    headers: dict,
+    txt_body: str = "",
+    html_body: str = "",
+    reply_to: Optional[str] = None,
+    use_customerio: Optional[bool] = False,
+) -> None:
+    """
+    Sends built email message asynchronously, either through SMTP or Customer.io
+    """
+    if use_customerio:
+        _send_via_customerio(
+            to=to,
+            campaign_key=campaign_key,
+            subject=subject,
+            html_body=html_body,
+            headers=headers,
+            reply_to=reply_to,
+        )
+    else:
+        _send_via_smtp(
+            to=to,
+            campaign_key=campaign_key,
+            subject=subject,
+            txt_body=txt_body,
+            html_body=html_body,
+            headers=headers,
+            reply_to=reply_to,
+        )
 
 
 class EmailMessage:
@@ -138,6 +228,7 @@ class EmailMessage:
         template_context: Optional[dict] = None,
         headers: Optional[dict] = None,
         reply_to: Optional[str] = None,
+        use_customerio: Optional[bool] = False,
     ):
         if template_context is None:
             template_context = {}
@@ -155,6 +246,7 @@ class EmailMessage:
         self.headers = headers if headers else {}
         self.to: list[dict[str, str]] = []
         self.reply_to = reply_to
+        self.use_customerio = use_customerio
 
     def add_recipient(self, email: str, name: Optional[str] = None) -> None:
         self.to.append({"recipient": f'"{name}" <{email}>' if name else email, "raw_email": email})
@@ -171,6 +263,7 @@ class EmailMessage:
             "txt_body": self.txt_body,
             "html_body": self.html_body,
             "reply_to": self.reply_to,
+            "use_customerio": self.use_customerio,
         }
 
         if send_async:
