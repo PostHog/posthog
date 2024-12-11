@@ -115,6 +115,7 @@ class AssistantEventMultipleBreakdownFilterType(StrEnum):
 class AssistantEventType(StrEnum):
     STATUS = "status"
     MESSAGE = "message"
+    THREAD = "thread"
 
 
 class AssistantFunnelsBreakdownType(StrEnum):
@@ -132,11 +133,6 @@ class AssistantFunnelsExclusionEventsNode(BaseModel):
     funnelFromStep: int
     funnelToStep: int
     kind: Literal["EventsNode"] = "EventsNode"
-
-
-class AssistantGenerationStatusType(StrEnum):
-    ACK = "ack"
-    GENERATION_ERROR = "generation_error"
 
 
 class AssistantGenericMultipleBreakdownFilter(BaseModel):
@@ -1864,7 +1860,7 @@ class AssistantGenerationStatusEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    type: AssistantGenerationStatusType
+    type: Literal["generation_error"] = "generation_error"
 
 
 class AssistantGenericPropertyFilter1(BaseModel):

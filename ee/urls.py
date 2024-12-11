@@ -6,11 +6,11 @@ from django.urls import include
 from django.urls.conf import path
 
 from ee.api import integration
-from .api.rbac import organization_resource_access, role
 
 from .api import (
     authentication,
     billing,
+    conversation,
     dashboard_collaborator,
     explicit_team_member,
     feature_flag_role_access,
@@ -19,23 +19,25 @@ from .api import (
     sentry_stats,
     subscription,
 )
+from .api.rbac import organization_resource_access, role
 from .session_recordings import session_recording_playlist
 
 
 def extend_api_router() -> None:
     from posthog.api import (
-        router as root_router,
-        register_grandfathered_environment_nested_viewset,
-        projects_router,
-        organizations_router,
-        project_feature_flags_router,
         environment_dashboards_router,
         legacy_project_dashboards_router,
+        organizations_router,
+        project_feature_flags_router,
+        projects_router,
+        register_grandfathered_environment_nested_viewset,
+        router as root_router,
     )
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
+    root_router.register(r"conversation", conversation.ConversationViewSet, "conversation")
     organization_roles_router = organizations_router.register(
         r"roles",
         role.RoleViewSet,

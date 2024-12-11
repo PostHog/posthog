@@ -585,7 +585,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message"],
+            "enum": ["status", "message", "thread"],
             "type": "string"
         },
         "AssistantFunnelsBreakdownFilter": {
@@ -796,7 +796,7 @@
             "type": "object"
         },
         "AssistantGenerationStatusType": {
-            "enum": ["ack", "generation_error"],
+            "const": "generation_error",
             "type": "string"
         },
         "AssistantGenericMultipleBreakdownFilter": {

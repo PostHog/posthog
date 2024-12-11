@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncGenerator, Generator, Iterator
 from functools import partial
 from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union, cast
@@ -93,11 +94,19 @@ class Assistant:
     _latest_message: HumanMessage
     _state: Optional[AssistantState]
 
-    def __init__(self, team: Team, conversation: Conversation, new_message: HumanMessage, user: Optional[User] = None):
+    def __init__(
+        self,
+        team: Team,
+        conversation: Conversation,
+        new_message: HumanMessage,
+        user: Optional[User] = None,
+        send_conversation: bool = False,
+    ):
         self._team = team
         self._user = user
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())})
+        self._send_conversation = send_conversation
         self._graph = AssistantGraph(team).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
         self._state = None
@@ -123,6 +132,10 @@ class Assistant:
         generator: Iterator[Any] = self._graph.stream(
             state, config=config, stream_mode=["messages", "values", "updates", "debug"]
         )
+
+        # Assign the conversation id to the client.
+        if self._send_conversation:
+            yield self._serialize_conversation()
 
         # Send the last message with the initialized id.
         yield self._serialize_message(self._latest_message)
@@ -276,6 +289,12 @@ class Assistant:
         else:
             output += f"event: {AssistantEventType.MESSAGE}\n"
         return output + f"data: {message.model_dump_json(exclude_none=True)}\n\n"
+
+    def _serialize_conversation(self) -> str:
+        output = f"event: {AssistantEventType.THREAD}\n"
+        json_conversation = json.dumps({"id": self._conversation.id})
+        output += f"data: {json_conversation}\n\n"
+        return output
 
     def _report_conversation_state(self, message: Optional[VisualizationMessage]):
         human_message = self._latest_message

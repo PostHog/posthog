@@ -2535,10 +2535,10 @@ export type RootAssistantMessage =
 export enum AssistantEventType {
     Status = 'status',
     Message = 'message',
+    Thread = 'thread',
 }
 
 export enum AssistantGenerationStatusType {
-    Acknowledged = 'ack',
     GenerationError = 'generation_error',
 }
 
