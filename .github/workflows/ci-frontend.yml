@@ -52,13 +52,12 @@ jobs:
 
     frontend-code-quality:
         name: Code quality checks
-        # if: needs.changes.outputs.frontend == 'true' # <- Can't add this here because it's a required check
         needs: changes
         # kea typegen and typescript:check need some more oomph
         runs-on: ubuntu-24.04
         steps:
+            # we need at least one thing to run to make sure we include everything for required jobs
             - uses: actions/checkout@v3
-              if: needs.changes.outputs.frontend == 'true'
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -124,7 +123,6 @@ jobs:
     jest:
         runs-on: ubuntu-24.04
         needs: changes
-        # if: needs.changes.outputs.frontend == 'true' # <- Can't add this here because it's a required check
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
 
         strategy:
@@ -135,8 +133,8 @@ jobs:
                 chunk: [1, 2, 3]
 
         steps:
+            # we need at least one thing to run to make sure we include everything for required jobs
             - uses: actions/checkout@v3
-              if: needs.changes.outputs.frontend == 'true'
 
             - name: Remove ee
               if: needs.changes.outputs.frontend == 'true' && matrix.segment == 'FOSS'

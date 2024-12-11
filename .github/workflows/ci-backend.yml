@@ -91,7 +91,6 @@ jobs:
 
     backend-code-quality:
         needs: changes
-        # if: needs.changes.outputs.backend == 'true' # <- Can't add this here because it's a required check
         timeout-minutes: 30
 
         name: Python code quality checks
@@ -106,12 +105,10 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
             - uses: actions/checkout@v3
-              if: needs.changes.outputs.backend == 'true'
               with:
                   fetch-depth: 1
 
             - name: Set up Python
-              if: needs.changes.outputs.backend == 'true'
               uses: actions/setup-python@v5
               with:
                   python-version: 3.11.9
@@ -121,40 +118,32 @@ jobs:
 
             # uv is a fast pip alternative: https://github.com/astral-sh/uv/
             - run: pip install uv
-              if: needs.changes.outputs.backend == 'true'
 
             - name: Install SAML (python3-saml) dependencies
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install Python dependencies
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   uv pip install --system -r requirements.txt -r requirements-dev.txt
 
             - name: Check for syntax errors, import sort, and code style violations
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   ruff check .
 
             - name: Check formatting
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   ruff format --check --diff .
 
             - name: Add Problem Matcher
-              if: needs.changes.outputs.backend == 'true'
               run: echo "::add-matcher::.github/mypy-problem-matcher.json"
 
             - name: Check static typing
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   mypy -p posthog | mypy-baseline filter
 
             - name: Check if "schema.py" is up to date
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   npm run schema:build:python && git diff --exit-code
 
@@ -235,9 +224,8 @@ jobs:
 
     django:
         needs: changes
-        # if: needs.changes.outputs.backend == 'true' # <- Can't add this here because it's a required check
-
-        timeout-minutes: 30 # increase for tmate testing
+        # increase for tmate testing
+        timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-24.04
@@ -273,8 +261,10 @@ jobs:
                       group: 3
 
         steps:
+            # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
+            # All the other ones should rely on `needs.changes.outputs.backend` directly or indirectly, so that they're
+            # effectively skipped if backend code is unchanged. See https://github.com/PostHog/posthog/pull/15174.
             - uses: actions/checkout@v3
-              if: needs.changes.outputs.backend == 'true'
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -317,7 +307,7 @@ jobs:
                   fi
 
             - name: Fail CI if some snapshots have been updated but not committed
-              if: needs.changes.outputs.backend == 'true' && steps.changed-files.outputs.files_found == 'true' && steps.add-and-commit.outcome == 'success'
+              if: steps.changed-files.outputs.files_found == 'true' && steps.add-and-commit.outcome == 'success'
               run: |
                   echo "${{ steps.changed-files.outputs.diff }}"
                   exit 1
@@ -333,11 +323,11 @@ jobs:
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
         needs: changes
-        if: needs.changes.outputs.backend == 'true'
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ['clickhouse/clickhouse-server:24.8.7.41']
+        if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-24.04
         steps:
             - name: 'Checkout repo'
@@ -391,7 +381,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [changes, django, async-migrations]
+        needs: [django, async-migrations]
         runs-on: ubuntu-24.04
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
             needs.changes.outputs.backend == 'true' &&

@@ -466,9 +466,10 @@ class S3Consumer(Consumer):
         heartbeater: Heartbeater,
         heartbeat_details: S3HeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        writer_format: WriterFormat,
         s3_upload: S3MultiPartUpload,
     ):
-        super().__init__(heartbeater, heartbeat_details, data_interval_start)
+        super().__init__(heartbeater, heartbeat_details, data_interval_start, writer_format)
         self.heartbeat_details: S3HeartbeatDetails = heartbeat_details
         self.s3_upload = s3_upload
 
@@ -712,7 +713,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
                 s3_upload=s3_upload,
                 writer_file_kwargs={"compression": inputs.compression},
-                non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
             )
 
             await s3_upload.complete()

@@ -92,6 +92,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             "weekly_active",
             "monthly_active",
             "first_time_for_user",
+            "first_matching_event_for_user",
         ]
 
         return self.is_count_per_actor_variant() or self.series.math in math_to_return_true
@@ -115,6 +116,9 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def is_first_time_ever_math(self):
         return self.series.math == "first_time_for_user"
+
+    def is_first_matching_event(self):
+        return self.series.math == "first_matching_event_for_user"
 
     def _math_func(self, method: str, override_chain: Optional[list[str | int]]) -> ast.Call:
         if override_chain is not None:
@@ -452,7 +456,11 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return query
 
     def get_first_time_math_query_orchestrator(
-        self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr, event_name_filter: ast.Expr | None = None
+        self,
+        events_where_clause: ast.Expr,
+        sample_value: ast.RatioExpr,
+        event_name_filter: ast.Expr | None = None,
+        is_first_matching_event: bool = False,
     ):
         date_placeholders = self.query_date_range.to_placeholders()
         date_from = parse_expr(
@@ -479,6 +487,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     filters=events_where_clause,
                     event_or_action_filter=event_name_filter,
                     ratio=sample_value,
+                    is_first_matching_event=is_first_matching_event,
                 )
                 self.parent_query_builder = QueryAlternator(parent_select)
 
