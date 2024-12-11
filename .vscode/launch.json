@@ -107,6 +107,30 @@
             }
         },
         {
+            "name": "Celery Beat",
+            "consoleName": "Celery Beat",
+            "type": "debugpy",
+            "justMyCode": true,
+            "autoReload": {
+                "enable": true,
+                "include": ["posthog/**/*.py"]
+            },
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": ["run_autoreload_celery", "--type=beat"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "SKIP_ASYNC_MIGRATIONS_SETUP": "1",
+                "DEBUG": "1",
+                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
+            },
+            "presentation": {
+                "group": "main"
+            }
+        },
+        {
             "name": "Plugin Server",
             "command": "npm run start:dev",
             "request": "launch",
@@ -200,6 +224,27 @@
             "console": "integratedTerminal",
             "internalConsoleOptions": "neverOpen",
             "runtimeExecutable": "${env:HOME}/.nvm/versions/node/${input:pickVersion}/bin/node"
+        },
+        {
+            "name": "Python Debugger: Django Migrations",
+            "type": "debugpy",
+            "request": "launch",
+            "args": ["migrate", "posthog"],
+            "django": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "DJANGO_SETTINGS_MODULE": "posthog.settings",
+                "DEBUG": "1",
+                "CLICKHOUSE_SECURE": "False",
+                "KAFKA_HOSTS": "localhost",
+                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+                "PRINT_SQL": "1",
+                "BILLING_SERVICE_URL": "http://localhost:8100/",
+                "CLOUD_DEPLOYMENT": "dev"
+            },
+            "autoStartBrowser": false,
+            "program": "${workspaceFolder}/manage.py"
         }
     ],
     "inputs": [
@@ -212,7 +257,14 @@
     "compounds": [
         {
             "name": "PostHog",
-            "configurations": ["Backend", "Celery Threaded Pool", "Frontend", "Plugin Server", "Temporal Worker"],
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
             "stopAll": true,
             "presentation": {
                 "order": 1,

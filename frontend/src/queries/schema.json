@@ -1470,7 +1470,15 @@
             "type": "string"
         },
         "BaseMathType": {
-            "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session", "first_time_for_user"],
+            "enum": [
+                "total",
+                "dau",
+                "weekly_active",
+                "monthly_active",
+                "unique_session",
+                "first_time_for_user",
+                "first_matching_event_for_user"
+            ],
             "type": "string"
         },
         "BinCountValue": {
@@ -2246,6 +2254,9 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "stats_version": {
+                    "type": "integer"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -2268,6 +2279,7 @@
                 "probability",
                 "significance_code",
                 "significant",
+                "stats_version",
                 "timezone",
                 "variants"
             ],
@@ -4585,6 +4597,9 @@
                                 "significant": {
                                     "type": "boolean"
                                 },
+                                "stats_version": {
+                                    "type": "integer"
+                                },
                                 "variants": {
                                     "items": {
                                         "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
@@ -4600,6 +4615,7 @@
                                 "probability",
                                 "significance_code",
                                 "significant",
+                                "stats_version",
                                 "variants"
                             ],
                             "type": "object"
@@ -6090,6 +6106,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendsQueryResponse"
+                },
+                "stats_version": {
+                    "type": "integer"
                 }
             },
             "required": ["count_query", "kind"],
@@ -6140,6 +6159,9 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "stats_version": {
+                    "type": "integer"
+                },
                 "variants": {
                     "items": {
                         "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
@@ -6154,6 +6176,7 @@
                 "probability",
                 "significant",
                 "significance_code",
+                "stats_version",
                 "p_value",
                 "credible_intervals"
             ],
@@ -9855,6 +9878,9 @@
                         "significant": {
                             "type": "boolean"
                         },
+                        "stats_version": {
+                            "type": "integer"
+                        },
                         "variants": {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
@@ -9869,6 +9895,7 @@
                         "probability",
                         "significant",
                         "significance_code",
+                        "stats_version",
                         "p_value",
                         "credible_intervals"
                     ],
@@ -10483,6 +10510,9 @@
                         "significant": {
                             "type": "boolean"
                         },
+                        "stats_version": {
+                            "type": "integer"
+                        },
                         "variants": {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
@@ -10498,6 +10528,7 @@
                         "probability",
                         "significance_code",
                         "significant",
+                        "stats_version",
                         "variants"
                     ],
                     "type": "object"
@@ -13110,8 +13141,15 @@
         "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
-                "compare": {
-                    "type": "boolean"
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "conversionGoal": {
                     "anyOf": [
@@ -13241,6 +13279,16 @@
             "properties": {
                 "breakdownBy": {
                     "$ref": "#/definitions/WebStatsBreakdown"
+                },
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "conversionGoal": {
                     "anyOf": [

@@ -501,6 +501,90 @@
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.22
   '''
+  SELECT "posthog_survey"."id",
+         "posthog_survey"."team_id",
+         "posthog_survey"."name",
+         "posthog_survey"."description",
+         "posthog_survey"."linked_flag_id",
+         "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id",
+         "posthog_survey"."type",
+         "posthog_survey"."conditions",
+         "posthog_survey"."questions",
+         "posthog_survey"."appearance",
+         "posthog_survey"."created_at",
+         "posthog_survey"."created_by_id",
+         "posthog_survey"."start_date",
+         "posthog_survey"."end_date",
+         "posthog_survey"."updated_at",
+         "posthog_survey"."archived",
+         "posthog_survey"."responses_limit",
+         "posthog_survey"."response_sampling_start_date",
+         "posthog_survey"."response_sampling_interval_type",
+         "posthog_survey"."response_sampling_interval",
+         "posthog_survey"."response_sampling_limit",
+         "posthog_survey"."response_sampling_daily_limits",
+         "posthog_survey"."iteration_count",
+         "posthog_survey"."iteration_frequency_days",
+         "posthog_survey"."iteration_start_dates",
+         "posthog_survey"."current_iteration",
+         "posthog_survey"."current_iteration_start_date",
+         "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         T4."id",
+         T4."key",
+         T4."name",
+         T4."filters",
+         T4."rollout_percentage",
+         T4."team_id",
+         T4."created_by_id",
+         T4."created_at",
+         T4."deleted",
+         T4."active",
+         T4."rollback_conditions",
+         T4."performed_rollback",
+         T4."ensure_experience_continuity",
+         T4."usage_dashboard_id",
+         T4."has_enriched_analytics",
+         T5."id",
+         T5."key",
+         T5."name",
+         T5."filters",
+         T5."rollout_percentage",
+         T5."team_id",
+         T5."created_by_id",
+         T5."created_at",
+         T5."deleted",
+         T5."active",
+         T5."rollback_conditions",
+         T5."performed_rollback",
+         T5."ensure_experience_continuity",
+         T5."usage_dashboard_id",
+         T5."has_enriched_analytics"
+  FROM "posthog_survey"
+  LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
+  LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
+  LEFT OUTER JOIN "posthog_featureflag" T5 ON ("posthog_survey"."internal_targeting_flag_id" = T5."id")
+  WHERE ("posthog_survey"."team_id" = 99999
+         AND NOT ("posthog_survey"."archived"))
+  '''
+# ---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.23
+  '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
          "posthog_pluginsourcefile"."updated_at",
@@ -515,7 +599,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.23
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.24
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -531,7 +615,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.24
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.25
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -560,7 +644,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.25
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.26
   '''
   SELECT 1 AS "a"
   FROM "posthog_grouptypemapping"
@@ -568,7 +652,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.26
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.27
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -631,7 +715,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.27
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.28
   '''
   SELECT "posthog_productintent"."id",
          "posthog_productintent"."team_id",
@@ -645,7 +729,7 @@
   WHERE "posthog_productintent"."team_id" = 99999
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.28
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.29
   '''
   SELECT "posthog_productintent"."product_type",
          "posthog_productintent"."created_at",
@@ -653,38 +737,6 @@
          "posthog_productintent"."updated_at"
   FROM "posthog_productintent"
   WHERE "posthog_productintent"."team_id" = 99999
-  '''
-# ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.29
-  '''
-  SELECT "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."is_active",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."hedgehog_config",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
-  FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.3
@@ -759,6 +811,38 @@
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.30
   '''
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.31
+  '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -780,7 +864,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.31
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.32
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
@@ -1142,6 +1226,29 @@
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.10
   '''
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics"
+  FROM "posthog_featureflag"
+  WHERE ("posthog_featureflag"."active"
+         AND NOT "posthog_featureflag"."deleted"
+         AND "posthog_featureflag"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_flag_with_behavioural_cohorts.11
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1203,7 +1310,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.11
+# name: TestDecide.test_flag_with_behavioural_cohorts.12
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -1215,7 +1322,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.12
+# name: TestDecide.test_flag_with_behavioural_cohorts.13
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1285,7 +1392,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.13
+# name: TestDecide.test_flag_with_behavioural_cohorts.14
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -1294,7 +1401,91 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.14
+# name: TestDecide.test_flag_with_behavioural_cohorts.15
+  '''
+  SELECT "posthog_survey"."id",
+         "posthog_survey"."team_id",
+         "posthog_survey"."name",
+         "posthog_survey"."description",
+         "posthog_survey"."linked_flag_id",
+         "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id",
+         "posthog_survey"."type",
+         "posthog_survey"."conditions",
+         "posthog_survey"."questions",
+         "posthog_survey"."appearance",
+         "posthog_survey"."created_at",
+         "posthog_survey"."created_by_id",
+         "posthog_survey"."start_date",
+         "posthog_survey"."end_date",
+         "posthog_survey"."updated_at",
+         "posthog_survey"."archived",
+         "posthog_survey"."responses_limit",
+         "posthog_survey"."response_sampling_start_date",
+         "posthog_survey"."response_sampling_interval_type",
+         "posthog_survey"."response_sampling_interval",
+         "posthog_survey"."response_sampling_limit",
+         "posthog_survey"."response_sampling_daily_limits",
+         "posthog_survey"."iteration_count",
+         "posthog_survey"."iteration_frequency_days",
+         "posthog_survey"."iteration_start_dates",
+         "posthog_survey"."current_iteration",
+         "posthog_survey"."current_iteration_start_date",
+         "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         T4."id",
+         T4."key",
+         T4."name",
+         T4."filters",
+         T4."rollout_percentage",
+         T4."team_id",
+         T4."created_by_id",
+         T4."created_at",
+         T4."deleted",
+         T4."active",
+         T4."rollback_conditions",
+         T4."performed_rollback",
+         T4."ensure_experience_continuity",
+         T4."usage_dashboard_id",
+         T4."has_enriched_analytics",
+         T5."id",
+         T5."key",
+         T5."name",
+         T5."filters",
+         T5."rollout_percentage",
+         T5."team_id",
+         T5."created_by_id",
+         T5."created_at",
+         T5."deleted",
+         T5."active",
+         T5."rollback_conditions",
+         T5."performed_rollback",
+         T5."ensure_experience_continuity",
+         T5."usage_dashboard_id",
+         T5."has_enriched_analytics"
+  FROM "posthog_survey"
+  LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
+  LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
+  LEFT OUTER JOIN "posthog_featureflag" T5 ON ("posthog_survey"."internal_targeting_flag_id" = T5."id")
+  WHERE ("posthog_survey"."team_id" = 99999
+         AND NOT ("posthog_survey"."archived"))
+  '''
+# ---
+# name: TestDecide.test_flag_with_behavioural_cohorts.16
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -1310,7 +1501,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.15
+# name: TestDecide.test_flag_with_behavioural_cohorts.17
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -1337,47 +1528,6 @@
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
-  '''
-# ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.16
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.17
-  '''
-  SELECT "posthog_group"."id",
-         "posthog_group"."team_id",
-         "posthog_group"."group_key",
-         "posthog_group"."group_type_index",
-         "posthog_group"."group_properties",
-         "posthog_group"."created_at",
-         "posthog_group"."properties_last_updated_at",
-         "posthog_group"."properties_last_operation",
-         "posthog_group"."version"
-  FROM "posthog_group"
-  WHERE "posthog_group"."team_id" = 99999
-  LIMIT 21
   '''
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.18
@@ -1430,6 +1580,47 @@
          "posthog_remoteconfig"."synced_at"
   FROM "posthog_remoteconfig"
   WHERE "posthog_remoteconfig"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestDecide.test_flag_with_behavioural_cohorts.20
+  '''
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_flag_with_behavioural_cohorts.21
+  '''
+  SELECT "posthog_group"."id",
+         "posthog_group"."team_id",
+         "posthog_group"."group_key",
+         "posthog_group"."group_type_index",
+         "posthog_group"."group_properties",
+         "posthog_group"."created_at",
+         "posthog_group"."properties_last_updated_at",
+         "posthog_group"."properties_last_operation",
+         "posthog_group"."version"
+  FROM "posthog_group"
+  WHERE "posthog_group"."team_id" = 99999
   LIMIT 21
   '''
 # ---
@@ -1514,6 +1705,90 @@
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.5
   '''
+  SELECT "posthog_survey"."id",
+         "posthog_survey"."team_id",
+         "posthog_survey"."name",
+         "posthog_survey"."description",
+         "posthog_survey"."linked_flag_id",
+         "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id",
+         "posthog_survey"."type",
+         "posthog_survey"."conditions",
+         "posthog_survey"."questions",
+         "posthog_survey"."appearance",
+         "posthog_survey"."created_at",
+         "posthog_survey"."created_by_id",
+         "posthog_survey"."start_date",
+         "posthog_survey"."end_date",
+         "posthog_survey"."updated_at",
+         "posthog_survey"."archived",
+         "posthog_survey"."responses_limit",
+         "posthog_survey"."response_sampling_start_date",
+         "posthog_survey"."response_sampling_interval_type",
+         "posthog_survey"."response_sampling_interval",
+         "posthog_survey"."response_sampling_limit",
+         "posthog_survey"."response_sampling_daily_limits",
+         "posthog_survey"."iteration_count",
+         "posthog_survey"."iteration_frequency_days",
+         "posthog_survey"."iteration_start_dates",
+         "posthog_survey"."current_iteration",
+         "posthog_survey"."current_iteration_start_date",
+         "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         T4."id",
+         T4."key",
+         T4."name",
+         T4."filters",
+         T4."rollout_percentage",
+         T4."team_id",
+         T4."created_by_id",
+         T4."created_at",
+         T4."deleted",
+         T4."active",
+         T4."rollback_conditions",
+         T4."performed_rollback",
+         T4."ensure_experience_continuity",
+         T4."usage_dashboard_id",
+         T4."has_enriched_analytics",
+         T5."id",
+         T5."key",
+         T5."name",
+         T5."filters",
+         T5."rollout_percentage",
+         T5."team_id",
+         T5."created_by_id",
+         T5."created_at",
+         T5."deleted",
+         T5."active",
+         T5."rollback_conditions",
+         T5."performed_rollback",
+         T5."ensure_experience_continuity",
+         T5."usage_dashboard_id",
+         T5."has_enriched_analytics"
+  FROM "posthog_survey"
+  LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
+  LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
+  LEFT OUTER JOIN "posthog_featureflag" T5 ON ("posthog_survey"."internal_targeting_flag_id" = T5."id")
+  WHERE ("posthog_survey"."team_id" = 99999
+         AND NOT ("posthog_survey"."archived"))
+  '''
+# ---
+# name: TestDecide.test_flag_with_behavioural_cohorts.6
+  '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
          "posthog_pluginconfig"."web_token",
@@ -1528,7 +1803,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.6
+# name: TestDecide.test_flag_with_behavioural_cohorts.7
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -1557,7 +1832,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.7
+# name: TestDecide.test_flag_with_behavioural_cohorts.8
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -1589,7 +1864,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.8
+# name: TestDecide.test_flag_with_behavioural_cohorts.9
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1657,29 +1932,6 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.9
-  '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
-  FROM "posthog_featureflag"
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts
@@ -1838,6 +2090,29 @@
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.10
   '''
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics"
+  FROM "posthog_featureflag"
+  WHERE ("posthog_featureflag"."active"
+         AND NOT "posthog_featureflag"."deleted"
+         AND "posthog_featureflag"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_flag_with_regular_cohorts.11
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1899,7 +2174,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.11
+# name: TestDecide.test_flag_with_regular_cohorts.12
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -1911,7 +2186,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.12
+# name: TestDecide.test_flag_with_regular_cohorts.13
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1981,7 +2256,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.13
+# name: TestDecide.test_flag_with_regular_cohorts.14
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -1990,7 +2265,91 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.14
+# name: TestDecide.test_flag_with_regular_cohorts.15
+  '''
+  SELECT "posthog_survey"."id",
+         "posthog_survey"."team_id",
+         "posthog_survey"."name",
+         "posthog_survey"."description",
+         "posthog_survey"."linked_flag_id",
+         "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id",
+         "posthog_survey"."type",
+         "posthog_survey"."conditions",
+         "posthog_survey"."questions",
+         "posthog_survey"."appearance",
+         "posthog_survey"."created_at",
+         "posthog_survey"."created_by_id",
+         "posthog_survey"."start_date",
+         "posthog_survey"."end_date",
+         "posthog_survey"."updated_at",
+         "posthog_survey"."archived",
+         "posthog_survey"."responses_limit",
+         "posthog_survey"."response_sampling_start_date",
+         "posthog_survey"."response_sampling_interval_type",
+         "posthog_survey"."response_sampling_interval",
+         "posthog_survey"."response_sampling_limit",
+         "posthog_survey"."response_sampling_daily_limits",
+         "posthog_survey"."iteration_count",
+         "posthog_survey"."iteration_frequency_days",
+         "posthog_survey"."iteration_start_dates",
+         "posthog_survey"."current_iteration",
+         "posthog_survey"."current_iteration_start_date",
+         "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         T4."id",
+         T4."key",
+         T4."name",
+         T4."filters",
+         T4."rollout_percentage",
+         T4."team_id",
+         T4."created_by_id",
+         T4."created_at",
+         T4."deleted",
+         T4."active",
+         T4."rollback_conditions",
+         T4."performed_rollback",
+         T4."ensure_experience_continuity",
+         T4."usage_dashboard_id",
+         T4."has_enriched_analytics",
+         T5."id",
+         T5."key",
+         T5."name",
+         T5."filters",
+         T5."rollout_percentage",
+         T5."team_id",
+         T5."created_by_id",
+         T5."created_at",
+         T5."deleted",
+         T5."active",
+         T5."rollback_conditions",
+         T5."performed_rollback",
+         T5."ensure_experience_continuity",
+         T5."usage_dashboard_id",
+         T5."has_enriched_analytics"
+  FROM "posthog_survey"
+  LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
+  LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
+  LEFT OUTER JOIN "posthog_featureflag" T5 ON ("posthog_survey"."internal_targeting_flag_id" = T5."id")
+  WHERE ("posthog_survey"."team_id" = 99999
+         AND NOT ("posthog_survey"."archived"))
+  '''
+# ---
+# name: TestDecide.test_flag_with_regular_cohorts.16
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -2006,7 +2365,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.15
+# name: TestDecide.test_flag_with_regular_cohorts.17
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -2033,43 +2392,6 @@
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
-  '''
-# ---
-# name: TestDecide.test_flag_with_regular_cohorts.16
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_flag_with_regular_cohorts.17
-  '''
-  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
-          AND "posthog_person"."properties" ? '$some_prop_1'
-          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id_1'
-         AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.18
@@ -2104,7 +2426,7 @@
           AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id_1'
          AND "posthog_persondistinctid"."team_id" = 99999
          AND "posthog_person"."team_id" = 99999)
   '''
@@ -2119,6 +2441,43 @@
   FROM "posthog_remoteconfig"
   WHERE "posthog_remoteconfig"."team_id" = 99999
   LIMIT 21
+  '''
+# ---
+# name: TestDecide.test_flag_with_regular_cohorts.20
+  '''
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_flag_with_regular_cohorts.21
+  '''
+  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
+          AND "posthog_person"."properties" ? '$some_prop_1'
+          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
+         AND "posthog_persondistinctid"."team_id" = 99999
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.3
@@ -2202,6 +2561,90 @@
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.5
   '''
+  SELECT "posthog_survey"."id",
+         "posthog_survey"."team_id",
+         "posthog_survey"."name",
+         "posthog_survey"."description",
+         "posthog_survey"."linked_flag_id",
+         "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id",
+         "posthog_survey"."type",
+         "posthog_survey"."conditions",
+         "posthog_survey"."questions",
+         "posthog_survey"."appearance",
+         "posthog_survey"."created_at",
+         "posthog_survey"."created_by_id",
+         "posthog_survey"."start_date",
+         "posthog_survey"."end_date",
+         "posthog_survey"."updated_at",
+         "posthog_survey"."archived",
+         "posthog_survey"."responses_limit",
+         "posthog_survey"."response_sampling_start_date",
+         "posthog_survey"."response_sampling_interval_type",
+         "posthog_survey"."response_sampling_interval",
+         "posthog_survey"."response_sampling_limit",
+         "posthog_survey"."response_sampling_daily_limits",
+         "posthog_survey"."iteration_count",
+         "posthog_survey"."iteration_frequency_days",
+         "posthog_survey"."iteration_start_dates",
+         "posthog_survey"."current_iteration",
+         "posthog_survey"."current_iteration_start_date",
+         "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         T4."id",
+         T4."key",
+         T4."name",
+         T4."filters",
+         T4."rollout_percentage",
+         T4."team_id",
+         T4."created_by_id",
+         T4."created_at",
+         T4."deleted",
+         T4."active",
+         T4."rollback_conditions",
+         T4."performed_rollback",
+         T4."ensure_experience_continuity",
+         T4."usage_dashboard_id",
+         T4."has_enriched_analytics",
+         T5."id",
+         T5."key",
+         T5."name",
+         T5."filters",
+         T5."rollout_percentage",
+         T5."team_id",
+         T5."created_by_id",
+         T5."created_at",
+         T5."deleted",
+         T5."active",
+         T5."rollback_conditions",
+         T5."performed_rollback",
+         T5."ensure_experience_continuity",
+         T5."usage_dashboard_id",
+         T5."has_enriched_analytics"
+  FROM "posthog_survey"
+  LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
+  LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
+  LEFT OUTER JOIN "posthog_featureflag" T5 ON ("posthog_survey"."internal_targeting_flag_id" = T5."id")
+  WHERE ("posthog_survey"."team_id" = 99999
+         AND NOT ("posthog_survey"."archived"))
+  '''
+# ---
+# name: TestDecide.test_flag_with_regular_cohorts.6
+  '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
          "posthog_pluginconfig"."web_token",
@@ -2216,7 +2659,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.6
+# name: TestDecide.test_flag_with_regular_cohorts.7
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -2245,7 +2688,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.7
+# name: TestDecide.test_flag_with_regular_cohorts.8
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -2277,7 +2720,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.8
+# name: TestDecide.test_flag_with_regular_cohorts.9
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -2345,29 +2788,6 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestDecide.test_flag_with_regular_cohorts.9
-  '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
-  FROM "posthog_featureflag"
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_web_app_queries
@@ -2458,6 +2878,22 @@
 # ---
 # name: TestDecide.test_web_app_queries.10
   '''
+  SELECT "posthog_pluginconfig"."id",
+         "posthog_pluginsourcefile"."transpiled",
+         "posthog_pluginconfig"."web_token",
+         "posthog_plugin"."config_schema",
+         "posthog_pluginconfig"."config"
+  FROM "posthog_pluginconfig"
+  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
+  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
+  WHERE ("posthog_pluginconfig"."enabled"
+         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
+         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
+         AND "posthog_pluginconfig"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_web_app_queries.11
+  '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
          "posthog_hogfunction"."name",
@@ -2485,7 +2921,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecide.test_web_app_queries.11
+# name: TestDecide.test_web_app_queries.12
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -2548,7 +2984,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_web_app_queries.12
+# name: TestDecide.test_web_app_queries.13
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -2560,7 +2996,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_web_app_queries.13
+# name: TestDecide.test_web_app_queries.14
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -2630,7 +3066,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_web_app_queries.14
+# name: TestDecide.test_web_app_queries.15
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -2639,7 +3075,91 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_web_app_queries.15
+# name: TestDecide.test_web_app_queries.16
+  '''
+  SELECT "posthog_survey"."id",
+         "posthog_survey"."team_id",
+         "posthog_survey"."name",
+         "posthog_survey"."description",
+         "posthog_survey"."linked_flag_id",
+         "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id",
+         "posthog_survey"."type",
+         "posthog_survey"."conditions",
+         "posthog_survey"."questions",
+         "posthog_survey"."appearance",
+         "posthog_survey"."created_at",
+         "posthog_survey"."created_by_id",
+         "posthog_survey"."start_date",
+         "posthog_survey"."end_date",
+         "posthog_survey"."updated_at",
+         "posthog_survey"."archived",
+         "posthog_survey"."responses_limit",
+         "posthog_survey"."response_sampling_start_date",
+         "posthog_survey"."response_sampling_interval_type",
+         "posthog_survey"."response_sampling_interval",
+         "posthog_survey"."response_sampling_limit",
+         "posthog_survey"."response_sampling_daily_limits",
+         "posthog_survey"."iteration_count",
+         "posthog_survey"."iteration_frequency_days",
+         "posthog_survey"."iteration_start_dates",
+         "posthog_survey"."current_iteration",
+         "posthog_survey"."current_iteration_start_date",
+         "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         T4."id",
+         T4."key",
+         T4."name",
+         T4."filters",
+         T4."rollout_percentage",
+         T4."team_id",
+         T4."created_by_id",
+         T4."created_at",
+         T4."deleted",
+         T4."active",
+         T4."rollback_conditions",
+         T4."performed_rollback",
+         T4."ensure_experience_continuity",
+         T4."usage_dashboard_id",
+         T4."has_enriched_analytics",
+         T5."id",
+         T5."key",
+         T5."name",
+         T5."filters",
+         T5."rollout_percentage",
+         T5."team_id",
+         T5."created_by_id",
+         T5."created_at",
+         T5."deleted",
+         T5."active",
+         T5."rollback_conditions",
+         T5."performed_rollback",
+         T5."ensure_experience_continuity",
+         T5."usage_dashboard_id",
+         T5."has_enriched_analytics"
+  FROM "posthog_survey"
+  LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
+  LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
+  LEFT OUTER JOIN "posthog_featureflag" T5 ON ("posthog_survey"."internal_targeting_flag_id" = T5."id")
+  WHERE ("posthog_survey"."team_id" = 99999
+         AND NOT ("posthog_survey"."archived"))
+  '''
+# ---
+# name: TestDecide.test_web_app_queries.17
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
@@ -2655,7 +3175,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_web_app_queries.16
+# name: TestDecide.test_web_app_queries.18
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -2671,7 +3191,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_web_app_queries.17
+# name: TestDecide.test_web_app_queries.19
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -2700,39 +3220,39 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecide.test_web_app_queries.18
-  '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_web_app_queries.19
-  '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
-  '''
-# ---
 # name: TestDecide.test_web_app_queries.2
+  '''
+  SELECT "posthog_pluginconfig"."id",
+         "posthog_pluginconfig"."web_token",
+         "posthog_pluginsourcefile"."updated_at",
+         "posthog_plugin"."updated_at",
+         "posthog_pluginconfig"."updated_at"
+  FROM "posthog_pluginconfig"
+  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
+  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
+  WHERE ("posthog_pluginconfig"."enabled"
+         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
+         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
+         AND "posthog_pluginconfig"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_web_app_queries.20
+  '''
+  SELECT "posthog_pluginconfig"."id",
+         "posthog_pluginconfig"."web_token",
+         "posthog_pluginsourcefile"."updated_at",
+         "posthog_plugin"."updated_at",
+         "posthog_pluginconfig"."updated_at"
+  FROM "posthog_pluginconfig"
+  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
+  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
+  WHERE ("posthog_pluginconfig"."enabled"
+         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
+         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
+         AND "posthog_pluginconfig"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_web_app_queries.21
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
@@ -2995,27 +3515,95 @@
 # ---
 # name: TestDecide.test_web_app_queries.8
   '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
+  SELECT "posthog_survey"."id",
+         "posthog_survey"."team_id",
+         "posthog_survey"."name",
+         "posthog_survey"."description",
+         "posthog_survey"."linked_flag_id",
+         "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id",
+         "posthog_survey"."type",
+         "posthog_survey"."conditions",
+         "posthog_survey"."questions",
+         "posthog_survey"."appearance",
+         "posthog_survey"."created_at",
+         "posthog_survey"."created_by_id",
+         "posthog_survey"."start_date",
+         "posthog_survey"."end_date",
+         "posthog_survey"."updated_at",
+         "posthog_survey"."archived",
+         "posthog_survey"."responses_limit",
+         "posthog_survey"."response_sampling_start_date",
+         "posthog_survey"."response_sampling_interval_type",
+         "posthog_survey"."response_sampling_interval",
+         "posthog_survey"."response_sampling_limit",
+         "posthog_survey"."response_sampling_daily_limits",
+         "posthog_survey"."iteration_count",
+         "posthog_survey"."iteration_frequency_days",
+         "posthog_survey"."iteration_start_dates",
+         "posthog_survey"."current_iteration",
+         "posthog_survey"."current_iteration_start_date",
+         "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         T4."id",
+         T4."key",
+         T4."name",
+         T4."filters",
+         T4."rollout_percentage",
+         T4."team_id",
+         T4."created_by_id",
+         T4."created_at",
+         T4."deleted",
+         T4."active",
+         T4."rollback_conditions",
+         T4."performed_rollback",
+         T4."ensure_experience_continuity",
+         T4."usage_dashboard_id",
+         T4."has_enriched_analytics",
+         T5."id",
+         T5."key",
+         T5."name",
+         T5."filters",
+         T5."rollout_percentage",
+         T5."team_id",
+         T5."created_by_id",
+         T5."created_at",
+         T5."deleted",
+         T5."active",
+         T5."rollback_conditions",
+         T5."performed_rollback",
+         T5."ensure_experience_continuity",
+         T5."usage_dashboard_id",
+         T5."has_enriched_analytics"
+  FROM "posthog_survey"
+  LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
+  LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
+  LEFT OUTER JOIN "posthog_featureflag" T5 ON ("posthog_survey"."internal_targeting_flag_id" = T5."id")
+  WHERE ("posthog_survey"."team_id" = 99999
+         AND NOT ("posthog_survey"."archived"))
   '''
 # ---
 # name: TestDecide.test_web_app_queries.9
   '''
   SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginsourcefile"."transpiled",
          "posthog_pluginconfig"."web_token",
-         "posthog_plugin"."config_schema",
-         "posthog_pluginconfig"."config"
+         "posthog_pluginsourcefile"."updated_at",
+         "posthog_plugin"."updated_at",
+         "posthog_pluginconfig"."updated_at"
   FROM "posthog_pluginconfig"
   INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
   INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")

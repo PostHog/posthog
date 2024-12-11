@@ -36,11 +36,10 @@ export function OutputPane(): JSX.Element {
     const { setActiveTab } = useActions(outputPaneLogic)
     const { variablesForInsight } = useValues(variablesLogic)
 
-    const { editingView, sourceQuery, exportContext, isValidView } = useValues(multitabEditorLogic)
-    const { saveAsInsight, saveAsView, setSourceQuery } = useActions(multitabEditorLogic)
+    const { editingView, sourceQuery, exportContext, isValidView, error } = useValues(multitabEditorLogic)
+    const { saveAsInsight, saveAsView, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading } = useValues(dataNodeLogic)
-    const { loadData } = useActions(dataNodeLogic)
     const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { visualizationType } = useValues(dataVisualizationLogic)
@@ -178,7 +177,12 @@ export function OutputPane(): JSX.Element {
                             Save as view
                         </LemonButton>
                     )}
-                    <LemonButton loading={responseLoading} type="primary" onClick={() => loadData(true)}>
+                    <LemonButton
+                        disabledReason={error ? error : ''}
+                        loading={responseLoading}
+                        type="primary"
+                        onClick={() => runQuery()}
+                    >
                         <span className="mr-1">Run</span>
                         <KeyboardShortcut command enter />
                     </LemonButton>

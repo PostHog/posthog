@@ -294,14 +294,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             return wrapper
         # Just complex series aggregation
-        elif (
-            self._aggregation_operation.requires_query_orchestration()
-            and self._aggregation_operation.is_first_time_ever_math()
+        elif self._aggregation_operation.requires_query_orchestration() and (
+            self._aggregation_operation.is_first_time_ever_math()
+            or self._aggregation_operation.is_first_matching_event()
         ):
             return self._aggregation_operation.get_first_time_math_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
                 event_name_filter=self._event_or_action_where_expr(),
+                is_first_matching_event=self._aggregation_operation.is_first_matching_event(),
             ).build()
         elif self._aggregation_operation.requires_query_orchestration():
             return self._aggregation_operation.get_actors_query_orchestrator(
