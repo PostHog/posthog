@@ -1,6 +1,6 @@
 import os
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Any, cast
 from urllib.parse import urlparse
 
@@ -319,6 +319,16 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     code="invalid",
                 )
 
+        response_sampling_start_date = data.get("response_sampling_start_date")
+        if response_sampling_start_date is not None:
+            today_utc = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+            if response_sampling_start_date < today_utc:
+                raise serializers.ValidationError(
+                    {
+                        "response_sampling_start_date": "Response sampling start date must be today or a future date in UTC."
+                    }
+                )
+
         response_sampling_interval = data.get("response_sampling_interval")
         if response_sampling_interval is not None and response_sampling_interval <= 0:
             raise serializers.ValidationError(
@@ -326,7 +336,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             )
 
         response_sampling_limit = data.get("response_sampling_limit", 0)
-        response_sampling_start_date = data.get("response_sampling_start_date")
         if (
             response_sampling_limit is not None
             and response_sampling_limit > 0
@@ -680,13 +689,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         earliest_survey_start_date = Survey.objects.filter(team__project_id=self.project_id).aggregate(
             Min("start_date")
         )["start_date__min"]
-
         data = sync_execute(
             f"""
             SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
             FROM events
             WHERE event = 'survey sent' AND team_id = %(team_id)s AND timestamp >= %(timestamp)s
-            GROUP BY survey_id, JSONExtractString(properties, '$survey_response_id')
+            GROUP BY survey_id
         """,
             {"team_id": self.team_id, "timestamp": earliest_survey_start_date},
         )
