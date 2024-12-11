@@ -2,8 +2,7 @@ from typing import Any, cast
 
 from django.http import StreamingHttpResponse
 from pydantic import ValidationError
-from rest_framework import mixins, serializers
-from rest_framework.decorators import action
+from rest_framework import serializers
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.viewsets import GenericViewSet
@@ -41,9 +40,10 @@ class ServerSentEventRenderer(BaseRenderer):
         return data
 
 
-class ConversationViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, GenericViewSet):
+class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "conversation"
     serializer_class = ConversationSerializer
+    renderer_classes = [ServerSentEventRenderer]
 
     def safely_get_queryset(self, queryset):
         # Only allow access to conversations created by the current user
@@ -52,13 +52,12 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, Gener
     def get_throttles(self):
         return [AIBurstRateThrottle(), AISustainedRateThrottle()]
 
-    @action(detail=False, methods=["POST"], renderer_classes=[ServerSentEventRenderer])
     def create(self, request: Request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         conversation = None
-        if data["id"]:
+        if data.get("id"):
             conversation = self.get_object()
             created = False
         if not conversation:

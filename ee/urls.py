@@ -95,6 +95,10 @@ def extend_api_router() -> None:
         ["project_id"],
     )
 
+    register_grandfathered_environment_nested_viewset(
+        r"conversations", conversation.ConversationViewSet, "environment_conversations", ["team_id"]
+    )
+
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
 admin_urlpatterns = (

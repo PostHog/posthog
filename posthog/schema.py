@@ -135,6 +135,11 @@ class AssistantFunnelsExclusionEventsNode(BaseModel):
     kind: Literal["EventsNode"] = "EventsNode"
 
 
+class AssistantGenerationStatusType(StrEnum):
+    ACK = "ack"
+    GENERATION_ERROR = "generation_error"
+
+
 class AssistantGenericMultipleBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1860,7 +1865,7 @@ class AssistantGenerationStatusEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    type: Literal["generation_error"] = "generation_error"
+    type: AssistantGenerationStatusType
 
 
 class AssistantGenericPropertyFilter1(BaseModel):

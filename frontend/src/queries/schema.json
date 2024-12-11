@@ -796,7 +796,7 @@
             "type": "object"
         },
         "AssistantGenerationStatusType": {
-            "const": "generation_error",
+            "enum": ["ack", "generation_error"],
             "type": "string"
         },
         "AssistantGenericMultipleBreakdownFilter": {

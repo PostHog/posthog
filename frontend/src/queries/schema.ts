@@ -2539,6 +2539,7 @@ export enum AssistantEventType {
 }
 
 export enum AssistantGenerationStatusType {
+    Acknowledged = 'ack',
     GenerationError = 'generation_error',
 }
 
