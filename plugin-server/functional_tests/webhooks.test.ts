@@ -1,4 +1,4 @@
-import { createServer } from 'http'
+import { createServer } from 'node:http'
 import { DateTime } from 'luxon'
 
 import { UUIDT } from '../src/utils/utils'

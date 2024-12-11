@@ -5,6 +5,7 @@ import Redis, { RedisOptions } from 'ioredis'
 import { PluginsServerConfig, RedisPool } from '../../types'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
+import process from "node:process";
 
 /** Number of Redis error events until the server is killed gracefully. */
 const REDIS_ERROR_COUNTER_LIMIT = 10

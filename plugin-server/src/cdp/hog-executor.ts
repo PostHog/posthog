@@ -1,6 +1,6 @@
 import { calculateCost, convertHogToJS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
-import crypto from 'crypto'
 import { DateTime } from 'luxon'
+import crypto from 'node:crypto'
 import { Histogram } from 'prom-client'
 import RE2 from 're2'
 

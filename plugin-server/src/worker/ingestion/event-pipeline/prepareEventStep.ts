@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { PreIngestionEvent } from 'types'
 
+import { PreIngestionEvent } from '../../../types'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
 import { invalidTimestampCounter } from './metrics'

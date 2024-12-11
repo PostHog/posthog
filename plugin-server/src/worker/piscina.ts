@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/node'
-import { Hub, PluginsServerConfig } from 'types'
 
+import { Hub, PluginsServerConfig } from '../types'
 import { createWorker } from './worker'
 
 export const makePiscina = async (serverConfig: PluginsServerConfig, hub: Hub) => {

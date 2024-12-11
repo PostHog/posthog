@@ -1,5 +1,5 @@
 import { captureException } from '@sentry/node'
-import { randomUUID } from 'crypto'
+import { randomUUID } from 'node:crypto'
 import { Redis } from 'ioredis'
 import { EventEmitter } from 'node:events'
 

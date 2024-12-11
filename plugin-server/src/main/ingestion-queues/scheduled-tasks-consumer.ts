@@ -1,9 +1,9 @@
 import { Batch, EachBatchHandler, Kafka } from 'kafkajs'
-import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_SCHEDULED_TASKS, KAFKA_SCHEDULED_TASKS_DLQ } from '../../config/kafka-topics'
 import { PluginServerService, PluginsServerConfig } from '../../types'
 import { DependencyUnavailableError } from '../../utils/db/error'
+import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
 import { instrumentEachBatchKafkaJS, setupEventHandlers } from './kafka-queue'

@@ -3,6 +3,7 @@ import { now } from '../utils/now'
 import { UUIDT } from '../utils/utils'
 import { CdpRedis } from './redis'
 import { HogFunctionInvocationResult, HogFunctionType } from './types'
+import process from "node:process";
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher' : '@posthog/hog-watcher'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`

@@ -2,8 +2,9 @@ import { JobHelpers, TaskList } from 'graphile-worker'
 
 import { EnqueuedJob } from '../../../types'
 import Timeout = NodeJS.Timeout
-import * as fs from 'fs'
-import * as path from 'path'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import process from 'node:process'
 
 interface FsJob {
     jobName: string

@@ -5,6 +5,7 @@ import { ConsoleLogsIngester } from '../../../../../src/main/ingestion-queues/se
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
 import { status } from '../../../../../src/utils/status'
+import { Buffer } from "node:buffer";
 
 jest.mock('../../../../../src/utils/status')
 jest.mock('../../../../../src/kafka/producer')

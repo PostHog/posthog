@@ -18,7 +18,7 @@ jest.mock('graphile-worker', () => {
 
 const mockHub: Hub = {
     instanceId: new UUID('F8B2F832-6639-4596-ABFC-F9664BC88E84'),
-    JOB_QUEUES: 'fs',
+    JOB_QUEUES: 'node:fs',
 } as Hub
 
 describe('graphileWorker', () => {

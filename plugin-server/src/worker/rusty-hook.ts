@@ -9,6 +9,7 @@ import { raiseIfUserProvidedUrlUnsafe } from '../utils/fetch'
 import { status } from '../utils/status'
 import { sleep } from '../utils/utils'
 import { pluginActionMsSummary } from './metrics'
+import process from 'node:process'
 
 const RUSTY_HOOK_BASE_DELAY_MS = 100
 const MAX_RUSTY_HOOK_DELAY_MS = 30_000

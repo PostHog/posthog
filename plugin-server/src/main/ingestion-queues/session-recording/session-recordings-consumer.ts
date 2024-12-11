@@ -1,5 +1,5 @@
 import { captureException } from '@sentry/node'
-import crypto from 'crypto'
+import crypto from 'node:crypto'
 import { Redis } from 'ioredis'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'

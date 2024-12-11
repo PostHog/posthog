@@ -31,6 +31,7 @@ import { upsertGroup } from './properties-updater'
 import { GroupAndFirstEventManager } from './property-definitions-manager'
 import { TeamManager } from './team-manager'
 import { captureIngestionWarning } from './utils'
+import { Buffer } from 'node:buffer'
 
 const processEventMsSummary = new Summary({
     name: 'process_event_ms',

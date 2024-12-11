@@ -1,5 +1,6 @@
 import { ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
 import { WebhookFormatter, WebhookFormatterOptions } from '../../../src/worker/ingestion/webhook-formatter'
+import process from "node:process";
 
 type TestWebhookFormatterOptions = Partial<WebhookFormatterOptions> & {
     personProperties?: PostIngestionEvent['person_properties']

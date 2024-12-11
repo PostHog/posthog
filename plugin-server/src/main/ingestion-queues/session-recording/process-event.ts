@@ -5,6 +5,7 @@ import { ClickHouseTimestamp, RRWebEvent, TimestampFormat } from '../../../types
 import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { activeMilliseconds } from './snapshot-segmenter'
+import { Buffer } from "node:buffer";
 
 function sanitizeForUTF8(input: string): string {
     // the JS console truncates some logs...

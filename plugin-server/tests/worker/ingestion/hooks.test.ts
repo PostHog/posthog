@@ -5,6 +5,7 @@ import { Action, ISOTimestamp, PostIngestionEvent, Team } from '../../../src/typ
 import { AppMetrics } from '../../../src/worker/ingestion/app-metrics'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
 import { Hook } from './../../../src/types'
+import process from "node:process";
 
 describe('hooks', () => {
     const team = { id: 123, person_display_name_properties: null } as Team

@@ -1,8 +1,8 @@
 import { ReaderModel } from '@maxmind/geoip2-node'
-import { readFileSync } from 'fs'
+import { readFileSync } from 'node:fs'
 import { DateTime } from 'luxon'
 import fetch from 'node-fetch'
-import { join } from 'path'
+import { join } from 'node:path'
 
 import { Hub, LogLevel } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'

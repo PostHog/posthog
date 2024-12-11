@@ -22,6 +22,7 @@ import { RawAppMetric } from '../src/worker/ingestion/app-metrics'
 import { insertRow } from '../tests/helpers/sql'
 import { waitForExpect } from './expectations'
 import { produce } from './kafka'
+import { Buffer } from "node:buffer";
 
 let clickHouseClient: ClickHouse
 export let postgres: PostgresRouter

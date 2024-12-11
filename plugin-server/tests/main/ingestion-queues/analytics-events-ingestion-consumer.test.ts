@@ -11,6 +11,7 @@ import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { ConfiguredLimiter } from '../../../src/utils/token-bucket'
 import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
+import { Buffer } from "node:buffer";
 
 jest.mock('../../../src/utils/status')
 jest.mock('./../../../src/worker/ingestion/utils')

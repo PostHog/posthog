@@ -1,6 +1,7 @@
 import fetch, { Headers, Response } from 'node-fetch'
 
 import { Hub, PluginConfig } from '../../../types'
+import process from "node:process";
 
 const DEFAULT_API_HOST = 'https://app.posthog.com'
 

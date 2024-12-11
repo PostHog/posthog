@@ -4,6 +4,7 @@ import { HighLevelProducer } from 'node-rdkafka'
 
 import { defaultConfig } from '../src/config/config'
 import { produce as defaultProduce } from '../src/kafka/producer'
+import { Buffer } from "node:buffer";
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 

@@ -1,3 +1,4 @@
+import process from "node:process";
 export function killProcess(): void {
     // In tests, only call SIGTERM once to avoid leaky tests.
     // In production, kill two more times if the first one fails.

@@ -57,6 +57,8 @@ import {
     serializeHogFunctionInvocation,
     unGzipObject,
 } from './utils'
+import process from "node:process";
+import { Buffer } from "node:buffer";
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')

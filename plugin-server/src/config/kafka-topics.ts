@@ -1,6 +1,7 @@
 // Keep this in sync with posthog/kafka_client/topics.py
 
 import { isTestEnv } from '../utils/env-utils'
+import process from "node:process";
 
 export const suffix = isTestEnv() ? '_test' : ''
 export const prefix = process.env.KAFKA_PREFIX || ''

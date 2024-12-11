@@ -4,6 +4,7 @@ import { Hub } from '../../../types'
 import { loopTimeout } from './loop-timeout'
 import { promiseTimeout } from './promise-timeout'
 import { replaceImports } from './replace-imports'
+import process from "node:process";
 
 const memoize: Record<string, string> = {}
 

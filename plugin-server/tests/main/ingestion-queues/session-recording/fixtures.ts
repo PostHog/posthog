@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'
 import jsonFullSnapshot from './data/snapshot-full.json'
+import { Buffer } from "node:buffer";
 
 export function createIncomingRecordingMessage(
     partialIncomingMessage: Partial<IncomingRecordingMessage> = {},

@@ -1,4 +1,4 @@
-import { createServer, Server } from 'http'
+import { createServer, Server } from 'node:http'
 
 import { UUIDT } from '../src/utils/utils'
 import { capture, createAndReloadPluginConfig, createOrganization, createPlugin, createTeam } from './api'

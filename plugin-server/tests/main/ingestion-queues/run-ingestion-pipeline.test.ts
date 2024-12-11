@@ -9,6 +9,7 @@ import { UUIDT } from '../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../../src/worker/ingestion/process-event'
 import { createOrganization, createTeam, POSTGRES_DELETE_TABLES_QUERY } from '../../helpers/sql'
+import process from "node:process";
 
 describe('workerTasks.runEventPipeline()', () => {
     let hub: Hub

@@ -8,6 +8,7 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
     KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
 } from './kafka-topics'
+import process from "node:process";
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
 

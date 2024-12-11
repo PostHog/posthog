@@ -1,6 +1,6 @@
 import { Upload } from '@aws-sdk/lib-storage'
-import { createReadStream, createWriteStream } from 'fs'
 import { DateTime, Settings } from 'luxon'
+import { createReadStream, createWriteStream } from 'node:fs'
 
 import { defaultConfig } from '../../../../../src/config/config'
 import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/services/session-manager'
@@ -15,18 +15,18 @@ class MockStream {
     once = jest.fn((val, cb) => cb?.())
 }
 
-jest.mock('fs', () => {
+jest.mock('node:fs', () => {
     return {
-        ...jest.requireActual('fs'),
+        ...jest.requireActual('node:fs'),
         writeFileSync: jest.fn(),
         createReadStream: jest.fn(() => new MockStream()),
         createWriteStream: jest.fn(() => new MockStream()),
     }
 })
 
-jest.mock('stream/promises', () => {
+jest.mock('node:stream/promises', () => {
     return {
-        ...jest.requireActual('stream/promises'),
+        ...jest.requireActual('node:stream/promises'),
         pipeline: jest.fn(
             () =>
                 new Promise<void>((_res) => {
@@ -36,9 +36,9 @@ jest.mock('stream/promises', () => {
     }
 })
 
-jest.mock('stream', () => {
+jest.mock('node:stream', () => {
     return {
-        ...jest.requireActual('stream'),
+        ...jest.requireActual('node:stream'),
         PassThrough: jest.fn(() => new MockStream()),
     }
 })
@@ -57,9 +57,9 @@ jest.mock('@aws-sdk/lib-storage', () => {
     }
 })
 
-jest.mock('fs/promises', () => {
+jest.mock('node:fs/promises', () => {
     return {
-        ...jest.requireActual('fs/promises'),
+        ...jest.requireActual('node:fs/promises'),
         unlink: jest.fn().mockResolvedValue(undefined),
     }
 })

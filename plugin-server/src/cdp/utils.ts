@@ -5,7 +5,7 @@ import { Bytecodes } from '@posthog/hogvm'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
-import { gunzip, gzip } from 'zlib'
+import { gunzip, gzip } from 'node:zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
@@ -22,6 +22,7 @@ import {
     HogFunctionLogEntrySerialized,
     HogFunctionType,
 } from './types'
+import { Buffer } from 'node:buffer'
 
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',

@@ -11,6 +11,7 @@ import { eventDroppedCounter } from '../../metrics'
 import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
+import { Buffer } from "node:buffer";
 
 const HIGH_WATERMARK_KEY = 'session_replay_console_logs_events_ingester'
 

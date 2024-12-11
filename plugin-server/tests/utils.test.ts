@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto'
+import { randomBytes } from 'node:crypto'
 import { DateTime } from 'luxon'
 
 import { ClickHouseTimestamp } from '../src/types'
@@ -15,6 +15,7 @@ import {
     UUID,
     UUIDT,
 } from '../src/utils/utils'
+import { Buffer } from 'node:buffer'
 
 // .zip in Base64: github repo posthog/helloworldplugin
 const zip =

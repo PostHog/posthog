@@ -16,6 +16,7 @@ import {
 } from '../../src/config/kafka-topics'
 import { PluginsServerConfig } from '../../src/types'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../src/config/kafka-topics'
+import process from "node:process";
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 

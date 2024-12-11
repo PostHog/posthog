@@ -1,8 +1,9 @@
 import { GlobalConfig } from 'node-rdkafka'
-import { hostname } from 'os'
+import { hostname } from 'node:os'
 
 import { KafkaConfig } from '../utils/db/hub'
 import { KafkaProducerConfig } from './producer'
+import { Buffer } from 'node:buffer'
 
 export const RDKAFKA_LOG_LEVEL_MAPPING = {
     NOTHING: 0,

@@ -1,5 +1,5 @@
 import { RetryError } from '@posthog/plugin-scaffold'
-import { randomBytes } from 'crypto'
+import { randomBytes } from 'node:crypto'
 import { Summary } from 'prom-client'
 import { VM } from 'vm2'
 
@@ -13,6 +13,7 @@ import { createStorage } from './extensions/storage'
 import { createUtils } from './extensions/utilities'
 import { AVAILABLE_IMPORTS } from './imports'
 import { transformCode } from './transforms'
+import process from 'node:process'
 
 export class TimeoutError extends RetryError {
     name = 'TimeoutError'
@@ -69,7 +70,7 @@ export function createPluginConfigVM(
     vm.freeze(RetryError, 'RetryError')
 
     // Bring some useful globals into scope
-    vm.freeze(URL, 'URL')
+    vm.freeze(URL, 'node:url')
 
     // Creating this outside the vm (so not in a babel plugin for example)
     // because `setTimeout` is not available inside the vm... and we don't want to

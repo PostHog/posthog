@@ -125,7 +125,7 @@ diff --git a/e2e/consumer.spec.js b/e2e/consumer.spec.js
 index a167483f1e0ea15c4edcb368e36640b4349574e8..38fcfd7464afb7df682b7b5f1fdb228b8d280a25 100644
 --- a/e2e/consumer.spec.js
 +++ b/e2e/consumer.spec.js
-@@ -11,10 +11,12 @@ var crypto = require('crypto');
+@@ -11,10 +11,12 @@ var crypto = require('node:crypto');
  
  var eventListener = require('./listener');
  

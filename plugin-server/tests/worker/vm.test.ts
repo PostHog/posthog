@@ -10,6 +10,7 @@ import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { plugin60 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
+import { Buffer } from 'node:buffer'
 
 jest.mock('../../src/utils/status')
 jest.mock('../../src/utils/db/kafka-producer-wrapper')
@@ -1055,15 +1056,15 @@ describe('vm tests', () => {
 
     test('imports', async () => {
         const indexJs = `
-            const urlImport = require('url');
+            const urlImport = require('node:url');
             async function processEvent (event, meta) {
                 event.properties = {
                     imports: {
                         // Injected because it was imported
-                        url: 'URL' in urlImport,
+                        url: 'node:url' in urlImport,
 
                         // Available via plugin host imports because it was imported
-                        urlViaPluginHostImports: 'URL' in __pluginHostImports.url,
+                        urlViaPluginHostImports: 'node:url' in __pluginHostImports.url,
 
                         // Not in plugin host imports because it was not imported
                         cryptoUndefined: __pluginHostImports.crypto === undefined,

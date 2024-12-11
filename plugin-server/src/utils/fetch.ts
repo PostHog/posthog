@@ -1,16 +1,17 @@
 // This module wraps node-fetch with a sentry tracing-aware extension
 
-import { LookupAddress } from 'dns'
-import dns from 'dns/promises'
-import http from 'http'
-import https from 'https'
+import { LookupAddress } from 'node:dns'
+import dns from 'node:dns/promises'
+import http from 'node:http'
+import https from 'node:https'
 import * as ipaddr from 'ipaddr.js'
 import net from 'node:net'
 import fetch, { type RequestInfo, type RequestInit, type Response, FetchError, Request } from 'node-fetch'
-import { URL } from 'url'
+import { URL } from 'node:url'
 
 import { runInSpan } from '../sentry'
 import { isProdEnv } from './env-utils'
+import process from 'node:process'
 
 const staticLookup: net.LookupFunction = async (hostname, options, cb) => {
     let addrinfo: LookupAddress[]

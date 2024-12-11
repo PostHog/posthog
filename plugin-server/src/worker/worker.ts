@@ -10,6 +10,7 @@ import { setupMmdb } from './plugins/mmdb'
 import { setupPlugins } from './plugins/setup'
 import { workerTasks } from './tasks'
 import { TimeoutError } from './vm/vm'
+import process from "node:process";
 
 export type PiscinaTaskWorker = ({ task, args }: { task: string; args: any }) => Promise<any>
 

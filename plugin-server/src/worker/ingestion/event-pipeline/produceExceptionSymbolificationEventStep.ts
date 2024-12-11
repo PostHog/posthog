@@ -1,6 +1,7 @@
 import { RawKafkaEvent } from '../../../types'
 import { status } from '../../../utils/status'
 import { EventPipelineRunner } from './runner'
+import { Buffer } from "node:buffer";
 
 export function produceExceptionSymbolificationEventStep(
     runner: EventPipelineRunner,

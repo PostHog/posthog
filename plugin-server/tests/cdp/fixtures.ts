@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { randomUUID } from 'node:crypto'
 import { Message } from 'node-rdkafka'
 
 import {
@@ -11,6 +11,7 @@ import { ClickHouseTimestamp, RawClickHouseEvent, Team } from '../../src/types'
 import { PostgresRouter } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
 import { insertRow } from '../helpers/sql'
+import { Buffer } from 'node:buffer'
 
 export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
     const item: HogFunctionType = {

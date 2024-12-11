@@ -5,6 +5,7 @@ import { Counter } from 'prom-client'
 import { disconnectProducer, flushProducer, MessageKey, produce } from '../../kafka/producer'
 import { status } from '../../utils/status'
 import { DependencyUnavailableError, MessageSizeTooLarge } from './error'
+import { Buffer } from "node:buffer";
 
 /** This class is a wrapper around the rdkafka producer, and does very little.
  * It used to be a wrapper around KafkaJS, but we switched to rdkafka because of

@@ -5,6 +5,7 @@ import { instrumentQuery } from '../metrics'
 import { UUIDT } from '../utils'
 import { createRedisPool } from './redis'
 import { timeoutGuard } from './utils'
+import { Buffer } from 'node:buffer'
 
 const CELERY_DEFAULT_QUEUE = 'celery'
 

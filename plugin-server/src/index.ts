@@ -6,6 +6,7 @@ import { startPluginsServer } from './main/pluginsServer'
 import { Hub } from './types'
 import { Status } from './utils/status'
 import { makePiscina } from './worker/piscina'
+import process from "node:process";
 
 const { version } = require('../package.json')
 const { argv } = process

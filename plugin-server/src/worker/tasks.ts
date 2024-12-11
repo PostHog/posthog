@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { EnqueuedPluginJob, Hub, PluginTaskType } from '../types'
 import { retryIfRetriable } from '../utils/retries'

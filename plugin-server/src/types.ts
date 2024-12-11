@@ -13,12 +13,13 @@ import {
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
-import { BatchConsumer } from 'kafka/batch-consumer'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { Buffer } from 'node:buffer'
 import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import { BatchConsumer } from './kafka/batch-consumer'
 import { ObjectStorage } from './main/services/object_storage'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
@@ -36,7 +37,9 @@ import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-man
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { PluginInstance } from './worker/vm/lazy'
 
-export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
+// export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
+
+export type Element = any
 
 type Brand<K, T> = K & { __brand: T }
 

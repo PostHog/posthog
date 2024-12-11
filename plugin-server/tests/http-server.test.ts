@@ -1,4 +1,4 @@
-import http from 'http'
+import http from 'node:http'
 
 import { DEFAULT_HTTP_SERVER_PORT } from '../src/config/config'
 import { startPluginsServer } from '../src/main/pluginsServer'

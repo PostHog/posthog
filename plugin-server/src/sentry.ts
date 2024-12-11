@@ -1,4 +1,4 @@
-const fs = require('fs')
+const fs = require('node:fs')
 
 import * as Sentry from '@sentry/node'
 import { ProfilingIntegration } from '@sentry/profiling-node'

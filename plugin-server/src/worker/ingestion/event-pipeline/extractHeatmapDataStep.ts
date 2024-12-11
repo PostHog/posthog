@@ -1,4 +1,4 @@
-import { URL } from 'url'
+import { URL } from 'node:url'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
@@ -7,6 +7,7 @@ import { castTimestampOrNow } from '../../../utils/utils'
 import { isDistinctIdIllegal } from '../person-state'
 import { captureIngestionWarning } from '../utils'
 import { EventPipelineRunner } from './runner'
+import { Buffer } from 'node:buffer'
 
 // This represents the scale factor for the heatmap data. Essentially how much we are reducing the resolution by.
 const SCALE_FACTOR = 16

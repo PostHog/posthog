@@ -1,6 +1,7 @@
 import { PostHog } from 'posthog-node'
 
 import { Team } from '../types'
+import process from "node:process";
 
 export const posthog = new PostHog('sTMFPsFhdP1Ssg', {
     host: 'https://us.i.posthog.com',

@@ -1,5 +1,5 @@
 import { Webhook } from '@posthog/plugin-scaffold'
-import { format } from 'util'
+import { format } from 'node:util'
 
 import { PostIngestionEvent, Team } from '../../types'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'

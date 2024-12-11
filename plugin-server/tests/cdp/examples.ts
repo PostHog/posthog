@@ -38,7 +38,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
             42,
             3,
             32,
-            'url',
+            'node:url',
             32,
             'inputs',
             1,
@@ -98,7 +98,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
             42,
             3,
             32,
-            'url',
+            'node:url',
             32,
             'inputs',
             1,
@@ -346,7 +346,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
 export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' | 'inputs_schema'>> = {
     simple_fetch: {
         inputs_schema: [
-            { key: 'url', type: 'string', label: 'Webhook URL', secret: false, required: true },
+            { key: 'node:url', type: 'string', label: 'Webhook URL', secret: false, required: true },
             { key: 'body', type: 'json', label: 'JSON body', secret: false, required: true },
             {
                 key: 'method',
@@ -386,9 +386,9 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
                 bytecode: {
                     event: ['_h', 32, 'event', 1, 1],
                     groups: ['_h', 32, 'groups', 1, 1],
-                    nested: { foo: ['_h', 32, 'url', 32, 'event', 1, 2] },
+                    nested: { foo: ['_h', 32, 'node:url', 32, 'event', 1, 2] },
                     person: ['_h', 32, 'person', 1, 1],
-                    event_url: ['_h', 32, '-test', 32, 'url', 32, 'event', 1, 2, 2, 'concat', 2],
+                    event_url: ['_h', 32, '-test', 32, 'node:url', 32, 'event', 1, 2, 2, 'concat', 2],
                 },
             },
         },

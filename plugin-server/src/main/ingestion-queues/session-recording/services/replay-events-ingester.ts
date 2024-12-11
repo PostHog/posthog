@@ -1,5 +1,5 @@
 import { captureException } from '@sentry/node'
-import { randomUUID } from 'crypto'
+import { randomUUID } from 'node:crypto'
 import { DateTime } from 'luxon'
 import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
@@ -15,6 +15,7 @@ import { eventDroppedCounter } from '../../metrics'
 import { createSessionReplayEvent } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
+import { Buffer } from 'node:buffer'
 
 const HIGH_WATERMARK_KEY = 'session_replay_events_ingester'
 

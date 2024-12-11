@@ -20,6 +20,7 @@ import {
 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setPluginCapabilities } from '../helpers/sqlMock'
+import { Buffer } from 'node:buffer'
 
 jest.mock('../../src/utils/db/sql')
 jest.mock('../../src/utils/status')

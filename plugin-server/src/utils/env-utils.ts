@@ -1,3 +1,4 @@
+import process from "node:process";
 export enum NodeEnv {
     Development = 'dev',
     Production = 'prod',

@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 
 import { ClickHouseTimestamp, RawKafkaEvent } from '../../src/types'
 import { formPipelineEvent, normalizeEvent, parseRawClickHouseEvent } from '../../src/utils/event'
+import { Buffer } from "node:buffer";
 
 describe('normalizeEvent()', () => {
     describe('distinctId', () => {

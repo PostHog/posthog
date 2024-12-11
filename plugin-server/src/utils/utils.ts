@@ -1,9 +1,10 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { randomBytes } from 'crypto'
+import { randomBytes } from 'node:crypto'
 import { DateTime } from 'luxon'
-import { Pool } from 'pg'
-import { Readable } from 'stream'
+import * as pg from 'pg'
+const { Pool } = pg
+import { Readable } from 'node:stream'
 
 import {
     ClickHouseTimestamp,
@@ -15,6 +16,8 @@ import {
     TimestampFormat,
 } from '../types'
 import { status } from './status'
+import process from 'node:process'
+import { Buffer } from 'node:buffer'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
 const GRACEFUL_EXIT_PERIOD_SECONDS = 5
@@ -588,14 +591,14 @@ export const KNOWN_LIB_VALUES = new Set([
     'serverless',
     'wordpress',
     'hog_function',
-    'http',
+    'node:http',
     'desktop',
     'elixir',
     'DEV',
     'RudderAnalytics.NET',
     'PR',
     'railway',
-    'HTTP',
+    'node:http',
     'extension',
     'cyclotron-testing',
     'RudderStack Shopify Cloud',

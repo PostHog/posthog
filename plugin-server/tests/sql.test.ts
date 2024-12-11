@@ -4,6 +4,7 @@ import { PostgresUse } from '../src/utils/db/postgres'
 import { disablePlugin, getActivePluginRows, getPluginAttachmentRows, getPluginConfigRows } from '../src/utils/db/sql'
 import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
+import { Buffer } from "node:buffer";
 
 jest.setTimeout(20_000)
 jest.mock('../src/utils/status')

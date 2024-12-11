@@ -27,12 +27,12 @@ describe('GroupTypeManager()', () => {
 
     describe('fetchGroupTypes()', () => {
         it('fetches and caches the group types', async () => {
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:05').getTime())
+            jest.spyOn(globalThis.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:05').getTime())
 
             let groupTypes = await groupTypeManager.fetchGroupTypes(2 as ProjectId)
             expect(groupTypes).toEqual({})
 
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:25').getTime())
+            jest.spyOn(globalThis.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:25').getTime())
             await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'foo', 0)
             await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'bar', 1)
 
@@ -43,7 +43,7 @@ describe('GroupTypeManager()', () => {
             expect(groupTypes).toEqual({})
             expect(hub.db.postgres.query).toHaveBeenCalledTimes(0)
 
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:36').getTime())
+            jest.spyOn(globalThis.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:36').getTime())
 
             groupTypes = await groupTypeManager.fetchGroupTypes(2 as ProjectId)
 

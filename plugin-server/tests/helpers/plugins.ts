@@ -1,8 +1,9 @@
-import * as fs from 'fs'
-import * as os from 'os'
-import * as path from 'path'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
 
 import { Plugin, PluginAttachmentDB, PluginConfig } from '../../src/types'
+import { Buffer } from 'node:buffer'
 
 export const commonUserId = 1001
 export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'

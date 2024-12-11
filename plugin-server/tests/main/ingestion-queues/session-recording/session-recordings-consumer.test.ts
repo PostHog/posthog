@@ -1,8 +1,8 @@
-import { randomUUID } from 'crypto'
+import { randomUUID } from 'node:crypto'
 import { Redis } from 'ioredis'
 import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
-import path from 'path'
+import path from 'node:path'
 
 import { waitForExpect } from '../../../../functional_tests/expectations'
 import { defaultConfig } from '../../../../src/config/config'

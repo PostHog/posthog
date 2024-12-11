@@ -1,7 +1,7 @@
 import { getNextRetryMs } from '../../src/utils/retries'
 
 jest.useFakeTimers()
-jest.spyOn(global, 'setTimeout')
+jest.spyOn(globalThis, 'setTimeout')
 
 describe('getNextRetryMs', () => {
     it('returns the correct number of milliseconds with a multiplier of 1', () => {

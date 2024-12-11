@@ -16,6 +16,7 @@ import { instrument } from '../../utils/metrics'
 import { status } from '../../utils/status'
 import { createPostgresPool } from '../../utils/utils'
 import { graphileEnqueueJobCounter } from './metrics'
+import process from "node:process";
 
 export interface InstrumentationContext {
     key: string

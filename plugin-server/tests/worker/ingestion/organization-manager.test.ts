@@ -23,14 +23,14 @@ describe('OrganizationManager()', () => {
 
     describe('fetchOrganization()', () => {
         it('fetches and caches the team', async () => {
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:05').getTime())
+            jest.spyOn(globalThis.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:05').getTime())
             jest.spyOn(hub.postgres, 'query')
 
             let organization = await organizationManager.fetchOrganization(commonOrganizationId)
 
             expect(organization!.name).toEqual('TEST ORG')
 
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:25').getTime())
+            jest.spyOn(globalThis.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:25').getTime())
             await hub.db.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 "UPDATE posthog_organization SET name = 'Updated Name!'",
@@ -45,7 +45,7 @@ describe('OrganizationManager()', () => {
             expect(organization!.name).toEqual('TEST ORG')
             expect(hub.postgres.query).toHaveBeenCalledTimes(0)
 
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:36').getTime())
+            jest.spyOn(globalThis.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:36').getTime())
 
             organization = await organizationManager.fetchOrganization(commonOrganizationId)
 

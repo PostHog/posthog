@@ -11,6 +11,7 @@ import {
 } from '../../../../src/main/ingestion-queues/session-recording/utils'
 import { KafkaProducerWrapper } from '../../../../src/utils/db/kafka-producer-wrapper'
 import { UUIDT } from '../../../../src/utils/utils'
+import { Buffer } from "node:buffer";
 
 describe('session-recording utils', () => {
     const validMessage = (distinctId: number | string, headers?: MessageHeader[], value?: Record<string, any>) =>

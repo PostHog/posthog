@@ -2,11 +2,11 @@ import * as Sentry from '@sentry/node'
 import { Message } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { configure } from 'safe-stable-stringify'
-import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
 import { TeamId, TimestampFormat } from '../../types'
 import { cleanErrorStackTrace } from '../../utils/db/error'
+import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 

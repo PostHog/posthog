@@ -1,7 +1,7 @@
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, MessageHeader, PartitionMetadata } from 'node-rdkafka'
-import path from 'path'
+import path from 'node:path'
 import { Counter } from 'prom-client'
 
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
@@ -11,6 +11,7 @@ import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
 import { IncomingRecordingMessage, ParsedBatch, PersistedRecordingMessage } from './types'
+import { Buffer } from 'node:buffer'
 
 const { promisify } = require('node:util')
 const { unzip } = require('node:zlib')

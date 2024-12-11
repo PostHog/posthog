@@ -14,11 +14,11 @@ describe('getNextRetryMs', () => {
     })
 
     beforeAll(() => {
-        global.Date.now = jest.fn(() => new Date('2019-04-07T10:20:30Z').getTime())
+        globalThis.Date.now = jest.fn(() => new Date('2019-04-07T10:20:30Z').getTime())
     })
 
     afterAll(() => {
-        global.Date.now = realNow
+        globalThis.Date.now = realNow
     })
 
     it('simple gets', async () => {
@@ -52,7 +52,7 @@ describe('getNextRetryMs', () => {
     it('refreshes in the background', async () => {
         let count = 1
         let timeAdavance = 0
-        global.Date.now = jest.fn(() => realNow() + timeAdavance)
+        globalThis.Date.now = jest.fn(() => realNow() + timeAdavance)
         refresher = new BackgroundRefresher(refreshFunction, 10000)
 
         refreshFunction.mockImplementation(async () => {

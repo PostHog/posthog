@@ -1,10 +1,12 @@
-const { readFileSync } = require('fs')
+const { readFileSync } = require('node:fs')
 const { DateTime } = require('luxon')
-const { join } = require('path')
+const { join } = require('node:path')
 
 import fetch from 'node-fetch'
 
 import { status } from './src/utils/status'
+import { Buffer } from 'node:buffer'
+import process from 'node:process'
 
 jest.mock('node-fetch', () => ({
     __esModule: true,

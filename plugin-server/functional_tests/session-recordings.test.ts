@@ -6,6 +6,7 @@ import { UUIDT } from '../src/utils/utils'
 import { capture, createOrganization, createTeam, fetchSessionReplayEvents, getMetric } from './api'
 import { waitForExpect } from './expectations'
 import { produce } from './kafka'
+import { Buffer } from "node:buffer";
 
 let organizationId: string
 

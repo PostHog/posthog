@@ -1,4 +1,4 @@
-import crypto from 'crypto'
+import crypto from 'node:crypto'
 
 import { DB } from '../../../../utils/db/db'
 import { PostgresUse } from '../../../../utils/db/postgres'

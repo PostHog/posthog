@@ -20,6 +20,7 @@ import { setupPlugins } from '../../../../src/worker/plugins/setup'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
 import { commonUserId } from '../../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
+import process from 'node:process'
 
 jest.mock('../../../../src/utils/status')
 

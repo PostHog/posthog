@@ -25,6 +25,7 @@ import {
     waitForPluginToLoad,
 } from './api'
 import { waitForExpect } from './expectations'
+import { Buffer } from "node:buffer";
 
 let organizationId: string
 

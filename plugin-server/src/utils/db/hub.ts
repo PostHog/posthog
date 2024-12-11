@@ -1,11 +1,11 @@
 import ClickHouse from '@posthog/clickhouse'
-import * as fs from 'fs'
+import * as fs from 'node:fs'
 import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { hostname } from 'os'
-import * as path from 'path'
+import { hostname } from 'node:os'
+import * as path from 'node:path'
 import { types as pgTypes } from 'pg'
-import { ConnectionOptions } from 'tls'
+import { ConnectionOptions } from 'node:tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
@@ -40,6 +40,8 @@ import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresRouter } from './postgres'
 import { createRedisPool } from './redis'
+import { Buffer } from 'node:buffer'
+import process from 'node:process'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string

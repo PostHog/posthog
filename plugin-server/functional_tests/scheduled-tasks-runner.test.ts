@@ -5,6 +5,7 @@ import { defaultConfig } from '../src/config/config'
 import { getMetric } from './api'
 import { waitForExpect } from './expectations'
 import { produce } from './kafka'
+import { Buffer } from "node:buffer";
 
 let kafka: Kafka
 
