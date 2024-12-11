@@ -82,23 +82,6 @@ class AssistantBreakdownFilter(BaseModel):
     breakdown_limit: Optional[int] = Field(default=25, description="How many distinct values to show.")
 
 
-class AssistantCompareFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compare: Optional[bool] = Field(
-        default=False, description="Whether to compare the current date range to a previous date range."
-    )
-    compare_to: Optional[str] = Field(
-        default="-7d",
-        description=(
-            "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1"
-            " year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30"
-            " hours ago."
-        ),
-    )
-
-
 class AssistantDateTimePropertyFilterOperator(StrEnum):
     IS_DATE_EXACT = "is_date_exact"
     IS_DATE_BEFORE = "is_date_before"
@@ -539,8 +522,17 @@ class CompareFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    compare: Optional[bool] = None
-    compare_to: Optional[str] = None
+    compare: Optional[bool] = Field(
+        default=False, description="Whether to compare the current date range to a previous date range."
+    )
+    compare_to: Optional[str] = Field(
+        default="-7d",
+        description=(
+            "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1"
+            " year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30"
+            " hours ago."
+        ),
+    )
 
 
 class ColorMode(StrEnum):
@@ -5396,6 +5388,7 @@ class WebExternalClicksTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
     filterTestAccounts: Optional[bool] = None
@@ -5415,6 +5408,7 @@ class WebGoalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
     filterTestAccounts: Optional[bool] = None

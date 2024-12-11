@@ -1171,7 +1171,7 @@ export interface AssistantTrendsFilter {
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
 }
 
-export interface AssistantCompareFilter {
+export interface CompareFilter {
     /**
      * Whether to compare the current date range to a previous date range.
      * @default false
@@ -1789,6 +1789,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
     conversionGoal?: WebAnalyticsConversionGoal | null
+    compareFilter?: CompareFilter
     sampling?: {
         enabled?: boolean
         forceSamplingRate?: SamplingRate
@@ -1800,7 +1801,6 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
-    compareFilter?: CompareFilter | null
     includeLCPScore?: boolean
 }
 
@@ -1852,7 +1852,6 @@ export enum WebStatsBreakdown {
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
-    compareFilter?: CompareFilter | null
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     doPathCleaning?: boolean
@@ -2356,11 +2355,6 @@ export interface BreakdownFilter {
     breakdown_group_type_index?: integer | null
     breakdown_histogram_bin_count?: integer // trends breakdown histogram bin
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
-}
-
-export interface CompareFilter {
-    compare?: boolean
-    compare_to?: string
 }
 
 // TODO: Rename to `DashboardFilters` for consistency with `HogQLFilters`

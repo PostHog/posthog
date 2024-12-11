@@ -1,13 +1,10 @@
 from typing import Optional, Union
 import math
 
-from django.utils.timezone import datetime
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr, get_property_type
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
@@ -69,15 +66,6 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             dateTo=self.query_date_range.date_to_str,
         )
 
-    @cached_property
-    def query_date_range(self):
-        return QueryDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
-        )
-
     def all_properties(self) -> ast.Expr:
         properties = self.query.properties + self._test_account_filters
         return property_to_expr(properties, team=self.team)
@@ -112,10 +100,6 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
 
     @cached_property
     def inner_select(self) -> ast.SelectQuery:
-        start = self.query_date_range.previous_period_date_from_as_hogql()
-        mid = self.query_date_range.date_from_as_hogql()
-        end = self.query_date_range.date_to_as_hogql()
-
         parsed_select = parse_select(
             """
 SELECT
@@ -126,23 +110,34 @@ FROM events
 WHERE and(
     events.`$session_id` IS NOT NULL,
     {event_type_expr},
-    timestamp >= {date_range_start},
-    timestamp < {date_range_end},
+    or(
+        and(timestamp >= {current_date_range_start}, timestamp < {current_date_range_end}),
+        and(timestamp >= {previous_date_range_start}, timestamp < {previous_date_range_end})
+    ),
     {event_properties},
     {session_properties}
 )
 GROUP BY session_id
-HAVING and(
-    start_timestamp >= {date_range_start},
-    start_timestamp < {date_range_end}
+HAVING or(
+    and(start_timestamp >= {current_date_range_start}, start_timestamp < {current_date_range_end}),
+    and(start_timestamp >= {previous_date_range_start}, start_timestamp < {previous_date_range_end})
 )
         """,
             placeholders={
-                "date_range_start": start if self.query.compareFilter and self.query.compareFilter.compare else mid,
-                "date_range_end": end,
                 "event_properties": self.event_properties(),
                 "session_properties": self.session_properties(),
                 "event_type_expr": self.event_type_expr,
+                # It's ok that we return ast.Constant(value=None) for previous_date_range_start
+                # and previous_date_range_end if there's no compare_to date range
+                # because HogQL will simply ignore that part of the where clause, it's that good!
+                "current_date_range_start": self.query_date_range.date_from_as_hogql(),
+                "current_date_range_end": self.query_date_range.date_to_as_hogql(),
+                "previous_date_range_start": self.query_compare_to_date_range.date_from_as_hogql()
+                if self.query_compare_to_date_range
+                else ast.Constant(value=None),
+                "previous_date_range_end": self.query_compare_to_date_range.date_to_as_hogql()
+                if self.query_compare_to_date_range
+                else ast.Constant(value=None),
             },
         )
         assert isinstance(parsed_select, ast.SelectQuery)
@@ -177,21 +172,31 @@ HAVING and(
 
     @cached_property
     def outer_select(self) -> ast.SelectQuery:
-        start = self.query_date_range.previous_period_date_from_as_hogql()
-        mid = self.query_date_range.date_from_as_hogql()
-        end = self.query_date_range.date_to_as_hogql()
-
         def current_period_aggregate(function_name, column_name, alias, params=None):
-            if not self.query.compareFilter or not self.query.compareFilter.compare:
+            if not self.query_compare_to_date_range:
                 return ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
 
-            return self.period_aggregate(function_name, column_name, mid, end, alias=alias, params=params)
+            return self.period_aggregate(
+                function_name,
+                column_name,
+                self.query_date_range.date_from_as_hogql(),
+                self.query_date_range.date_to_as_hogql(),
+                alias=alias,
+                params=params,
+            )
 
         def previous_period_aggregate(function_name, column_name, alias, params=None):
-            if not self.query.compareFilter or not self.query.compareFilter.compare:
+            if not self.query_compare_to_date_range:
                 return ast.Alias(alias=alias, expr=ast.Constant(value=None))
 
-            return self.period_aggregate(function_name, column_name, start, mid, alias=alias, params=params)
+            return self.period_aggregate(
+                function_name,
+                column_name,
+                self.query_compare_to_date_range.date_from_as_hogql(),
+                self.query_compare_to_date_range.date_to_as_hogql(),
+                alias=alias,
+                params=params,
+            )
 
         if self.query.conversionGoal:
             select = [
