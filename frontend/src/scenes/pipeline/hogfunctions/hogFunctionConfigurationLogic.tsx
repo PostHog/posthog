@@ -649,7 +649,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     type: FilterLogicalOperator.And,
                     values: [seriesProperties],
                 }
-                for (const event of configuration.filters?.events ?? []) {
+                const allPossibleEventFilters = configuration.filters?.events ?? []
+                const allPossibleActionFilters = configuration.filters?.actions ?? []
+
+                if (Array.isArray(configuration.mappings)) {
+                    for (const mapping of configuration.mappings) {
+                        if (mapping.filters?.events) {
+                            allPossibleEventFilters.push(...mapping.filters.events)
+                        }
+                        if (mapping.filters?.actions) {
+                            allPossibleActionFilters.push(...mapping.filters.actions)
+                        }
+                    }
+                }
+
+                for (const event of allPossibleEventFilters) {
                     const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
                     if (event.id) {
                         eventProperties.push({
@@ -668,7 +682,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         values: eventProperties,
                     })
                 }
-                for (const action of configuration.filters?.actions ?? []) {
+                for (const action of allPossibleActionFilters) {
                     const actionProperties: AnyPropertyFilter[] = [...(action.properties ?? [])]
                     if (action.id) {
                         actionProperties.push({
