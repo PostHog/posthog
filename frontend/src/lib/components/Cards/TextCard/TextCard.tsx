@@ -69,7 +69,7 @@ export function TextCardInternal(
     return (
         <div
             className={clsx(
-                'TextCard bg-bg-light border rounded flex flex-col items-end',
+                'TextCard bg-bg-light border rounded flex flex-col',
                 className,
                 showResizeHandles && 'border'
             )}
@@ -78,7 +78,7 @@ export function TextCardInternal(
             ref={ref}
         >
             {showEditingControls && (
-                <div className="mr-4 mt-4">
+                <div className="absolute right-4 top-4">
                     <More
                         overlay={
                             <>
@@ -142,7 +142,7 @@ export function TextCardInternal(
                 </div>
             )}
 
-            <div className="TextCard__body w-full">
+            <div className="TextCard__body w-10/12">
                 <TextContent text={text.body} className="p-4" />
             </div>
 
