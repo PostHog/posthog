@@ -26,7 +26,7 @@ export default function ViewRecordingButton({
             onClick={
                 inModal
                     ? () => {
-                          const fiveSecondsBeforeEvent = dayjs(timestamp).valueOf() - 5000
+                          const fiveSecondsBeforeEvent = timestamp ? dayjs(timestamp).valueOf() - 5000 : 0
                           openSessionPlayer({ id: sessionId }, Math.max(fiveSecondsBeforeEvent, 0))
                       }
                     : undefined
