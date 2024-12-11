@@ -1817,16 +1817,6 @@
                   "table": null,
                   "type": "string"
               },
-              "log_comment": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "log_comment",
-                  "id": null,
-                  "name": "log_comment",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "kind": {
                   "chain": null,
                   "fields": null,
@@ -1853,26 +1843,6 @@
                   "hogql_value": "is_personal_api_key_request",
                   "id": null,
                   "name": "is_personal_api_key_request",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "boolean"
-              },
-              "type": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "type",
-                  "id": null,
-                  "name": "type",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "is_initial_query": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "is_initial_query",
-                  "id": null,
-                  "name": "is_initial_query",
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
@@ -3656,16 +3626,6 @@
                   "table": null,
                   "type": "string"
               },
-              "log_comment": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "log_comment",
-                  "id": null,
-                  "name": "log_comment",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "kind": {
                   "chain": null,
                   "fields": null,
@@ -3692,26 +3652,6 @@
                   "hogql_value": "is_personal_api_key_request",
                   "id": null,
                   "name": "is_personal_api_key_request",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "boolean"
-              },
-              "type": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "type",
-                  "id": null,
-                  "name": "type",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "is_initial_query": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "is_initial_query",
-                  "id": null,
-                  "name": "is_initial_query",
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
