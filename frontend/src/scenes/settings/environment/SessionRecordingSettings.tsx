@@ -315,6 +315,10 @@ export function NetworkCaptureSettings(): JSX.Element {
     )
 }
 
+/**
+ * @deprecated use ReplayTriggers instead, this is only presented to teams that have these settings set
+ * @constructor
+ */
 export function ReplayAuthorizedDomains(): JSX.Element {
     return (
         <div className="space-y-2">
