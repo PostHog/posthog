@@ -310,7 +310,6 @@ export const createSessionReplayEvent = (
     })
 
     const activeTime = activeMilliseconds(events)
-
     const urlArray = Array.from(urls)
 
     // NB forces types to be correct e.g. by truncating or rounding

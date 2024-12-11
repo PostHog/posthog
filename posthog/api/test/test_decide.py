@@ -38,7 +38,6 @@ from posthog.models import (
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.group.group import Group
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person import PersonDistinctId
 from posthog.models.personal_api_key import hash_key_value
@@ -667,7 +666,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions in the above mean fewer queries
         # 3 of these queries are just for setting transaction scope
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(4):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
@@ -692,51 +691,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.team.refresh_from_db()
         self.assertTrue(self.team.inject_web_apps)
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(5):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
             self.assertEqual(len(injected), 1)
             self.assertTrue(injected[0]["url"].startswith(f"/site_app/{plugin_config.id}/{plugin_config.web_token}/"))
-
-    def test_site_function_injection(self, *args):
-        # yype: site_app
-        site_app = HogFunction.objects.create(
-            team=self.team,
-            name="my_function",
-            hog="function onLoad(){}",
-            type="site_app",
-            transpiled="function onLoad(){}",
-            enabled=True,
-        )
-
-        self.team.refresh_from_db()
-        self.assertTrue(self.team.inject_web_apps)
-        with self.assertNumQueries(9):
-            response = self._post_decide()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            injected = response.json()["siteApps"]
-            self.assertEqual(len(injected), 1)
-            self.assertTrue(injected[0]["url"].startswith(f"/site_function/{site_app.id}/"))
-
-        # yype: site_destination
-        site_destination = HogFunction.objects.create(
-            team=self.team,
-            name="my_function",
-            hog="function onLoad(){}",
-            type="site_destination",
-            transpiled="function onLoad(){}",
-            enabled=True,
-        )
-
-        self.team.refresh_from_db()
-        self.assertTrue(self.team.inject_web_apps)
-        with self.assertNumQueries(8):
-            response = self._post_decide()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            injected = response.json()["siteApps"]
-            self.assertEqual(len(injected), 2)
-            self.assertTrue(injected[1]["url"].startswith(f"/site_function/{site_destination.id}/"))
 
     def test_feature_flags(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -3616,68 +3576,15 @@ class TestDecide(BaseTest, QueryMatchingTest):
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_new_capture_activation(self, *args):
         self.client.logout()
-        with self.settings(NEW_ANALYTICS_CAPTURE_TEAM_IDS={str(self.team.id)}, NEW_ANALYTICS_CAPTURE_SAMPLING_RATE=1.0):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue("analytics" in response.json())
-            self.assertEqual(response.json()["analytics"]["endpoint"], "/i/v0/e/")
+        response = self._post_decide(api_version=3)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue("analytics" in response.json())
+        self.assertEqual(response.json()["analytics"]["endpoint"], "/i/v0/e/")
 
-        with self.settings(
-            NEW_ANALYTICS_CAPTURE_TEAM_IDS={str(self.team.id)},
-            NEW_ANALYTICS_CAPTURE_SAMPLING_RATE=1.0,
-            NEW_ANALYTICS_CAPTURE_ENDPOINT="/custom",
-        ):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue("analytics" in response.json())
-            self.assertEqual(response.json()["analytics"]["endpoint"], "/custom")
-
-        with self.settings(NEW_ANALYTICS_CAPTURE_TEAM_IDS={"0"}, NEW_ANALYTICS_CAPTURE_SAMPLING_RATE=1.0):
+        with self.settings(NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS={str(self.team.id)}):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, 200)
             self.assertFalse("analytics" in response.json())
-
-        with self.settings(NEW_ANALYTICS_CAPTURE_TEAM_IDS={str(self.team.id)}, NEW_ANALYTICS_CAPTURE_SAMPLING_RATE=0):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
-            self.assertFalse("analytics" in response.json())
-
-        with self.settings(NEW_ANALYTICS_CAPTURE_TEAM_IDS={"0", "*"}, NEW_ANALYTICS_CAPTURE_SAMPLING_RATE=1.0):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue("analytics" in response.json())
-            self.assertEqual(response.json()["analytics"]["endpoint"], "/i/v0/e/")
-
-        with self.settings(
-            NEW_ANALYTICS_CAPTURE_TEAM_IDS={"*"},
-            NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS={str(self.team.id)},
-            NEW_ANALYTICS_CAPTURE_SAMPLING_RATE=1.0,
-        ):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
-            self.assertFalse("analytics" in response.json())
-
-    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    def test_decide_new_capture_domains(self, *args):
-        self.client.logout()
-        with self.settings(
-            NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS={str(self.team.id)}, NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE=1.0
-        ):
-            response = self._post_decide(api_version=3)
-            assert response.status_code == 200
-            assert response.json()["__preview_ingestion_endpoints"] is True
-
-        with self.settings(NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS={str(999)}, NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE=1.0):
-            response = self._post_decide(api_version=3)
-            assert response.status_code == 200
-            assert "__preview_ingestion_endpoints" not in response.json()
-
-        with self.settings(
-            NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS={str(self.team.id)}, NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE=0.0
-        ):
-            response = self._post_decide(api_version=3)
-            assert response.status_code == 200
-            assert "__preview_ingestion_endpoints" not in response.json()
 
     def test_decide_element_chain_as_string(self, *args):
         self.client.logout()
@@ -4733,7 +4640,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # update caches
         self._post_decide(api_version=3)
 
-        with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]

@@ -463,6 +463,74 @@ describe('session recording process event', () => {
                 urls: ['http://127.0.0.1:8000/my-spa', 'http://127.0.0.1:8000/my-spa/1'],
             },
         },
+        {
+            testDescription: 'urls array is deduplicated',
+            snapshotData: {
+                events_summary: [
+                    {
+                        timestamp: 1682449093469,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // we don't read just any URL
+                                'the-page-url': 'http://127.0.0.1:8000/not/included',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                    {
+                        timestamp: 1682449093693,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // matches href nested in payload
+                                href: 'http://127.0.0.1:8000/my-spa',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                    {
+                        timestamp: 1682449093693,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // matches href nested in payload
+                                href: 'http://127.0.0.1:8000/my-spa',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                    {
+                        timestamp: 1682449093693,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // matches href nested in payload
+                                href: 'http://127.0.0.1:8000/my-spa/1',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                ],
+            },
+            expected: {
+                click_count: 0,
+                keypress_count: 0,
+                mouse_activity_count: 0,
+                first_url: 'http://127.0.0.1:8000/my-spa',
+                first_timestamp: '2023-04-25 18:58:13.469',
+                last_timestamp: '2023-04-25 18:58:13.693',
+                active_milliseconds: 0, // no data.source, so no activity
+                console_log_count: 0,
+                console_warn_count: 0,
+                console_error_count: 0,
+                size: 461,
+                event_count: 4,
+                message_count: 1,
+                snapshot_source: 'web',
+                urls: ['http://127.0.0.1:8000/my-spa', 'http://127.0.0.1:8000/my-spa/1'],
+            },
+        },
     ]
 
     it.each(sessionReplayEventTestCases)(
