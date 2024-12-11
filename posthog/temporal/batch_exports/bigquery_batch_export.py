@@ -295,9 +295,14 @@ class BigQueryClient(bigquery.Client):
     ):
         """Attempt to SELECT from table to check for query permissions."""
         job_config = bigquery.QueryJobConfig()
-        query = f"""
-        SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}`
-        """
+        if "timestamp" in [field.name for field in table.schema]:
+            query = f"""
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` WHERE timestamp IS NOT NULL
+            """
+        else:
+            query = f"""
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}`
+            """
 
         try:
             query_job = self.query(query, job_config=job_config)
