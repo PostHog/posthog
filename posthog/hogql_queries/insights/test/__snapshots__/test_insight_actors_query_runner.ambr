@@ -9,7 +9,7 @@
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT aggregation_target AS aggregation_target,
@@ -52,8 +52,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [2]), 0)
         ORDER BY aggregation_target ASC) AS source
      INNER JOIN
@@ -61,7 +61,7 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
         FROM person
         WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
+                                                             (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                               FROM person
                                                               WHERE equals(person.team_id, 99999)
                                                               GROUP BY person.id
@@ -85,7 +85,7 @@
      FROM
        (SELECT DISTINCT actor_id AS actor_id
         FROM
-          (SELECT min(events__person.created_at) AS created_at,
+          (SELECT minOrNull(events__person.created_at) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'US/Pacific')))) AS following_activity,
@@ -125,17 +125,17 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
-                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                      (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                        FROM person
                                                        WHERE and(equals(person.team_id, 99999), in(person.id,
                                                                                                      (SELECT source.actor_id AS actor_id
                                                                                                       FROM
                                                                                                         (SELECT DISTINCT actor_id AS actor_id
                                                                                                          FROM
-                                                                                                           (SELECT min(events__person.created_at) AS created_at, arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity, arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity, arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'US/Pacific')))) AS following_activity, arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(current)), 'new', if(and(ifNull(equals(minus(current, toIntervalDay(1)), previous), isNull(minus(current, toIntervalDay(1)))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status, arrayMap((current, next) -> if(ifNull(equals(plus(current, toIntervalDay(1)), next), isNull(plus(current, toIntervalDay(1)))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     and isNull(next)), '', 'dormant'), all_activity, following_activity) AS dormant_status, arrayMap(x -> plus(x, toIntervalDay(1)), arrayFilter((current, is_dormant) -> ifNull(equals(is_dormant, 'dormant'), 0), all_activity, dormant_status)) AS dormant_periods, arrayMap(x -> 'dormant', dormant_periods) AS dormant_label, arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat, arrayJoin(temp_concat) AS period_status_pairs, period_status_pairs.1 AS start_of_period, period_status_pairs.2 AS status, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id
+                                                                                                           (SELECT minOrNull(events__person.created_at) AS created_at, arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity, arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity, arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'US/Pacific')))) AS following_activity, arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 and isNull(current)), 'new', if(and(ifNull(equals(minus(current, toIntervalDay(1)), previous), isNull(minus(current, toIntervalDay(1)))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status, arrayMap((current, next) -> if(ifNull(equals(plus(current, toIntervalDay(1)), next), isNull(plus(current, toIntervalDay(1)))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(next)), '', 'dormant'), all_activity, following_activity) AS dormant_status, arrayMap(x -> plus(x, toIntervalDay(1)), arrayFilter((current, is_dormant) -> ifNull(equals(is_dormant, 'dormant'), 0), all_activity, dormant_status)) AS dormant_periods, arrayMap(x -> 'dormant', dormant_periods) AS dormant_label, arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat, arrayJoin(temp_concat) AS period_status_pairs, period_status_pairs.1 AS start_of_period, period_status_pairs.2 AS status, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id
                                                                                                             FROM events
                                                                                                             LEFT OUTER JOIN
                                                                                                               (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -237,7 +237,7 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
-                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                      (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                        FROM person
                                                        WHERE and(equals(person.team_id, 99999), in(person.id,
                                                                                                      (SELECT source.actor_id AS actor_id
@@ -398,7 +398,7 @@
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
               FROM person
               WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                                   (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                     FROM person
                                                                     WHERE equals(person.team_id, 99999)
                                                                     GROUP BY person.id
@@ -410,7 +410,7 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
-                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                      (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                        FROM person
                                                        WHERE and(equals(person.team_id, 99999), in(person.id,
                                                                                                      (SELECT source.actor_id AS actor_id
@@ -429,7 +429,7 @@
                                                                                                               (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
                                                                                                                FROM person
                                                                                                                WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                                                                                                                    (SELECT person.id AS id, max(person.version) AS version
+                                                                                                                                                                    (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                                                                                                                      FROM person
                                                                                                                                                                      WHERE equals(person.team_id, 99999)
                                                                                                                                                                      GROUP BY person.id

@@ -1,9 +1,9 @@
 # serializer version: 1
 # name: TestFOSSFunnelUDF.test_funnel_conversion_window_seconds
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
-         sum(step_3) AS step_3,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
+         sumOrNull(step_3) AS step_3,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_2_conversion_times)])[1] AS step_2_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
@@ -131,9 +131,9 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_events_with_person_on_events_v2.1
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
-         sum(step_3) AS step_3,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
+         sumOrNull(step_3) AS step_3,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_2_conversion_times)])[1] AS step_2_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
@@ -216,8 +216,8 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter.2
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
          groupArray(row_number) AS row_number,
@@ -278,9 +278,9 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
-         sum(step_3) AS step_3,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
+         sumOrNull(step_3) AS step_3,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_2_conversion_times)])[1] AS step_2_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
@@ -330,7 +330,7 @@
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age
               FROM person
               WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                                   (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                     FROM person
                                                                     WHERE equals(person.team_id, 99999)
                                                                     GROUP BY person.id
@@ -395,7 +395,7 @@
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age
               FROM person
               WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                                   (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                     FROM person
                                                                     WHERE equals(person.team_id, 99999)
                                                                     GROUP BY person.id
@@ -462,7 +462,7 @@
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age
               FROM person
               WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                                   (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                     FROM person
                                                                     WHERE equals(person.team_id, 99999)
                                                                     GROUP BY person.id
@@ -529,7 +529,7 @@
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age
               FROM person
               WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                                   (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                     FROM person
                                                                     WHERE equals(person.team_id, 99999)
                                                                     GROUP BY person.id
@@ -564,8 +564,8 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_static_cohort_step_filter.1
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
          groupArray(row_number) AS row_number,
@@ -626,8 +626,8 @@
 # ---
 # name: TestFOSSFunnelUDF.test_timezones
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
          groupArray(row_number) AS row_number,
@@ -685,8 +685,8 @@
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
          groupArray(row_number) AS row_number,
@@ -759,8 +759,8 @@
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
          groupArray(row_number) AS row_number,
@@ -840,8 +840,8 @@
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_step_multiple_breakdown_snapshot
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
          groupArray(row_number) AS row_number,
@@ -914,9 +914,9 @@
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
-         sum(step_3) AS step_3,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
+         sumOrNull(step_3) AS step_3,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_2_conversion_times)])[1] AS step_2_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
@@ -996,9 +996,9 @@
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
-         sum(step_3) AS step_3,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
+         sumOrNull(step_3) AS step_3,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_2_conversion_times)])[1] AS step_2_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
@@ -1078,9 +1078,9 @@
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
-         sum(step_3) AS step_3,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
+         sumOrNull(step_3) AS step_3,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_2_conversion_times)])[1] AS step_2_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,

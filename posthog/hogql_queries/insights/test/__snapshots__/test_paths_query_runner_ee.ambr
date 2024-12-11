@@ -4,7 +4,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -87,7 +87,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -170,7 +170,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -253,7 +253,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -336,7 +336,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -418,7 +418,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -500,7 +500,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -582,7 +582,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -664,7 +664,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -746,7 +746,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -828,7 +828,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -910,7 +910,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -1000,7 +1000,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -1083,7 +1083,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -2222,7 +2222,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -3139,7 +3139,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -3221,7 +3221,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -3433,7 +3433,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -3645,7 +3645,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -3857,7 +3857,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -4069,7 +4069,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -4152,7 +4152,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -4234,7 +4234,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -4548,7 +4548,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -4746,7 +4746,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -5176,7 +5176,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -5258,7 +5258,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -11272,7 +11272,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -11355,7 +11355,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -11438,7 +11438,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -11521,7 +11521,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -11604,7 +11604,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -11686,7 +11686,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -11768,7 +11768,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -11850,7 +11850,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -11932,7 +11932,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -12014,7 +12014,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -12096,7 +12096,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -12178,7 +12178,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -12268,7 +12268,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -12351,7 +12351,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -13490,7 +13490,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -14407,7 +14407,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -14489,7 +14489,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -14701,7 +14701,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -14913,7 +14913,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -15125,7 +15125,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -15337,7 +15337,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -15420,7 +15420,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -15502,7 +15502,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -15816,7 +15816,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -16014,7 +16014,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -16444,7 +16444,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,
@@ -16526,7 +16526,7 @@
   SELECT last_path_key AS source_event,
          path_key AS target_event,
          count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
+         avgOrNull(conversion_time) AS average_conversion_time
   FROM
     (SELECT person_id AS person_id,
             path AS path,

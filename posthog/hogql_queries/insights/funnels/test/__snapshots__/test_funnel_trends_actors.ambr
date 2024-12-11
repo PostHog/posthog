@@ -11,7 +11,7 @@
      FROM
        (SELECT aggregation_target AS aggregation_target,
                toStartOfDay(timestamp) AS entrance_period_start,
-               max(steps) AS steps_completed,
+               maxOrNull(steps) AS steps_completed,
                groupArray(10)(step_0_matching_event) AS step_0_matching_events,
                groupArray(10)(step_1_matching_event) AS step_1_matching_events,
                groupArray(10)(step_2_matching_event) AS step_2_matching_events,
@@ -181,7 +181,7 @@
      FROM
        (SELECT aggregation_target AS aggregation_target,
                toStartOfDay(timestamp) AS entrance_period_start,
-               max(steps) AS steps_completed,
+               maxOrNull(steps) AS steps_completed,
                groupArray(10)(step_0_matching_event) AS step_0_matching_events,
                groupArray(10)(step_1_matching_event) AS step_1_matching_events,
                groupArray(10)(step_2_matching_event) AS step_2_matching_events,
@@ -351,7 +351,7 @@
      FROM
        (SELECT aggregation_target AS aggregation_target,
                toStartOfDay(timestamp) AS entrance_period_start,
-               max(steps) AS steps_completed,
+               maxOrNull(steps) AS steps_completed,
                groupArray(10)(step_0_matching_event) AS step_0_matching_events,
                groupArray(10)(step_1_matching_event) AS step_1_matching_events,
                groupArray(10)(step_2_matching_event) AS step_2_matching_events,
