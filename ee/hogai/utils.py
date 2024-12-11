@@ -30,7 +30,7 @@ AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
 
 class ConversationState(BaseModel):
     messages: list[RootAssistantMessage] = Field(..., min_length=1, max_length=50)
-    session_id: str
+    id: str
 
 
 class ReplaceMessages(list[AssistantMessageUnion]):

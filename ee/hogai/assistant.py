@@ -4,7 +4,6 @@ from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union, cast
 from uuid import uuid4
 
 from asgiref.sync import sync_to_async
-from django.forms import ValidationError
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langfuse.callback import CallbackHandler
@@ -20,7 +19,7 @@ from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
 )
-from ee.hogai.utils import AssistantMessageUnion, AssistantNodeName, AssistantState, ConversationState, ReplaceMessages
+from ee.hogai.utils import AssistantNodeName, AssistantState
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
@@ -90,13 +89,15 @@ class Assistant:
     _team: Team
     _graph: CompiledStateGraph
     _user: Optional[User]
-    _conversation: ConversationState
+    _conversation: Conversation
+    _latest_message: HumanMessage
     _state: Optional[AssistantState]
 
-    def __init__(self, team: Team, conversation: ConversationState, user: Optional[User] = None):
+    def __init__(self, team: Team, conversation: Conversation, new_message: HumanMessage, user: Optional[User] = None):
         self._team = team
         self._user = user
         self._conversation = conversation
+        self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())})
         self._graph = AssistantGraph(team).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
         self._state = None
@@ -116,16 +117,15 @@ class Assistant:
                 break
 
     def _stream(self) -> Generator[str, None, None]:
-        thread, last_message = self._init_thread()
-        state = self._init_or_update_state(thread)
-        config = self._get_config(thread)
+        state = self._init_or_update_state()
+        config = self._get_config()
 
         generator: Iterator[Any] = self._graph.stream(
             state, config=config, stream_mode=["messages", "values", "updates", "debug"]
         )
 
         # Send the last message with the initialized id.
-        yield self._serialize_message(last_message)
+        yield self._serialize_message(self._latest_message)
 
         try:
             last_viz_message = None
@@ -142,68 +142,51 @@ class Assistant:
                     AssistantMessage(content=state.tasks[0].interrupts[0].value, id=str(uuid4()))
                 )
             else:
-                self._report_conversation(last_viz_message)
+                self._report_conversation_state(last_viz_message)
         except:
             # This is an unhandled error, so we just stop further generation at this point
             yield self._serialize_message(FailureMessage())
             raise  # Re-raise, so that the error is printed or goes into Sentry
 
-    def _unpack_messages(self) -> list[AssistantMessageUnion]:
-        return [msg.root for msg in self._conversation.messages]
-
     @property
     def _initial_state(self) -> AssistantState:
-        messages = self._unpack_messages()
         return {
-            "messages": messages,
+            "messages": [self._latest_message],
             "intermediate_steps": None,
-            "start_id": messages[-1].id,
+            "start_id": self._latest_message.id,
             "plan": None,
         }
 
-    def _get_config(self, thread: Conversation) -> RunnableConfig:
+    def _get_config(self) -> RunnableConfig:
         callbacks = [langfuse_handler] if langfuse_handler else []
         config: RunnableConfig = {
             "recursion_limit": 24,
             "callbacks": callbacks,
-            "configurable": {"thread_id": thread.id},
+            "configurable": {"thread_id": self._conversation.id},
         }
         return config
 
-    def _init_or_update_state(self, thread: Conversation):
-        config = self._get_config(thread)
+    def _init_or_update_state(self):
+        config = self._get_config()
         snapshot = self._graph.get_state(config)
         if snapshot.next:
             saved_state = cast(AssistantState, snapshot.values)
             self._state = saved_state
             intermediate_steps = saved_state.get("intermediate_steps")
             if intermediate_steps:
-                last_message = self._conversation.messages[-1].root
-                if isinstance(last_message, HumanMessage):
-                    intermediate_steps = intermediate_steps.copy()
-                    intermediate_steps[-1] = (intermediate_steps[-1][0], last_message.content)
-                    self._graph.update_state(
-                        config,
-                        {
-                            "messages": ReplaceMessages([msg.root for msg in self._conversation.messages]),
-                            "intermediate_steps": intermediate_steps,
-                        },
-                    )
+                intermediate_steps = intermediate_steps.copy()
+                intermediate_steps[-1] = (intermediate_steps[-1][0], self._latest_message.content)
+                self._graph.update_state(
+                    config,
+                    {
+                        "messages": [self._latest_message],
+                        "intermediate_steps": intermediate_steps,
+                    },
+                )
             return None
         initial_state = self._initial_state
         self._state = initial_state
         return initial_state
-
-    def _init_thread(self):
-        thread, _ = Conversation.objects.get_or_create(
-            id=self._conversation.session_id, team=self._team, user=self._user
-        )
-        last_message = self._conversation.messages[-1].root
-        if isinstance(last_message, HumanMessage):
-            last_message.id = str(uuid4())
-        else:
-            raise ValidationError("The last message must be a human message.")
-        return thread, last_message
 
     def _node_to_reasoning_message(
         self, node_name: AssistantNodeName, input: AssistantState
@@ -294,9 +277,9 @@ class Assistant:
             output += f"event: {AssistantEventType.MESSAGE}\n"
         return output + f"data: {message.model_dump_json(exclude_none=True)}\n\n"
 
-    def _report_conversation(self, message: Optional[VisualizationMessage]):
-        human_message = self._conversation.messages[-1].root
-        if self._user and message and isinstance(human_message, HumanMessage):
+    def _report_conversation_state(self, message: Optional[VisualizationMessage]):
+        human_message = self._latest_message
+        if self._user and message:
             report_user_action(
                 self._user,
                 "chat with ai",
