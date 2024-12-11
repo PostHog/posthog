@@ -147,7 +147,7 @@ template_site_destination: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/snapchat.png",
     category=["Advertisement"],
     hog="""
-export async function onLoad({ inputs, posthog }) {
+export async function onLoad({ inputs }) {
     (function(e,t,n){if(e.snaptr)return;var a=e.snaptr=function()
     {a.handleRequest?a.handleRequest.apply(a,arguments):a.queue.push(arguments)};
     a.queue=[];var s='script';r=t.createElement(s);r.async=!0;
@@ -157,7 +157,7 @@ export async function onLoad({ inputs, posthog }) {
 
     let userProperties = {};
 
-    for (let { key, value } in inputs.userProperties) {
+    for (const [key, value] of Object.entries(inputs.userProperties)) {
         if (value) {
             userProperties[key] = value;
         }
@@ -166,19 +166,16 @@ export async function onLoad({ inputs, posthog }) {
     snaptr('init', '{inputs.pixelId}', userProperties);
 }
 
-export function onEvent({ posthog, globals }) {
-    const { event, person } = globals;
-    if (event.event === '$pageview') {
-        let eventProperties = {};
+export function onEvent({ inputs }) {
+    let eventProperties = {};
 
-        for (let { key, value } in inputs.userProperties) {
-            if (value) {
-                eventProperties[key] = value;
-            }
-        };
+    for (const [key, value] of Object.entries(inputs.eventProperties)) {
+        if (value) {
+            eventProperties[key] = value;
+        }
+    };
 
-        snaptr('track', 'PAGE_VIEW');
-    }
+    snaptr('track', 'PAGE_VIEW', eventProperties);
 }
 """.strip(),
     inputs_schema=[
