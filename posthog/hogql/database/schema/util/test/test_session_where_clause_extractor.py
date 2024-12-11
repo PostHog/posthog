@@ -242,7 +242,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
         actual = f(
             self.inliner.get_inner_where(
                 parse(
-                    "SELECT * FROM sessions WHERE timestamp = (SELECT max(timestamp) FROM events WHERE event = '$pageview')"
+                    "SELECT * FROM sessions WHERE timestamp = (SELECT maxOrNull(timestamp) FROM events WHERE event = '$pageview')"
                 )
             )
         )
@@ -340,7 +340,7 @@ SELECT
 FROM
     (SELECT
         sessions.session_id AS session_id,
-        min(toTimeZone(sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`
+        minOrNull(toTimeZone(sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`
     FROM
         sessions
     WHERE
@@ -412,7 +412,7 @@ SELECT
 FROM
     events
     LEFT JOIN (SELECT
-        dateDiff(%(hogql_val_0)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
+        dateDiff(%(hogql_val_0)s, minOrNull(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), maxOrNull(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
         sessions.session_id AS session_id
     FROM
         sessions
@@ -478,7 +478,7 @@ SELECT
 FROM
     events AS e SAMPLE 1
     LEFT OUTER JOIN (SELECT
-        argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+        argMaxOrNull(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
         person_distinct_id_overrides.distinct_id AS distinct_id
     FROM
         person_distinct_id_overrides
@@ -487,10 +487,10 @@ FROM
     GROUP BY
         person_distinct_id_overrides.distinct_id
     HAVING
-        ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+        ifNull(equals(argMaxOrNull(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
     SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
     LEFT JOIN (SELECT
-        dateDiff(%(hogql_val_0)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
+        dateDiff(%(hogql_val_0)s, minOrNull(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), maxOrNull(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
         sessions.session_id AS session_id
     FROM
         sessions
@@ -518,7 +518,7 @@ LIMIT 50000\
             """
 SELECT
     s.session_id,
-    min(s.min_first_timestamp) as start_time
+    minOrNull(s.min_first_timestamp) as start_time
 FROM raw_session_replay_events s
 WHERE s.session.$entry_pathname = '/home' AND min_first_timestamp >= '2021-01-01:12:34' AND min_first_timestamp < now()
 GROUP BY session_id
@@ -528,7 +528,7 @@ GROUP BY session_id
             """\
 SELECT
     s.session_id AS session_id,
-    min(toTimeZone(s.min_first_timestamp, %(hogql_val_6)s)) AS start_time
+    minOrNull(toTimeZone(s.min_first_timestamp, %(hogql_val_6)s)) AS start_time
 FROM
     session_replay_events AS s
     LEFT JOIN (SELECT

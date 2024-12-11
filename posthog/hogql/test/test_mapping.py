@@ -34,7 +34,7 @@ class TestMappings(BaseTest):
         self.assertEqual(find_hogql_function("TOString"), None)
         self.assertEqual(find_hogql_function("PlUs"), None)
 
-        self.assertEqual(self._get_hogql_aggregation("countIf").clickhouse_name, "countIf")
+        self.assertEqual(self._get_hogql_aggregation("formatReadableSize").clickhouse_name, "formatReadableSize")
         self.assertEqual(find_hogql_aggregation("COUNTIF"), None)
 
         self.assertEqual(self._get_hogql_posthog_function("sparkline").clickhouse_name, "sparkline")
@@ -43,7 +43,7 @@ class TestMappings(BaseTest):
     def test_find_case_insensitive_function(self):
         self.assertEqual(self._get_hogql_function("CoAlesce").clickhouse_name, "coalesce")
 
-        self.assertEqual(self._get_hogql_aggregation("SuM").clickhouse_name, "sum")
+        self.assertEqual(self._get_hogql_aggregation("LoG").clickhouse_name, "log")
 
     def test_find_non_existent_function(self):
         self.assertEqual(find_hogql_function("functionThatDoesntExist"), None)
