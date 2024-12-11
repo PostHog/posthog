@@ -1,9 +1,10 @@
 import pytest
 
+from posthog.conftest import create_clickhouse_tables
 from posthog.test.base import run_clickhouse_statement_in_parallel
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="package", autouse=True)
 def setup_kafka_tables(django_db_setup):
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.schema import (
@@ -15,8 +16,12 @@ def setup_kafka_tables(django_db_setup):
     kafka_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
     run_clickhouse_statement_in_parallel(kafka_queries)
 
+    # Re-create the tables depending on Kafka tables.
+    create_clickhouse_tables(0)
+
     yield
 
+    # Drop the tables, so some other tests don't fail.
     kafka_tables = sync_execute(
         f"""
         SELECT name
