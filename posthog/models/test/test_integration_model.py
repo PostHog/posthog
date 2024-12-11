@@ -120,7 +120,7 @@ class TestOauthIntegrationModel(BaseTest):
             url = OauthIntegration.authorize_url("google-ads", next="/projects/test")
             assert (
                 url
-                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+email&redirect_uri=https%3A%2F%2Flocalhost%3A8000%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest&access_type=offline&prompt=consent"
+                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8000%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest&access_type=offline&prompt=consent"
             )
 
     @patch("posthog.models.integration.requests.post")
