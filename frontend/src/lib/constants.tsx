@@ -165,6 +165,7 @@ export const FEATURE_FLAGS = {
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
+    SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-feature-success
     SURVEYS_WIDGETS: 'surveys-widgets', // owner: #team-feature-success
     SURVEYS_EVENTS: 'surveys-events', // owner: #team-feature-success
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-feature-success
