@@ -90,6 +90,7 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
                         }
 
                         actions.appendAssistantMessage(content)
+                        setTimeout(() => actions.setSearchingThinking(false), 100)
                         return content
                     } catch (error: unknown) {
                         if (
@@ -100,11 +101,10 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
                             (error.message.includes('429') || error.message.includes('rate limit'))
                         ) {
                             actions.setRateLimited(true)
-                            // Keep searching state true while rate limited
                         } else {
-                            actions.setSearchingThinking(false)
                             actions.setRateLimited(false)
                         }
+                        setTimeout(() => actions.setSearchingThinking(false), 100)
                         console.error('Error sending message:', error)
                         return null
                     }

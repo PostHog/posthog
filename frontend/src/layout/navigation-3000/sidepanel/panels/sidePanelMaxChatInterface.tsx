@@ -71,18 +71,13 @@ export function MaxChatInterface(): JSX.Element {
         }
     }, [currentMessages])
 
-    const handleSubmit = (e: React.FormEvent): void => {
-        e.preventDefault()
-        if (inputMessage.trim()) {
-            submitMessage(inputMessage)
-            setInputMessage('')
-        }
-    }
-
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
-            handleSubmit(e)
+            if (inputMessage.trim() && !isSearchingThinking) {
+                submitMessage(inputMessage)
+                setInputMessage('')
+            }
         }
     }
 
@@ -353,7 +348,7 @@ export function MaxChatInterface(): JSX.Element {
 
             {showInput && (
                 <>
-                    <form onSubmit={handleSubmit} className="p-4 pb-1">
+                    <form className="p-4 pb-1">
                         <LemonTextArea
                             value={inputMessage}
                             onChange={setInputMessage}
@@ -369,11 +364,17 @@ export function MaxChatInterface(): JSX.Element {
                         </div>
                         <LemonButton
                             type="primary"
-                            htmlType="submit"
                             data-attr="max-chat-send"
-                            disabled={!inputMessage.trim() || isSearchingThinking}
-                            className="w-full"
+                            fullWidth
                             center
+                            className={isSearchingThinking ? 'opacity-50' : ''}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                if (inputMessage.trim() && !isSearchingThinking) {
+                                    submitMessage(inputMessage)
+                                    setInputMessage('')
+                                }
+                            }}
                         >
                             Send
                         </LemonButton>

@@ -286,7 +286,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                         targetBlank={false}
                                         className="mt-2"
                                     >
-                                        Chat with Max 🦔
+                                        ✨ Chat with Max
                                     </LemonButton>
                                 </Section>
                             ) : null}
