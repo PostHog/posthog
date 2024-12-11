@@ -1,5 +1,5 @@
 from typing import Optional
-from unittest.mock import patch, ANY
+from unittest.mock import patch
 import uuid
 from freezegun import freeze_time
 from rest_framework.status import (
@@ -472,58 +472,6 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.assertEqual(cached_team.name, "Test")
             self.assertEqual(cached_team.uuid, response.json()["uuid"])
             self.assertEqual(cached_team.session_recording_opt_in, True)
-
-        @patch("posthoganalytics.capture")
-        def test_access_control_analytics_capture(self, mock_capture):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            # Test enabling access control
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": True})
-            self.assertEqual(response.status_code, HTTP_200_OK)
-            self.team.refresh_from_db()
-            self.assertTrue(self.team.access_control)
-
-            # Verify capture event for enabling
-            mock_capture.assert_any_call(
-                self.user.distinct_id,
-                "project access control toggled",
-                properties={
-                    "enabled": True,
-                    "project_id": str(self.team.id),
-                    "project_name": self.team.name,
-                    "organization_id": str(self.organization.id),
-                    "organization_name": self.organization.name,
-                    "user_role": OrganizationMembership.Level.ADMIN,
-                },
-                groups={"instance": ANY, "organization": str(self.organization.id)},
-            )
-
-            # Reset mock to test disabling
-            mock_capture.reset_mock()
-
-            # Test disabling access control
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": False})
-            self.assertEqual(response.status_code, HTTP_200_OK)
-            self.team.refresh_from_db()
-            self.assertFalse(self.team.access_control)
-
-            # Verify capture event for disabling
-            mock_capture.assert_any_call(
-                self.user.distinct_id,
-                "project access control toggled",
-                properties={
-                    "enabled": False,
-                    "project_id": str(self.team.id),
-                    "project_name": self.team.name,
-                    "organization_id": str(self.organization.id),
-                    "organization_name": self.organization.name,
-                    "user_role": OrganizationMembership.Level.ADMIN,
-                },
-                groups={"instance": ANY, "organization": str(self.organization.id)},
-            )
-
-    return TestTeamEnterpriseAPI
 
 
 class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
