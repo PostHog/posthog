@@ -587,6 +587,7 @@ body {
 
     &[theme='dark'] {
         // Semantic colors (Dark mode) WIP
+        --content-primary-inverse: var(--primary-black);
         --content-primary: var(--neutral-cool-100);
         --content-secondary: var(--neutral-cool-200);
         --content-tertiary: var(--neutral-cool-300);
@@ -603,7 +604,7 @@ body {
         --border-button-hover: var(--yellow-700);
         --border-button-bold-hover: var(--yellow-500);
         --border-button-subtle: var(--yellow-500);
-        --background-button: var(--yellow-800);
+        --background-button: var(--yellow-500);
         --background-button-subtle: var(--yellow-900);
         --background-button-subtle-hover: var(--yellow-500);
         --background-success-subtle: var(--green-800);
