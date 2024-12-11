@@ -132,7 +132,7 @@
         },
         {
             "name": "Plugin Server",
-            "command": "npm run start:dev",
+            "command": "npm run start:deno",
             "request": "launch",
             "type": "node-terminal",
             "cwd": "${workspaceFolder}/plugin-server",

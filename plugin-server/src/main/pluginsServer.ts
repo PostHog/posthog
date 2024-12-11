@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/node'
-import { CompressionCodecs, CompressionTypes, KafkaJSProtocolError } from 'kafkajs'
+import kafkajs from 'kafkajs'
+const { CompressionCodecs, CompressionTypes, KafkaJSProtocolError } = kafkajs
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
 import LZ4 from 'lz4-kafkajs'

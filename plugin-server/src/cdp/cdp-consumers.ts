@@ -1,5 +1,7 @@
 import { CyclotronJob, CyclotronManager, CyclotronWorker } from '@posthog/cyclotron'
 import { captureException } from '@sentry/node'
+import { Buffer } from 'node:buffer'
+import process from 'node:process'
 import { Message } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
@@ -57,8 +59,6 @@ import {
     serializeHogFunctionInvocation,
     unGzipObject,
 } from './utils'
-import process from "node:process";
-import { Buffer } from "node:buffer";
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')

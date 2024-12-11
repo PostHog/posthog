@@ -1,4 +1,6 @@
-import { calculateCost, convertHogToJS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
+import type { ExecOptions, ExecResult } from '@posthog/hogvm'
+import hogvm from '@posthog/hogvm'
+const { calculateCost, convertHogToJS, exec } = hogvm
 import { DateTime } from 'luxon'
 import crypto from 'node:crypto'
 import { Histogram } from 'prom-client'
