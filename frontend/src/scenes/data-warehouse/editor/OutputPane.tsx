@@ -231,8 +231,6 @@ function InternalDataTableVisualization(
         showResultControls,
         response,
         responseLoading,
-        responseError,
-        queryCancelled,
         isChartSettingsPanelOpen,
     } = useValues(dataVisualizationLogic)
 
@@ -276,29 +274,7 @@ function InternalDataTableVisualization(
                             <SideBar />
                         </div>
                     )}
-                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>
-                        {visualizationType !== ChartDisplayType.ActionsTable && responseError ? (
-                            <div
-                                className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
-                                    border: showEditingUI,
-                                })}
-                            >
-                                <InsightErrorState
-                                    query={props.query}
-                                    excludeDetail
-                                    title={
-                                        queryCancelled
-                                            ? 'The query was cancelled'
-                                            : response && 'error' in response
-                                            ? (response as any).error
-                                            : responseError
-                                    }
-                                />
-                            </div>
-                        ) : (
-                            component
-                        )}
-                    </div>
+                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>{component}</div>
                 </div>
                 {showResultControls && (
                     <>
