@@ -14,7 +14,6 @@ def create_clickhouse_tables(num_tables: int):
         CREATE_DATA_QUERIES,
         CREATE_DICTIONARY_QUERIES,
         CREATE_DISTRIBUTED_TABLE_QUERIES,
-        CREATE_KAFKA_TABLE_QUERIES,
         CREATE_MERGETREE_TABLE_QUERIES,
         CREATE_MV_TABLE_QUERIES,
         CREATE_VIEW_QUERIES,
@@ -24,7 +23,6 @@ def create_clickhouse_tables(num_tables: int):
     total_tables = (
         len(CREATE_MERGETREE_TABLE_QUERIES)
         + len(CREATE_DISTRIBUTED_TABLE_QUERIES)
-        + len(CREATE_KAFKA_TABLE_QUERIES)
         + len(CREATE_MV_TABLE_QUERIES)
         + len(CREATE_VIEW_QUERIES)
         + len(CREATE_DICTIONARY_QUERIES)
@@ -34,9 +32,7 @@ def create_clickhouse_tables(num_tables: int):
     if num_tables == total_tables:
         return
 
-    table_queries = list(
-        map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES + CREATE_KAFKA_TABLE_QUERIES)
-    )
+    table_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES))
     run_clickhouse_statement_in_parallel(table_queries)
 
     mv_queries = list(map(build_query, CREATE_MV_TABLE_QUERIES))
@@ -66,7 +62,7 @@ def reset_clickhouse_tables():
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
     from posthog.models.error_tracking.sql import TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL
-    from posthog.models.event.sql import TRUNCATE_EVENTS_RECENT_TABLE_SQL, TRUNCATE_EVENTS_TABLE_SQL
+    from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL, TRUNCATE_EVENTS_RECENT_TABLE_SQL
     from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
     from posthog.models.performance.sql import TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL
     from posthog.models.person.sql import (
