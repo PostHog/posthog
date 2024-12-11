@@ -275,7 +275,7 @@ def get_decide(request: HttpRequest):
 
             response["surveys"] = True if team.surveys_opt_in else False
             response["heatmaps"] = True if team.heatmaps_opt_in else False
-            response["defaultIdentifiedOnly"] = True
+            response["defaultIdentifiedOnly"] = True # Support old SDK versions with setting that is now the default
 
             site_apps = []
             # errors mean the database is unavailable, bail in this case
