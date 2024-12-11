@@ -473,6 +473,8 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.assertEqual(cached_team.uuid, response.json()["uuid"])
             self.assertEqual(cached_team.session_recording_opt_in, True)
 
+    return TestTeamEnterpriseAPI
+
 
 class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
     def test_create_team(self):
