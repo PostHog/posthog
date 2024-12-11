@@ -1,7 +1,7 @@
 import { LemonBanner } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { HubSpotScopesWarning } from 'lib/integrations/HubSpotIntegrationHelpers'
+import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 
 import { HogFunctionInputSchemaType, IntegrationType } from '~/types'
 
@@ -58,7 +58,7 @@ export function IntegrationView({
                     </LemonBanner>
                 </div>
             ) : (
-                <HubSpotScopesWarning integration={integration} schema={schema} />
+                <IntegrationScopesWarning integration={integration} schema={schema} />
             )}
         </div>
     )
