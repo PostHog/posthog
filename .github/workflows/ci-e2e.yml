@@ -68,7 +68,6 @@ jobs:
     container:
         name: Build and cache container image
         runs-on: ubuntu-24.04
-        if: needs.changes.outputs.shouldTriggerCypress == 'true'
         timeout-minutes: 60
         needs: [changes]
         permissions:
@@ -79,9 +78,12 @@ jobs:
             build-id: ${{ steps.build.outputs.build-id }}
         steps:
             - name: Checkout
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: actions/checkout@v3
             - name: Build the Docker image with Depot
-              uses: ./.github/actions/build-n-cache-image # Build the container image in preparation for the E2E tests
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+              # Build the container image in preparation for the E2E tests
+              uses: ./.github/actions/build-n-cache-image
               id: build
               with:
                   save: true
@@ -166,8 +168,7 @@ jobs:
                   build-id: ${{ needs.container.outputs.build-id }}
                   tags: ${{ needs.container.outputs.tag }}
 
-            - name: Write .env
-              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+            - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run
               run: |
                   cat <<EOT >> .env
                   SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
@@ -279,7 +280,7 @@ jobs:
     calculate-running-time:
         name: Calculate running time
         runs-on: ubuntu-24.04
-        needs: [changes, cypress]
+        needs: [cypress]
         if: needs.changes.outputs.shouldTriggerCypress == 'true' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
         steps:
