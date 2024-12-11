@@ -34,6 +34,7 @@ if (res.status != 200 or res.body.ok == false) {
             "type": "integration",
             "integration": "slack",
             "label": "Slack workspace",
+            "requiredScopes": "channels:read groups:read chat:write chat:write.customize",
             "secret": False,
             "required": True,
         },
