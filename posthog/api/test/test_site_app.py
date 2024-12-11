@@ -2,7 +2,7 @@ from django.test.client import Client
 from rest_framework import status
 
 from posthog.api.site_app import get_site_config_from_schema
-from posthog.models import Plugin, PluginConfig, PluginSourceFile, HogFunction
+from posthog.models import Plugin, PluginConfig, PluginSourceFile
 from posthog.test.base import BaseTest
 
 
@@ -82,32 +82,3 @@ class TestSiteApp(BaseTest):
         config = {"in_site": "123", "not_in_site": "12345"}
         self.assertEqual(get_site_config_from_schema(schema, config), {"in_site": "123"})
         self.assertEqual(get_site_config_from_schema(None, None), {})
-
-    def test_site_function(self):
-        # Create a HogFunction object
-        hog_function = HogFunction.objects.create(
-            enabled=True,
-            team=self.team,
-            type="site_app",
-            transpiled="function test() {}",
-        )
-
-        response = self.client.get(
-            f"/site_function/{hog_function.id}/somehash/",
-            HTTP_ORIGIN="http://127.0.0.1:8000",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.content.decode("utf-8"), hog_function.transpiled)
-        self.assertEqual(response["Cache-Control"], "public, max-age=31536000")
-
-    def test_site_function_not_found(self):
-        response = self.client.get(
-            f"/site_function/non-existent-id/somehash/",
-            HTTP_ORIGIN="http://127.0.0.1:8000",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        response_json = response.json()
-        self.assertEqual(response_json["code"], "missing_site_function_source")
-        self.assertEqual(response_json["detail"], "Unable to serve site function source code.")

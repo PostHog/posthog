@@ -196,6 +196,7 @@ export enum ProductKey {
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     TEAMS = 'teams',
     WEB_ANALYTICS = 'web_analytics',
+    ERROR_TRACKING = 'error_tracking',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -2999,6 +3000,11 @@ export interface CombinedFeatureFlagAndValueType {
     value: boolean | string
 }
 
+export interface Feature {
+    id: number | null
+    name: string
+}
+
 export enum EarlyAccessFeatureStage {
     Draft = 'draft',
     Concept = 'concept',
@@ -3608,6 +3614,7 @@ export enum BaseMathType {
     MonthlyActiveUsers = 'monthly_active',
     UniqueSessions = 'unique_session',
     FirstTimeForUser = 'first_time_for_user',
+    FirstMatchingEventForUser = 'first_matching_event_for_user',
 }
 
 export enum PropertyMathType {

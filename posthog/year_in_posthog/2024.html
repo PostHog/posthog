@@ -24,7 +24,7 @@
         posthog.init('{{api_token}}', {
             api_host: window.location.origin, loaded: function (posthog) {
                 posthog.capture('year in posthog viewed', {
-                    'yearInPostHog': 2023, 'badge': '{{badge}}',     {% for stat in stats %}
+                    'yearInPostHog': 2024, 'badge': '{{badge}}',     {% for stat in stats %}
                         '{{ stat.description }}': {{ stat.count }},
                     {% endfor %}
                 });
