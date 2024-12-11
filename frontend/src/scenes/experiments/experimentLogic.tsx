@@ -35,7 +35,6 @@ import {
     NodeKind,
 } from '~/queries/schema'
 import {
-    ActionFilter as ActionFilterType,
     Breadcrumb,
     BreakdownAttributionType,
     ChartDisplayType,
@@ -871,66 +870,34 @@ export const experimentLogic = kea<experimentLogicType>([
                 | (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
                 | null,
             {
-                loadSecondaryMetricResults: async (
-                    refresh?: boolean
-                ): Promise<
+                loadSecondaryMetricResults: async (): Promise<
                     | SecondaryMetricResults[]
                     | (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
                     | null
                 > => {
-                    if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        return (await Promise.all(
-                            values.experiment?.metrics_secondary.map(async (metric) => {
-                                try {
-                                    // Queries are shareable, so we need to set the experiment_id for the backend to correctly associate the query with the experiment
-                                    const queryWithExperimentId = {
-                                        ...metric,
-                                        experiment_id: values.experimentId,
-                                    }
-                                    const response: ExperimentResults = await api.create(
-                                        `api/projects/${values.currentProjectId}/query`,
-                                        { query: queryWithExperimentId, refresh: 'lazy_async' }
-                                    )
-
-                                    return {
-                                        ...response,
-                                        fakeInsightId: Math.random().toString(36).substring(2, 15),
-                                        last_refresh: response.last_refresh || '',
-                                    }
-                                } catch (error) {
-                                    return {}
-                                }
-                            })
-                        )) as unknown as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
-                    }
-
-                    const refreshParam = refresh ? '&refresh=true' : ''
-
-                    return await Promise.all(
-                        (values.experiment?.secondary_metrics || []).map(async (_, index) => {
+                    return (await Promise.all(
+                        values.experiment?.metrics_secondary.map(async (metric) => {
                             try {
-                                const secResults = await api.get(
-                                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}/secondary_results?id=${index}${refreshParam}`
-                                )
-                                // :TRICKY: Maintain backwards compatibility for cached responses, remove after cache period has expired
-                                if (secResults && secResults.result && !secResults.result.hasOwnProperty('result')) {
-                                    return {
-                                        result: { ...secResults.result },
-                                        fakeInsightId: Math.random().toString(36).substring(2, 15),
-                                        last_refresh: secResults.last_refresh,
-                                    }
+                                // Queries are shareable, so we need to set the experiment_id for the backend to correctly associate the query with the experiment
+                                const queryWithExperimentId = {
+                                    ...metric,
+                                    experiment_id: values.experimentId,
                                 }
+                                const response: ExperimentResults = await api.create(
+                                    `api/projects/${values.currentProjectId}/query`,
+                                    { query: queryWithExperimentId, refresh: 'lazy_async' }
+                                )
 
                                 return {
-                                    ...secResults.result,
+                                    ...response,
                                     fakeInsightId: Math.random().toString(36).substring(2, 15),
-                                    last_refresh: secResults.last_refresh,
+                                    last_refresh: response.last_refresh || '',
                                 }
                             } catch (error) {
                                 return {}
                             }
                         })
-                    )
+                    )) as unknown as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
                 },
             },
         ],
@@ -1041,26 +1008,14 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         experimentMathAggregationForTrends: [
             (s) => [s.experiment, s.featureFlags],
-            (experiment, featureFlags) => (): PropertyMathType | CountPerActorMathType | undefined => {
+            (experiment) => (): PropertyMathType | CountPerActorMathType | undefined => {
                 let entities: { math?: string }[] = []
 
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    const query = experiment?.metrics?.[0] as ExperimentTrendsQuery
-                    if (!query) {
-                        return undefined
-                    }
-                    entities = query.count_query?.series || []
-                } else {
-                    const filters = experiment?.filters
-                    if (!filters) {
-                        return undefined
-                    }
-                    entities = [
-                        ...(filters?.events || []),
-                        ...(filters?.actions || []),
-                        ...(filters?.data_warehouse || []),
-                    ] as ActionFilterType[]
+                const query = experiment?.metrics?.[0] as ExperimentTrendsQuery
+                if (!query) {
+                    return undefined
                 }
+                entities = query.count_query?.series || []
 
                 // Find out if we're using count per actor math aggregates averages per user
                 const userMathValue = entities.filter((entity) =>
@@ -1073,7 +1028,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 const targetValues = Object.values(PropertyMathType).filter((value) => value !== PropertyMathType.Sum)
 
                 const propertyMathValue = entities.filter((entity) =>
-                    targetValues.includes(entity?.math as PropertyMathType)
+                    targetValues.includes(entity?.math as (typeof targetValues)[number])
                 )[0]?.math
 
                 return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
