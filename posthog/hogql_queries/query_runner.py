@@ -704,7 +704,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
-    def to_hogql(self) -> str:
+    def to_hogql(self, **kwargs) -> str:
         with self.timings.measure("to_hogql"):
             return print_ast(
                 self.to_query(),
@@ -715,6 +715,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     modifiers=self.modifiers,
                 ),
                 "hogql",
+                **kwargs,
             )
 
     def get_cache_payload(self) -> dict:

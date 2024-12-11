@@ -175,11 +175,13 @@ class Consumer:
         heartbeater: Heartbeater,
         heartbeat_details: BatchExportRangeHeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        writer_format: WriterFormat,
     ):
         self.flush_start_event = asyncio.Event()
         self.heartbeater = heartbeater
         self.heartbeat_details = heartbeat_details
         self.data_interval_start = data_interval_start
+        self.writer_format = writer_format
         self.logger = logger
 
     @property
@@ -223,7 +225,6 @@ class Consumer:
         self,
         queue: RecordBatchQueue,
         producer_task: asyncio.Task,
-        writer_format: WriterFormat,
         max_bytes: int,
         schema: pa.Schema,
         json_columns: collections.abc.Sequence[str],
@@ -247,22 +248,16 @@ class Consumer:
         await logger.adebug("Starting record batch consumer")
 
         schema = cast_record_batch_schema_json_columns(schema, json_columns=json_columns)
-        writer = get_batch_export_writer(writer_format, self.flush, schema=schema, max_bytes=max_bytes, **kwargs)
+        writer = get_batch_export_writer(self.writer_format, self.flush, schema=schema, max_bytes=max_bytes, **kwargs)
 
         record_batches_count = 0
         records_count = 0
-        record_batch_generator = self.generate_record_batches_from_queue(queue, producer_task)
 
         await self.logger.adebug("Starting record batch writing loop")
 
-        writer._batch_export_file = writer.create_temporary_file()
+        writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
 
-        while True:
-            try:
-                record_batch = await anext(record_batch_generator)
-            except StopAsyncIteration:
-                break
-
+        async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
             record_batches_count += 1
             record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
 
@@ -273,7 +268,7 @@ class Consumer:
 
                 if multiple_files:
                     await writer.close_temporary_file()
-                    writer._batch_export_file = writer.create_temporary_file()
+                    writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
                 else:
                     await writer.flush()
 
@@ -376,12 +371,11 @@ async def run_consumer_loop(
 
     await logger.adebug("Starting record batch consumer loop")
 
-    consumer = consumer_cls(heartbeater, heartbeat_details, data_interval_start, **kwargs)
+    consumer = consumer_cls(heartbeater, heartbeat_details, data_interval_start, writer_format, **kwargs)
     consumer_task = asyncio.create_task(
         consumer.start(
             queue=queue,
             producer_task=producer_task,
-            writer_format=writer_format,
             max_bytes=max_bytes,
             schema=schema,
             json_columns=json_columns,
