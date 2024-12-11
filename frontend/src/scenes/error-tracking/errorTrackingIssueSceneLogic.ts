@@ -7,7 +7,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssue } from '~/queries/schema'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, EventType } from '~/types'
 
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
@@ -16,7 +16,7 @@ import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './querie
 export interface ErrorTrackingEvent {
     uuid: string
     timestamp: Dayjs
-    properties: Record<string, any>
+    properties: EventType['properties']
     person: {
         distinct_id: string
         uuid?: string
@@ -46,6 +46,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     actions({
         setTab: (tab: IssueTab) => ({ tab }),
         setActiveEventUUID: (uuid: ErrorTrackingEvent['uuid']) => ({ uuid }),
+        setIssue: (issue: ErrorTrackingIssue) => ({ issue }),
         updateIssue: (issue: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>) => ({ issue }),
     }),
 
@@ -89,6 +90,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     const response = await api.errorTracking.updateIssue(props.id, issue)
                     return { ...values.issue, ...response }
                 },
+                setIssue: ({ issue }) => issue,
             },
         ],
         events: [

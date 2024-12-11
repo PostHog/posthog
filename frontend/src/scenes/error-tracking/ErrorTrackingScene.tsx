@@ -16,9 +16,11 @@ import { ErrorTrackingIssue } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
+import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
+import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
@@ -51,14 +53,16 @@ export function ErrorTrackingScene(): JSX.Element {
     }
 
     return (
-        <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
-            <Header />
-            <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
-            <ErrorTrackingFilters.FilterGroup />
-            <LemonDivider className="mt-2" />
-            {selectedIssueIds.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
-            <Query query={query} context={context} />
-        </BindLogic>
+        <AlphaAccessScenePrompt>
+            <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
+                <Header />
+                <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
+                <ErrorTrackingFilters.FilterGroup />
+                <LemonDivider className="mt-2" />
+                {selectedIssueIds.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
+                <Query query={query} context={context} />
+            </BindLogic>
+        </AlphaAccessScenePrompt>
     )
 }
 
@@ -147,6 +151,11 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                 }
                 className="flex-1"
                 to={urls.errorTrackingIssue(record.id)}
+                onClick={() => {
+                    const issueLogic = errorTrackingIssueSceneLogic({ id: record.id })
+                    issueLogic.mount()
+                    issueLogic.actions.setIssue(record)
+                }}
             />
         </div>
     )

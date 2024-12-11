@@ -20,6 +20,9 @@ from posthog.utils import str_to_bool
 from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.types import IncrementalFieldType
 
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+
 from .helpers import (
     SelectAny,
     table_rows,
@@ -125,8 +128,11 @@ def sql_source_for_type(
 
 def snowflake_source(
     account_id: str,
-    user: str,
-    password: str,
+    user: Optional[str],
+    password: Optional[str],
+    passphrase: Optional[str],
+    private_key: Optional[str],
+    auth_type: str,
     database: str,
     warehouse: str,
     schema: str,
@@ -135,13 +141,6 @@ def snowflake_source(
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> DltSource:
-    account_id = quote(account_id)
-    user = quote(user)
-    password = quote(password)
-    database = quote(database)
-    warehouse = quote(warehouse)
-    role = quote(role) if role else None
-
     if incremental_field is not None and incremental_field_type is not None:
         incremental: dlt.sources.incremental | None = dlt.sources.incremental(
             cursor_path=incremental_field, initial_value=incremental_type_to_initial_value(incremental_field_type)
@@ -149,9 +148,46 @@ def snowflake_source(
     else:
         incremental = None
 
-    credentials = ConnectionStringCredentials(
-        f"snowflake://{user}:{password}@{account_id}/{database}/{schema}?warehouse={warehouse}{f'&role={role}' if role else ''}"
-    )
+    if auth_type == "password" and user is not None and password is not None:
+        account_id = quote(account_id)
+        user = quote(user)
+        password = quote(password)
+        database = quote(database)
+        warehouse = quote(warehouse)
+        role = quote(role) if role else None
+
+        credentials = create_engine(
+            f"snowflake://{user}:{password}@{account_id}/{database}/{schema}?warehouse={warehouse}{f'&role={role}' if role else ''}"
+        )
+    else:
+        assert private_key is not None
+        assert user is not None
+
+        account_id = quote(account_id)
+        user = quote(user)
+        database = quote(database)
+        warehouse = quote(warehouse)
+        role = quote(role) if role else None
+
+        p_key = serialization.load_pem_private_key(
+            private_key.encode("utf-8"),
+            password=passphrase.encode() if passphrase is not None else None,
+            backend=default_backend(),
+        )
+
+        pkb = p_key.private_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+
+        credentials = create_engine(
+            f"snowflake://{user}@{account_id}/{database}/{schema}?warehouse={warehouse}{f'&role={role}' if role else ''}",
+            connect_args={
+                "private_key": pkb,
+            },
+        )
+
     db_source = sql_database(credentials, schema=schema, table_names=table_names, incremental=incremental)
 
     return db_source

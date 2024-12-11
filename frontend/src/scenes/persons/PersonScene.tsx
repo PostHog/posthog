@@ -7,11 +7,13 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -113,6 +115,7 @@ export function PersonScene(): JSX.Element | null {
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (personError) {
         throw new Error(personError)
@@ -122,6 +125,7 @@ export function PersonScene(): JSX.Element | null {
     }
 
     const url = urls.personByDistinctId(urlId || person.distinct_ids[0] || String(person.id))
+    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <>
@@ -226,8 +230,8 @@ export function PersonScene(): JSX.Element | null {
                                 {!currentTeam?.session_recording_opt_in ? (
                                     <div className="mb-4">
                                         <LemonBanner type="info">
-                                            Session recordings are currently disabled for this project. To use this
-                                            feature, please go to your{' '}
+                                            Session recordings are currently disabled for this {settingLevel}. To use
+                                            this feature, please go to your{' '}
                                             <Link to={`${urls.settings('project')}#recordings`}>project settings</Link>{' '}
                                             and enable it.
                                         </LemonBanner>

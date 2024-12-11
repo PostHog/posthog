@@ -135,12 +135,16 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
 
     for (const [_groupType, group] of Object.entries(globals.groups || {})) {
         groups[`group_${group.index}`] = {
+            key: group.id,
+            index: group.index,
             properties: group.properties,
         }
+        groups[_groupType] = groups[`group_${group.index}`]
     }
 
     const elementsChain = globals.event.elements_chain ?? globals.event.properties['$elements_chain']
     const response = {
+        ...groups,
         event: globals.event.event,
         elements_chain: elementsChain,
         elements_chain_href: '',
@@ -158,7 +162,6 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
               }
             : undefined,
         distinct_id: globals.event.distinct_id,
-        ...groups,
     } satisfies HogFunctionFilterGlobals
 
     // The elements_chain_* fields are stored as materialized columns in ClickHouse.

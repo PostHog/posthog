@@ -1,17 +1,18 @@
 import {
-    IconChat,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
-    IconDecisionTree,
+    IconFeatures,
     IconGraph,
     IconHome,
     IconLive,
     IconLogomark,
     IconMegaphone,
+    IconMessage,
     IconNotebook,
     IconPeople,
     IconPieChart,
+    IconPlug,
     IconPlusSmall,
     IconRewindPlay,
     IconRocket,
@@ -429,6 +430,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     })
                 }
 
+                if (featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]) {
+                    sectionOne.splice(4, 0, {
+                        identifier: Scene.FeatureManagement,
+                        label: 'Features',
+                        icon: <IconFeatures />,
+                        logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
+                        to: isUsingSidebar ? undefined : urls.featureManagement(),
+                    })
+                }
+
                 return [
                     sectionOne,
                     [
@@ -492,7 +503,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         {
                             identifier: Scene.Surveys,
                             label: 'Surveys',
-                            icon: <IconChat />,
+                            icon: <IconMessage />,
                             to: urls.surveys(),
                         },
                         featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
@@ -506,13 +517,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         {
                             identifier: Scene.DataWarehouse,
                             label: 'Data warehouse',
-                            icon: <IconServer />,
+                            icon: <IconDatabase />,
                             to: isUsingSidebar ? undefined : urls.dataWarehouse(),
                         },
                         featureFlags[FEATURE_FLAGS.SQL_EDITOR]
                             ? {
                                   identifier: Scene.SQLEditor,
-                                  label: 'Data warehouse',
+                                  label: 'SQL Editor',
                                   icon: <IconServer />,
                                   to: urls.sqlEditor(),
                                   logic: editorSidebarLogic,
@@ -529,8 +540,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.Pipeline,
-                                  label: 'Data pipeline',
-                                  icon: <IconDecisionTree />,
+                                  label: 'Data pipelines',
+                                  icon: <IconPlug />,
                                   to: urls.pipeline(),
                               }
                             : null,

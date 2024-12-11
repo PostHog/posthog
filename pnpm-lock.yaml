@@ -217,6 +217,9 @@ dependencies:
   fast-deep-equal:
     specifier: ^3.1.3
     version: 3.1.3
+  fastpriorityqueue:
+    specifier: ^0.7.5
+    version: 0.7.5
   fflate:
     specifier: ^0.7.4
     version: 0.7.4
@@ -302,8 +305,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.194.0
-    version: 1.194.0
+    specifier: 1.195.0
+    version: 1.195.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -605,6 +608,9 @@ devDependencies:
   babel-plugin-import:
     specifier: ^1.13.0
     version: 1.13.8
+  caniuse-lite:
+    specifier: ^1.0.30001687
+    version: 1.0.30001687
   concurrently:
     specifier: ^5.3.0
     version: 5.3.0
@@ -4281,8 +4287,8 @@ packages:
       react: 18.2.0
     dev: true
 
-  /@emotion/use-insertion-effect-with-fallbacks@1.1.0(react@18.2.0):
-    resolution: {integrity: sha512-+wBOcIV5snwGgI2ya3u99D7/FJquOIniQT1IKyDsBmEgwvpxMNeS65Oib7OnE2d2aY+3BU4OiH+0Wchf8yk3Hw==}
+  /@emotion/use-insertion-effect-with-fallbacks@1.2.0(react@18.2.0):
+    resolution: {integrity: sha512-yJMtVdH59sxi/aVJBpk9FQq+OR8ll5GT8oWd57UpeaKEVGab41JWaCFA7FRLoMLloOZF/c/wsPoe+bfGmRKgDg==}
     peerDependencies:
       react: '>=16.8.0'
     dependencies:
@@ -6952,8 +6958,8 @@ packages:
       lodash: 4.17.21
     dev: true
 
-  /@storybook/csf@0.1.11:
-    resolution: {integrity: sha512-dHYFQH3mA+EtnCkHXzicbLgsvzYjcDJ1JWsogbItZogkPHgSJM/Wr71uMkcvw8v9mmCyP4NpXJuu6bPoVsOnzg==}
+  /@storybook/csf@0.1.12:
+    resolution: {integrity: sha512-9/exVhabisyIVL0VxTCxo01Tdm8wefIXKXfltAPTSr8cbLn5JAxGQ6QV3mjdecLGEOucfoVhAKtJfVHxEK1iqw==}
     dependencies:
       type-fest: 2.19.0
     dev: true
@@ -6993,7 +6999,7 @@ packages:
       '@storybook/channels': 7.6.20
       '@storybook/client-logger': 7.6.20
       '@storybook/core-events': 7.6.20
-      '@storybook/csf': 0.1.11
+      '@storybook/csf': 0.1.12
       '@storybook/global': 5.0.0
       '@storybook/router': 7.6.20
       '@storybook/theming': 7.6.20(react-dom@18.2.0)(react@18.2.0)
@@ -7108,7 +7114,7 @@ packages:
       '@storybook/channels': 7.6.20
       '@storybook/client-logger': 7.6.20
       '@storybook/core-events': 7.6.20
-      '@storybook/csf': 0.1.11
+      '@storybook/csf': 0.1.12
       '@storybook/global': 5.0.0
       '@storybook/types': 7.6.20
       '@types/qs': 6.9.17
@@ -7362,7 +7368,7 @@ packages:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0
     dependencies:
-      '@emotion/use-insertion-effect-with-fallbacks': 1.1.0(react@18.2.0)
+      '@emotion/use-insertion-effect-with-fallbacks': 1.2.0(react@18.2.0)
       '@storybook/client-logger': 7.6.20
       '@storybook/global': 5.0.0
       memoizerific: 1.11.3
@@ -9632,7 +9638,7 @@ packages:
       postcss: ^8.1.0
     dependencies:
       browserslist: 4.22.2
-      caniuse-lite: 1.0.30001568
+      caniuse-lite: 1.0.30001687
       fraction.js: 4.2.0
       normalize-range: 0.1.2
       picocolors: 1.0.0
@@ -9648,7 +9654,7 @@ packages:
       postcss: ^8.1.0
     dependencies:
       browserslist: 4.22.2
-      caniuse-lite: 1.0.30001568
+      caniuse-lite: 1.0.30001687
       fraction.js: 4.3.7
       normalize-range: 0.1.2
       picocolors: 1.0.0
@@ -10012,7 +10018,7 @@ packages:
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
     dependencies:
-      caniuse-lite: 1.0.30001538
+      caniuse-lite: 1.0.30001687
       electron-to-chromium: 1.4.492
       node-releases: 2.0.13
       update-browserslist-db: 1.0.11(browserslist@4.21.10)
@@ -10022,7 +10028,7 @@ packages:
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
     dependencies:
-      caniuse-lite: 1.0.30001568
+      caniuse-lite: 1.0.30001687
       electron-to-chromium: 1.4.609
       node-releases: 2.0.14
       update-browserslist-db: 1.0.13(browserslist@4.22.2)
@@ -10156,16 +10162,13 @@ packages:
     resolution: {integrity: sha512-bsTwuIg/BZZK/vreVTYYbSWoe2F+71P7K5QGEX+pT250DZbfU1MQ5prOKpPR+LL6uWKK3KMwMCAS74QB3Um1uw==}
     dependencies:
       browserslist: 4.22.2
-      caniuse-lite: 1.0.30001568
+      caniuse-lite: 1.0.30001687
       lodash.memoize: 4.1.2
       lodash.uniq: 4.5.0
     dev: false
 
-  /caniuse-lite@1.0.30001538:
-    resolution: {integrity: sha512-HWJnhnID+0YMtGlzcp3T9drmBJUVDchPJ08tpUGFLs9CYlwWPH2uLgpHn8fND5pCgXVtnGS3H4QR9XLMHVNkHw==}
-
-  /caniuse-lite@1.0.30001568:
-    resolution: {integrity: sha512-vSUkH84HontZJ88MiNrOau1EBrCqEQYgkC5gIySiDlpsm8sGVrhU7Kx4V6h0tnqaHzIHZv08HlJIwPbL4XL9+A==}
+  /caniuse-lite@1.0.30001687:
+    resolution: {integrity: sha512-0S/FDhf4ZiqrTUiQ39dKeUjYRjkv7lOZU1Dgif2rIqrTzX/1wV2hfKu9TOm1IHkdSijfLswxTFzl/cvir+SLSQ==}
 
   /case-anything@2.1.10:
     resolution: {integrity: sha512-JczJwVrCP0jPKh05McyVsuOg6AYosrB9XWZKbQzXeDAm2ClE/PJE/BcrrQrVyGYH7Jg8V/LDupmyL4kFlVsVFQ==}
@@ -12278,7 +12281,7 @@ packages:
       '@mdn/browser-compat-data': 5.3.16
       ast-metadata-inferer: 0.8.0
       browserslist: 4.21.10
-      caniuse-lite: 1.0.30001538
+      caniuse-lite: 1.0.30001687
       eslint: 8.57.0
       find-up: 5.0.0
       lodash.memoize: 4.1.2
@@ -12766,6 +12769,10 @@ packages:
     resolution: {integrity: sha512-eRnCtTTtGZFpQCwhJiUOuxPQWRXVKYDn0b2PeHfXL6/Zi53SLAzAHfVhVWK2AryC/WH05kGfxhFIPvTF0SXQzg==}
     engines: {node: '>= 4.9.1'}
     dev: true
+
+  /fastpriorityqueue@0.7.5:
+    resolution: {integrity: sha512-3Pa0n9gwy8yIbEsT3m2j/E9DXgWvvjfiZjjqcJ+AdNKTAlVMIuFYrYG5Y3RHEM8O6cwv9hOpOWY/NaMfywoQVA==}
+    dev: false
 
   /fastq@1.13.0:
     resolution: {integrity: sha512-YpkpUnK8od0o1hmeSc7UUs/eB/vIPWJYjKck2QKIzAf71Vm1AAQ3EbuZB3g2JIy+pg+ERD0vqI79KyZiB2e2Nw==}
@@ -14003,7 +14010,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.25.0
+      preact: 10.25.1
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -17822,12 +17829,12 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.194.0:
-    resolution: {integrity: sha512-9yjYjHYlT6hh6/OlEJmz/wEjMZI1cRghxmYirwq60uHK93nbbxFP1VE7LqjWFLM8jSTXRw//lpU23EvU7QjvxQ==}
+  /posthog-js@1.195.0:
+    resolution: {integrity: sha512-ja+d/uogH9IPPnnM512uL5a9Igzz4K1OvBJNybCSbt6hqjSC+c5XaY3XH8t4D3RFz7aU5Di3trsrh/YNkSbF6A==}
     dependencies:
       core-js: 3.39.0
       fflate: 0.4.8
-      preact: 10.25.0
+      preact: 10.25.1
       web-vitals: 4.2.4
     dev: false
 
@@ -17835,8 +17842,8 @@ packages:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.25.0:
-    resolution: {integrity: sha512-6bYnzlLxXV3OSpUxLdaxBmE7PMOu0aR3pG6lryK/0jmvcDFPlcXGQAt5DpK3RITWiDrfYZRI0druyaK/S9kYLg==}
+  /preact@10.25.1:
+    resolution: {integrity: sha512-frxeZV2vhQSohQwJ7FvlqC40ze89+8friponWUFeVEkaCfhC6Eu4V0iND5C9CXz8JLndV07QRDeXzH1+Anz5Og==}
     dev: false
 
   /prelude-ls@1.2.1:

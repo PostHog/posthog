@@ -3,14 +3,16 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.models import LazyJoin
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.hogql_queries.experiments.trends_statistics import (
     are_results_significant,
     calculate_credible_intervals,
     calculate_probabilities,
+)
+from posthog.hogql_queries.experiments.trends_statistics_v2 import (
+    are_results_significant_v2,
+    calculate_credible_intervals_v2,
+    calculate_probabilities_v2,
 )
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -37,7 +39,7 @@ from posthog.schema import (
     TrendsQuery,
     TrendsQueryResponse,
 )
-from typing import Any, Optional, cast
+from typing import Any, Optional
 import threading
 
 
@@ -58,6 +60,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
         self.breakdown_key = f"$feature/{self.feature_flag.key}"
+
+        self.stats_version = self.query.stats_version or 1
 
         self.prepared_count_query = self._prepare_count_query()
         self.prepared_exposure_query = self._prepare_exposure_query()
@@ -177,30 +181,49 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         if uses_math_aggregation:
             prepared_exposure_query = TrendsQuery(**self.query.count_query.model_dump())
-            count_event = self.query.count_query.series[0]
+            prepared_exposure_query.dateRange = self._get_insight_date_range()
+            prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
 
-            if hasattr(count_event, "event"):
-                prepared_exposure_query.dateRange = self._get_insight_date_range()
-                prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()
-                prepared_exposure_query.trendsFilter = TrendsFilter(
-                    display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
-                )
-                prepared_exposure_query.series = [
-                    EventsNode(
-                        event=count_event.event,
-                        math=BaseMathType.DAU,
-                    )
-                ]
+            # For a data warehouse query, we can use the unique users for the series
+            if self._is_data_warehouse_query(prepared_exposure_query):
+                prepared_exposure_query.breakdownFilter = self._get_data_warehouse_breakdown_filter()
+                prepared_exposure_query.series[0].math = BaseMathType.DAU
+                prepared_exposure_query.series[0].math_property = None
+                prepared_exposure_query.series[0].math_property_type = None
                 prepared_exposure_query.properties = [
-                    EventPropertyFilter(
-                        key=self.breakdown_key,
+                    DataWarehousePropertyFilter(
+                        key="events.event",
+                        value="$feature_flag_called",
+                        operator=PropertyOperator.EXACT,
+                        type="data_warehouse",
+                    ),
+                    DataWarehousePropertyFilter(
+                        key=f"events.properties.{self.breakdown_key}",
                         value=self.variants,
                         operator=PropertyOperator.EXACT,
-                        type="event",
-                    )
+                        type="data_warehouse",
+                    ),
                 ]
             else:
-                raise ValueError("Expected first series item to have an 'event' attribute")
+                count_event = self.query.count_query.series[0]
+                if hasattr(count_event, "event"):
+                    prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()
+                    prepared_exposure_query.series = [
+                        EventsNode(
+                            event=count_event.event,
+                            math=BaseMathType.DAU,
+                        )
+                    ]
+                    prepared_exposure_query.properties = [
+                        EventPropertyFilter(
+                            key=self.breakdown_key,
+                            value=self.variants,
+                            operator=PropertyOperator.EXACT,
+                            type="event",
+                        )
+                    ]
+                else:
+                    raise ValueError("Expected first series item to have an 'event' attribute")
 
         # 2. Otherwise, if an exposure query is provided, we use it as is, adapting the date range and breakdown
         elif self.query.exposure_query:
@@ -255,86 +278,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         def run(query_runner: TrendsQueryRunner, result_key: str, is_parallel: bool):
             try:
-                # Create a new database instance where we can attach our
-                # custom join to the events table. It will be passed through
-                # and used by the query runner.
-                database = create_hogql_database(team_id=self.team.pk)
-                if self._is_data_warehouse_query(query_runner.query):
-                    series_node = cast(DataWarehouseNode, query_runner.query.series[0])
-                    table = database.get_table(series_node.table_name)
-                    table.fields["events"] = LazyJoin(
-                        from_field=[series_node.distinct_id_field],
-                        join_table=database.get_table("events"),
-                        join_function=lambda join_to_add, context, node: (
-                            ast.JoinExpr(
-                                table=ast.SelectQuery(
-                                    select=[
-                                        ast.Alias(alias=name, expr=ast.Field(chain=["events", *chain]))
-                                        for name, chain in {
-                                            **join_to_add.fields_accessed,
-                                            "timestamp": ["timestamp"],
-                                            "distinct_id": ["distinct_id"],
-                                            "properties": ["properties"],
-                                        }.items()
-                                    ],
-                                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                                ),
-                                # ASOF JOIN finds the most recent matching event that occurred at or before each data warehouse timestamp.
-                                #
-                                # Why this matters:
-                                # When a user performs an action (recorded in data warehouse), we want to know which
-                                # experiment variant they were assigned at that moment. The most recent $feature_flag_called
-                                # event before their action represents their active variant assignment.
-                                #
-                                # Example:
-                                #   Data Warehouse: timestamp=2024-01-03 12:00, distinct_id=user1
-                                #   Events:
-                                #     2024-01-02: (user1, variant='control')   <- This event will be joined
-                                #     2024-01-03: (user1, variant='test')      <- Ignored (occurs after data warehouse timestamp)
-                                #
-                                # This ensures we capture the correct causal relationship: which experiment variant
-                                # was the user assigned to when they performed the action?
-                                join_type="ASOF LEFT JOIN",
-                                alias=join_to_add.to_table,
-                                constraint=ast.JoinConstraint(
-                                    expr=ast.And(
-                                        exprs=[
-                                            ast.CompareOperation(
-                                                left=ast.Field(chain=[join_to_add.to_table, "event"]),
-                                                op=ast.CompareOperationOp.Eq,
-                                                right=ast.Constant(value="$feature_flag_called"),
-                                            ),
-                                            ast.CompareOperation(
-                                                left=ast.Field(
-                                                    chain=[
-                                                        join_to_add.from_table,
-                                                        series_node.distinct_id_field,
-                                                    ]
-                                                ),
-                                                op=ast.CompareOperationOp.Eq,
-                                                right=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
-                                            ),
-                                            ast.CompareOperation(
-                                                left=ast.Field(
-                                                    chain=[
-                                                        join_to_add.from_table,
-                                                        series_node.timestamp_field,
-                                                    ]
-                                                ),
-                                                op=ast.CompareOperationOp.GtEq,
-                                                right=ast.Field(chain=[join_to_add.to_table, "timestamp"]),
-                                            ),
-                                        ]
-                                    ),
-                                    constraint_type="ON",
-                                ),
-                            )
-                        ),
-                    )
-
-                context = HogQLContext(team_id=self.team.pk, database=database)
-
-                result = query_runner.calculate(context=context)
+                result = query_runner.calculate()
                 shared_results[result_key] = result
             except Exception as e:
                 errors.append(e)
@@ -370,9 +314,14 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
-        probabilities = calculate_probabilities(control_variant, test_variants)
-        significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
-        credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+        if self.stats_version == 2:
+            probabilities = calculate_probabilities_v2(control_variant, test_variants)
+            significance_code, p_value = are_results_significant_v2(control_variant, test_variants, probabilities)
+            credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
+        else:
+            probabilities = calculate_probabilities(control_variant, test_variants)
+            significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
+            credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
 
         return ExperimentTrendsQueryResponse(
             kind="ExperimentTrendsQuery",
@@ -386,6 +335,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             },
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
+            stats_version=self.stats_version,
             p_value=p_value,
             credible_intervals=credible_intervals,
         )

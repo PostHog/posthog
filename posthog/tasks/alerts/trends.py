@@ -43,6 +43,17 @@ class TrendResult(TypedDict):
 
 
 def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: TrendsQuery) -> AlertEvaluationResult:
+    """
+    Calculates insight value for the needed time periods and compares it with the threshold.
+
+    Generally we check the insight value for the previous interval (day/week... grouping set on the trend insight) and compare it with the threshold/value for interval before that.
+    This is done because we need the current interval to complete before comparing against threshold.
+    (eg. if needing to check value < X, need to wait as more events will come in before interval finishes)
+
+    But in some cases (when check_current_interval = True) like value > X or value inc > X, we can check the value for the current interval and alert right away if threshold is breached.
+    So then we check current interval value first and alert if threshold breached, otherwise fallback and process previous interval.
+    """
+
     if "type" in alert.config and alert.config["type"] == "TrendsAlertConfig":
         config = TrendsAlertConfig.model_validate(alert.config)
     else:
@@ -51,14 +62,14 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
     condition = AlertCondition.model_validate(alert.condition)
     threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
 
-    if not threshold:
+    if not threshold or not threshold.bounds:
         return AlertEvaluationResult(value=0, breaches=[])
 
     has_breakdown = query.breakdownFilter and (
         (query.breakdownFilter.breakdown and query.breakdownFilter.breakdown_type) or query.breakdownFilter.breakdowns
     )
-
     is_non_time_series = _is_non_time_series_trend(query)
+    check_current_interval = False
 
     match condition.type:
         case AlertConditionType.ABSOLUTE_VALUE:
@@ -87,14 +98,32 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
             interval = query.interval if not is_non_time_series else None
 
+            if threshold.bounds.upper is not None:
+                # checking for value > X so we can also check current interval value
+                check_current_interval = True
+
             if has_breakdown:
                 # for breakdowns, we need to check all values in calculation_result.result
                 breakdown_results = calculation_result.result
 
                 for breakdown_result in breakdown_results:
-                    # pick previous interval value
+                    if check_current_interval:
+                        current_interval_value = _pick_interval_value_from_trend_result(query, breakdown_result, 0)
+                        breaches = _breach_messages(
+                            bounds=threshold.bounds,
+                            calculated_value=current_interval_value,
+                            threshold_type=threshold.type,
+                            condition_type=condition.type,
+                            interval_type=interval,
+                            series=breakdown_result["label"],
+                            is_current_interval=True,
+                        )
+                        if breaches:
+                            return AlertEvaluationResult(value=current_interval_value, breaches=breaches)
+
+                    # fall back to check previous interval
                     prev_interval_value = _pick_interval_value_from_trend_result(query, breakdown_result, -1)
-                    breaches = _validate_bounds(
+                    breaches = _breach_messages(
                         threshold.bounds,
                         prev_interval_value,
                         threshold.type,
@@ -102,7 +131,6 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                         interval,
                         breakdown_result["label"],
                     )
-
                     if breaches:
                         # found one breakdown value that breached the threshold
                         return AlertEvaluationResult(value=prev_interval_value, breaches=breaches)
@@ -113,8 +141,24 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 # for non breakdowns, we pick the series (config.series_index) from calculation_result.result
                 selected_series_result = _pick_series_result(config, calculation_result)
 
+                if check_current_interval:
+                    # pick current interval value
+                    current_interval_value = _pick_interval_value_from_trend_result(query, selected_series_result, 0)
+                    breaches = _breach_messages(
+                        threshold.bounds,
+                        current_interval_value,
+                        threshold.type,
+                        condition.type,
+                        interval,
+                        selected_series_result["label"],
+                        is_current_interval=True,
+                    )
+                    if breaches:
+                        return AlertEvaluationResult(value=current_interval_value, breaches=breaches)
+
+                # fall back to check previous interval
                 prev_interval_value = _pick_interval_value_from_trend_result(query, selected_series_result, -1)
-                breaches = _validate_bounds(
+                breaches = _breach_messages(
                     threshold.bounds,
                     prev_interval_value,
                     threshold.type,
@@ -133,7 +177,6 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             # so we need to compute the trend values for last 3 intervals
             # and then compare the previous interval with value for the interval before previous
             filters_overrides = _date_range_override_for_intervals(query, last_x_intervals=3)
-
             calculation_result = calculate_for_query_based_insight(
                 insight,
                 team=alert.team,
@@ -142,55 +185,93 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 filters_override=filters_overrides,
             )
 
-            results_to_evaluate = []
+            results_to_evaluate: list[TrendResult] = []
 
             if has_breakdown:
                 # for breakdowns, we need to check all values in calculation_result.result
-                breakdown_results = calculation_result.result
+                breakdown_results = cast(list[TrendResult], calculation_result.result)
                 results_to_evaluate.extend(breakdown_results)
             else:
                 # for non breakdowns, we pick the series (config.series_index) from calculation_result.result
                 selected_series_result = _pick_series_result(config, calculation_result)
                 results_to_evaluate.append(selected_series_result)
 
+            if not results_to_evaluate:
+                raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
+
             # if we don't have breakdown, we'll have to evaluate just one result
             # and increase will be the evaluated value of that result
             increase = None
+            breaches = []
+
+            if threshold.bounds.upper is not None:
+                # checking for value increased > X so we can also check current interval value
+                # as can alert right away if current interval value - previous interval value > upper threshold
+                check_current_interval = True
 
             for result in results_to_evaluate:
+                current_interval_value = _pick_interval_value_from_trend_result(query, result, 0)
                 prev_interval_value = _pick_interval_value_from_trend_result(query, result, -1)
                 prev_prev_interval_value = _pick_interval_value_from_trend_result(query, result, -2)
 
+                if check_current_interval:
+                    if threshold.type == InsightThresholdType.ABSOLUTE:
+                        increase = current_interval_value - prev_interval_value
+                    elif threshold.type == InsightThresholdType.PERCENTAGE:
+                        if prev_interval_value == 0 and current_interval_value == 0:
+                            increase = 0
+                        elif prev_interval_value == 0:
+                            increase = float("inf")
+                        else:
+                            increase = (current_interval_value - prev_interval_value) / prev_interval_value
+                    else:
+                        raise ValueError(
+                            f"Neither relative nor absolute threshold configured for alert condition RELATIVE_INCREASE"
+                        )
+
+                    breaches = _breach_messages(
+                        threshold.bounds,
+                        increase,
+                        threshold.type,
+                        condition.type,
+                        query.interval,
+                        result["label"],
+                        is_current_interval=True,
+                    )
+
+                    if breaches:
+                        # found a breach for one of the results so alert
+                        return AlertEvaluationResult(value=increase, breaches=breaches)
+
+                # fallback to check previous intervals
                 if threshold.type == InsightThresholdType.ABSOLUTE:
                     increase = prev_interval_value - prev_prev_interval_value
-                    breaches = _validate_bounds(
-                        threshold.bounds,
-                        increase,
-                        threshold.type,
-                        condition.type,
-                        query.interval,
-                        result["label"],
-                    )
                 elif threshold.type == InsightThresholdType.PERCENTAGE:
-                    increase = (prev_interval_value - prev_prev_interval_value) / prev_prev_interval_value
-                    breaches = _validate_bounds(
-                        threshold.bounds,
-                        increase,
-                        threshold.type,
-                        condition.type,
-                        query.interval,
-                        result["label"],
-                    )
+                    if prev_prev_interval_value == 0 and prev_interval_value == 0:
+                        increase = 0
+                    elif prev_prev_interval_value == 0:
+                        increase = float("inf")
+                    else:
+                        increase = (prev_interval_value - prev_prev_interval_value) / prev_prev_interval_value
                 else:
                     raise ValueError(
                         f"Neither relative nor absolute threshold configured for alert condition RELATIVE_INCREASE"
                     )
 
+                breaches = _breach_messages(
+                    threshold.bounds,
+                    increase,
+                    threshold.type,
+                    condition.type,
+                    query.interval,
+                    result["label"],
+                )
+
                 if breaches:
                     # found a breach for one of the results so alert
                     return AlertEvaluationResult(value=increase, breaches=breaches)
 
-            return AlertEvaluationResult(value=(increase if not has_breakdown else None), breaches=breaches)
+            return AlertEvaluationResult(value=(increase if not has_breakdown else None), breaches=[])
 
         case AlertConditionType.RELATIVE_DECREASE:
             if is_non_time_series:
@@ -201,7 +282,6 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             # so we need to compute the trend values for last 3 intervals
             # and then compare the previous interval with value for the interval before previous
             filters_overrides = _date_range_override_for_intervals(query, last_x_intervals=3)
-
             calculation_result = calculate_for_query_based_insight(
                 insight,
                 team=alert.team,
@@ -234,34 +314,32 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
                 if threshold.type == InsightThresholdType.ABSOLUTE:
                     decrease = prev_prev_interval_value - prev_interval_value
-                    breaches = _validate_bounds(
-                        threshold.bounds,
-                        decrease,
-                        threshold.type,
-                        condition.type,
-                        query.interval,
-                        result["label"],
-                    )
                 elif threshold.type == InsightThresholdType.PERCENTAGE:
-                    decrease = (prev_prev_interval_value - prev_interval_value) / prev_prev_interval_value
-                    breaches = _validate_bounds(
-                        threshold.bounds,
-                        decrease,
-                        threshold.type,
-                        condition.type,
-                        query.interval,
-                        result["label"],
-                    )
+                    if prev_prev_interval_value == 0 and prev_interval_value == 0:
+                        decrease = 0
+                    elif prev_prev_interval_value == 0:
+                        decrease = float("inf")
+                    else:
+                        decrease = (prev_prev_interval_value - prev_interval_value) / prev_prev_interval_value
                 else:
                     raise ValueError(
                         f"Neither relative nor absolute threshold configured for alert condition RELATIVE_INCREASE"
                     )
 
+                breaches = _breach_messages(
+                    threshold.bounds,
+                    decrease,
+                    threshold.type,
+                    condition.type,
+                    query.interval,
+                    result["label"],
+                )
+
                 if breaches:
                     # found a breach for one of the results so alert
                     return AlertEvaluationResult(value=decrease, breaches=breaches)
 
-            return AlertEvaluationResult(value=(decrease if not has_breakdown else None), breaches=breaches)
+            return AlertEvaluationResult(value=(decrease if not has_breakdown else None), breaches=[])
 
         case _:
             raise NotImplementedError(f"Unsupported alert condition type: {condition.type}")
@@ -314,19 +392,16 @@ def _pick_interval_value_from_trend_result(query: TrendsQuery, result: TrendResu
     return data[index_from_back]
 
 
-def _validate_bounds(
-    bounds: InsightsThresholdBounds | None,
+def _breach_messages(
+    bounds: InsightsThresholdBounds,
     calculated_value: float,
     threshold_type: InsightThresholdType,
     condition_type: AlertConditionType,
     interval_type: IntervalType | None,
     series: str,
+    is_current_interval: bool = False,
 ) -> list[str]:
-    if not bounds:
-        return []
-
     is_percentage = threshold_type == InsightThresholdType.PERCENTAGE
-
     formatted_value = f"{calculated_value:.2%}" if is_percentage else calculated_value
 
     match condition_type:
@@ -340,12 +415,13 @@ def _validate_bounds(
     if bounds.lower is not None and calculated_value < bounds.lower:
         lower_value = f"{bounds.lower:.2%}" if is_percentage else bounds.lower
         return [
-            f"The insight value ({series}) for previous {interval_type or 'interval'} ({formatted_value}) {condition_text} less than lower threshold ({lower_value})"
+            f"The insight value ({series}) for {'current' if is_current_interval else 'previous'} {interval_type or 'interval'} ({formatted_value}) {condition_text} less than lower threshold ({lower_value})"
         ]
+
     if bounds.upper is not None and calculated_value > bounds.upper:
         upper_value = f"{bounds.upper:.2%}" if is_percentage else bounds.upper
         return [
-            f"The insight value ({series}) for previous {interval_type or 'interval'} ({formatted_value}) {condition_text} more than upper threshold ({upper_value})"
+            f"The insight value ({series}) for {'current' if is_current_interval else 'previous'} {interval_type or 'interval'} ({formatted_value}) {condition_text} more than upper threshold ({upper_value})"
         ]
 
     return []

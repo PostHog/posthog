@@ -56,9 +56,13 @@ import { getExperimentInsightColour, transformResultFilters } from '../utils'
 export function VariantTag({
     experimentId,
     variantKey,
+    muted = false,
+    fontSize,
 }: {
     experimentId: ExperimentIdType
     variantKey: string
+    muted?: boolean
+    fontSize?: number
 }): JSX.Element {
     const { experiment, experimentResults, getIndexForVariant } = useValues(experimentLogic({ experimentId }))
 
@@ -86,7 +90,13 @@ export function VariantTag({
                     backgroundColor: getExperimentInsightColour(getIndexForVariant(experimentResults, variantKey)),
                 }}
             />
-            <span className="font-semibold">{variantKey}</span>
+            <span
+                className={`font-semibold ${muted ? 'text-[var(--text-secondary-3000)]' : ''}`}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
+            >
+                {variantKey}
+            </span>
         </span>
     )
 }

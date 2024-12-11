@@ -196,6 +196,7 @@ export enum ProductKey {
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     TEAMS = 'teams',
     WEB_ANALYTICS = 'web_analytics',
+    ERROR_TRACKING = 'error_tracking',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -231,6 +232,10 @@ export type ColumnChoice = string[] | 'DEFAULT'
 
 export interface ColumnConfig {
     active: ColumnChoice
+}
+
+export type WithAccessControl = {
+    user_access_level: 'none' | 'member' | 'admin' | 'viewer' | 'editor'
 }
 
 interface UserBaseType {
@@ -456,7 +461,7 @@ export interface ProjectBasicType {
     name: string
 }
 
-export interface TeamBasicType {
+export interface TeamBasicType extends WithAccessControl {
     id: number
     uuid: string
     organization: string // Organization ID
@@ -494,6 +499,7 @@ export interface ProjectType extends ProjectBasicType {
 export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
 }
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -688,7 +694,6 @@ export enum ReplayTabs {
     Templates = 'templates',
     Home = 'home',
     Playlists = 'playlists',
-    Errors = 'errors',
 }
 
 export enum ExperimentsTabs {
@@ -2941,7 +2946,7 @@ export interface FeatureFlagBasicType {
     ensure_experience_continuity: boolean | null
 }
 
-export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team_id'> {
+export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team_id'>, WithAccessControl {
     /** Null means that the flag has never been saved yet (it's new). */
     id: number | null
     created_by: UserBasicType | null
@@ -2990,9 +2995,27 @@ export interface FeatureFlagRollbackConditions {
     operator?: string
 }
 
+export enum FeatureFlagStatus {
+    ACTIVE = 'active',
+    INACTIVE = 'inactive',
+    STALE = 'stale',
+    DELETED = 'deleted',
+    UNKNOWN = 'unknown',
+}
+
+export interface FeatureFlagStatusResponse {
+    status: FeatureFlagStatus
+    reason: string
+}
+
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string
+}
+
+export interface Feature {
+    id: number | null
+    name: string
 }
 
 export enum EarlyAccessFeatureStage {
@@ -3604,6 +3627,7 @@ export enum BaseMathType {
     MonthlyActiveUsers = 'monthly_active',
     UniqueSessions = 'unique_session',
     FirstTimeForUser = 'first_time_for_user',
+    FirstMatchingEventForUser = 'first_matching_event_for_user',
 }
 
 export enum PropertyMathType {
@@ -3832,21 +3856,12 @@ export interface RoleType {
     name: string
     feature_flags_access_level: AccessLevel
     members: RoleMemberType[]
-    associated_flags: { id: number; key: string }[]
     created_at: string
     created_by: UserBasicType | null
 }
 
 export interface RolesListParams {
     feature_flags_access_level?: AccessLevel
-}
-
-export interface FeatureFlagAssociatedRoleType {
-    id: string
-    feature_flag: FeatureFlagType | null
-    role: RoleType
-    updated_at: string
-    added_at: string
 }
 
 export interface RoleMemberType {
@@ -3888,6 +3903,50 @@ export type APIScopeObject =
     | 'survey'
     | 'user'
     | 'webhook'
+
+export interface AccessControlTypeBase {
+    created_by: UserBasicType | null
+    created_at: string
+    updated_at: string
+    resource: APIScopeObject
+    access_level: string | null // TODO: Change to enum
+    organization_member?: OrganizationMemberType['id'] | null
+    role?: RoleType['id'] | null
+}
+
+export interface AccessControlTypeProject extends AccessControlTypeBase {}
+
+export interface AccessControlTypeMember extends AccessControlTypeBase {
+    organization_member: OrganizationMemberType['id']
+}
+
+export interface AccessControlTypeRole extends AccessControlTypeBase {
+    role: RoleType['id']
+}
+
+export type AccessControlType = AccessControlTypeProject | AccessControlTypeMember | AccessControlTypeRole
+
+export type AccessControlUpdateType = Pick<AccessControlType, 'access_level' | 'organization_member' | 'role'> & {
+    resource?: AccessControlType['resource']
+}
+
+export type AccessControlResponseType = {
+    access_controls: AccessControlType[]
+    available_access_levels: string[] // TODO: Change to enum
+    user_access_level: string
+    default_access_level: string
+    user_can_edit_access_levels: boolean
+}
+
+// TODO: To be deprecated
+export interface FeatureFlagAssociatedRoleType {
+    id: string
+    feature_flag: FeatureFlagType | null
+    role: RoleType
+    updated_at: string
+    added_at: string
+}
+// TODO: To be deprecated
 
 export interface OrganizationResourcePermissionType {
     id: string
@@ -3931,6 +3990,7 @@ export type PromptFlag = {
 
 // Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
 export enum ActivityScope {
+    ACTION = 'Action',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     INSIGHT = 'Insight',
@@ -3974,12 +4034,13 @@ export type NotebookListItemType = {
     last_modified_by?: UserBasicType | null
 }
 
-export type NotebookType = NotebookListItemType & {
-    content: JSONContent | null
-    version: number
-    // used to power text-based search
-    text_content?: string | null
-}
+export type NotebookType = NotebookListItemType &
+    WithAccessControl & {
+        content: JSONContent | null
+        version: number
+        // used to power text-based search
+        text_content?: string | null
+    }
 
 export enum NotebookNodeType {
     Mention = 'ph-mention',
@@ -4053,6 +4114,10 @@ export interface DataWarehouseViewLink {
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null
+    configuration?: {
+        experiments_optimized?: boolean
+        experiments_timestamp_key?: string | null
+    }
 }
 
 export enum DataWarehouseSettingsTab {
@@ -4423,6 +4488,7 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
+    // AccessControl = 'access-control',
 }
 
 export interface SourceFieldOauthConfig {
@@ -4588,7 +4654,16 @@ export interface HogFunctionFiltersType {
     bytecode_error?: string
 }
 
-export type HogFunctionTypeType = 'destination' | 'email' | 'sms' | 'push' | 'activity' | 'alert' | 'broadcast'
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'site_destination'
+    | 'site_app'
+    | 'email'
+    | 'sms'
+    | 'push'
+    | 'activity'
+    | 'alert'
+    | 'broadcast'
 
 export type HogFunctionType = {
     id: string
@@ -4610,7 +4685,7 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated'
+export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated' | 'client-side'
 export type HogFunctionSubTemplateIdType = 'early_access_feature_enrollment' | 'survey_response'
 
 export type HogFunctionConfigurationType = Omit<
