@@ -86,7 +86,12 @@ function onLoad() {
         const posthog = config.posthog;
         const callback = config.callback;
         if ('onLoad' in source) {
-            const r = source.onLoad({ inputs: buildInputs({}, true), posthog: posthog });
+            const globals = {
+                person: {
+                    properties: posthog.get_property('$stored_person_properties'),
+                }
+            }
+            const r = source.onLoad({ inputs: buildInputs(globals, true), posthog: posthog });
             if (r && typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => callback(false)).then(() => callback(true)) } else { callback(true) }
         } else {
             callback(true);
