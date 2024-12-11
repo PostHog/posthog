@@ -667,22 +667,23 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                 table_schema=schema,
                 delete=False,
             ) as bigquery_table:
-                has_query_permissions = await bq_client.acheck_for_query_permissions_on_table(bigquery_table)
+                can_perform_merge = await bq_client.acheck_for_query_permissions_on_table(bigquery_table)
 
-                if not has_query_permissions:
-                    await logger.awarning(
-                        "Missing query permissions on BigQuery table, will attempt direct load into final table"
-                    )
+                if not can_perform_merge:
                     if model_name == "persons":
                         raise MissingRequiredPermissionsError()
+
+                    await logger.awarning(
+                        "Missing query permissions on BigQuery table required for merging, will attempt direct load into final table"
+                    )
 
                 async with bq_client.managed_table(
                     project_id=inputs.project_id,
                     dataset_id=inputs.dataset_id,
-                    table_id=stage_table_name if has_query_permissions else inputs.table_id,
+                    table_id=stage_table_name if can_perform_merge else inputs.table_id,
                     table_schema=stage_schema,
-                    create=has_query_permissions,
-                    delete=has_query_permissions,
+                    create=can_perform_merge,
+                    delete=can_perform_merge,
                 ) as bigquery_stage_table:
                     records_completed = await run_consumer_loop(
                         queue=queue,
@@ -693,17 +694,17 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         data_interval_end=data_interval_end,
                         data_interval_start=data_interval_start,
                         schema=record_batch_schema,
-                        writer_format=WriterFormat.PARQUET if has_query_permissions else WriterFormat.JSONL,
+                        writer_format=WriterFormat.PARQUET if can_perform_merge else WriterFormat.JSONL,
                         max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                        json_columns=() if has_query_permissions else json_columns,
+                        json_columns=() if can_perform_merge else json_columns,
                         bigquery_client=bq_client,
-                        bigquery_table=bigquery_stage_table if has_query_permissions else bigquery_table,
-                        table_schema=stage_schema if has_query_permissions else schema,
-                        writer_file_kwargs={"compression": "zstd"} if has_query_permissions else {},
+                        bigquery_table=bigquery_stage_table if can_perform_merge else bigquery_table,
+                        table_schema=stage_schema if can_perform_merge else schema,
+                        writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
                         multiple_files=True,
                     )
 
-                    if has_query_permissions:
+                    if can_perform_merge:
                         merge_key = (
                             bigquery.SchemaField("team_id", "INT64"),
                             bigquery.SchemaField("distinct_id", "STRING"),
