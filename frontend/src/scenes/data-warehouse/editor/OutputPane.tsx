@@ -75,9 +75,7 @@ export function OutputPane(): JSX.Element {
             return responseLoading ? (
                 <Spinner className="text-3xl" />
             ) : !response ? (
-                <div className="flex flex-col flex-1 justify-center items-center">
-                    <span className="text-muted mt-3">Query results will appear here</span>
-                </div>
+                <span className="text-muted mt-3">Query results will appear here</span>
             ) : (
                 <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
                     <DataGrid
@@ -91,9 +89,7 @@ export function OutputPane(): JSX.Element {
 
         if (activeTab === OutputTab.Visualization) {
             return !response ? (
-                <div className="flex flex-col flex-1 justify-center items-center">
-                    <span className="text-muted mt-3">Query be results will be visualized here</span>
-                </div>
+                <span className="text-muted mt-3">Query be results will be visualized here</span>
             ) : (
                 <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
                     <InternalDataTableVisualization
@@ -201,7 +197,7 @@ export function OutputPane(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            <div className="flex flex-1 relative bg-dark">
+            <div className="flex flex-1 relative bg-dark justify-center items-center">
                 <Content />
             </div>
         </div>
