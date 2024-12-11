@@ -163,7 +163,7 @@ class OauthIntegration:
                 authorize_url="https://app.hubspot.com/oauth/authorize",
                 token_url="https://api.hubapi.com/oauth/v1/token",
                 token_info_url="https://api.hubapi.com/oauth/v1/access-tokens/:access_token",
-                token_info_config_fields=["hub_id", "hub_domain", "user", "user_id"],
+                token_info_config_fields=["hub_id", "hub_domain", "user", "user_id", "scopes"],
                 client_id=settings.HUBSPOT_APP_CLIENT_ID,
                 client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
                 scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
@@ -187,7 +187,7 @@ class OauthIntegration:
                 token_url="https://oauth2.googleapis.com/token",
                 client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
                 client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
-                scope="https://www.googleapis.com/auth/adwords email",
+                scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
