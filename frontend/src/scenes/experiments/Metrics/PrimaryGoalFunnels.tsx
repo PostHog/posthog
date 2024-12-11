@@ -14,7 +14,7 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema'
-import { BreakdownAttributionType, FilterType, FunnelsFilterType } from '~/types'
+import { BreakdownAttributionType, FilterType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import {
@@ -26,7 +26,7 @@ import {
 export function PrimaryGoalFunnels(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { experiment, isExperimentRunning } = useValues(experimentLogic)
-    const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
+    const { setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
     const metricIdx = 0
@@ -99,38 +99,18 @@ export function PrimaryGoalFunnels(): JSX.Element {
                         })
                     }}
                     onFunnelWindowIntervalUnitChange={(funnelWindowIntervalUnit) => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsMetric({
-                                metricIdx,
-                                funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
-                            })
-                        } else {
-                            setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    funnel_window_interval_unit: funnelWindowIntervalUnit || undefined,
-                                },
-                            })
-                        }
+                        setFunnelsMetric({
+                            metricIdx,
+                            funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
+                        })
                     }}
                 />
                 <FunnelAttributionSelect
                     value={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        let breakdownAttributionType
-                        let breakdownAttributionValue
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            breakdownAttributionType =
-                                currentMetric.funnels_query?.funnelsFilter?.breakdownAttributionType
-                            breakdownAttributionValue =
-                                currentMetric.funnels_query?.funnelsFilter?.breakdownAttributionValue
-                        } else {
-                            breakdownAttributionType = (experiment.filters as FunnelsFilterType)
-                                .breakdown_attribution_type
-                            breakdownAttributionValue = (experiment.filters as FunnelsFilterType)
-                                .breakdown_attribution_value
-                        }
+                        const breakdownAttributionType =
+                            currentMetric.funnels_query?.funnelsFilter?.breakdownAttributionType
+                        const breakdownAttributionValue =
+                            currentMetric.funnels_query?.funnelsFilter?.breakdownAttributionValue
 
                         const currentValue: BreakdownAttributionType | `${BreakdownAttributionType.Step}/${number}` =
                             !breakdownAttributionType
@@ -143,37 +123,16 @@ export function PrimaryGoalFunnels(): JSX.Element {
                     })()}
                     onChange={(value) => {
                         const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsMetric({
-                                metricIdx,
-                                breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
-                                breakdownAttributionValue: breakdownAttributionValue
-                                    ? parseInt(breakdownAttributionValue)
-                                    : undefined,
-                            })
-                        } else {
-                            setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    breakdown_attribution_type: breakdownAttributionType as BreakdownAttributionType,
-                                    breakdown_attribution_value: breakdownAttributionValue
-                                        ? parseInt(breakdownAttributionValue)
-                                        : 0,
-                                },
-                            })
-                        }
+                        setFunnelsMetric({
+                            metricIdx,
+                            breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
+                            breakdownAttributionValue: breakdownAttributionValue
+                                ? parseInt(breakdownAttributionValue)
+                                : undefined,
+                        })
                     }}
                     stepsLength={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            return currentMetric.funnels_query?.series?.length
-                        }
-                        return Math.max(
-                            experiment.filters.actions?.length ?? 0,
-                            experiment.filters.events?.length ?? 0,
-                            experiment.filters.data_warehouse?.length ?? 0
-                        )
+                        return currentMetric.funnels_query?.series?.length
                     })()}
                 />
                 <TestAccountFilterSwitch
