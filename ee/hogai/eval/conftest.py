@@ -4,7 +4,7 @@ from posthog.conftest import create_clickhouse_tables
 from posthog.test.base import run_clickhouse_statement_in_parallel
 
 
-@pytest.fixture(scope="package", autouse=True)
+@pytest.fixture(scope="module", autouse=True)
 def setup_kafka_tables(django_db_setup):
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.schema import (
