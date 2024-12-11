@@ -546,22 +546,6 @@
             },
             "type": "object"
         },
-        "AssistantCompareFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "compare": {
-                    "default": false,
-                    "description": "Whether to compare the current date range to a previous date range.",
-                    "type": "boolean"
-                },
-                "compare_to": {
-                    "default": "-7d",
-                    "description": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
-                    "type": "string"
-                }
-            },
-            "type": "object"
-        },
         "AssistantDateTimePropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -3792,9 +3776,13 @@
             "additionalProperties": false,
             "properties": {
                 "compare": {
+                    "default": false,
+                    "description": "Whether to compare the current date range to a previous date range.",
                     "type": "boolean"
                 },
                 "compare_to": {
+                    "default": "-7d",
+                    "description": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
                     "type": "string"
                 }
             },
@@ -12869,6 +12857,9 @@
         "WebExternalClicksTableQuery": {
             "additionalProperties": false,
             "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
                 "conversionGoal": {
                     "anyOf": [
                         {
@@ -12982,6 +12973,9 @@
         "WebGoalsQuery": {
             "additionalProperties": false,
             "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
                 "conversionGoal": {
                     "anyOf": [
                         {
@@ -13122,14 +13116,7 @@
             "additionalProperties": false,
             "properties": {
                 "compareFilter": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/CompareFilter"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "$ref": "#/definitions/CompareFilter"
                 },
                 "conversionGoal": {
                     "anyOf": [
@@ -13261,14 +13248,7 @@
                     "$ref": "#/definitions/WebStatsBreakdown"
                 },
                 "compareFilter": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/CompareFilter"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "$ref": "#/definitions/CompareFilter"
                 },
                 "conversionGoal": {
                     "anyOf": [
