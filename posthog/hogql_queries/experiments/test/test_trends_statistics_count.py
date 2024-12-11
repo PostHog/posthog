@@ -1,9 +1,9 @@
 from posthog.hogql_queries.experiments import MIN_PROBABILITY_FOR_SIGNIFICANCE
 from posthog.schema import ExperimentVariantTrendsBaseStats, ExperimentSignificanceCode
-from posthog.hogql_queries.experiments.trends_statistics_v2 import (
-    calculate_probabilities_v2,
-    are_results_significant_v2,
-    calculate_credible_intervals_v2,
+from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
+    calculate_probabilities_v2_count,
+    are_results_significant_v2_count,
+    calculate_credible_intervals_v2_count,
 )
 from posthog.hogql_queries.experiments.trends_statistics import (
     calculate_probabilities,
@@ -41,9 +41,9 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         # Run for v2 implementation
         test_fn(
             stats_version=2,
-            calculate_probabilities=calculate_probabilities_v2,
-            are_results_significant=are_results_significant_v2,
-            calculate_credible_intervals=calculate_credible_intervals_v2,
+            calculate_probabilities=calculate_probabilities_v2_count,
+            are_results_significant=are_results_significant_v2_count,
+            calculate_credible_intervals=calculate_credible_intervals_v2_count,
         )
 
     def test_small_sample_two_variants_not_significant(self):
