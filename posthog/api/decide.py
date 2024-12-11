@@ -1,5 +1,5 @@
 from random import random
-from typing import Any, Union, cast
+from typing import Any, Union
 
 import structlog
 from django.conf import settings
