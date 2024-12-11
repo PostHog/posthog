@@ -10,7 +10,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
-from ee.hogai.utils import Conversation
+from ee.hogai.utils import ConversationState
 from posthog.schema import AssistantMessage, HumanMessage, ReasoningMessage, RootAssistantMessage
 from posthog.test.base import NonAtomicBaseTest
 
@@ -22,14 +22,14 @@ class TestAssistant(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def _run_assistant_graph(
-        self, test_graph: Optional[CompiledStateGraph] = None, conversation: Optional[Conversation] = None
+        self, test_graph: Optional[CompiledStateGraph] = None, conversation: Optional[ConversationState] = None
     ) -> list[tuple[str, Any]]:
         # Create assistant instance with our test graph
         assistant = Assistant(
             team=self.team,
             user=self.user,
             conversation=conversation
-            or Conversation(messages=[HumanMessage(content="Hello")], session_id=str(uuid4())),
+            or ConversationState(messages=[HumanMessage(content="Hello")], session_id=str(uuid4())),
         )
         if test_graph:
             assistant._graph = test_graph
@@ -166,7 +166,7 @@ class TestAssistant(NonAtomicBaseTest):
 
     def _test_human_in_the_loop(self, graph: CompiledStateGraph):
         with patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as mock:
-            conversation = Conversation(messages=[HumanMessage(content="Hello")], session_id=str(uuid4()))
+            conversation = ConversationState(messages=[HumanMessage(content="Hello")], session_id=str(uuid4()))
             config = {
                 "configurable": {
                     "thread_id": conversation.session_id,
@@ -250,7 +250,7 @@ class TestAssistant(NonAtomicBaseTest):
                 .add_trends_planner(AssistantNodeName.END)
                 .compile()
             )
-            conversation = Conversation(messages=[HumanMessage(content="Hello")], session_id=str(uuid4()))
+            conversation = ConversationState(messages=[HumanMessage(content="Hello")], session_id=str(uuid4()))
             config = {
                 "configurable": {
                     "thread_id": conversation.session_id,

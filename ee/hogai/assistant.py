@@ -20,8 +20,8 @@ from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
 )
-from ee.hogai.utils import AssistantMessageUnion, AssistantNodeName, AssistantState, Conversation, ReplaceMessages
-from ee.models import AssistantThread
+from ee.hogai.utils import AssistantMessageUnion, AssistantNodeName, AssistantState, ConversationState, ReplaceMessages
+from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.schema import (
@@ -90,10 +90,10 @@ class Assistant:
     _team: Team
     _graph: CompiledStateGraph
     _user: Optional[User]
-    _conversation: Conversation
+    _conversation: ConversationState
     _state: Optional[AssistantState]
 
-    def __init__(self, team: Team, conversation: Conversation, user: Optional[User] = None):
+    def __init__(self, team: Team, conversation: ConversationState, user: Optional[User] = None):
         self._team = team
         self._user = user
         self._conversation = conversation
@@ -161,7 +161,7 @@ class Assistant:
             "plan": None,
         }
 
-    def _get_config(self, thread: AssistantThread) -> RunnableConfig:
+    def _get_config(self, thread: Conversation) -> RunnableConfig:
         callbacks = [langfuse_handler] if langfuse_handler else []
         config: RunnableConfig = {
             "recursion_limit": 24,
@@ -170,7 +170,7 @@ class Assistant:
         }
         return config
 
-    def _init_or_update_state(self, thread: AssistantThread):
+    def _init_or_update_state(self, thread: Conversation):
         config = self._get_config(thread)
         snapshot = self._graph.get_state(config)
         if snapshot.next:
@@ -195,7 +195,7 @@ class Assistant:
         return initial_state
 
     def _init_thread(self):
-        thread, _ = AssistantThread.objects.get_or_create(
+        thread, _ = Conversation.objects.get_or_create(
             id=self._conversation.session_id, team=self._team, user=self._user
         )
         last_message = self._conversation.messages[-1].root

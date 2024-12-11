@@ -28,7 +28,7 @@ AIMessageUnion = Union[AssistantMessage, VisualizationMessage, FailureMessage, R
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
 
 
-class Conversation(BaseModel):
+class ConversationState(BaseModel):
     messages: list[RootAssistantMessage] = Field(..., min_length=1, max_length=50)
     session_id: str
 

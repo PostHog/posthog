@@ -20,7 +20,7 @@ from langgraph.checkpoint.base import (
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.serde.types import ChannelProtocol
 
-from ee.models.assistant import AssistantCheckpoint, AssistantCheckpointBlob, AssistantCheckpointWrite
+from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
@@ -31,7 +31,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         super().__init__(*args)
         self._lock = threading.Lock()
 
-    def _load_writes(self, writes: Sequence[AssistantCheckpointWrite]) -> list[PendingWrite]:
+    def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
         return (
             [
                 (
@@ -81,9 +81,11 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         if before is not None:
             query &= Q(id__lt=get_checkpoint_id(before))
 
-        return AssistantCheckpoint.objects.filter(query).order_by("-id")
+        return ConversationCheckpoint.objects.filter(query).order_by("-id")
 
-    def _get_checkpoint_channel_values(self, checkpoint: AssistantCheckpoint) -> Iterable[AssistantCheckpointBlob]:
+    def _get_checkpoint_channel_values(
+        self, checkpoint: ConversationCheckpoint
+    ) -> Iterable[ConversationCheckpointBlob]:
         if not checkpoint.checkpoint:
             return []
         loaded_checkpoint = self._load_json(checkpoint.checkpoint)
@@ -217,7 +219,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         }
 
         with self._lock, transaction.atomic():
-            updated_checkpoint, _ = AssistantCheckpoint.objects.update_or_create(
+            updated_checkpoint, _ = ConversationCheckpoint.objects.update_or_create(
                 id=checkpoint["id"],
                 thread_id=thread_id,
                 checkpoint_ns=checkpoint_ns,
@@ -234,7 +236,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     self.serde.dumps_typed(channel_values[channel]) if channel in channel_values else ("empty", None)
                 )
                 blobs.append(
-                    AssistantCheckpointBlob(
+                    ConversationCheckpointBlob(
                         checkpoint=updated_checkpoint,
                         channel=channel,
                         version=str(version),
@@ -243,7 +245,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     )
                 )
 
-            AssistantCheckpointBlob.objects.bulk_create(blobs, ignore_conflicts=True)
+            ConversationCheckpointBlob.objects.bulk_create(blobs, ignore_conflicts=True)
         return next_config
 
     def put_writes(
@@ -270,7 +272,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             # `put_writes` and `put` are concurrently called without guaranteeing the call order
             # so we need to ensure the checkpoint is created before creating writes.
             # Thread.lock() will prevent race conditions though to the same checkpoints within a single pod.
-            checkpoint, _ = AssistantCheckpoint.objects.get_or_create(
+            checkpoint, _ = ConversationCheckpoint.objects.get_or_create(
                 id=checkpoint_id, thread_id=thread_id, checkpoint_ns=checkpoint_ns
             )
 
@@ -278,7 +280,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             for idx, (channel, value) in enumerate(writes):
                 type, blob = self.serde.dumps_typed(value)
                 writes_to_create.append(
-                    AssistantCheckpointWrite(
+                    ConversationCheckpointWrite(
                         checkpoint=checkpoint,
                         task_id=task_id,
                         idx=idx,
@@ -288,7 +290,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     )
                 )
 
-            AssistantCheckpointWrite.objects.bulk_create(
+            ConversationCheckpointWrite.objects.bulk_create(
                 writes_to_create,
                 update_conflicts=all(w[0] in WRITES_IDX_MAP for w in writes),
                 unique_fields=["checkpoint", "task_id", "idx"],

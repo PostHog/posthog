@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from sentry_sdk import capture_exception, set_tag
 
 from ee.hogai.assistant import Assistant
-from ee.hogai.utils import Conversation
+from ee.hogai.utils import ConversationState
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
@@ -182,7 +182,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @action(detail=False, methods=["POST"], renderer_classes=[ServerSentEventRenderer])
     def chat(self, request: Request, *args, **kwargs):
         assert request.user is not None
-        validated_body = Conversation.model_validate(request.data)
+        validated_body = ConversationState.model_validate(request.data)
         assistant = Assistant(self.team, validated_body, cast(User, request.user))
         return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
 

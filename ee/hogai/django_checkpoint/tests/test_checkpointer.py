@@ -15,7 +15,12 @@ from langgraph.graph import END, START
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.models.assistant import AssistantCheckpoint, AssistantCheckpointBlob, AssistantCheckpointWrite, AssistantThread
+from ee.models.assistant import (
+    Conversation,
+    ConversationCheckpoint,
+    ConversationCheckpointBlob,
+    ConversationCheckpointWrite,
+)
 from posthog.test.base import NonAtomicBaseTest
 
 
@@ -43,8 +48,8 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         return graph.compile(checkpointer=checkpointer)
 
     def test_saver(self):
-        thread1 = AssistantThread.objects.create(user=self.user, team=self.team)
-        thread2 = AssistantThread.objects.create(user=self.user, team=self.team)
+        thread1 = Conversation.objects.create(user=self.user, team=self.team)
+        thread2 = Conversation.objects.create(user=self.user, team=self.team)
 
         config_1: RunnableConfig = {
             "configurable": {
@@ -133,7 +138,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         } == {"", "inner"}
 
     def test_channel_versions(self):
-        thread1 = AssistantThread.objects.create(user=self.user, team=self.team)
+        thread1 = Conversation.objects.create(user=self.user, team=self.team)
 
         chkpnt = {
             "v": 1,
@@ -164,7 +169,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         saver = DjangoCheckpointer()
         saver.put(write_config, chkpnt, metadata, {})
 
-        checkpoint = AssistantCheckpoint.objects.first()
+        checkpoint = ConversationCheckpoint.objects.first()
         self.assertIsNotNone(checkpoint)
         self.assertEqual(checkpoint.thread, thread1)
         self.assertEqual(checkpoint.checkpoint_ns, "")
@@ -181,7 +186,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         self.assertEqual(checkpoint, checkpoints[0].checkpoint)
 
     def test_put_copies_checkpoint(self):
-        thread1 = AssistantThread.objects.create(user=self.user, team=self.team)
+        thread1 = Conversation.objects.create(user=self.user, team=self.team)
         chkpnt = {
             "v": 1,
             "ts": "2024-07-31T20:14:19.804150+00:00",
@@ -211,20 +216,20 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
 
     def test_concurrent_puts_and_put_writes(self):
         graph: CompiledStateGraph = self._build_graph(DjangoCheckpointer())
-        thread = AssistantThread.objects.create(user=self.user, team=self.team)
+        thread = Conversation.objects.create(user=self.user, team=self.team)
         config = {"configurable": {"thread_id": str(thread.id)}}
         graph.invoke(
             {"val": 0},
             config=config,
         )
-        self.assertEqual(len(AssistantCheckpoint.objects.all()), 4)
-        self.assertEqual(len(AssistantCheckpointBlob.objects.all()), 10)
-        self.assertEqual(len(AssistantCheckpointWrite.objects.all()), 6)
+        self.assertEqual(len(ConversationCheckpoint.objects.all()), 4)
+        self.assertEqual(len(ConversationCheckpointBlob.objects.all()), 10)
+        self.assertEqual(len(ConversationCheckpointWrite.objects.all()), 6)
 
     def test_resuming(self):
         checkpointer = DjangoCheckpointer()
         graph: CompiledStateGraph = self._build_graph(checkpointer)
-        thread = AssistantThread.objects.create(user=self.user, team=self.team)
+        thread = Conversation.objects.create(user=self.user, team=self.team)
         config = {"configurable": {"thread_id": str(thread.id)}}
 
         graph.invoke(
@@ -235,13 +240,13 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         self.assertIsNotNone(snapshot.next)
         self.assertEqual(snapshot.tasks[0].interrupts[0].value, "test")
 
-        self.assertEqual(len(AssistantCheckpoint.objects.all()), 2)
-        self.assertEqual(len(AssistantCheckpointBlob.objects.all()), 4)
-        self.assertEqual(len(AssistantCheckpointWrite.objects.all()), 3)
+        self.assertEqual(len(ConversationCheckpoint.objects.all()), 2)
+        self.assertEqual(len(ConversationCheckpointBlob.objects.all()), 4)
+        self.assertEqual(len(ConversationCheckpointWrite.objects.all()), 3)
         self.assertEqual(len(list(checkpointer.list(config))), 2)
 
-        latest_checkpoint = AssistantCheckpoint.objects.last()
-        latest_write = AssistantCheckpointWrite.objects.filter(checkpoint=latest_checkpoint).first()
+        latest_checkpoint = ConversationCheckpoint.objects.last()
+        latest_write = ConversationCheckpointWrite.objects.filter(checkpoint=latest_checkpoint).first()
         actual_checkpoint = checkpointer.get_tuple(config)
         self.assertIsNotNone(actual_checkpoint)
         self.assertIsNotNone(latest_write)
@@ -254,15 +259,15 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
 
         graph.update_state(config, {"val": 2})
         # add the value update checkpoint
-        self.assertEqual(len(AssistantCheckpoint.objects.all()), 3)
-        self.assertEqual(len(AssistantCheckpointBlob.objects.all()), 6)
-        self.assertEqual(len(AssistantCheckpointWrite.objects.all()), 5)
+        self.assertEqual(len(ConversationCheckpoint.objects.all()), 3)
+        self.assertEqual(len(ConversationCheckpointBlob.objects.all()), 6)
+        self.assertEqual(len(ConversationCheckpointWrite.objects.all()), 5)
         self.assertEqual(len(list(checkpointer.list(config))), 3)
 
         res = graph.invoke(None, config=config)
-        self.assertEqual(len(AssistantCheckpoint.objects.all()), 5)
-        self.assertEqual(len(AssistantCheckpointBlob.objects.all()), 12)
-        self.assertEqual(len(AssistantCheckpointWrite.objects.all()), 9)
+        self.assertEqual(len(ConversationCheckpoint.objects.all()), 5)
+        self.assertEqual(len(ConversationCheckpointBlob.objects.all()), 12)
+        self.assertEqual(len(ConversationCheckpointWrite.objects.all()), 9)
         self.assertEqual(len(list(checkpointer.list(config))), 5)
         self.assertEqual(res, {"val": 3})
         snapshot = graph.get_state(config)
