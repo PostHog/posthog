@@ -39,10 +39,10 @@ export function OutputPane(): JSX.Element {
     const { editingView, sourceQuery, exportContext, isValidView, error } = useValues(multitabEditorLogic)
     const { saveAsInsight, saveAsView, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { response, responseLoading } = useValues(dataNodeLogic)
+    const { response, responseLoading, responseError } = useValues(dataNodeLogic)
     const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
-    const { visualizationType } = useValues(dataVisualizationLogic)
+    const { visualizationType, queryCancelled } = useValues(dataVisualizationLogic)
 
     const vizKey = `SQLEditorScene`
 
@@ -71,6 +71,24 @@ export function OutputPane(): JSX.Element {
 
     const Content = (): JSX.Element | null => {
         if (activeTab === OutputTab.Results) {
+            if (responseError) {
+                return (
+                    <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
+                        <InsightErrorState
+                            query={sourceQuery}
+                            excludeDetail
+                            title={
+                                queryCancelled
+                                    ? 'The query was cancelled'
+                                    : response && 'error' in response
+                                    ? (response as any).error
+                                    : responseError
+                            }
+                        />
+                    </div>
+                )
+            }
+
             return responseLoading ? (
                 <Spinner className="text-3xl" />
             ) : !response ? (
@@ -87,6 +105,24 @@ export function OutputPane(): JSX.Element {
         }
 
         if (activeTab === OutputTab.Visualization) {
+            if (responseError) {
+                return (
+                    <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
+                        <InsightErrorState
+                            query={sourceQuery}
+                            excludeDetail
+                            title={
+                                queryCancelled
+                                    ? 'The query was cancelled'
+                                    : response && 'error' in response
+                                    ? (response as any).error
+                                    : responseError
+                            }
+                        />
+                    </div>
+                )
+            }
+
             return !response ? (
                 <span className="text-muted mt-3">Query be results will be visualized here</span>
             ) : (
