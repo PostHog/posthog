@@ -15,6 +15,7 @@ common_inputs = {
         "type": "integration",
         "integration": "salesforce",
         "label": "Salesforce account",
+        "requiredScopes": "refresh_token full",
         "secret": False,
         "required": True,
     }
