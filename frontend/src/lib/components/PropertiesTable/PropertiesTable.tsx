@@ -483,6 +483,7 @@ export function PropertiesTable({
                                         onClick={() => {
                                             setSearchTerm('')
                                             setHidePostHogPropertiesInTable(false)
+                                            setHideNullValues(false)
                                         }}
                                     >
                                         Clear filters
