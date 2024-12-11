@@ -28,8 +28,16 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
 
 import AlgoliaSearch from '../../components/AlgoliaSearch'
-import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
-import { SIDE_PANEL_TABS } from '../SidePanel'
+import { MaxChatInterface } from './sidePanelMaxChatInterface'
+{
+    /* the next two imports are on hold until after MVP */
+}
+{
+    /*import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'*/
+}
+{
+    /*import { SIDE_PANEL_TABS } from '../SidePanel'*/
+}
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import { sidePanelStatusLogic } from './sidePanelStatusLogic'
 
@@ -166,19 +174,50 @@ export const SidePanelSupport = (): JSX.Element => {
     const { status } = useValues(sidePanelStatusLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
-    const { openEmailForm, closeEmailForm } = useActions(theLogic)
-    const { title, isEmailFormOpen } = useValues(theLogic)
+    const { openEmailForm, closeEmailForm, openMaxChatInterface, closeMaxChatInterface } = useActions(theLogic)
+    const { isEmailFormOpen, isMaxChatInterfaceOpen } = useValues(theLogic)
 
     const region = preflight?.region
 
     return (
         <>
-            <SidePanelPaneHeader title={isEmailFormOpen ? title : SIDE_PANEL_TABS[SidePanelTab.Support].label} />
+            {/* this is on hold until after MVP */}
+            {/* <SidePanelPaneHeader title={isEmailFormOpen ? title : SIDE_PANEL_TABS[SidePanelTab.Support].label}>
+                {isMaxChatInterfaceOpen && (
+                    <>
+                        <div className="flex-1" />
+                        <LemonButton
+                            size="small"
+                            sideIcon={<IconExternal />}
+                            targetBlank
+                            onClick={() => {
+                                window.open('/max', '_blank')?.focus()
+                                closeSidePanel(SidePanelTab.Support)
+                            }}
+                        >
+                            Open in new tab
+                        </LemonButton>
+                    </>
+                )}
+            </SidePanelPaneHeader> */}
 
             <div className="overflow-y-auto" data-attr="side-panel-support-container">
                 <div className="p-3 max-w-160 w-full mx-auto">
                     {isEmailFormOpen ? (
                         <SupportFormBlock onCancel={() => closeEmailForm()} />
+                    ) : isMaxChatInterfaceOpen ? (
+                        <div className="space-y-4">
+                            <MaxChatInterface />
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => closeMaxChatInterface()}
+                                fullWidth
+                                center
+                                className="mt-2"
+                            >
+                                End Chat
+                            </LemonButton>
+                        </div>
                     ) : (
                         <>
                             <Section title="Search docs & community questions">
@@ -230,8 +269,29 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </Section>
                             ) : null}
 
-                            {/* only allow opening tickets on our Cloud instances */}
-                            {isCloud ? (
+                            {isCloud || true ? (
+                                <Section title="Ask Max the Hedgehog">
+                                    <p>
+                                        Max is PostHog's support AI who can answer support questions, help you with
+                                        troubleshooting, find info in our documentation, write HogQL queries, regex
+                                        expressions, etc.
+                                    </p>
+                                    <LemonButton
+                                        type="primary"
+                                        fullWidth
+                                        center
+                                        onClick={() => {
+                                            openMaxChatInterface()
+                                        }}
+                                        targetBlank={false}
+                                        className="mt-2"
+                                    >
+                                        Chat with Max 🦔
+                                    </LemonButton>
+                                </Section>
+                            ) : null}
+
+                            {isCloud || true ? (
                                 <Section title="Contact us">
                                     <p>Can't find what you need in the docs?</p>
                                     <LemonButton
@@ -246,6 +306,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                     </LemonButton>
                                 </Section>
                             ) : null}
+
                             <Section title="Ask the community">
                                 <p>
                                     Questions about features, how-tos, or use cases? There are thousands of discussions
