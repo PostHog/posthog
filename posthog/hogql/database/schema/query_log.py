@@ -14,7 +14,7 @@ from posthog.hogql.database.models import (
 )
 
 QUERY_LOG_FIELDS: dict[str, FieldOrTable] = {
-    "query_id": StringDatabaseField(name="query_id"),  #
+    "query_id": StringDatabaseField(name="query_id"),
     "query": StringDatabaseField(name="query"),  #
     "query_start_time": DateTimeDatabaseField(name="event_time"),  #
     "query_duration_ms": FloatDatabaseField(name="query_duration_ms"),  #
@@ -25,18 +25,19 @@ QUERY_LOG_FIELDS: dict[str, FieldOrTable] = {
     "result_bytes": IntegerDatabaseField(name="result_bytes"),
     "memory_usage": IntegerDatabaseField(name="memory_usage"),
     "status": StringDatabaseField(name="type"),
-    "log_comment": StringDatabaseField(name="log_comment"),
     "kind": StringDatabaseField(name="kind"),
     "query_type": StringDatabaseField(name="query_type"),
     "is_personal_api_key_request": BooleanDatabaseField(name="is_personal_api_key_request"),
-    # below fields are used in condition and cannot be removed
+}
+
+RAW_QUERY_LOG_FIELDS: dict[str, FieldOrTable] = QUERY_LOG_FIELDS | {
+    # below fields are necessary to compute some of the resulting fields
     "type": StringDatabaseField(name="type"),
     "is_initial_query": BooleanDatabaseField(name="is_initial_query"),
-    # "query_1": ExpressionField(name="query_1", ),
+    "log_comment": StringDatabaseField(name="log_comment"),
 }
 
 STRING_FIELDS = {
-    "cache_key": ["cache_key"],
     "query_type": ["query_type"],
     "query_id": ["client_query_id"],
     "query": ["query", "query"],
@@ -119,7 +120,7 @@ class QueryLogTable(LazyTable):
 
 
 class RawQueryLogTable(FunctionCallTable):
-    fields: dict[str, FieldOrTable] = QUERY_LOG_FIELDS
+    fields: dict[str, FieldOrTable] = RAW_QUERY_LOG_FIELDS
 
     name: str = "raw_query_log"
 
