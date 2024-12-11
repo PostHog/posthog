@@ -12,6 +12,7 @@ ALPHA_0 = 1.0  # Prior shape for variance
 BETA_0 = 1.0  # Prior scale for variance
 
 SAMPLE_SIZE = 10000
+EPSILON = 1e-10  # Small epsilon value to handle zeros
 
 
 def calculate_probabilities_v2_continuous(
@@ -51,7 +52,7 @@ def calculate_probabilities_v2_continuous(
         raise ValidationError("Can't calculate experiment results for less than 2 variants", code="no_data")
 
     # Calculate posterior parameters for control
-    log_control_mean = np.log(control_variant.count)  # Using count field to store mean value
+    log_control_mean = np.log(control_variant.count + EPSILON)  # Using count field to store mean value
     log_variance = 0.25  # Assumed variance in log-space
 
     # Update parameters for control
@@ -69,7 +70,7 @@ def calculate_probabilities_v2_continuous(
     # Draw samples for each test variant
     test_samples = []
     for test in test_variants:
-        log_test_mean = np.log(test.count)  # Using count field to store mean value
+        log_test_mean = np.log(test.count + EPSILON)  # Using count field to store mean value
 
         kappa_n_test = KAPPA_0 + test.exposure
         mu_n_test = (KAPPA_0 * MU_0 + test.exposure * log_test_mean) / kappa_n_test
@@ -163,8 +164,8 @@ def calculate_credible_intervals_v2_continuous(variants, lower_bound=0.025, uppe
 
     for variant in variants:
         try:
-            # Log-transform the mean value
-            log_mean = np.log(variant.count)  # Using count field to store mean value
+            # Log-transform the mean value, adding epsilon to handle zeros
+            log_mean = np.log(variant.count + EPSILON)  # Using count field to store mean value
             log_variance = 0.25
 
             # Calculate posterior parameters using absolute_exposure
@@ -179,8 +180,11 @@ def calculate_credible_intervals_v2_continuous(variants, lower_bound=0.025, uppe
             # Calculate credible intervals
             credible_interval = posterior.interval(upper_bound - lower_bound)
 
-            # Transform back from log space
-            intervals[variant.key] = (float(np.exp(credible_interval[0])), float(np.exp(credible_interval[1])))
+            # Transform back from log space and subtract epsilon
+            intervals[variant.key] = (
+                float(max(0, np.exp(credible_interval[0]) - EPSILON)),  # Ensure non-negative
+                float(max(0, np.exp(credible_interval[1]) - EPSILON)),  # Ensure non-negative
+            )
         except Exception as e:
             capture_exception(
                 Exception(f"Error calculating credible interval for variant {variant.key}"),
