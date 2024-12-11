@@ -1,6 +1,7 @@
 import dataclasses
 from datetime import datetime, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 import structlog
 from celery import shared_task
@@ -238,7 +239,7 @@ def send_all_periodic_digest_reports(
     period_end = (
         parser.parse(end_date)
         if end_date
-        else datetime.now(tz=timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        else datetime.now(tz=ZoneInfo("UTC")).replace(hour=0, minute=0, second=0, microsecond=0)
     )
     period_start = parser.parse(begin_date) if begin_date else period_end - timedelta(days=7)
 
