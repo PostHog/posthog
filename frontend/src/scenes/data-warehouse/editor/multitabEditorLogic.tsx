@@ -48,7 +48,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     connect({
         actions: [
             dataWarehouseViewsLogic,
-            ['deleteDataWarehouseSavedQuerySuccess', 'createDataWarehouseSavedQuerySuccess'],
+            [
+                'loadDataWarehouseSavedQueriesSuccess',
+                'deleteDataWarehouseSavedQuerySuccess',
+                'createDataWarehouseSavedQuerySuccess',
+                'runDataWarehouseSavedQuery',
+            ],
         ],
     }),
     actions({
@@ -395,6 +400,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             router.actions.push(urls.insightView(insight.short_id))
         },
+        loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
+            // keep tab views up to date
+            const newTabs = values.allTabs.map((tab) => ({
+                ...tab,
+                view: dataWarehouseSavedQueries.find((v) => v.id === tab.view?.id),
+            }))
+            actions.setTabs(newTabs)
+            actions.updateState()
+        },
         deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
             const tabToRemove = values.allTabs.find((tab) => tab.view?.id === viewId)
             if (tabToRemove) {
@@ -419,7 +433,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             lemonToast.success('View updated')
         },
     })),
-    subscriptions(({ props, actions }) => ({
+    subscriptions(({ props, actions, values }) => ({
         activeModelUri: (activeModelUri) => {
             if (props.monaco) {
                 const _model = props.monaco.editor.getModel(activeModelUri.uri)
@@ -427,6 +441,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.setQueryInput(val ?? '')
                 actions.runQuery()
             }
+        },
+        allTabs: () => {
+            // keep selected tab up to date
+            const activeTab = values.allTabs.find((tab) => tab.uri.path === values.activeModelUri?.uri.path)
+            activeTab && actions.selectTab(activeTab)
         },
     })),
     selectors({
@@ -440,6 +459,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     ...queryExportContext(sourceQuery.source, undefined, undefined),
                     filename,
                 } as ExportContext
+            },
+        ],
+        isEditingMaterializedView: [
+            (s) => [s.editingView],
+            (editingView) => {
+                return !!editingView?.status
             },
         ],
     }),

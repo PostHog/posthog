@@ -72,35 +72,43 @@ export function OutputPane(): JSX.Element {
 
     const Content = (): JSX.Element | null => {
         if (activeTab === OutputTab.Results) {
-            return responseLoading ? (
-                <Spinner className="text-3xl" />
-            ) : !response ? (
-                <span className="text-muted mt-3">Query results will appear here</span>
-            ) : (
-                <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
-                    <DataGrid
-                        className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
-                        columns={columns}
-                        rows={rows}
-                    />
+            return (
+                <div className="flex flex-1 relative bg-dark justify-center items-center">
+                    {responseLoading ? (
+                        <Spinner className="text-3xl" />
+                    ) : !response ? (
+                        <span className="text-muted mt-3">Query results will appear here</span>
+                    ) : (
+                        <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
+                            <DataGrid
+                                className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
+                                columns={columns}
+                                rows={rows}
+                            />
+                        </div>
+                    )}
                 </div>
             )
         }
 
         if (activeTab === OutputTab.Visualization) {
-            return !response ? (
-                <span className="text-muted mt-3">Query be results will be visualized here</span>
-            ) : (
-                <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
-                    <InternalDataTableVisualization
-                        uniqueKey={vizKey}
-                        query={sourceQuery}
-                        setQuery={setSourceQuery}
-                        context={{}}
-                        cachedResults={undefined}
-                        exportContext={exportContext}
-                        onSaveInsight={saveAsInsight}
-                    />
+            return (
+                <div className="flex flex-1 relative bg-dark justify-center items-center">
+                    {!response ? (
+                        <span className="text-muted mt-3">Query be results will be visualized here</span>
+                    ) : (
+                        <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
+                            <InternalDataTableVisualization
+                                uniqueKey={vizKey}
+                                query={sourceQuery}
+                                setQuery={setSourceQuery}
+                                context={{}}
+                                cachedResults={undefined}
+                                exportContext={exportContext}
+                                onSaveInsight={saveAsInsight}
+                            />
+                        </div>
+                    )}
                 </div>
             )
         }
@@ -197,9 +205,8 @@ export function OutputPane(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            <div className="flex flex-1 relative bg-dark justify-center items-center">
-                <Content />
-            </div>
+
+            <Content />
         </div>
     )
 }

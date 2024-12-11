@@ -70,8 +70,13 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             actions.loadDatabase()
         },
         runDataWarehouseSavedQuery: async ({ viewId }) => {
-            await api.dataWarehouseSavedQueries.run(viewId)
-            actions.loadDataWarehouseSavedQueries()
+            try {
+                await api.dataWarehouseSavedQueries.run(viewId)
+                lemonToast.success('Materialization started')
+                actions.loadDataWarehouseSavedQueries()
+            } catch (error) {
+                lemonToast.error(`Failed to run materialization`)
+            }
         },
     })),
     selectors({
@@ -95,10 +100,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         dataWarehouseSavedQueryMap: [
             (s) => [s.dataWarehouseSavedQueries],
             (dataWarehouseSavedQueries) => {
-                return dataWarehouseSavedQueries?.reduce((acc, cur) => {
-                    acc[cur.name] = cur
-                    return acc
-                }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                return (
+                    dataWarehouseSavedQueries?.reduce((acc, cur) => {
+                        acc[cur.name] = cur
+                        return acc
+                    }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                )
             },
         ],
     }),

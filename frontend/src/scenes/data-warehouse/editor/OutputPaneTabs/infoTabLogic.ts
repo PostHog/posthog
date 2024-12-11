@@ -1,14 +1,15 @@
 import { connect, kea, path, props, selectors } from 'kea'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-
 import type { infoTabLogicType } from './infoTabLogicType'
-import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 export interface InfoTableRow {
     name: string
-    type: string
+    type: 'source' | 'table'
+    status?: string
+    last_run_at?: string
 }
 
 interface InfoTabLogicProps {
