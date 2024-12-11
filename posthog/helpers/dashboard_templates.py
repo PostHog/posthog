@@ -448,11 +448,9 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> N
     for template_tile in template.tiles:
         if template_tile["type"] == "insight":
             query = template_tile.get("query", None)
-            filters = template_tile.get("filters") if not query else {}
             _create_tile_for_insight(
                 dashboard,
                 name=template_tile.get("name"),
-                filters=filters,
                 query=query,
                 description=template_tile.get("description"),
                 color=template_tile.get("color"),
@@ -488,15 +486,12 @@ def _create_tile_for_insight(
     description: str,
     layouts: dict,
     color: Optional[str],
-    filters: Optional[dict] = None,
     query: Optional[dict] = None,
 ) -> None:
-    filter_test_accounts = filters.get("filter_test_accounts", True)
     insight = Insight.objects.create(
         team=dashboard.team,
         name=name,
         description=description,
-        filters=None if filters is None else {**filters, "filter_test_accounts": filter_test_accounts},
         is_sample=True,
         query=query,
     )
