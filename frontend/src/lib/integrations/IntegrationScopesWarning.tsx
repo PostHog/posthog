@@ -15,13 +15,13 @@ export function IntegrationScopesWarning({
         const scopes: any[] = []
         const possibleScopeLocation = [integration.config.scope, integration.config.scopes]
 
-        possibleScopeLocation.map((x) => {
-            if (typeof x === 'string') {
-                scopes.push(x.split(' '))
-                scopes.push(x.split(','))
+        possibleScopeLocation.map((scope) => {
+            if (typeof scope === 'string') {
+                scopes.push(scope.split(' '))
+                scopes.push(scope.split(','))
             }
-            if (typeof x === 'object') {
-                scopes.push(x)
+            if (typeof scope === 'object') {
+                scopes.push(scope)
             }
         })
         return scopes
