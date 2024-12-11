@@ -58,7 +58,6 @@ pub struct FlagsQueryParams {
 pub struct RequestContext {
     pub state: State<router::State>,
     pub ip: IpAddr,
-    pub meta: FlagsQueryParams,
     pub headers: HeaderMap,
     pub body: Bytes,
 }
@@ -82,11 +81,24 @@ pub struct FeatureFlagEvaluationContext {
     hash_key_override: Option<String>,
 }
 
+/// Process a feature flag request and return the evaluated flags
+///
+/// ## Flow
+/// 1. Decodes and validates the request
+/// 2. Extracts and verifies the authentication token
+/// 3. Retrieves team information
+/// 4. Processes person and group properties
+/// 5. Retrieves feature flags
+/// 6. Evaluates flags based on the context
+///
+/// ## Error Handling
+/// - Returns early if any step fails
+/// - Maintains error context through the FlagError enum
+/// - Individual flag evaluation failures don't fail the entire request
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     let RequestContext {
         state,
         ip,
-        meta: _, // TODO use this
         headers,
         body,
     } = context;
@@ -95,12 +107,12 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let token = request
         .extract_and_verify_token(state.redis.clone(), state.reader.clone())
         .await?;
+
     let team = request
         .get_team_from_cache_or_pg(&token, state.redis.clone(), state.reader.clone())
         .await?;
 
     let distinct_id = request.extract_distinct_id()?;
-    let groups = request.groups.clone();
     let team_id = team.id;
     let person_property_overrides = get_person_property_overrides(
         !request.geoip_disable.unwrap_or(false),
@@ -108,7 +120,11 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         &ip,
         &state.geoip,
     );
-    let group_property_overrides = request.group_properties.clone();
+
+    let groups = request.groups.clone();
+    let group_property_overrides =
+        process_group_property_overrides(groups.clone(), request.group_properties.clone());
+
     let hash_key_override = request.anon_distinct_id.clone();
 
     let feature_flags_from_cache_or_pg = request
@@ -167,6 +183,39 @@ pub fn get_person_property_overrides(
         }
         (false, Some(props)) => Some(props),
         (false, None) => None,
+    }
+}
+
+/// Processes group property overrides by combining existing overrides with group key overrides
+///
+/// When groups are provided in the format {"group_type": "group_key"}, we need to ensure these
+/// are included in the group property overrides with the special "$group_key" property.
+fn process_group_property_overrides(
+    groups: Option<HashMap<String, Value>>,
+    existing_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+) -> Option<HashMap<String, HashMap<String, Value>>> {
+    match groups {
+        Some(groups) => {
+            let group_key_overrides: HashMap<String, HashMap<String, Value>> = groups
+                .into_iter()
+                .map(|(group_type, group_key)| {
+                    let mut properties = existing_overrides
+                        .as_ref()
+                        .and_then(|g| g.get(&group_type))
+                        .cloned()
+                        .unwrap_or_default();
+
+                    properties.insert("$group_key".to_string(), group_key);
+
+                    (group_type, properties)
+                })
+                .collect();
+
+            let mut result = existing_overrides.unwrap_or_default();
+            result.extend(group_key_overrides);
+            Some(result)
+        }
+        None => existing_overrides,
     }
 }
 
@@ -737,5 +786,62 @@ mod tests {
 
         assert!(!result.error_while_computing_flags);
         assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
+    }
+
+    #[test]
+    fn test_process_group_property_overrides() {
+        // Test case 1: Both groups and existing overrides
+        let groups = HashMap::from([
+            ("project".to_string(), json!("project_123")),
+            ("organization".to_string(), json!("org_456")),
+        ]);
+
+        let mut existing_overrides = HashMap::new();
+        let mut project_props = HashMap::new();
+        project_props.insert("industry".to_string(), json!("tech"));
+        existing_overrides.insert("project".to_string(), project_props);
+
+        let result =
+            process_group_property_overrides(Some(groups.clone()), Some(existing_overrides));
+
+        assert!(result.is_some());
+        let result = result.unwrap();
+
+        // Check project properties
+        let project_props = result.get("project").expect("Project properties missing");
+        assert_eq!(project_props.get("industry"), Some(&json!("tech")));
+        assert_eq!(project_props.get("$group_key"), Some(&json!("project_123")));
+
+        // Check organization properties
+        let org_props = result
+            .get("organization")
+            .expect("Organization properties missing");
+        assert_eq!(org_props.get("$group_key"), Some(&json!("org_456")));
+
+        // Test case 2: Only groups, no existing overrides
+        let result = process_group_property_overrides(Some(groups.clone()), None);
+
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result.get("project").unwrap().get("$group_key"),
+            Some(&json!("project_123"))
+        );
+
+        // Test case 3: No groups, only existing overrides
+        let mut existing_overrides = HashMap::new();
+        let mut project_props = HashMap::new();
+        project_props.insert("industry".to_string(), json!("tech"));
+        existing_overrides.insert("project".to_string(), project_props);
+
+        let result = process_group_property_overrides(None, Some(existing_overrides.clone()));
+
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), existing_overrides);
+
+        // Test case 4: Neither groups nor existing overrides
+        let result = process_group_property_overrides(None, None);
+        assert!(result.is_none());
     }
 }

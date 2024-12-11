@@ -261,6 +261,29 @@ pub async fn insert_new_team_in_pg(
     Ok(team)
 }
 
+pub async fn insert_group_type_mapping_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    group_type: &str,
+    group_type_index: i32,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    let res = sqlx::query(
+        r#"INSERT INTO posthog_grouptypemapping
+           (team_id, project_id, group_type, group_type_index, name_singular, name_plural)
+           VALUES
+           ($1, $1, $2, $3, NULL, NULL)
+           ON CONFLICT (team_id, group_type) DO NOTHING"#,
+    )
+    .bind(team_id)
+    .bind(group_type)
+    .bind(group_type_index)
+    .execute(&mut *conn)
+    .await?;
+    assert_eq!(res.rows_affected(), 1);
+    Ok(())
+}
+
 pub async fn insert_flag_for_team_in_pg(
     client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
@@ -453,4 +476,56 @@ pub async fn add_person_to_cohort(
     assert!(res.rows_affected() > 0, "Failed to add person to cohort");
 
     Ok(())
+}
+
+#[derive(Debug)]
+pub struct Group {
+    pub id: i32,
+    pub team_id: i32,
+    pub group_type_index: i32,
+    pub group_key: String,
+    pub group_properties: Value,
+}
+
+pub async fn create_group_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    group_type: &str,
+    group_key: &str,
+    group_properties: Value,
+) -> Result<Group, Error> {
+    // First, retrieve the group_type_index from grouptypemapping
+    let mut conn = client.get_connection().await?;
+    let row = sqlx::query(
+        r#"SELECT group_type_index FROM posthog_grouptypemapping
+           WHERE team_id = $1 AND group_type = $2"#,
+    )
+    .bind(team_id)
+    .bind(group_type)
+    .fetch_one(&mut *conn)
+    .await?;
+    let group_type_index: i32 = row.get("group_type_index");
+
+    // Insert the group with all non-nullable fields
+    let res = sqlx::query(
+        r#"INSERT INTO posthog_group
+           (team_id, group_type_index, group_key, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
+           VALUES ($1, $2, $3, $4, '2024-06-17', '{}'::jsonb, '{}'::jsonb, 0)
+           RETURNING id"#,
+    )
+    .bind(team_id)
+    .bind(group_type_index)
+    .bind(group_key)
+    .bind(group_properties.clone())
+    .fetch_one(&mut *conn)
+    .await?;
+    let group_id: i32 = res.get("id");
+
+    Ok(Group {
+        id: group_id,
+        team_id,
+        group_type_index,
+        group_key: group_key.to_string(),
+        group_properties,
+    })
 }
