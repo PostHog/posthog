@@ -208,9 +208,15 @@ type HogFunctionInputSchemaControlsProps = {
     value: HogFunctionInputSchemaType
     onChange: (value: HogFunctionInputSchemaType | null) => void
     onDone: () => void
+    supportsSecrets: boolean
 }
 
-function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunctionInputSchemaControlsProps): JSX.Element {
+function HogFunctionInputSchemaControls({
+    value,
+    onChange,
+    onDone,
+    supportsSecrets,
+}: HogFunctionInputSchemaControlsProps): JSX.Element {
     const _onChange = (data: Partial<HogFunctionInputSchemaType> | null): void => {
         if (data?.key?.length === 0) {
             setLocalVariableError('Input variable name cannot be empty')
@@ -242,13 +248,15 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
                     label="Required"
                     bordered
                 />
-                <LemonCheckbox
-                    size="small"
-                    checked={value.secret}
-                    onChange={(secret) => _onChange({ secret })}
-                    label="Secret"
-                    bordered
-                />
+                {supportsSecrets ? (
+                    <LemonCheckbox
+                        size="small"
+                        checked={value.secret}
+                        onChange={(secret) => _onChange({ secret })}
+                        label="Secret"
+                        bordered
+                    />
+                ) : null}
                 <div className="flex-1" />
                 <LemonButton status="danger" icon={<IconTrash />} size="small" onClick={() => onChange(null)} />
                 <LemonButton type="secondary" size="small" onClick={() => onDone()}>
@@ -364,6 +372,7 @@ export function HogFunctionInputWithSchema({
     }, [showSource])
 
     const supportsTemplating = ['string', 'json', 'dictionary', 'email'].includes(schema.type)
+    const supportsSecrets = 'type' in configuration // no secrets for mapping inputs
 
     return (
         <div
@@ -459,6 +468,7 @@ export function HogFunctionInputWithSchema({
                         value={schema}
                         onChange={onSchemaChange}
                         onDone={() => setEditing(false)}
+                        supportsSecrets={supportsSecrets}
                     />
                 </div>
             )}

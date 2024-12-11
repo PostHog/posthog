@@ -16,7 +16,7 @@ export async function onLoad({ inputs, posthog }) {
     console.log("🦔 Script loaded")
 }
 export function onEvent({ inputs, posthog }) {
-    console.log(`🦔 Sending event of type ${inputs.eventType}: ${inputs.payload}`)
+    console.log(`🦔 Sending event of type ${inputs.eventType}`, inputs.payload)
     // fetch('url', { method: 'POST', body: JSON.stringify(inputs.payload) })
 }
 """.strip(),

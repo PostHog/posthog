@@ -239,8 +239,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         data["inputs"] = inputs
 
-        # TODO: no secret inputs in mapping
-
         return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
