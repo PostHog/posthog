@@ -143,8 +143,6 @@ function UrlConfigSection({
             </div>
             <p>{description}</p>
 
-            <p>{title} is only available for JavaScript Web.</p>
-
             {props.isAddFormVisible && (
                 <UrlConfigForm type={type} onCancel={props.onCancel} isSubmitting={props.isSubmitting} />
             )}
@@ -228,7 +226,7 @@ function EventTriggerOptions(): JSX.Element | null {
                 Session recording will be started immediately before PostHog queues any of these events to be sent to
                 the backend.
             </p>
-            <p>Event emitted is only available for JavaScript Web.</p>
+
             <EventSelect
                 filterGroupTypes={[TaxonomicFilterGroupType.Events]}
                 onChange={(includedEvents) => {

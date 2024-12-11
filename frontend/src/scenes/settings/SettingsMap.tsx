@@ -245,7 +245,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'replay-triggers',
-                title: 'Triggers to start replay',
+                title: 'Replay triggers',
                 component: <ReplayTriggers />,
             },
             {
