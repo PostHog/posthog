@@ -1704,6 +1704,103 @@
           "id": "heatmaps",
           "name": "heatmaps",
           "type": "posthog"
+      },
+      "query_log": {
+          "fields": {
+              "query": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query",
+                  "id": null,
+                  "name": "query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query_start_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_start_time",
+                  "id": null,
+                  "name": "query_start_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "query_duration_ms": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_duration_ms",
+                  "id": null,
+                  "name": "query_duration_ms",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "log_comment": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "log_comment",
+                  "id": null,
+                  "name": "log_comment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by",
+                  "id": null,
+                  "name": "created_by",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "exception": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "exception",
+                  "id": null,
+                  "name": "exception",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "cache_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cache_key",
+                  "id": null,
+                  "name": "cache_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_type",
+                  "id": null,
+                  "name": "query_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "query_log",
+          "name": "query_log",
+          "type": "posthog"
       }
   }
   '''
@@ -3365,6 +3462,103 @@
           },
           "id": "heatmaps",
           "name": "heatmaps",
+          "type": "posthog"
+      },
+      "query_log": {
+          "fields": {
+              "query": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query",
+                  "id": null,
+                  "name": "query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query_start_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_start_time",
+                  "id": null,
+                  "name": "query_start_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "query_duration_ms": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_duration_ms",
+                  "id": null,
+                  "name": "query_duration_ms",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "log_comment": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "log_comment",
+                  "id": null,
+                  "name": "log_comment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by",
+                  "id": null,
+                  "name": "created_by",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "exception": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "exception",
+                  "id": null,
+                  "name": "exception",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "cache_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cache_key",
+                  "id": null,
+                  "name": "cache_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_type",
+                  "id": null,
+                  "name": "query_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "query_log",
+          "name": "query_log",
           "type": "posthog"
       }
   }
