@@ -32,6 +32,13 @@ class TestAssistant(NonAtomicBaseTest):
             output.append((event_line.removeprefix("event: "), json.loads(data_line.removeprefix("data: "))))
         return output
 
+    def assertConversationEqual(self, output: list[tuple[str, Any]], expected_output: list[tuple[str, Any]]):
+        for i, ((output_msg_type, output_msg), (expected_msg_type, expected_msg)) in enumerate(
+            zip(output, expected_output)
+        ):
+            self.assertEqual(output_msg_type, expected_msg_type, f"Message type mismatch at index {i}")
+            self.assertDictContainsSubset(expected_msg, output_msg, f"Message content mismatch at index {i}")
+
     @patch(
         "ee.hogai.trends.nodes.TrendsPlannerNode.run",
         return_value={"intermediate_steps": [(AgentAction(tool="final_answer", tool_input="", log=""), None)]},
@@ -49,15 +56,17 @@ class TestAssistant(NonAtomicBaseTest):
         )
 
         # Assert that ReasoningMessages are added
-        assert output == [
-            ("status", {"type": "ack"}),
+        expected_output = [
+            (
+                "message",
+                HumanMessage(content="Hello").model_dump(exclude_none=True),
+            ),
             (
                 "message",
                 {
                     "type": "ai/reasoning",
                     "content": "Picking relevant events and properties",  # For TrendsPlannerNode
                     "substeps": [],
-                    "done": True,
                 },
             ),
             (
@@ -66,7 +75,6 @@ class TestAssistant(NonAtomicBaseTest):
                     "type": "ai/reasoning",
                     "content": "Picking relevant events and properties",  # For TrendsPlannerToolsNode
                     "substeps": [],
-                    "done": True,
                 },
             ),
             (
@@ -77,6 +85,7 @@ class TestAssistant(NonAtomicBaseTest):
                 },
             ),
         ]
+        self.assertConversationEqual(output, expected_output)
 
     @patch(
         "ee.hogai.trends.nodes.TrendsPlannerNode.run",
@@ -115,15 +124,17 @@ class TestAssistant(NonAtomicBaseTest):
         )
 
         # Assert that ReasoningMessages are added
-        assert output == [
-            ("status", {"type": "ack"}),
+        expected_output = [
+            (
+                "message",
+                HumanMessage(content="Hello").model_dump(exclude_none=True),
+            ),
             (
                 "message",
                 {
                     "type": "ai/reasoning",
                     "content": "Picking relevant events and properties",  # For TrendsPlannerNode
                     "substeps": [],
-                    "done": True,
                 },
             ),
             (
@@ -137,7 +148,7 @@ class TestAssistant(NonAtomicBaseTest):
                         "Analyzing `currency` event's property `purchase`",
                         "Analyzing person property `country_of_birth`",
                     ],
-                    "done": True,
                 },
             ),
         ]
+        self.assertConversationEqual(output, expected_output)

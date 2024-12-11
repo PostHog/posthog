@@ -11,7 +11,7 @@ from posthog.test.base import BaseTest
 
 
 class TestTrendsUtils(BaseTest):
-    def test_filter_trends_conversation(self):
+    def test_filters_and_merges_human_messages(self):
         conversation = [
             HumanMessage(content="Text"),
             FailureMessage(content="Error"),
@@ -21,11 +21,10 @@ class TestTrendsUtils(BaseTest):
             VisualizationMessage(answer=None, plan="plan"),
         ]
         messages = filter_messages(conversation)
-        self.assertEqual(len(messages), 5)
+        self.assertEqual(len(messages), 4)
         self.assertEqual(
             [
-                HumanMessage(content="Text"),
-                HumanMessage(content="Text"),
+                HumanMessage(content="Text\nText"),
                 VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="plan"),
                 HumanMessage(content="Text2"),
                 VisualizationMessage(answer=None, plan="plan"),
