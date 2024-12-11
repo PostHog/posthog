@@ -4,6 +4,7 @@ import { useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -12,12 +13,6 @@ import { EntityTypes, FilterType, HogFunctionConfigurationType, HogFunctionMappi
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 import { HogFunctionInputs } from '../HogFunctionInputs'
-
-const defaultMatchGroupFilters = {
-    // TODO: or screen?
-    events: [{ id: '$pageview', name: '$pageview', type: EntityTypes.EVENTS, order: 0, properties: [] }],
-    actions: [],
-}
 
 export function HogFunctionMapping(): JSX.Element | null {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -140,7 +135,18 @@ export function HogFunctionMapping(): JSX.Element | null {
                                                 .filter((m) => m.default !== undefined)
                                                 .map((m) => [m.key, { value: structuredClone(m.default) }])
                                         ),
-                                        filters: defaultMatchGroupFilters,
+                                        filters: {
+                                            events: [
+                                                {
+                                                    id: getDefaultEventName(),
+                                                    name: getDefaultEventName(),
+                                                    type: EntityTypes.EVENTS,
+                                                    order: 0,
+                                                    properties: [],
+                                                },
+                                            ],
+                                            actions: [],
+                                        },
                                     }
                                     onChange([...mappings, newMapping])
                                 }}
