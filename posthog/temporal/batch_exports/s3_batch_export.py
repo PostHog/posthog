@@ -712,7 +712,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
                 s3_upload=s3_upload,
                 writer_file_kwargs={"compression": inputs.compression},
-                non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
             )
 
             await s3_upload.complete()

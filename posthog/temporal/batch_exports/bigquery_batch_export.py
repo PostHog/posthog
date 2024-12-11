@@ -237,7 +237,12 @@ class BigQueryClient(bigquery.Client):
             yield table
         finally:
             if delete is True:
-                await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
+                try:
+                    await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
+                except Forbidden:
+                    await logger.awarning(
+                        "Missing delete permissions to delete %s.%s.%s", project_id, dataset_id, table_id
+                    )
 
     async def amerge_tables(
         self,
@@ -648,12 +653,12 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     schema=record_batch_schema,
                     writer_format=WriterFormat.PARQUET,
                     max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                    non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
                     json_columns=(),
                     bigquery_client=bq_client,
                     bigquery_table=bigquery_stage_table,
                     table_schema=stage_schema,
                     writer_file_kwargs={"compression": "zstd"},
+                    multiple_files=True,
                 )
 
                 merge_key = (
