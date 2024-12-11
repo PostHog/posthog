@@ -187,7 +187,7 @@ class OauthIntegration:
                 token_url="https://oauth2.googleapis.com/token",
                 client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
                 client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
-                scope="https://www.googleapis.com/auth/adwords email",
+                scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
