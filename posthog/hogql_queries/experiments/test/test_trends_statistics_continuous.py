@@ -288,7 +288,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    def test_edge_cases(self):
+    def test_edge_cases_zero_means(self):
         """Test edge cases like zero means"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
@@ -325,6 +325,49 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertTrue(intervals["control"][1] >= 0)
                 self.assertTrue(intervals["test"][0] >= 0)
                 self.assertTrue(intervals["test"][1] >= 0)
+
+        self.run_test_for_both_implementations(run_test)
+
+    def test_edge_cases_near_zero_means(self):
+        """Test edge cases like near-zero means"""
+
+        def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
+            # Using very small positive values instead of exact zeros
+            control = create_variant("control", mean=0.0001, exposure=1000)
+            test = create_variant("test", mean=0.0001, exposure=1000)
+
+            probabilities = calculate_probabilities(control, [test])
+            significance, p_value = are_results_significant(control, [test], probabilities)
+            intervals = calculate_credible_intervals([control, test])
+
+            self.assertEqual(len(probabilities), 2)
+            if stats_version == 2:
+                self.assertTrue(abs(probabilities[0] - 0.5) < 0.1)  # Should be close to 50/50
+                self.assertTrue(abs(probabilities[1] - 0.5) < 0.1)  # Should be close to 50/50
+                self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
+                self.assertEqual(p_value, 1)
+
+                # Both variants should have intervals appropriate for their small means
+                # For a mean of 0.0001, expect intervals to be within an order of magnitude
+                self.assertTrue(0.00005 <= intervals["control"][0] <= 0.0002)  # Lower bound
+                self.assertTrue(0.00005 <= intervals["control"][1] <= 0.0002)  # Upper bound
+
+                self.assertTrue(0.00005 <= intervals["test"][0] <= 0.0002)  # Lower bound
+                self.assertTrue(0.00005 <= intervals["test"][1] <= 0.0002)  # Upper bound
+            else:
+                # Original implementation behavior for near-zero means
+                self.assertTrue(0.4 < probabilities[0] < 0.6)
+                self.assertTrue(0.4 < probabilities[1] < 0.6)
+                self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
+                self.assertEqual(p_value, 1)
+
+                # Original implementation returns intervals as ratios/multipliers of the mean
+                # For near-zero means, the intervals become very small ratios
+                # This is expected behavior when dealing with values close to zero
+                self.assertTrue(0 <= intervals["control"][0] <= 0.0001)  # Lower bound ratio
+                self.assertTrue(0 <= intervals["control"][1] <= 0.005)  # Upper bound ratio
+                self.assertTrue(0 <= intervals["test"][0] <= 0.0001)  # Lower bound ratio
+                self.assertTrue(0 <= intervals["test"][1] <= 0.005)  # Upper bound ratio
 
         self.run_test_for_both_implementations(run_test)
 
