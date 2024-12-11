@@ -199,6 +199,7 @@
         [theme='dark'] & {
             --lemon-button-color: var(--content-primary-inverse);
             --lemon-button-bg-color: var(--background-button);
+            --lemon-button-frame-bg-color: var(--border-button);
             --lemon-button-border-color-hover: var(--border-button-bold-hover);
         }
 
