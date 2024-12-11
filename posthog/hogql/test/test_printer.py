@@ -846,9 +846,7 @@ class TestPrinter(BaseTest):
             self._expr("toUUID('470f9b15-ff43-402a-af9f-2ed7c526a6cf')", context),
             "accurateCastOrNull(%(hogql_val_4)s, %(hogql_val_5)s)",
         )
-        self.assertEqual(
-            self._expr("toDecimal('3.14')", context), "accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)"
-        )
+        self.assertEqual(self._expr("toDecimal('3.14', 2)", context), "toDecimal64OrNull(%(hogql_val_6)s, 2)")
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
     def test_expr_parse_errors(self):
