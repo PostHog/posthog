@@ -107,20 +107,6 @@ export interface ExperimentResultCalculationError {
     statusCode: number
 }
 
-// :FLAG: CLEAN UP AFTER MIGRATION
-export interface CachedSecondaryMetricExperimentFunnelsQueryResponse extends CachedExperimentFunnelsQueryResponse {
-    filters?: {
-        insight?: InsightType
-    }
-}
-
-// :FLAG: CLEAN UP AFTER MIGRATION
-export interface CachedSecondaryMetricExperimentTrendsQueryResponse extends CachedExperimentTrendsQueryResponse {
-    filters?: {
-        insight?: InsightType
-    }
-}
-
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
     key((props) => props.experimentId || 'new'),
@@ -822,44 +808,26 @@ export const experimentLogic = kea<experimentLogicType>([
                     | null
                 > => {
                     try {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            // Queries are shareable, so we need to set the experiment_id for the backend to correctly associate the query with the experiment
-                            const queryWithExperimentId = {
-                                ...values.experiment.metrics[0],
-                                experiment_id: values.experimentId,
-                            }
-                            if (
-                                queryWithExperimentId.kind === NodeKind.ExperimentTrendsQuery &&
-                                values.featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2]
-                            ) {
-                                queryWithExperimentId.stats_version = 2
-                            }
-
-                            const response = await performQuery(queryWithExperimentId, undefined, refresh)
-
-                            return {
-                                ...response,
-                                fakeInsightId: Math.random().toString(36).substring(2, 15),
-                            } as unknown as CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse
+                        // Queries are shareable, so we need to set the experiment_id for the backend to correctly associate the query with the experiment
+                        const queryWithExperimentId = {
+                            ...values.experiment.metrics[0],
+                            experiment_id: values.experimentId,
+                        }
+                        if (
+                            queryWithExperimentId.kind === NodeKind.ExperimentTrendsQuery &&
+                            values.featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2]
+                        ) {
+                            queryWithExperimentId.stats_version = 2
                         }
 
-                        const refreshParam = refresh ? '?refresh=true' : ''
-                        const response: ExperimentResults = await api.get(
-                            `api/projects/${values.currentProjectId}/experiments/${values.experimentId}/results${refreshParam}`
-                        )
+                        const response = await performQuery(queryWithExperimentId, undefined, refresh)
                         return {
-                            ...response.result,
+                            ...response,
                             fakeInsightId: Math.random().toString(36).substring(2, 15),
-                            last_refresh: response.last_refresh,
-                        }
+                        } as unknown as CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse
                     } catch (error: any) {
-                        let errorDetail = error.detail
-                        // :HANDLE FLAG: CLEAN UP AFTER MIGRATION
-                        if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            const errorDetailMatch = error.detail.match(/\{.*\}/)
-                            errorDetail = errorDetailMatch[0]
-                        }
+                        const errorDetailMatch = error.detail.match(/\{.*\}/)
+                        const errorDetail = errorDetailMatch[0]
                         actions.setExperimentResultCalculationError({ detail: errorDetail, statusCode: error.status })
                         if (error.status === 504) {
                             actions.reportExperimentResultsLoadingTimeout(values.experimentId)
@@ -1015,27 +983,19 @@ export const experimentLogic = kea<experimentLogicType>([
             (experimentId): Experiment['id'] => experimentId,
         ],
         getMetricType: [
-            (s) => [s.experiment, s.featureFlags],
-            (experiment, featureFlags) =>
+            (s) => [s.experiment],
+            (experiment) =>
                 (metricIdx: number = 0) => {
-                    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        const query = experiment?.metrics?.[metricIdx]
-                        return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
-                    }
-
-                    return experiment?.filters?.insight || InsightType.FUNNELS
+                    const query = experiment?.metrics?.[metricIdx]
+                    return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
                 },
         ],
         getSecondaryMetricType: [
-            (s) => [s.experiment, s.featureFlags],
-            (experiment, featureFlags) =>
+            (s) => [s.experiment],
+            (experiment) =>
                 (metricIdx: number = 0) => {
-                    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        const query = experiment?.metrics_secondary?.[metricIdx]
-                        return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
-                    }
-
-                    return experiment?.secondary_metrics?.[metricIdx]?.filters?.insight || InsightType.FUNNELS
+                    const query = experiment?.metrics_secondary?.[metricIdx]
+                    return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
                 },
         ],
         isExperimentRunning: [
@@ -1338,11 +1298,7 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [],
             () =>
                 (
-                    experimentResults:
-                        | Partial<ExperimentResults['result']>
-                        | CachedSecondaryMetricExperimentFunnelsQueryResponse
-                        | CachedSecondaryMetricExperimentTrendsQueryResponse
-                        | null,
+                    experimentResults: Partial<ExperimentResults['result']> | null,
                     variantKey: string,
                     metricType: InsightType
                 ): [number, number] | null => {
@@ -1677,19 +1633,9 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         hasGoalSet: [
-            (s) => [s.experiment, s.featureFlags],
-            (experiment, featureFlags): boolean => {
-                // :FLAG: CLEAN UP AFTER MIGRATION
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    return !!experiment.metrics[0]
-                }
-
-                const filters = experiment?.filters
-                return !!(
-                    (filters?.actions && filters.actions.length > 0) ||
-                    (filters?.events && filters.events.length > 0) ||
-                    (filters?.data_warehouse && filters.data_warehouse.length > 0)
-                )
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                return !!experiment.metrics[0]
             },
         ],
     }),

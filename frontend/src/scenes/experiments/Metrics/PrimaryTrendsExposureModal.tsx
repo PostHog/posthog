@@ -1,6 +1,5 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { Experiment } from '~/types'
 
@@ -16,8 +15,8 @@ export function PrimaryTrendsExposureModal({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element {
-    const { experiment, experimentLoading, featureFlags } = useValues(experimentLogic({ experimentId }))
-    const { updateExperimentExposure, updateExperiment } = useActions(experimentLogic({ experimentId }))
+    const { experiment, experimentLoading } = useValues(experimentLogic({ experimentId }))
+    const { updateExperiment } = useActions(experimentLogic({ experimentId }))
 
     return (
         <LemonModal
@@ -33,14 +32,9 @@ export function PrimaryTrendsExposureModal({
                     <LemonButton
                         form="edit-experiment-exposure-form"
                         onClick={() => {
-                            // :FLAG: CLEAN UP AFTER MIGRATION
-                            if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                                updateExperiment({
-                                    metrics: experiment.metrics,
-                                })
-                            } else {
-                                updateExperimentExposure(experiment.parameters.custom_exposure_filter ?? null)
-                            }
+                            updateExperiment({
+                                metrics: experiment.metrics,
+                            })
                         }}
                         type="primary"
                         loading={experimentLoading}

@@ -1,28 +1,16 @@
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
-import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { CachedExperimentTrendsQueryResponse, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
-import {
-    _TrendsExperimentResults,
-    BaseMathType,
-    ChartDisplayType,
-    InsightType,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { BaseMathType, ChartDisplayType, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { transformResultFilters } from '../utils'
 
 export function CumulativeExposuresChart(): JSX.Element {
     const { experiment, experimentResults, getMetricType } = useValues(experimentLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const metricIdx = 0
     const metricType = getMetricType(metricIdx)
@@ -32,99 +20,52 @@ export function CumulativeExposuresChart(): JSX.Element {
         variants.push(`holdout-${experiment.holdout.id}`)
     }
 
-    let query
+    let query: InsightVizNode<InsightQueryNode>
 
-    // :FLAG: CLEAN UP AFTER MIGRATION
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-        if (metricType === InsightType.TRENDS) {
-            query = {
-                kind: NodeKind.InsightVizNode,
-                source: (experimentResults as CachedExperimentTrendsQueryResponse).exposure_query,
-            }
-        } else {
-            query = {
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    dateRange: {
-                        date_from: experiment.start_date,
-                        date_to: experiment.end_date,
-                    },
-                    interval: 'day',
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraphCumulative,
-                        showLegend: false,
-                        smoothingIntervals: 1,
-                    },
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: experiment.filters?.events?.[0]?.name,
-                            math: BaseMathType.UniqueUsers,
-                            properties: [
-                                {
-                                    key: `$feature/${experiment.feature_flag_key}`,
-                                    value: variants,
-                                    operator: PropertyOperator.Exact,
-                                    type: PropertyFilterType.Event,
-                                },
-                            ],
-                        },
-                    ],
-                    breakdownFilter: {
-                        breakdown: `$feature/${experiment.feature_flag_key}`,
-                        breakdown_type: 'event',
-                    },
-                },
-            }
+    if (metricType === InsightType.TRENDS) {
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: (experimentResults as CachedExperimentTrendsQueryResponse)?.exposure_query || {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                interval: 'day',
+            },
         }
     } else {
-        if (metricType === InsightType.TRENDS && experiment.parameters?.custom_exposure_filter) {
-            const trendResults = experimentResults as _TrendsExperimentResults
-            const queryFilters = {
-                ...trendResults.exposure_filters,
-                display: ChartDisplayType.ActionsLineGraphCumulative,
-            } as _TrendsExperimentResults['exposure_filters']
-            query = queryFromFilters(transformResultFilters(queryFilters))
-        } else {
-            query = {
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    dateRange: {
-                        date_from: experiment.start_date,
-                        date_to: experiment.end_date,
-                    },
-                    interval: 'day',
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraphCumulative,
-                        showLegend: false,
-                        smoothingIntervals: 1,
-                    },
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            event:
-                                metricType === InsightType.TRENDS
-                                    ? '$feature_flag_called'
-                                    : experiment.filters?.events?.[0]?.name,
-                            math: BaseMathType.UniqueUsers,
-                            properties: [
-                                {
-                                    key: `$feature/${experiment.feature_flag_key}`,
-                                    value: variants,
-                                    operator: PropertyOperator.Exact,
-                                    type: PropertyFilterType.Event,
-                                },
-                            ],
-                        },
-                    ],
-                    breakdownFilter: {
-                        breakdown: `$feature/${experiment.feature_flag_key}`,
-                        breakdown_type: 'event',
-                    },
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                dateRange: {
+                    date_from: experiment.start_date,
+                    date_to: experiment.end_date,
                 },
-            }
+                interval: 'day',
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsLineGraphCumulative,
+                    showLegend: false,
+                    smoothingIntervals: 1,
+                },
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: experiment.filters?.events?.[0]?.name,
+                        math: BaseMathType.UniqueUsers,
+                        properties: [
+                            {
+                                key: `$feature/${experiment.feature_flag_key}`,
+                                value: variants,
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    },
+                ],
+                breakdownFilter: {
+                    breakdown: `$feature/${experiment.feature_flag_key}`,
+                    breakdown_type: 'event',
+                },
+            },
         }
     }
 
@@ -139,7 +80,7 @@ export function CumulativeExposuresChart(): JSX.Element {
             {experiment.start_date ? (
                 <InsightViz
                     query={{
-                        ...(query as InsightVizNode<InsightQueryNode>),
+                        ...query,
                         showTable: true,
                     }}
                     setQuery={() => {}}
