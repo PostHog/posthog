@@ -8,34 +8,39 @@ from posthog.hogql.database.models import (
     LazyTableToAdd,
     FloatDatabaseField,
     FunctionCallTable,
+    BooleanDatabaseField,
 )
-from posthog.hogql.parser import parse_expr
 
 QUERY_LOG_FIELDS: dict[str, FieldOrTable] = {
-    "query": StringDatabaseField(name="query"),
-    "query_start_time": DateTimeDatabaseField(name="event_time"),
-    "query_duration_ms": FloatDatabaseField(name="query_duration_ms"),
-    "log_comment": StringDatabaseField(name="log_comment"),
+    "query_id": StringDatabaseField(name="query_id"),  #
+    "query": StringDatabaseField(name="query"),  #
+    "query_start_time": DateTimeDatabaseField(name="event_time"),  #
+    "query_duration_ms": FloatDatabaseField(name="query_duration_ms"),  #
     "created_by": IntegerDatabaseField(name="created_by"),
-    "exception": StringDatabaseField(name="exception"),
-    "cache_key": StringDatabaseField(name="cache_key"),
-    "type": StringDatabaseField(name="type"),
+    "read_rows": IntegerDatabaseField(name="read_rows"),
+    "read_bytes": IntegerDatabaseField(name="read_bytes"),
+    "result_rows": IntegerDatabaseField(name="result_rows"),
+    "result_bytes": IntegerDatabaseField(name="result_bytes"),
+    "memory_usage": IntegerDatabaseField(name="memory_usage"),
+    "status": StringDatabaseField(name="type"),
+    "log_comment": StringDatabaseField(name="log_comment"),
+    "kind": StringDatabaseField(name="kind"),
     "query_type": StringDatabaseField(name="query_type"),
+    "is_personal_api_key_request": BooleanDatabaseField(name="is_personal_api_key_request"),
+    # below fields are used in condition and cannot be removed
+    "type": StringDatabaseField(name="type"),
+    "is_initial_query": BooleanDatabaseField(name="is_initial_query"),
     # "query_1": ExpressionField(name="query_1", ),
 }
 
 STRING_FIELDS = {
-    "cache_key": "cache_key",
-    "query_type": "query_type",
+    "cache_key": ["cache_key"],
+    "query_type": ["query_type"],
+    "query_id": ["client_query_id"],
     "query": ["query", "query"],
+    "kind": ["query", "kind"],
 }
-INT_FIELDS = {"created_by": "user_id"}
-
-
-def format_extract_args(keys):
-    if isinstance(keys, str):
-        return f"'{keys}'"
-    return ",".join([f'"{k}"' for k in keys])
+INT_FIELDS = {"created_by": ["user_id"]}
 
 
 class QueryLogTable(LazyTable):
@@ -54,11 +59,29 @@ class QueryLogTable(LazyTable):
 
         def get_alias(name, chain):
             if name in STRING_FIELDS:
-                keys = format_extract_args(STRING_FIELDS[name])
-                return ast.Alias(alias=name, expr=parse_expr(f"JSONExtractString(log_comment, {keys})"))
+                keys = STRING_FIELDS[name]
+                expr = ast.Call(
+                    name="JSONExtractString",
+                    args=[ast.Field(chain=[raw_table_name, "log_comment"])] + [ast.Constant(value=v) for v in keys],
+                )
+                return ast.Alias(alias=name, expr=expr)
             if name in INT_FIELDS:
-                keys = format_extract_args(INT_FIELDS[name])
-                return ast.Alias(alias=name, expr=parse_expr(f"JSONExtractInt(log_comment, {keys})"))
+                keys = INT_FIELDS[name]
+                expr = ast.Call(
+                    name="JSONExtractInt",
+                    args=[ast.Field(chain=[raw_table_name, "log_comment"])] + [ast.Constant(value=v) for v in keys],
+                )
+                return ast.Alias(alias=name, expr=expr)
+            if name == "is_personal_api_key_request":
+                expr = ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Constant(value="personal_api_key"),
+                    right=ast.Call(
+                        name="JSONExtractString",
+                        args=[ast.Field(chain=["log_comment"]), ast.Constant(value="access_method")],
+                    ),
+                )
+                return ast.Alias(alias=name, expr=expr)
             return ast.Alias(alias=name, expr=ast.Field(chain=[raw_table_name, *chain]))
 
         fields: list[ast.Expr] = [get_alias(name, chain) for name, chain in requested_fields.items()]
@@ -66,6 +89,30 @@ class QueryLogTable(LazyTable):
         return ast.SelectQuery(
             select=fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=[raw_table_name])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=context.project_id),
+                        right=ast.Call(
+                            name="JSONExtractInt",
+                            args=[ast.Field(chain=["log_comment"]), ast.Constant(value="user_id")],
+                        ),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["type"]),
+                        right=ast.Array(
+                            exprs=[
+                                ast.Constant(value="QueryFinish"),
+                                ast.Constant(value="ExceptionBeforeStart"),
+                                ast.Constant(value="ExceptionWhileProcessing"),
+                            ]
+                        ),
+                    ),
+                    ast.Field(chain=["is_initial_query"]),
+                ]
+            ),
         )
 
 
