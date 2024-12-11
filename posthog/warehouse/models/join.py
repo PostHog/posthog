@@ -128,6 +128,11 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                         }.items()
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    where=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value="$feature_flag_called"),
+                    ),
                 ),
                 # ASOF JOIN finds the most recent matching event that occurred at or before each data warehouse timestamp.
                 #
