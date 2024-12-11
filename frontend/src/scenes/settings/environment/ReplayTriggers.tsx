@@ -4,14 +4,14 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
-import { sessionReplayIngestionControlLogic } from 'scenes/settings/environment/sessionReplayIngestionControlLogic'
 
 import { SessionReplayUrlTriggerConfig } from '~/types'
 
@@ -26,18 +26,23 @@ function UrlConfigForm({
 }): JSX.Element {
     return (
         <Form
-            logic={sessionReplayIngestionControlLogic}
+            logic={replayTriggersLogic}
             formKey={type === 'trigger' ? 'proposedUrlTrigger' : 'proposedUrlBlocklist'}
             enableFormOnSubmit
             className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-bg-light gap-2"
         >
-            <div className="flex flex-row gap-2 w-full">
-                <LemonField name="matching">
-                    <LemonSelect options={[{ label: 'Regex', value: 'regex' }]} />
-                </LemonField>
-                <LemonField name="url" className="flex-1">
-                    <LemonInput autoFocus placeholder="Enter URL" data-attr="url-input" />
-                </LemonField>
+            <div className="flex flex-col gap-2 w-full">
+                <LemonBanner type="info" className="text-sm">
+                    We always wrap the URL regex with anchors to avoid unexpected behavior (if you do not). This is
+                    because <pre className="inline">https://example.com/</pre> does not only match the homepage. You'd
+                    need <pre className="inline">^https://example.com/$</pre>
+                </LemonBanner>
+                <LemonLabel className="w-full">
+                    Matching regex:
+                    <LemonField name="url" className="flex-1">
+                        <LemonInput autoFocus placeholder="Enter URL regex." data-attr="url-input" />
+                    </LemonField>
+                </LemonLabel>
             </div>
             <div className="flex justify-end gap-2 w-full">
                 <LemonButton type="secondary" onClick={onCancel}>
@@ -163,10 +168,9 @@ function UrlConfigSection({
 
 function UrlTriggerOptions(): JSX.Element | null {
     const { isAddUrlTriggerConfigFormVisible, urlTriggerConfig, editUrlTriggerIndex, isProposedUrlTriggerSubmitting } =
-        useValues(sessionReplayIngestionControlLogic)
-    const { newUrlTrigger, removeUrlTrigger, setEditUrlTriggerIndex, cancelProposingUrlTrigger } = useActions(
-        sessionReplayIngestionControlLogic
-    )
+        useValues(replayTriggersLogic)
+    const { newUrlTrigger, removeUrlTrigger, setEditUrlTriggerIndex, cancelProposingUrlTrigger } =
+        useActions(replayTriggersLogic)
 
     return (
         <UrlConfigSection
@@ -191,10 +195,9 @@ function UrlBlocklistOptions(): JSX.Element | null {
         urlBlocklistConfig,
         editUrlBlocklistIndex,
         isProposedUrlBlocklistSubmitting,
-    } = useValues(sessionReplayIngestionControlLogic)
-    const { newUrlBlocklist, removeUrlBlocklist, setEditUrlBlocklistIndex, cancelProposingUrlBlocklist } = useActions(
-        sessionReplayIngestionControlLogic
-    )
+    } = useValues(replayTriggersLogic)
+    const { newUrlBlocklist, removeUrlBlocklist, setEditUrlBlocklistIndex, cancelProposingUrlBlocklist } =
+        useActions(replayTriggersLogic)
 
     return (
         <UrlConfigSection
@@ -214,8 +217,8 @@ function UrlBlocklistOptions(): JSX.Element | null {
 }
 
 function EventTriggerOptions(): JSX.Element | null {
-    const { eventTriggerConfig } = useValues(sessionReplayIngestionControlLogic)
-    const { updateEventTriggerConfig } = useActions(sessionReplayIngestionControlLogic)
+    const { eventTriggerConfig } = useValues(replayTriggersLogic)
+    const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
 
     return (
         <div className="flex flex-col space-y-2 mt-4">
