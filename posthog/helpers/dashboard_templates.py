@@ -4,22 +4,6 @@ from collections.abc import Callable
 import structlog
 
 from posthog.constants import (
-    BREAKDOWN,
-    BREAKDOWN_TYPE,
-    DATE_FROM,
-    DISPLAY,
-    FILTER_TEST_ACCOUNTS,
-    INSIGHT,
-    INSIGHT_TRENDS,
-    INTERVAL,
-    PROPERTIES,
-    TREND_FILTER_TYPE_EVENTS,
-    TRENDS_BAR_VALUE,
-    TRENDS_BOLD_NUMBER,
-    TRENDS_LINEAR,
-    TRENDS_TABLE,
-    TRENDS_WORLD_MAP,
-    UNIQUE_USERS,
     AvailableFeature,
     ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
 )
@@ -37,7 +21,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _create_website_dashboard(dashboard: Dashboard) -> None:
-    dashboard.filters = {DATE_FROM: "-30d"}
+    dashboard.filters = {"date_from": "-30d"}
     if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
         tag, _ = Tag.objects.get_or_create(
             name="marketing",
@@ -53,17 +37,17 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         name="Website Unique Users (Total)",
         description="Shows the number of unique users that use your app every day.",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [
+            "events": [
                 {
                     "id": "$pageview",
-                    "math": UNIQUE_USERS,
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "math": "dau",
+                    "type": "events",
                 }
             ],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_BOLD_NUMBER,
+            "interval": "day",
+            "insight": "TRENDS",
+            "date_from": "-30d",
+            "display": "BoldNumber",
             "compare": True,
         },
         layouts={
@@ -86,19 +70,19 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         name="Organic SEO Unique Users (Total)",
         description="",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [
+            "events": [
                 {
                     "id": "$pageview",
-                    "math": UNIQUE_USERS,
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "math": "dau",
+                    "type": "events",
                 }
             ],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_BOLD_NUMBER,
+            "interval": "day",
+            "insight": "TRENDS",
+            "date_from": "-30d",
+            "display": "BoldNumber",
             "compare": True,
-            PROPERTIES: {
+            "properties": {
                 "type": "AND",
                 "values": [
                     {
@@ -142,17 +126,17 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         name="Website Unique Users (Breakdown)",
         description="",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [
+            "events": [
                 {
                     "id": "$pageview",
-                    "math": UNIQUE_USERS,
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "math": "dau",
+                    "type": "events",
                 }
             ],
-            INTERVAL: "week",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: "ActionsBar",
+            "interval": "week",
+            "insight": "TRENDS",
+            "date_from": "-30d",
+            "display": "ActionsBar",
         },
         layouts={
             "sm": {"i": "23", "x": 0, "y": 5, "w": 6, "h": 5, "minW": 3, "minH": 5},
@@ -174,12 +158,12 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         name="Organic SEO Unique Users (Breakdown)",
         description="",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [
+            "events": [
                 {
                     "id": "$pageview",
-                    "math": UNIQUE_USERS,
-                    "type": TREND_FILTER_TYPE_EVENTS,
-                    PROPERTIES: [
+                    "math": "dau",
+                    "type": "events",
+                    "properties": [
                         {
                             "key": "$referring_domain",
                             "type": "event",
@@ -195,10 +179,10 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
                     ],
                 }
             ],
-            INTERVAL: "week",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: "ActionsBar",
+            "interval": "week",
+            "insight": "TRENDS",
+            "date_from": "-30d",
+            "display": "ActionsBar",
         },
         layouts={
             "sm": {"i": "24", "x": 6, "y": 5, "w": 6, "h": 5, "minW": 3, "minH": 5},
@@ -214,28 +198,28 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         name="Sessions Per User",
         description="",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [
+            "events": [
                 {
                     "id": "$pageview",
-                    "math": UNIQUE_USERS,
+                    "math": "dau",
                     "name": "$pageview",
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "type": "events",
                     "order": 0,
-                    PROPERTIES: [],
+                    "properties": [],
                 },
                 {
                     "id": "$pageview",
                     "math": "unique_session",
                     "name": "$pageview",
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "type": "events",
                     "order": 1,
-                    PROPERTIES: [],
+                    "properties": [],
                 },
             ],
-            INTERVAL: "week",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: "ActionsLineGraph",
+            "interval": "week",
+            "insight": "TRENDS",
+            "date_from": "-30d",
+            "display": "ActionsLineGraph",
             "formula": "B/A",
         },
         layouts={
@@ -258,28 +242,28 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         name="Pages Per User",
         description="",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [
+            "events": [
                 {
                     "id": "$pageview",
                     "math": "total",
                     "name": "$pageview",
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "type": "events",
                     "order": 0,
-                    PROPERTIES: [],
+                    "properties": [],
                 },
                 {
                     "id": "$pageview",
-                    "math": UNIQUE_USERS,
+                    "math": "dau",
                     "name": "$pageview",
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "type": "events",
                     "order": 1,
-                    PROPERTIES: [],
+                    "properties": [],
                 },
             ],
-            INTERVAL: "week",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: "ActionsLineGraph",
+            "interval": "week",
+            "insight": "TRENDS",
+            "date_from": "-30d",
+            "display": "ActionsLineGraph",
             "formula": "A/B",
         },
         layouts={
@@ -304,22 +288,22 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         name="Top Website Pages (Overall)",
         description="",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [
+            "events": [
                 {
                     "id": "$pageview",
                     "math": "unique_session",
                     "name": "$pageview",
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "type": "events",
                     "order": 0,
                 }
             ],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_BAR_VALUE,
-            BREAKDOWN: "$current_url",
-            BREAKDOWN_TYPE: "event",
-            PROPERTIES: {
+            "interval": "day",
+            "insight": "TRENDS",
+            "date_from": "-30d",
+            "display": "ActionsBarValue",
+            "breakdown": "$current_url",
+            "breakdown_type": "event",
+            "properties": {
                 "type": "AND",
                 "values": [
                     {
@@ -356,22 +340,22 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         name="Top Website Pages (via Google)",
         description="",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [
+            "events": [
                 {
                     "id": "$pageview",
                     "math": "unique_session",
                     "name": "$pageview",
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "type": "events",
                     "order": 0,
                 }
             ],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_BAR_VALUE,
-            BREAKDOWN: "$current_url",
-            BREAKDOWN_TYPE: "event",
-            PROPERTIES: {
+            "interval": "day",
+            "insight": "TRENDS",
+            "date_from": "-30d",
+            "display": "ActionsBarValue",
+            "breakdown": "$current_url",
+            "breakdown_type": "event",
+            "properties": {
                 "type": "AND",
                 "values": [
                     {
@@ -408,21 +392,21 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         name="Website Users by Location",
         description="",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [
+            "events": [
                 {
                     "id": "$pageview",
-                    "math": UNIQUE_USERS,
+                    "math": "dau",
                     "name": "$pageview",
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "type": "events",
                     "order": 0,
                 }
             ],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_WORLD_MAP,
-            BREAKDOWN: "$geoip_country_code",
-            BREAKDOWN_TYPE: "person",
+            "interval": "day",
+            "insight": "TRENDS",
+            "date_from": "-30d",
+            "display": "WorldMap",
+            "breakdown": "$geoip_country_code",
+            "breakdown_type": "person",
         },
         layouts={
             "sm": {"i": "29", "x": 0, "y": 23, "w": 12, "h": 8, "minW": 3, "minH": 5},
@@ -469,7 +453,7 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> N
     dashboard.save()
 
     for template_tile in template.tiles:
-        if template_tile["type"] == "INSIGHT":
+        if template_tile["type"] == "insight":
             query = template_tile.get("query", None)
             filters = template_tile.get("filters") if not query else {}
             _create_tile_for_insight(
@@ -547,7 +531,7 @@ def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> N
 
 
 def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
-    dashboard.filters = {DATE_FROM: "-30d"}
+    dashboard.filters = {"date_from": "-30d"}
     if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
         tag, _ = Tag.objects.get_or_create(
             name="feature flags",
@@ -563,18 +547,18 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
         name="Feature Flag Called Total Volume",
         description="Shows the number of total calls made on feature flag with key: " + feature_flag.key,
         filters={
-            TREND_FILTER_TYPE_EVENTS: [
+            "events": [
                 {
                     "id": "$feature_flag_called",
                     "name": "$feature_flag_called",
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "type": "events",
                 }
             ],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_LINEAR,
-            PROPERTIES: {
+            "interval": "day",
+            "insight": "TRENDS",
+            "date_from": "-30d",
+            "display": "ActionsLineGraph",
+            "properties": {
                 "type": "AND",
                 "values": [
                     {
@@ -589,9 +573,9 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
                     }
                 ],
             },
-            BREAKDOWN: "$feature_flag_response",
-            BREAKDOWN_TYPE: "event",
-            FILTER_TEST_ACCOUNTS: False,
+            "breakdown": "$feature_flag_response",
+            "breakdown_type": "event",
+            "filter_test_accounts": False,
         },
         layouts={
             "sm": {"i": "21", "x": 0, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
@@ -614,19 +598,19 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
         description="Shows the number of unique user calls made on feature flag per variant with key: "
         + feature_flag.key,
         filters={
-            TREND_FILTER_TYPE_EVENTS: [
+            "events": [
                 {
                     "id": "$feature_flag_called",
                     "name": "$feature_flag_called",
-                    "math": UNIQUE_USERS,
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "math": "dau",
+                    "type": "events",
                 }
             ],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_TABLE,
-            PROPERTIES: {
+            "interval": "day",
+            "insight": "TRENDS",
+            "date_from": "-30d",
+            "display": "ActionsTable",
+            "properties": {
                 "type": "AND",
                 "values": [
                     {
@@ -641,9 +625,9 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
                     }
                 ],
             },
-            BREAKDOWN: "$feature_flag_response",
-            BREAKDOWN_TYPE: "event",
-            FILTER_TEST_ACCOUNTS: False,
+            "breakdown": "$feature_flag_response",
+            "breakdown_type": "event",
+            "filter_test_accounts": False,
         },
         layouts={
             "sm": {"i": "22", "x": 6, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
@@ -668,24 +652,24 @@ def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Das
         name=f"{ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER} Total Volume",
         description="Shows the total number of times this feature was viewed and interacted with",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [
+            "events": [
                 {
                     "id": "$feature_view",
                     "name": "Feature View - Total",
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "type": "events",
                 },
                 {
                     "id": "$feature_view",
                     "name": "Feature View - Unique users",
-                    "type": TREND_FILTER_TYPE_EVENTS,
-                    "math": UNIQUE_USERS,
+                    "type": "events",
+                    "math": "dau",
                 },
             ],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_LINEAR,
-            PROPERTIES: {
+            "interval": "day",
+            "insight": "TRENDS",
+            "date_from": "-30d",
+            "display": "ActionsLineGraph",
+            "properties": {
                 "type": "AND",
                 "values": [
                     {
@@ -700,7 +684,7 @@ def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Das
                     }
                 ],
             },
-            FILTER_TEST_ACCOUNTS: False,
+            "filter_test_accounts": False,
         },
         layouts={},
         color=None,
@@ -711,24 +695,24 @@ def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Das
         name="Feature Interaction Total Volume",
         description="Shows the total number of times this feature was viewed and interacted with",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [
+            "events": [
                 {
                     "id": "$feature_interaction",
                     "name": "Feature Interaction - Total",
-                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "type": "events",
                 },
                 {
                     "id": "$feature_interaction",
                     "name": "Feature Interaction - Unique users",
-                    "type": TREND_FILTER_TYPE_EVENTS,
-                    "math": UNIQUE_USERS,
+                    "type": "events",
+                    "math": "dau",
                 },
             ],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_LINEAR,
-            PROPERTIES: {
+            "interval": "day",
+            "insight": "TRENDS",
+            "date_from": "-30d",
+            "display": "ActionsLineGraph",
+            "properties": {
                 "type": "AND",
                 "values": [
                     {
@@ -743,7 +727,7 @@ def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Das
                     }
                 ],
             },
-            FILTER_TEST_ACCOUNTS: False,
+            "filter_test_accounts": False,
         },
         layouts={},
         color=None,
