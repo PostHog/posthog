@@ -34,8 +34,8 @@ interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, '
 
 export function TextContent({ text, closeDetails, className }: TextCardBodyProps): JSX.Element {
     return (
-        <div className={clsx('p-2 w-full overflow-auto', className)} onClick={() => closeDetails?.()}>
-            <LemonMarkdown>{text}</LemonMarkdown>
+        <div className={clsx('w-full', className)} onClick={() => closeDetails?.()}>
+            <LemonMarkdown className="overflow-auto">{text}</LemonMarkdown>
         </div>
     )
 }
@@ -143,7 +143,7 @@ export function TextCardInternal(
             )}
 
             <div className="TextCard__body w-full">
-                <TextContent text={text.body} className="p-4" />
+                <TextContent text={text.body} className="p-4 pr-14" />
             </div>
 
             {showResizeHandles && (
