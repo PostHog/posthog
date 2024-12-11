@@ -40,7 +40,7 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
     mapping_code = ""
     for mapping in hog_function.mappings or []:
         _inputs = mapping.get("inputs", {})
-        _inputs_schema = mapping.get("inputs_schema", [])
+        _inputs_schema = mapping.get("inputs_schema", [])  # TODO: use this to create default inputs
         mapping_filters_expr = hog_function_filters_to_expr(mapping.get("filters", {}) or {}, hog_function.team, {})
         mapping_filters_code = compiler.visit(mapping_filters_expr)
         mapping_code += f"if ({mapping_filters_code}) {{ const newInputs = structuredClone(inputs); \n"

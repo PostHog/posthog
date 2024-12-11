@@ -58,22 +58,10 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
 
         all_filters_exprs.append(ast.And(exprs=exprs))
 
-    final_expr: ast.Expr
     if all_filters_exprs:
-        final_expr = ast.Or(exprs=all_filters_exprs)
-    else:
-        final_expr = ast.Constant(value=True)
+        return ast.Or(exprs=all_filters_exprs)
 
-    if filters.get("matchGroups"):
-        # TODO: match nothing if no groups?
-        group_ors = []
-        for match_group in filters["matchGroups"]:
-            group_expr = hog_function_filters_to_expr(match_group.get("filters", {}), team, actions)
-            group_ors.append(group_expr)
-        if group_ors:
-            final_expr = ast.And(exprs=[final_expr, ast.Or(exprs=group_ors)])
-
-    return final_expr
+    return ast.Constant(value=True)
 
 
 def filter_action_ids(filters: Optional[dict]) -> list[int]:
