@@ -131,24 +131,18 @@ export function HogFunctionMapping(): JSX.Element | null {
                                 onClick={() => {
                                     const inputsSchema =
                                         mappings.length > 0
-                                            ? structuredClone(mappings[mappings.length - 1].inputs_schema)
-                                            : {}
-                                    const inputs =
-                                        mappings.length > 0
-                                            ? Object.fromEntries(
-                                                  (mappings[mappings.length - 1].inputs_schema || [])
-                                                      .filter((m) => m.default !== undefined)
-                                                      .map((m) => [m.key, { value: structuredClone(m.default) }])
-                                              )
-                                            : {}
-                                    onChange([
-                                        ...mappings,
-                                        {
-                                            inputs_schema: inputsSchema,
-                                            inputs: inputs,
-                                            filters: defaultMatchGroupFilters,
-                                        },
-                                    ])
+                                            ? structuredClone(mappings[mappings.length - 1].inputs_schema || [])
+                                            : []
+                                    const newMapping = {
+                                        inputs_schema: inputsSchema,
+                                        inputs: Object.fromEntries(
+                                            inputsSchema
+                                                .filter((m) => m.default !== undefined)
+                                                .map((m) => [m.key, { value: structuredClone(m.default) }])
+                                        ),
+                                        filters: defaultMatchGroupFilters,
+                                    }
+                                    onChange([...mappings, newMapping])
                                 }}
                             >
                                 Add mapping
