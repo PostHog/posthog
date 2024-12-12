@@ -384,7 +384,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 If your feature flag is applied before identifying the user, use this to
                                                 ensure that the flag value remains consistent for the same user.
                                                 Depending on your setup, this option might not always be suitable. This
-                                                feature requires `person_profiles: 'always'` to function.{' '}
+                                                feature requires creating profiles for anonymous users.{' '}
                                                 <Link
                                                     to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                                                     target="_blank"
