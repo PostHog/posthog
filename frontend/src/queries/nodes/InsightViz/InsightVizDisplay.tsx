@@ -56,7 +56,7 @@ export function InsightVizDisplay({
     context?: QueryContext
     embedded: boolean
     inSharedMode?: boolean
-}): JSX.Element {
+}): JSX.Element | null {
     const { insightProps, canEditInsight } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))

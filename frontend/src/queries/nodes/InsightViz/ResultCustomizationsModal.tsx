@@ -1,6 +1,7 @@
 import './ResultCustomizationsModal.scss'
 
 import { LemonButton, LemonButtonProps, LemonModal } from '@posthog/lemon-ui'
+import assert from 'assert'
 import { useActions, useValues } from 'kea'
 import { DataColorToken } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -28,12 +29,11 @@ export function ResultCustomizationsModal(): JSX.Element | null {
     const { isTrends, isFunnels, querySource } = useValues(insightVizDataLogic)
 
     const { getTheme } = useValues(dataThemeLogic)
+    const theme = getTheme(querySource?.dataColorTheme)
 
-    if (dataset == null) {
+    if (dataset == null || theme == null) {
         return null
     }
-
-    const theme = getTheme(querySource?.dataColorTheme)
 
     return (
         <LemonModal
@@ -141,7 +141,7 @@ function ColorGlyphButton({ colorToken, selected, onClick }: ColorGlyphButtonPro
     const { querySource } = useValues(insightVizDataLogic)
 
     const theme = getTheme(querySource?.dataColorTheme)
-    const color = theme[colorToken] as string
+    const color = theme?.[colorToken] as string
 
     return (
         <LemonButton
@@ -155,8 +155,10 @@ function ColorGlyphButton({ colorToken, selected, onClick }: ColorGlyphButtonPro
     )
 }
 
+type ReferenceColor = { name: string; group: string }
+
 /** HTML5 colors */
-const referenceColors = {
+const referenceColors: Record<string, ReferenceColor> = {
     '#FFC0CB': { name: 'Pink', group: 'Pink' },
     '#FFB6C1': { name: 'LightPink', group: 'Pink' },
     '#FF69B4': { name: 'HotPink', group: 'Pink' },
@@ -298,7 +300,7 @@ const referenceColors = {
     '#000000': { name: 'Black', group: 'Grey' },
 }
 
-function nearestColor(color: string) {
+function nearestColor(color: string): ReferenceColor {
     const { r: r1, g: g1, b: b1 } = hexToRGB(color)
 
     let minDistance = null
@@ -308,16 +310,18 @@ function nearestColor(color: string) {
         const { r: r2, g: g2, b: b2 } = hexToRGB(referenceColor)
         const distance = Math.sqrt((r2 - r1) ** 2 + (g2 - g1) ** 2 + (b2 - b1) ** 2)
 
-        if (distance < minDistance || minDistance === null) {
+        if (minDistance === null || distance < minDistance) {
             minDistance = distance
             minColor = referenceColor
         }
     }
 
+    assert(minColor)
+
     return referenceColors[minColor]
 }
 
-function colorDescription(color: string) {
+function colorDescription(color: string): string {
     const { name, group } = nearestColor(color)
     const colorName = name.split(/(?=[A-Z])/).join(' ')
 

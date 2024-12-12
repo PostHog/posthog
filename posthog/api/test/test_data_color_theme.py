@@ -37,6 +37,7 @@ class TestDataColorTheme(APIBaseTest):
 
     def test_can_not_edit_public_themes(self) -> None:
         theme = DataColorTheme.objects.first()
+        assert theme
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/data_color_themes/{theme.pk}", {"name": "New name"}
@@ -49,6 +50,7 @@ class TestDataColorTheme(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
         theme = DataColorTheme.objects.first()
+        assert theme
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/data_color_themes/{theme.pk}", {"name": "New name"}
