@@ -232,7 +232,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
     actionToUrl(({ values }) => ({
         setQuery: ({ query }) => {
-            if (values.queryChanged && insightSceneLogic.values.insightMode === ItemMode.Edit) {
+            if (
+                values.queryChanged &&
+                insightSceneLogic.values.insightMode === ItemMode.Edit &&
+                insightSceneLogic.values.activeScene === Scene.Insight
+            ) {
                 // query is changed and we are in edit mode
                 return [
                     router.values.currentLocation.pathname,
