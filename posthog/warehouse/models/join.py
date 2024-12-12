@@ -184,7 +184,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                                     ]
                                 ),
                                 op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
+                                right=ast.Field(chain=[join_to_add.to_table, *self.joining_table_key.split(".")]),
                             ),
                             ast.CompareOperation(
                                 left=ast.Field(
