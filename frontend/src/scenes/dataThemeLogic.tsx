@@ -27,16 +27,26 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
         ],
     }),
     selectors({
+        posthogTheme: [
+            (s) => [s.themes],
+            (themes) => {
+                if (!themes) {
+                    return null
+                }
+
+                return themes.sort((theme) => theme.id).find((theme) => theme.is_global)
+            },
+        ],
         defaultTheme: [
-            (s) => [s.currentTeam, s.themes],
-            (currentTeam, themes) => {
+            (s) => [s.currentTeam, s.themes, s.posthogTheme],
+            (currentTeam, themes, posthogTheme) => {
                 if (!currentTeam || !themes) {
                     return null
                 }
 
+                // use the posthog theme unless someone set a specfic theme for the team
                 const environmentTheme = themes.find((theme) => theme.id === currentTeam.default_data_theme)
-                // TODO: better way to detect the posthog default theme
-                return environmentTheme || themes.find((theme) => theme.id === 1)
+                return environmentTheme || posthogTheme
             },
         ],
         getTheme: [
