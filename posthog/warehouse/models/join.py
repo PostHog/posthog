@@ -113,7 +113,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if not timestamp_key:
                 raise ResolutionError("experiments_timestamp_key is not set for this join")
 
-            whereExpr = [
+            whereExpr: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Field(chain=["event"]),
@@ -122,28 +122,16 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             ]
             # :HACK: We need to pull the timestamp gt/lt values from node.where.exprs[0] because
             # we can't reference the parent data warehouse table in the where clause.
-            if (
-                node.where.exprs[0].op == ast.CompareOperationOp.GtEq
-                and node.where.exprs[0].left.expr.to_hogql() == timestamp_key
-            ):
-                whereExpr.append(
-                    ast.CompareOperation(
-                        op=node.where.exprs[0].op,
-                        left=ast.Field(chain=["timestamp"]),
-                        right=node.where.exprs[0].right,
-                    ),
-                )
-            if (
-                node.where.exprs[1].op == ast.CompareOperationOp.LtEq
-                and node.where.exprs[0].left.expr.to_hogql() == timestamp_key
-            ):
-                whereExpr.append(
-                    ast.CompareOperation(
-                        op=node.where.exprs[1].op,
-                        left=ast.Field(chain=["timestamp"]),
-                        right=node.where.exprs[1].right,
-                    ),
-                )
+            if node.where and hasattr(node.where, "exprs"):
+                for expr in node.where.exprs:
+                    if isinstance(expr, ast.CompareOperation):
+                        if expr.op == ast.CompareOperationOp.GtEq or expr.op == ast.CompareOperationOp.LtEq:
+                            if isinstance(expr.left, ast.Alias) and expr.left.expr.to_hogql() == timestamp_key:
+                                whereExpr.append(
+                                    ast.CompareOperation(
+                                        op=expr.op, left=ast.Field(chain=["timestamp"]), right=expr.right
+                                    )
+                                )
 
             return ast.JoinExpr(
                 table=ast.SelectQuery(
