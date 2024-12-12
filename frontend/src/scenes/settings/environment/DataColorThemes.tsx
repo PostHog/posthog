@@ -46,7 +46,7 @@ export function DataColorThemes(): JSX.Element {
                 onChange={(value) => {
                     const theme = themes.find((theme) => theme.id === value)
                     LemonDialog.open({
-                        title: `Change the default data theme to "${theme.name}"?`,
+                        title: `Change the default data theme to "${theme!.name}"?`,
                         description: 'This changes the default colors used when visualizing data in insights.',
                         primaryButton: {
                             children: 'Change default theme',

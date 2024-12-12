@@ -7,7 +7,7 @@ import type { dataColorThemesLogicType } from './dataColorThemesLogicType'
 export const dataColorThemesLogic = kea<dataColorThemesLogicType>([
     path(['scenes', 'settings', 'environment', 'dataColorThemesLogic']),
     connect({
-        values: [dataThemeLogic, ['themes', 'themesLoading', 'posthogTheme']],
+        values: [dataThemeLogic, ['themes', 'themesLoading', 'defaultTheme', 'posthogTheme']],
         actions: [dataColorThemesModalLogic, ['openModal']],
     }),
     actions({
