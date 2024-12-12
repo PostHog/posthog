@@ -478,7 +478,7 @@ SELECT
 FROM
     events AS e SAMPLE 1
     LEFT OUTER JOIN (SELECT
-        argMaxOrNull(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+        argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
         person_distinct_id_overrides.distinct_id AS distinct_id
     FROM
         person_distinct_id_overrides
@@ -487,7 +487,7 @@ FROM
     GROUP BY
         person_distinct_id_overrides.distinct_id
     HAVING
-        ifNull(equals(argMaxOrNull(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+        ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
     SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
     LEFT JOIN (SELECT
         dateDiff(%(hogql_val_0)s, minOrNull(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), maxOrNull(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
@@ -518,7 +518,7 @@ LIMIT 50000\
             """
 SELECT
     s.session_id,
-    minOrNull(s.min_first_timestamp) as start_time
+    min(s.min_first_timestamp) as start_time
 FROM raw_session_replay_events s
 WHERE s.session.$entry_pathname = '/home' AND min_first_timestamp >= '2021-01-01:12:34' AND min_first_timestamp < now()
 GROUP BY session_id
