@@ -280,7 +280,7 @@ multiIf(
             "gad_source": wrap_with_null_if_empty(source_exprs.gad_source),
         },
     )
-    if custom_rule_expr:
+    if custom_rule_expr is not None:
         return ast.Call(
             name="coalesce",
             args=[custom_rule_expr, builtin_rules],
