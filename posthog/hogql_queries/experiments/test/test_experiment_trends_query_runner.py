@@ -757,7 +757,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [0.0, 50.0, 125.0, 125.0, 125.0, 205.0, 205.0, 205.0, 205.0, 205.0],
         )
 
-    def test_query_runner_with_data_warehouse_series_avg_usage(self):
+    def test_query_runner_with_data_warehouse_series_no_end_date_and_nested_id(self):
         table_name = self.create_data_warehouse_table_with_usage()
 
         feature_flag = self.create_feature_flag()
@@ -839,6 +839,20 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
         with freeze_time("2023-01-07"):
+            # Build and execute the query to get the ClickHouse SQL
+            queries = query_runner.count_query_runner.to_queries()
+            response = execute_hogql_query(
+                query_type="TrendsQuery",
+                query=queries[0],
+                team=query_runner.count_query_runner.team,
+                modifiers=query_runner.count_query_runner.modifiers,
+                limit_context=query_runner.count_query_runner.limit_context,
+            )
+
+            # Assert the expected join condition in the clickhouse SQL
+            expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_7)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_8)s, 6, %(hogql_val_9)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_10)s, 6, %(hogql_val_11)s))))) AS e__events ON"
+            self.assertIn(expected_join_condition, str(response.clickhouse))
+
             result = query_runner.calculate()
 
         trend_result = cast(ExperimentTrendsQueryResponse, result)
