@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { afterMount, connect, kea, path, selectors, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
@@ -7,6 +7,13 @@ import { DataColorThemeModel } from '~/types'
 
 import type { dataThemeLogicType } from './dataThemeLogicType'
 import { teamLogic } from './teamLogic'
+
+export const ThemeName = ({ id }: { id: number }): JSX.Element => {
+    const { themes } = useValues(dataThemeLogic)
+    const theme = themes?.find((theme) => theme.id === id)
+
+    return theme ? <span>{theme.name}</span> : <span className="italic">No theme found for id: {id}</span>
+}
 
 export const dataThemeLogic = kea<dataThemeLogicType>([
     path(['scenes', 'dataThemeLogic']),
