@@ -64,4 +64,9 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.RunPython(add_default_themes, remove_default_themes),
+        migrations.AddField(
+            model_name="team",
+            name="default_data_theme",
+            field=models.IntegerField(blank=True, null=True),
+        ),
     ]
