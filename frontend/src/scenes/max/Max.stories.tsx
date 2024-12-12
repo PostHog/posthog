@@ -6,7 +6,13 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
-import { chatResponseChunk, failureChunk, generationFailureChunk } from './__mocks__/chatResponse.mocks'
+import {
+    chatResponseChunk,
+    CONVERSATION_ID,
+    failureChunk,
+    generationFailureChunk,
+    humanMessage,
+} from './__mocks__/chatResponse.mocks'
 import { MaxInstance } from './Max'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -16,7 +22,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/chat/': (_, res, ctx) => res(ctx.text(chatResponseChunk)),
+                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(chatResponseChunk)),
             },
         }),
     ],
@@ -27,9 +33,6 @@ const meta: Meta = {
     },
 }
 export default meta
-
-// The session ID is hard-coded here, as it's used for randomizing the welcome headline
-const CONVERSATION_ID = 'b1b4b3b4-1b3b-4b3b-1b3b4b3b4b3b'
 
 const Template = ({ conversationId: CONVERSATION_ID }: { conversationId: string }): JSX.Element => {
     const { acceptDataProcessing } = useActions(maxGlobalLogic)
@@ -85,7 +88,7 @@ export const WelcomeSuggestionsAvailable: StoryFn = () => {
 export const WelcomeLoadingSuggestions: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/environments/:team_id/query/': (_req, _res, ctx) => [ctx.delay('infinite')],
+            '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
         },
     })
 
@@ -107,7 +110,7 @@ export const Thread: StoryFn = () => {
     const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
 
     useEffect(() => {
-        askMax('What are my most popular pages?')
+        askMax(humanMessage.content)
     }, [])
 
     return <Template conversationId={CONVERSATION_ID} />
@@ -116,14 +119,14 @@ export const Thread: StoryFn = () => {
 export const EmptyThreadLoading: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/environments/:team_id/query/chat/': (_req, _res, ctx) => [ctx.delay('infinite')],
+            '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
         },
     })
 
     const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
 
     useEffect(() => {
-        askMax('What are my most popular pages?')
+        askMax(humanMessage.content)
     }, [])
 
     return <Template conversationId={CONVERSATION_ID} />
@@ -137,7 +140,7 @@ EmptyThreadLoading.parameters = {
 export const GenerationFailureThread: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/environments/:team_id/query/chat/': (_, res, ctx) => res(ctx.text(generationFailureChunk)),
+            '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(generationFailureChunk)),
         },
     })
 
@@ -145,7 +148,7 @@ export const GenerationFailureThread: StoryFn = () => {
     const { threadRaw, threadLoading } = useValues(maxLogic({ conversationId: CONVERSATION_ID }))
 
     useEffect(() => {
-        askMax('What are my most popular pages?')
+        askMax(humanMessage.content)
     }, [])
 
     useEffect(() => {
@@ -160,14 +163,14 @@ export const GenerationFailureThread: StoryFn = () => {
 export const ThreadWithFailedGeneration: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/environments/:team_id/query/chat/': (_, res, ctx) => res(ctx.text(failureChunk)),
+            '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(failureChunk)),
         },
     })
 
     const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
 
     useEffect(() => {
-        askMax('What are my most popular pages?')
+        askMax(humanMessage.content)
     }, [])
 
     return <Template conversationId={CONVERSATION_ID} />
@@ -176,7 +179,7 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
 export const ThreadWithRateLimit: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/environments/:team_id/query/chat/': (_, res, ctx) =>
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
                 res(ctx.text(chatResponseChunk), ctx.status(429)),
         },
     })

@@ -294,14 +294,17 @@ export const maxLogic = kea<maxLogicType>([
                 }
                 if (threadLoading) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
-                    if (finalMessageSoFar?.id && finalMessageSoFar.type !== AssistantMessageType.Reasoning) {
+                    if (
+                        finalMessageSoFar?.type === AssistantMessageType.Human ||
+                        (finalMessageSoFar?.id && finalMessageSoFar.type !== AssistantMessageType.Reasoning)
+                    ) {
                         // If now waiting for the current node to start streaming, add "Thinking" message
                         // so that there's _some_ indication of processing
                         const thinkingMessage: ReasoningMessage & ThreadMessage = {
                             type: AssistantMessageType.Reasoning,
                             content: 'Thinking',
                             status: 'completed',
-                            id: uuid(),
+                            id: 'loader',
                         }
                         if (finalMessageSoFar.type === AssistantMessageType.Human) {
                             // If the last message was human, we need to add a new "ephemeral" AI group
