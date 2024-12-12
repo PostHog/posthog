@@ -23,10 +23,10 @@ export const dataColorThemesLogic = kea<dataColorThemesLogicType>([
             if (id === 'new') {
                 const { id, name, is_global, ...newTheme } = values.posthogTheme
                 actions.openModal(newTheme)
+            } else {
+                const existingTheme = values.themes.find((theme) => theme.id === id)
+                actions.openModal(existingTheme)
             }
-
-            const existingTheme = values.themes.find((theme) => theme.id === id)
-            actions.openModal(existingTheme)
         },
     })),
 ])

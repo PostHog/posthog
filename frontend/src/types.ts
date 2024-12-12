@@ -4829,3 +4829,8 @@ export type DataColorThemeModel = {
     colors: string[]
     is_global: boolean
 }
+
+export type DataColorThemeModelPayload = Omit<DataColorThemeModel, 'id' | 'is_global'> & {
+    id?: number
+    is_global?: boolean
+}

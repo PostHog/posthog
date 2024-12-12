@@ -26,7 +26,9 @@ export function DataColorThemes(): JSX.Element {
                         title: 'Name',
                         dataIndex: 'name',
                         key: 'name',
-                        render: (name, theme) => <LemonTableLink onClick={() => selectTheme(theme.id)} title={name} />,
+                        render: (name, theme) => (
+                            <LemonTableLink onClick={() => selectTheme(theme.id)} title={name as string} />
+                        ),
                     },
                     {
                         title: 'Official',
@@ -50,7 +52,7 @@ export function DataColorThemes(): JSX.Element {
                         description: 'This changes the default colors used when visualizing data in insights.',
                         primaryButton: {
                             children: 'Change default theme',
-                            onClick: () => updateCurrentTeam({ default_data_theme: value }),
+                            onClick: () => updateCurrentTeam({ default_data_theme: value! }),
                         },
                         secondaryButton: {
                             children: 'Cancel',

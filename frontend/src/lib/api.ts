@@ -2531,10 +2531,10 @@ const api = {
         async list(): Promise<DataColorThemeModel[]> {
             return await new ApiRequest().dataColorThemes().get()
         },
-        async create(data: DataColorThemeModel): Promise<DataColorThemeModel> {
+        async create(data: Partial<DataColorThemeModel>): Promise<DataColorThemeModel> {
             return await new ApiRequest().dataColorThemes().create({ data })
         },
-        async update(id: DataColorThemeModel['id'], data: DataColorThemeModel): Promise<DataColorThemeModel> {
+        async update(id: DataColorThemeModel['id'], data: Partial<DataColorThemeModel>): Promise<DataColorThemeModel> {
             return await new ApiRequest().dataColorTheme(id).update({ data })
         },
     },

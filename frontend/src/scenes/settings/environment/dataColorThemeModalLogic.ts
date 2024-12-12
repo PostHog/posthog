@@ -1,11 +1,13 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 
-import { DataColorThemeModel } from '~/types'
+import { DataColorThemeModelPayload } from '~/types'
 
 import type { dataColorThemesModalLogicType } from './dataColorThemeModalLogicType'
+
+const PAYLOAD_DEFAULT: DataColorThemeModelPayload = { name: '', colors: [] }
 
 export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
     path(['scenes', 'settings', 'environment', 'dataColorThemesModalLogic']),
@@ -17,14 +19,19 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
         removeColor: (index: number) => ({ index }),
     }),
     reducers({
-        theme: [
-            null as null | DataColorThemeModel,
+        isOpen: [
+            false,
             {
-                openModal: (_, { theme }) => theme,
-                closeModal: () => null,
+                openModal: () => true,
+                closeModal: () => false,
+            },
+        ],
+        theme: [
+            { name: '', colors: [] } as DataColorThemeModelPayload,
+            {
                 addColor: (theme) => ({
                     ...theme,
-                    colors: [...theme.colors, theme.colors[theme.colors.length - 1] || '#1d4aff'],
+                    colors: [...(theme.colors || []), theme.colors[theme.colors.length - 1] || '#1d4aff'],
                 }),
                 duplicateColor: (theme, { index }) => ({
                     ...theme,
@@ -39,10 +46,11 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
     }),
     forms(({ actions }) => ({
         theme: {
-            submit: async ({ id, name, colors }, breakpoint) => {
-                const payload: DataColorThemeModel = {
-                    name,
-                    colors,
+            defaults: PAYLOAD_DEFAULT,
+            submit: async ({ id, name, colors }, breakpoint): Promise<DataColorThemeModelPayload> => {
+                const payload: DataColorThemeModelPayload = {
+                    name: name || '',
+                    colors: colors || [],
                 }
 
                 breakpoint()
@@ -63,10 +71,17 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
                         lemonToast.error(`Error saving data color theme`)
                     }
                 }
+
+                return payload
             },
             errors: (theme) => ({
                 name: !theme?.name ? 'This field is required' : undefined,
             }),
+        },
+    })),
+    listeners(({ actions }) => ({
+        openModal: ({ theme }) => {
+            actions.resetTheme(theme)
         },
     })),
 ])

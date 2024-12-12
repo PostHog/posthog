@@ -8,7 +8,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { dataColorThemesModalLogic } from './dataColorThemeModalLogic'
 
 export function DataColorThemeModal(): JSX.Element {
-    const { theme, themeChanged } = useValues(dataColorThemesModalLogic)
+    const { theme, themeChanged, isOpen } = useValues(dataColorThemesModalLogic)
     const { submitTheme, closeModal, addColor, duplicateColor, removeColor } = useActions(dataColorThemesModalLogic)
 
     const isNew = theme?.id == null
@@ -19,7 +19,7 @@ export function DataColorThemeModal(): JSX.Element {
         <LemonModal
             title={title}
             onClose={closeModal}
-            isOpen={theme != null}
+            isOpen={isOpen}
             width={768}
             footer={
                 isOfficial ? (
