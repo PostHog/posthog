@@ -45,7 +45,7 @@ function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFilters
 
 export function HogFunctionFilters(): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type } = useValues(hogFunctionConfigurationLogic)
+    const { configuration, type, useMapping } = useValues(hogFunctionConfigurationLogic)
 
     if (type === 'broadcast') {
         return (
@@ -78,74 +78,87 @@ export function HogFunctionFilters(): JSX.Element {
 
     return (
         <div className="border bg-bg-light rounded p-3 space-y-2">
-            <LemonField name="filters" label="Filters">
-                {({ value, onChange }) => (
-                    <>
-                        <TestAccountFilterSwitch
-                            checked={value?.filter_test_accounts ?? false}
-                            onChange={(filter_test_accounts) => onChange({ ...value, filter_test_accounts })}
-                            fullWidth
-                        />
-                        <PropertyFilters
-                            propertyFilters={value?.properties ?? []}
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                TaxonomicFilterGroupType.Elements,
-                                TaxonomicFilterGroupType.HogQLExpression,
-                            ]}
-                            onChange={(properties: AnyPropertyFilter[]) => {
-                                onChange({
-                                    ...value,
-                                    properties,
-                                })
-                            }}
-                            pageKey={`HogFunctionPropertyFilters.${id}`}
-                        />
+            <LemonField
+                name="filters"
+                label={useMapping ? 'Global filters' : 'Filters'}
+                info={useMapping ? 'Filters applied to all events before they reach a mapping' : null}
+            >
+                {({ value, onChange }) => {
+                    const filters = (value ?? {}) as HogFunctionFiltersType
+                    return (
+                        <>
+                            <TestAccountFilterSwitch
+                                checked={filters?.filter_test_accounts ?? false}
+                                onChange={(filter_test_accounts) => onChange({ ...filters, filter_test_accounts })}
+                                fullWidth
+                            />
+                            <PropertyFilters
+                                propertyFilters={(filters?.properties ?? []) as AnyPropertyFilter[]}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    TaxonomicFilterGroupType.EventFeatureFlags,
+                                    TaxonomicFilterGroupType.Elements,
+                                    TaxonomicFilterGroupType.HogQLExpression,
+                                ]}
+                                onChange={(properties: AnyPropertyFilter[]) => {
+                                    onChange({
+                                        ...filters,
+                                        properties,
+                                    })
+                                }}
+                                pageKey={`HogFunctionPropertyFilters.${id}`}
+                            />
 
-                        <LemonLabel>Match event and actions</LemonLabel>
-                        <p className="mb-0 text-muted-alt text-xs">
-                            If set, the destination will only run if the <b>event matches any</b> of the below.
-                        </p>
-                        <ActionFilter
-                            bordered
-                            filters={value ?? {}}
-                            setFilters={(payload) => {
-                                onChange({
-                                    ...value,
-                                    ...sanitizeActionFilters(payload),
-                                })
-                            }}
-                            typeKey="plugin-filters"
-                            mathAvailability={MathAvailability.None}
-                            hideRename
-                            hideDuplicate
-                            showNestedArrow={false}
-                            actionsTaxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.Events,
-                                TaxonomicFilterGroupType.Actions,
-                            ]}
-                            propertiesTaxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                TaxonomicFilterGroupType.Elements,
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.HogQLExpression,
-                                ...groupsTaxonomicTypes,
-                            ]}
-                            propertyFiltersPopover
-                            addFilterDefaultOptions={{
-                                id: '$pageview',
-                                name: '$pageview',
-                                type: EntityTypes.EVENTS,
-                            }}
-                            buttonCopy="Add event matcher"
-                        />
-                    </>
-                )}
+                            {!useMapping ? (
+                                <>
+                                    <div className="flex w-full gap-2 justify-between">
+                                        <LemonLabel>Match events and actions</LemonLabel>
+                                    </div>
+                                    <p className="mb-0 text-muted-alt text-xs">
+                                        If set, the destination will only run if the <b>event matches any</b> of the
+                                        below.
+                                    </p>
+                                    <ActionFilter
+                                        bordered
+                                        filters={value ?? {} /* TODO: this is any */}
+                                        setFilters={(payload) => {
+                                            onChange({
+                                                ...value,
+                                                ...sanitizeActionFilters(payload),
+                                            })
+                                        }}
+                                        typeKey="plugin-filters"
+                                        mathAvailability={MathAvailability.None}
+                                        hideRename
+                                        hideDuplicate
+                                        showNestedArrow={false}
+                                        actionsTaxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.Events,
+                                            TaxonomicFilterGroupType.Actions,
+                                        ]}
+                                        propertiesTaxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.EventProperties,
+                                            TaxonomicFilterGroupType.EventFeatureFlags,
+                                            TaxonomicFilterGroupType.Elements,
+                                            TaxonomicFilterGroupType.PersonProperties,
+                                            TaxonomicFilterGroupType.HogQLExpression,
+                                            ...groupsTaxonomicTypes,
+                                        ]}
+                                        propertyFiltersPopover
+                                        addFilterDefaultOptions={{
+                                            id: '$pageview',
+                                            name: '$pageview',
+                                            type: EntityTypes.EVENTS,
+                                        }}
+                                        buttonCopy="Add event matcher"
+                                    />
+                                </>
+                            ) : null}
+                        </>
+                    )
+                }}
             </LemonField>
-
             {showMasking ? (
                 <LemonField name="masking" label="Trigger options">
                     {({ value, onChange }) => (
