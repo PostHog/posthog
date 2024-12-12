@@ -1,4 +1,4 @@
-// Copied from front end codebase
+import FastPriorityQueue from 'fastpriorityqueue'
 
 export function promiseResolveReject<T>(): {
     resolve: (value: T) => void
@@ -13,6 +13,8 @@ export function promiseResolveReject<T>(): {
     })
     return { resolve: resolve!, reject: reject!, promise }
 }
+
+// Copied from front end codebase
 class ConcurrencyControllerItem<T> {
     _debugTag?: string
     _runFn: () => Promise<void>
@@ -65,7 +67,9 @@ export class ConcurrencyController {
     _concurrencyLimit: number
 
     _current: ConcurrencyControllerItem<any>[] = []
-    private _queue: ConcurrencyControllerItem<any>[] = []
+    private _queue: FastPriorityQueue<ConcurrencyControllerItem<any>> = new FastPriorityQueue(
+        (a, b) => a._priority < b._priority
+    )
 
     constructor(concurrencyLimit: number) {
         this._concurrencyLimit = concurrencyLimit
@@ -92,7 +96,7 @@ export class ConcurrencyController {
     }): Promise<T> => {
         const item = new ConcurrencyControllerItem(this, fn, abortController, priority, debugTag)
 
-        this._queue.push(item)
+        this._queue.add(item)
 
         this._tryRunNext()
 
@@ -100,8 +104,7 @@ export class ConcurrencyController {
     }
 
     _runNext(): void {
-        this._queue.sort((a, b) => a._priority - b._priority)
-        const next = this._queue.shift()
+        const next = this._queue.poll()
         if (next) {
             next._runFn()
                 .catch(() => {
