@@ -481,7 +481,7 @@
       size Int64,
       event_count Int64,
       message_count Int64,
-      snapshot_source LowCardinality(Nullable(String))
+      snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String)
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
@@ -1497,7 +1497,7 @@
       size Int64,
       event_count Int64,
       message_count Int64,
-      snapshot_source LowCardinality(Nullable(String))
+      snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String)
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
