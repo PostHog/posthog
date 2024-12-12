@@ -37,6 +37,8 @@ from posthog.schema import (
 )
 from posthog.types import EntityNode, ExclusionEntityNode
 
+JOIN_ALGOS = "auto"
+
 
 class FunnelBase(ABC):
     context: FunnelQueryContext
@@ -113,9 +115,11 @@ class FunnelBase(ABC):
         team, breakdown = self.context.team, self.context.breakdown
 
         if isinstance(breakdown, list):
-            cohorts = Cohort.objects.filter(team_id=team.pk, pk__in=[b for b in breakdown if b != "all"])
+            cohorts = Cohort.objects.filter(
+                team__project_id=team.project_id, pk__in=[b for b in breakdown if b != "all"]
+            )
         else:
-            cohorts = Cohort.objects.filter(team_id=team.pk, pk=breakdown)
+            cohorts = Cohort.objects.filter(team__project_id=team.project_id, pk=breakdown)
 
         return list(cohorts)
 

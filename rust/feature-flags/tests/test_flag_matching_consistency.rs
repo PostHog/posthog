@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
-use feature_flags::cohort_cache::CohortCacheManager;
-use feature_flags::feature_flag_match_reason::FeatureFlagMatchReason;
 /// These tests are common between all libraries doing local evaluation of feature flags.
 /// This ensures there are no mismatches between implementations.
-use feature_flags::flag_matching::{FeatureFlagMatch, FeatureFlagMatcher};
-
-use feature_flags::test_utils::{
-    create_flag_from_json, setup_pg_reader_client, setup_pg_writer_client,
+use feature_flags::{
+    cohort::cohort_cache_manager::CohortCacheManager,
+    flags::{
+        flag_match_reason::FeatureFlagMatchReason,
+        flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
+    },
+    utils::test_utils::{create_flag_from_json, setup_pg_reader_client, setup_pg_writer_client},
 };
 use serde_json::json;
 
@@ -111,24 +112,17 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
     ];
 
     for (i, result) in results.iter().enumerate().take(1000) {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
         let distinct_id = format!("distinct_id_{}", i);
 
-        let feature_flag_match = FeatureFlagMatcher::new(
-            distinct_id,
-            1,
-            postgres_reader,
-            postgres_writer,
-            cohort_cache,
-            None,
-            None,
-        )
-        .get_match(&flags[0], None, None)
-        .await
-        .unwrap();
+        let feature_flag_match =
+            FeatureFlagMatcher::new(distinct_id, 1, reader, writer, cohort_cache, None, None)
+                .get_match(&flags[0], None, None)
+                .await
+                .unwrap();
 
         if *result {
             assert_eq!(
@@ -1211,23 +1205,16 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
     ];
 
     for (i, result) in results.iter().enumerate().take(1000) {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
         let distinct_id = format!("distinct_id_{}", i);
 
-        let feature_flag_match = FeatureFlagMatcher::new(
-            distinct_id,
-            1,
-            postgres_reader,
-            postgres_writer,
-            cohort_cache,
-            None,
-            None,
-        )
-        .get_match(&flags[0], None, None)
-        .await
-        .unwrap();
+        let feature_flag_match =
+            FeatureFlagMatcher::new(distinct_id, 1, reader, writer, cohort_cache, None, None)
+                .get_match(&flags[0], None, None)
+                .await
+                .unwrap();
 
         if let Some(variant) = &result {
             assert_eq!(

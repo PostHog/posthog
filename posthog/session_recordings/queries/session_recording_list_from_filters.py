@@ -6,6 +6,7 @@ import posthoganalytics
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperation
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import entity_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -143,6 +144,7 @@ class SessionRecordingListFromFilters:
             team=self._team,
             query_type="SessionRecordingListQuery",
             modifiers=self._hogql_query_modifiers,
+            settings=HogQLGlobalSettings(allow_experimental_analyzer=False),  # This needs to be turned on eventually
         )
 
         return SessionRecordingQueryResult(
@@ -262,18 +264,9 @@ class SessionRecordingListFromFilters:
             console_logs_subquery = ast.SelectQuery(
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
-                where=ast.And(
+                where=self._filter.ast_operand(
                     exprs=[
-                        self._filter.ast_operand(
-                            exprs=[
-                                property_to_expr(self._filter.console_log_filters, team=self._team),
-                            ]
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["log_source"]),
-                            right=ast.Constant(value="session_replay"),
-                        ),
+                        property_to_expr(self._filter.console_log_filters, team=self._team),
                     ]
                 ),
             )

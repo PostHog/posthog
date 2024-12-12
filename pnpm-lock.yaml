@@ -46,15 +46,18 @@ dependencies:
   '@microlink/react-json-view':
     specifier: ^1.21.3
     version: 1.22.2(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0)
+  '@microsoft/fetch-event-source':
+    specifier: ^2.0.1
+    version: 2.0.1
   '@monaco-editor/react':
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/hogvm':
-    specifier: ^1.0.59
-    version: 1.0.59(luxon@3.5.0)
+    specifier: ^1.0.61
+    version: 1.0.61(luxon@3.5.0)
   '@posthog/icons':
-    specifier: 0.9.1
-    version: 0.9.1(react-dom@18.2.0)(react@18.2.0)
+    specifier: 0.9.2
+    version: 0.9.2(react-dom@18.2.0)(react@18.2.0)
   '@posthog/plugin-scaffold':
     specifier: ^1.4.4
     version: 1.4.4
@@ -109,6 +112,12 @@ dependencies:
   '@tiptap/suggestion':
     specifier: ^2.1.16
     version: 2.1.16(@tiptap/core@2.1.16)(@tiptap/pm@2.1.16)
+  '@types/lodash.debounce':
+    specifier: ^4.0.9
+    version: 4.0.9
+  '@types/lodash.isequal':
+    specifier: ^4.5.8
+    version: 4.5.8
   '@types/md5':
     specifier: ^2.3.0
     version: 2.3.2
@@ -154,6 +163,9 @@ dependencies:
   chokidar:
     specifier: ^3.5.3
     version: 3.5.3
+  classnames:
+    specifier: ^2.5.1
+    version: 2.5.1
   clsx:
     specifier: ^1.1.1
     version: 1.2.1
@@ -205,6 +217,9 @@ dependencies:
   fast-deep-equal:
     specifier: ^3.1.3
     version: 3.1.3
+  fastpriorityqueue:
+    specifier: ^0.7.5
+    version: 0.7.5
   fflate:
     specifier: ^0.7.4
     version: 0.7.4
@@ -253,6 +268,12 @@ dependencies:
   kea-window-values:
     specifier: ^3.0.0
     version: 3.0.0(kea@3.1.5)
+  lodash.debounce:
+    specifier: ^4.0.8
+    version: 4.0.8
+  lodash.isequal:
+    specifier: ^4.5.0
+    version: 4.5.0
   lodash.merge:
     specifier: ^4.6.2
     version: 4.6.2
@@ -284,8 +305,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.187.0
-    version: 1.187.0
+    specifier: 1.195.0
+    version: 1.195.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -587,6 +608,9 @@ devDependencies:
   babel-plugin-import:
     specifier: ^1.13.0
     version: 1.13.8
+  caniuse-lite:
+    specifier: ^1.0.30001687
+    version: 1.0.30001687
   concurrently:
     specifier: ^5.3.0
     version: 5.3.0
@@ -4263,8 +4287,8 @@ packages:
       react: 18.2.0
     dev: true
 
-  /@emotion/use-insertion-effect-with-fallbacks@1.1.0(react@18.2.0):
-    resolution: {integrity: sha512-+wBOcIV5snwGgI2ya3u99D7/FJquOIniQT1IKyDsBmEgwvpxMNeS65Oib7OnE2d2aY+3BU4OiH+0Wchf8yk3Hw==}
+  /@emotion/use-insertion-effect-with-fallbacks@1.2.0(react@18.2.0):
+    resolution: {integrity: sha512-yJMtVdH59sxi/aVJBpk9FQq+OR8ll5GT8oWd57UpeaKEVGab41JWaCFA7FRLoMLloOZF/c/wsPoe+bfGmRKgDg==}
     peerDependencies:
       react: '>=16.8.0'
     dependencies:
@@ -5284,6 +5308,10 @@ packages:
       - encoding
     dev: false
 
+  /@microsoft/fetch-event-source@2.0.1:
+    resolution: {integrity: sha512-W6CLUJ2eBMw3Rec70qrsEW0jOm/3twwJv21mrmj2yORiaVmVYGS4sSS5yUwvQc1ZlDLYGPnClVWmUUMagKNsfA==}
+    dev: false
+
   /@monaco-editor/loader@1.4.0(monaco-editor@0.49.0):
     resolution: {integrity: sha512-00ioBig0x642hytVspPl7DbQyaSWRaolYie/UFNjoTdvoKPzo6xrXLhTk9ixgIKcLH5b5vDOjVNiGyY+uDCUlg==}
     peerDependencies:
@@ -5418,16 +5446,16 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/hogvm@1.0.59(luxon@3.5.0):
-    resolution: {integrity: sha512-4KJfCXUhK7x5Wm3pheKWDmrbQ0y1lWlLWdVEjocdjSy3wOS8hQQqaFAVEKZs7hfk9pZqvNFh2UPgD4ccpwUQjA==}
+  /@posthog/hogvm@1.0.61(luxon@3.5.0):
+    resolution: {integrity: sha512-zCwQp6Zn2F2/QNhd1/0IwpndhElVZ2pzsoh2IOZWapZ+jNo6y/taL3128Uwoiec01IYiPXF8EVYOJP7X4Woj+A==}
     peerDependencies:
       luxon: ^3.4.4
     dependencies:
       luxon: 3.5.0
     dev: false
 
-  /@posthog/icons@0.9.1(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-9zlU1H7MZm2gSh1JsDzM25km6VDc/Y7HdNf6RyP5sUiHCHVMKhQQ8TA2IMq55v/uTFRc5Yen6BagOUvunD2kqQ==}
+  /@posthog/icons@0.9.2(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-SL79DvkAnVw+urYVrSPQY/CvY71NoSmYFhTH+gZFdwTYVe4zL7x6uADjPfmtr/wdyG3xj6M6CGIJlP00lW3Srg==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -6462,7 +6490,7 @@ packages:
       '@storybook/preview-api': 7.6.4
       '@storybook/theming': 7.6.4(react-dom@18.2.0)(react@18.2.0)
       '@storybook/types': 7.6.4
-      '@types/lodash': 4.14.188
+      '@types/lodash': 4.17.13
       color-convert: 2.0.1
       dequal: 2.0.3
       lodash: 4.17.21
@@ -6930,8 +6958,8 @@ packages:
       lodash: 4.17.21
     dev: true
 
-  /@storybook/csf@0.1.11:
-    resolution: {integrity: sha512-dHYFQH3mA+EtnCkHXzicbLgsvzYjcDJ1JWsogbItZogkPHgSJM/Wr71uMkcvw8v9mmCyP4NpXJuu6bPoVsOnzg==}
+  /@storybook/csf@0.1.12:
+    resolution: {integrity: sha512-9/exVhabisyIVL0VxTCxo01Tdm8wefIXKXfltAPTSr8cbLn5JAxGQ6QV3mjdecLGEOucfoVhAKtJfVHxEK1iqw==}
     dependencies:
       type-fest: 2.19.0
     dev: true
@@ -6971,7 +6999,7 @@ packages:
       '@storybook/channels': 7.6.20
       '@storybook/client-logger': 7.6.20
       '@storybook/core-events': 7.6.20
-      '@storybook/csf': 0.1.11
+      '@storybook/csf': 0.1.12
       '@storybook/global': 5.0.0
       '@storybook/router': 7.6.20
       '@storybook/theming': 7.6.20(react-dom@18.2.0)(react@18.2.0)
@@ -7086,7 +7114,7 @@ packages:
       '@storybook/channels': 7.6.20
       '@storybook/client-logger': 7.6.20
       '@storybook/core-events': 7.6.20
-      '@storybook/csf': 0.1.11
+      '@storybook/csf': 0.1.12
       '@storybook/global': 5.0.0
       '@storybook/types': 7.6.20
       '@types/qs': 6.9.17
@@ -7340,7 +7368,7 @@ packages:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0
     dependencies:
-      '@emotion/use-insertion-effect-with-fallbacks': 1.1.0(react@18.2.0)
+      '@emotion/use-insertion-effect-with-fallbacks': 1.2.0(react@18.2.0)
       '@storybook/client-logger': 7.6.20
       '@storybook/global': 5.0.0
       memoizerific: 1.11.3
@@ -8403,21 +8431,32 @@ packages:
     resolution: {integrity: sha512-PecSzorDGdabF57OBeQO/xFbAkYWo88g4Xvnsx7LRwqLC17I7OoKtA3bQB9uXkY6UkMWCOsA8HSVpaoitscdXw==}
     dev: false
 
+  /@types/lodash.debounce@4.0.9:
+    resolution: {integrity: sha512-Ma5JcgTREwpLRwMM+XwBR7DaWe96nC38uCBDFKZWbNKD+osjVzdpnUSwBcqCptrp16sSOLBAUb50Car5I0TCsQ==}
+    dependencies:
+      '@types/lodash': 4.17.13
+    dev: false
+
+  /@types/lodash.isequal@4.5.8:
+    resolution: {integrity: sha512-uput6pg4E/tj2LGxCZo9+y27JNyB2OZuuI/T5F+ylVDYuqICLG2/ktjxx0v6GvVntAf8TvEzeQLcV0ffRirXuA==}
+    dependencies:
+      '@types/lodash': 4.17.13
+    dev: false
+
   /@types/lodash.merge@4.6.9:
     resolution: {integrity: sha512-23sHDPmzd59kUgWyKGiOMO2Qb9YtqRO/x4IhkgNUiPQ1+5MUVqi6bCZeq9nBJ17msjIMbEIO5u+XW4Kz6aGUhQ==}
     dependencies:
-      '@types/lodash': 4.14.188
+      '@types/lodash': 4.17.13
     dev: true
 
   /@types/lodash.uniqby@4.7.9:
     resolution: {integrity: sha512-rjrXji/seS6BZJRgXrU2h6FqxRVufsbq/HE0Tx0SdgbtlWr2YmD/M64BlYEYYlaMcpZwy32IYVkMfUMYlPuv0w==}
     dependencies:
-      '@types/lodash': 4.14.188
+      '@types/lodash': 4.17.13
     dev: true
 
-  /@types/lodash@4.14.188:
-    resolution: {integrity: sha512-zmEmF5OIM3rb7SbLCFYoQhO4dGt2FRM9AMkxvA3LaADOF1n8in/zGJlWji9fmafLoNyz+FoL6FE0SLtGIArD7w==}
-    dev: true
+  /@types/lodash@4.17.13:
+    resolution: {integrity: sha512-lfx+dftrEZcdBPczf9d0Qv0x+j/rfNCMuC6OcfXmO8gkfeNAY88PgKUbvG56whcN23gc27yenwF6oJZXGFpYxg==}
 
   /@types/mapbox__point-geometry@0.1.3:
     resolution: {integrity: sha512-2W46IOXlu7vC8m3+M5rDqSnuY22GFxxx3xhkoyqyPWrD+eP2iAwNst0A1+umLYjCTJMJTSpiofphn9h9k+Kw+w==}
@@ -9599,7 +9638,7 @@ packages:
       postcss: ^8.1.0
     dependencies:
       browserslist: 4.22.2
-      caniuse-lite: 1.0.30001568
+      caniuse-lite: 1.0.30001687
       fraction.js: 4.2.0
       normalize-range: 0.1.2
       picocolors: 1.0.0
@@ -9615,7 +9654,7 @@ packages:
       postcss: ^8.1.0
     dependencies:
       browserslist: 4.22.2
-      caniuse-lite: 1.0.30001568
+      caniuse-lite: 1.0.30001687
       fraction.js: 4.3.7
       normalize-range: 0.1.2
       picocolors: 1.0.0
@@ -9979,7 +10018,7 @@ packages:
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
     dependencies:
-      caniuse-lite: 1.0.30001538
+      caniuse-lite: 1.0.30001687
       electron-to-chromium: 1.4.492
       node-releases: 2.0.13
       update-browserslist-db: 1.0.11(browserslist@4.21.10)
@@ -9989,7 +10028,7 @@ packages:
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
     dependencies:
-      caniuse-lite: 1.0.30001568
+      caniuse-lite: 1.0.30001687
       electron-to-chromium: 1.4.609
       node-releases: 2.0.14
       update-browserslist-db: 1.0.13(browserslist@4.22.2)
@@ -10123,16 +10162,13 @@ packages:
     resolution: {integrity: sha512-bsTwuIg/BZZK/vreVTYYbSWoe2F+71P7K5QGEX+pT250DZbfU1MQ5prOKpPR+LL6uWKK3KMwMCAS74QB3Um1uw==}
     dependencies:
       browserslist: 4.22.2
-      caniuse-lite: 1.0.30001568
+      caniuse-lite: 1.0.30001687
       lodash.memoize: 4.1.2
       lodash.uniq: 4.5.0
     dev: false
 
-  /caniuse-lite@1.0.30001538:
-    resolution: {integrity: sha512-HWJnhnID+0YMtGlzcp3T9drmBJUVDchPJ08tpUGFLs9CYlwWPH2uLgpHn8fND5pCgXVtnGS3H4QR9XLMHVNkHw==}
-
-  /caniuse-lite@1.0.30001568:
-    resolution: {integrity: sha512-vSUkH84HontZJ88MiNrOau1EBrCqEQYgkC5gIySiDlpsm8sGVrhU7Kx4V6h0tnqaHzIHZv08HlJIwPbL4XL9+A==}
+  /caniuse-lite@1.0.30001687:
+    resolution: {integrity: sha512-0S/FDhf4ZiqrTUiQ39dKeUjYRjkv7lOZU1Dgif2rIqrTzX/1wV2hfKu9TOm1IHkdSijfLswxTFzl/cvir+SLSQ==}
 
   /case-anything@2.1.10:
     resolution: {integrity: sha512-JczJwVrCP0jPKh05McyVsuOg6AYosrB9XWZKbQzXeDAm2ClE/PJE/BcrrQrVyGYH7Jg8V/LDupmyL4kFlVsVFQ==}
@@ -10313,8 +10349,8 @@ packages:
     resolution: {integrity: sha512-cOU9usZw8/dXIXKtwa8pM0OTJQuJkxMN6w30csNRUerHfeQ5R6U3kkU/FtJeIf3M202OHfY2U8ccInBG7/xogA==}
     dev: true
 
-  /classnames@2.3.2:
-    resolution: {integrity: sha512-CSbhY4cFEJRe6/GQzIk5qXZ4Jeg5pcsP7b5peFSDpffpe1cqjASH/n9UTjBwOp6XpMSTwQ8Za2K5V02ueA7Tmw==}
+  /classnames@2.5.1:
+    resolution: {integrity: sha512-saHYOzhIQs6wy2sVxTM6bUDsQO4F50V9RQ22qBpEdCW+I+/Wmke2HOl6lS6dTpdxVhb88/I6+Hs+438c3lfUow==}
     dev: false
 
   /clean-css@5.3.2:
@@ -12245,7 +12281,7 @@ packages:
       '@mdn/browser-compat-data': 5.3.16
       ast-metadata-inferer: 0.8.0
       browserslist: 4.21.10
-      caniuse-lite: 1.0.30001538
+      caniuse-lite: 1.0.30001687
       eslint: 8.57.0
       find-up: 5.0.0
       lodash.memoize: 4.1.2
@@ -12733,6 +12769,10 @@ packages:
     resolution: {integrity: sha512-eRnCtTTtGZFpQCwhJiUOuxPQWRXVKYDn0b2PeHfXL6/Zi53SLAzAHfVhVWK2AryC/WH05kGfxhFIPvTF0SXQzg==}
     engines: {node: '>= 4.9.1'}
     dev: true
+
+  /fastpriorityqueue@0.7.5:
+    resolution: {integrity: sha512-3Pa0n9gwy8yIbEsT3m2j/E9DXgWvvjfiZjjqcJ+AdNKTAlVMIuFYrYG5Y3RHEM8O6cwv9hOpOWY/NaMfywoQVA==}
+    dev: false
 
   /fastq@1.13.0:
     resolution: {integrity: sha512-YpkpUnK8od0o1hmeSc7UUs/eB/vIPWJYjKck2QKIzAf71Vm1AAQ3EbuZB3g2JIy+pg+ERD0vqI79KyZiB2e2Nw==}
@@ -13970,7 +14010,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.24.3
+      preact: 10.25.1
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -17789,12 +17829,12 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.187.0:
-    resolution: {integrity: sha512-6AlM7jtpPTc+jncxQAddukUWka1T9ZCCySY+NAAQqy5zXHSvLb5g/dLWdRzhlxWiSSYDmLHBTsAhIngbGQJ6MA==}
+  /posthog-js@1.195.0:
+    resolution: {integrity: sha512-ja+d/uogH9IPPnnM512uL5a9Igzz4K1OvBJNybCSbt6hqjSC+c5XaY3XH8t4D3RFz7aU5Di3trsrh/YNkSbF6A==}
     dependencies:
       core-js: 3.39.0
       fflate: 0.4.8
-      preact: 10.24.3
+      preact: 10.25.1
       web-vitals: 4.2.4
     dev: false
 
@@ -17802,8 +17842,8 @@ packages:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.24.3:
-    resolution: {integrity: sha512-Z2dPnBnMUfyQfSQ+GBdsGa16hz35YmLmtTLhM169uW944hYL6xzTYkJjC07j+Wosz733pMWx0fgON3JNw1jJQA==}
+  /preact@10.25.1:
+    resolution: {integrity: sha512-frxeZV2vhQSohQwJ7FvlqC40ze89+8friponWUFeVEkaCfhC6Eu4V0iND5C9CXz8JLndV07QRDeXzH1+Anz5Og==}
     dev: false
 
   /prelude-ls@1.2.1:
@@ -18240,7 +18280,7 @@ packages:
       react-dom: '>=16.9.0'
     dependencies:
       '@babel/runtime': 7.24.0
-      classnames: 2.3.2
+      classnames: 2.5.1
       dom-align: 1.12.3
       lodash: 4.17.21
       rc-util: 5.24.4(react-dom@18.2.0)(react@18.2.0)
@@ -18256,7 +18296,7 @@ packages:
       react-dom: '>=16.9.0'
     dependencies:
       '@babel/runtime': 7.24.0
-      classnames: 2.3.2
+      classnames: 2.5.1
       rc-util: 5.24.4(react-dom@18.2.0)(react@18.2.0)
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
@@ -18270,7 +18310,7 @@ packages:
       react-dom: '>=16.9.0'
     dependencies:
       '@babel/runtime': 7.24.0
-      classnames: 2.3.2
+      classnames: 2.5.1
       rc-align: 4.0.12(react-dom@18.2.0)(react@18.2.0)
       rc-motion: 2.6.2(react-dom@18.2.0)(react@18.2.0)
       rc-util: 5.24.4(react-dom@18.2.0)(react@18.2.0)
@@ -18407,7 +18447,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.157.0
+      unlayer-types: 1.169.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20954,8 +20994,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.157.0:
-    resolution: {integrity: sha512-D9xnoeQREgUxEkaFG3q90CVicmysu8REVIkQA3alHaTG3JM+LPzdq20vjrd6V4iGuvvUD8L5EDQybSsSRS/k+g==}
+  /unlayer-types@1.169.0:
+    resolution: {integrity: sha512-BXT4C/MzrYIiiEXHOovtquGehX4IXLYKx3qo4SwYGmqmaGMvZLKvt2rDlO+DKUjVnvGHxgre/tAbUl3I5Gnpxg==}
     dev: false
 
   /unpipe@1.0.0:

@@ -27,6 +27,7 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_MALFORMED_JSON_PROMPT,
     REACT_MISSING_ACTION_CORRECTION_PROMPT,
     REACT_MISSING_ACTION_PROMPT,
+    REACT_PROPERTY_FILTERS_PROMPT,
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     REACT_SCRATCHPAD_PROMPT,
     REACT_USER_PROMPT,
@@ -77,6 +78,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     {
                         "react_format": self._get_react_format_prompt(toolkit),
                         "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
+                        "react_property_filters": self._get_react_property_filters_prompt(),
                         "product_description": self._team.project.product_description,
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
@@ -130,6 +132,14 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             .content,
         )
 
+    def _get_react_property_filters_prompt(self) -> str:
+        return cast(
+            str,
+            ChatPromptTemplate.from_template(REACT_PROPERTY_FILTERS_PROMPT, template_format="mustache")
+            .format_messages(groups=self._team_group_types)[0]
+            .content,
+        )
+
     @cached_property
     def _events_prompt(self) -> str:
         response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
@@ -169,7 +179,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
     @cached_property
     def _team_group_types(self) -> list[str]:
         return list(
-            GroupTypeMapping.objects.filter(team=self._team)
+            GroupTypeMapping.objects.filter(project_id=self._team.project_id)
             .order_by("group_type_index")
             .values_list("group_type", flat=True)
         )

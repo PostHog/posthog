@@ -5,6 +5,7 @@ CREATE TABLE posthog_errortrackingsymbolset (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     storage_ptr TEXT,
     failure_reason TEXT,
+    content_hash TEXT,
     CONSTRAINT unique_ref_per_team UNIQUE (team_id, ref)
 );
 
@@ -19,7 +20,7 @@ CREATE TABLE IF NOT EXISTS posthog_errortrackingstackframe (
     symbol_set_id UUID,
     contents JSONB NOT NULL,
     resolved BOOLEAN NOT NULL,
-    context TEXT,
+    context JSONB,
     UNIQUE(raw_id, team_id)
 );
 

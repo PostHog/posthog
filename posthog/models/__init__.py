@@ -31,7 +31,12 @@ from .early_access_feature import EarlyAccessFeature
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .error_tracking import ErrorTrackingGroup
+from .error_tracking import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingStackFrame,
+    ErrorTrackingSymbolSet,
+)
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
@@ -68,6 +73,7 @@ from .project import Project
 from .property import Property
 from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
+from .remote_config import RemoteConfig
 from .scheduled_change import ScheduledChange
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
@@ -103,7 +109,10 @@ __all__ = [
     "Element",
     "ElementGroup",
     "Entity",
-    "ErrorTrackingGroup",
+    "ErrorTrackingIssue",
+    "ErrorTrackingIssueFingerprintV2",
+    "ErrorTrackingStackFrame",
+    "ErrorTrackingSymbolSet",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -121,6 +130,7 @@ __all__ = [
     "InsightViewed",
     "InstanceSetting",
     "Integration",
+    "InviteExpiredException",
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",
@@ -145,6 +155,7 @@ __all__ = [
     "PropertyDefinition",
     "ProxyRecord",
     "RetentionFilter",
+    "RemoteConfig",
     "SessionRecording",
     "SessionRecordingPlaylist",
     "SessionRecordingPlaylistItem",

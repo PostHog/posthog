@@ -1,0 +1,28 @@
+[
+    {
+        "uuid": "01932ad3-bd2a-796c-9f4c-f65ab1ff27ac",
+        "event": "$exception",
+        "properties": "{\"$exception_list\":[{\"type\":\"SyntaxError\",\"value\":\"Unexpected non-whitespace character after JSON at position 3708 (line 2 column 1)\",\"stacktrace\":{\"frames\":[{\"platform\":\"javascript\",\"filename\":\"https://unpkg.com/eventsource@2.0.2/example/eventsource-polyfill.js\",\"function\":\"drainQueue\",\"in_app\":true,\"lineno\":219,\"colno\":42},{\"platform\":\"javascript\",\"filename\":\"https://unpkg.com/eventsource@2.0.2/example/eventsource-polyfill.js\",\"function\":\"Item.run\",\"in_app\":true,\"lineno\":249,\"colno\":14},{\"platform\":\"javascript\",\"filename\":\"https://unpkg.com/eventsource@2.0.2/example/eventsource-polyfill.js\",\"function\":\"afterTickTwo\",\"in_app\":true,\"lineno\":2392,\"colno\":10},{\"platform\":\"javascript\",\"filename\":\"https://unpkg.com/eventsource@2.0.2/example/eventsource-polyfill.js\",\"function\":\"resume_\",\"in_app\":true,\"lineno\":4950,\"colno\":3},{\"platform\":\"javascript\",\"filename\":\"https://unpkg.com/eventsource@2.0.2/example/eventsource-polyfill.js\",\"function\":\"flow\",\"in_app\":true,\"lineno\":4967,\"colno\":34},{\"platform\":\"javascript\",\"filename\":\"https://unpkg.com/eventsource@2.0.2/example/eventsource-polyfill.js\",\"function\":\"Readable.read\",\"in_app\":true,\"lineno\":4623,\"colno\":26},{\"platform\":\"javascript\",\"filename\":\"https://unpkg.com/eventsource@2.0.2/example/eventsource-polyfill.js\",\"function\":\"exports.IncomingMessage.emit\",\"in_app\":true,\"lineno\":3377,\"colno\":5},{\"platform\":\"javascript\",\"filename\":\"https://unpkg.com/eventsource@2.0.2/example/eventsource-polyfill.js\",\"function\":\"exports.IncomingMessage.<anonymous>\",\"in_app\":true,\"lineno\":6756,\"colno\":11},{\"platform\":\"javascript\",\"filename\":\"https://unpkg.com/eventsource@2.0.2/example/eventsource-polyfill.js\",\"function\":\"parseEventStreamLine\",\"in_app\":true,\"lineno\":6799,\"colno\":9},{\"platform\":\"javascript\",\"filename\":\"https://unpkg.com/eventsource@2.0.2/example/eventsource-polyfill.js\",\"function\":\"_emit\",\"in_app\":true,\"lineno\":6784,\"colno\":17},{\"platform\":\"javascript\",\"filename\":\"https://unpkg.com/eventsource@2.0.2/example/eventsource-polyfill.js\",\"function\":\"EventSource.emit\",\"in_app\":true,\"lineno\":3377,\"colno\":5},{\"platform\":\"javascript\",\"filename\":\"https://app-static-prod.posthog.com/static/chunk-B4MXHXII.js\",\"function\":\"a.onmessage\",\"in_app\":true,\"lineno\":290,\"colno\":97793},{\"platform\":\"javascript\",\"filename\":\"<anonymous>\",\"function\":\"JSON.parse\",\"in_app\":true}],\"type\":\"raw\"},\"mechanism\":{\"handled\":true,\"synthetic\":false}}],\"$exception_level\":\"error\"}",
+        "timestamp": "2024-11-14 13:19:00.117",
+        "team_id": 2,
+        "project_id": 2,
+        "distinct_id": "cu5skLyhm2En4xb5ERxtMkmMtC99pdbZDcqO3VDaDqt",
+        "elements_chain": "",
+        "created_at": "2024-11-14 13:20:30.828",
+        "person_created_at": "2024-07-02 13:11:05",
+        "person_mode": "full"
+    },
+    {
+        "uuid": "01933c1f-f831-7f29-8b18-2bee05ce0125",
+        "event": "$exception",
+        "properties": "{\"$exception_list\":[{\"type\":\"Error\",\"value\":\"Unexpected usage\\n\\nError: Unexpected usage\\n    at n.loadForeignModule (https://app-static-prod.posthog.com/static/chunk-PGUQKT6S.js:64:15003)\\n    at https://app-static-prod.posthog.com/static/chunk-PGUQKT6S.js:64:25112\",\"stacktrace\":{\"frames\":[{\"filename\":\"https://app-static-prod.posthog.com/static/chunk-C6S33U6V.js\",\"function\":\"r\",\"in_app\":true,\"lineno\":19,\"colno\":2044},{\"filename\":\"https://app-static-prod.posthog.com/static/chunk-PGUQKT6S.js\",\"function\":\"?\",\"in_app\":true,\"lineno\":3,\"colno\":12},{\"filename\":\"https://app-static-prod.posthog.com/static/chunk-PGUQKT6S.js\",\"function\":\"?\",\"in_app\":true,\"lineno\":64,\"colno\":25112},{\"filename\":\"https://app-static-prod.posthog.com/static/chunk-PGUQKT6S.js\",\"function\":\"n.loadForeignModule\",\"in_app\":true,\"lineno\":64,\"colno\":15003}],\"type\":\"raw\"},\"mechanism\":{\"type\":\"generic\",\"handled\":true}}],\"$sentry_event_id\":\"c2954a0d25c643e4ac6b9aef7c3b39e4\",\"$sentry_exception\":{},\"$sentry_exception_message\":\"Unexpected usage\\n\\nError: Unexpected usage\\n    at n.loadForeignModule (https://app-static-prod.posthog.com/static/chunk-PGUQKT6S.js:64:15003)\\n    at https://app-static-prod.posthog.com/static/chunk-PGUQKT6S.js:64:25112\"}",
+        "timestamp": "2024-11-17 21:55:48.475",
+        "team_id": 2,
+        "project_id": 2,
+        "distinct_id": "KCVn0RwlQkwrWhSWU5j2CzvN9QTbwsZPdqz6cfSPcXH",
+        "elements_chain": "",
+        "created_at": "2024-11-17 21:55:51.928",
+        "person_created_at": "2023-03-21 17:54:03",
+        "person_mode": "full"
+    }
+]

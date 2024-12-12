@@ -16,6 +16,7 @@ from posthog.schema import (
     ExperimentFunnelsQueryResponse,
     ExperimentSignificanceCode,
     ExperimentVariantFunnelsBaseStats,
+    FunnelLayout,
     FunnelsFilter,
     FunnelsQuery,
     FunnelsQueryResponse,
@@ -54,16 +55,19 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
         self._validate_event_variants(funnels_result)
 
-        # Filter results to only include valid variants in the first step
-        funnels_result.results = [
-            result for result in funnels_result.results if result[0]["breakdown_value"][0] in self.variants
-        ]
+        try:
+            # Filter results to only include valid variants in the first step
+            funnels_result.results = [
+                result for result in funnels_result.results if result[0]["breakdown_value"][0] in self.variants
+            ]
 
-        # Statistical analysis
-        control_variant, test_variants = self._get_variants_with_base_stats(funnels_result)
-        probabilities = calculate_probabilities(control_variant, test_variants)
-        significance_code, loss = are_results_significant(control_variant, test_variants, probabilities)
-        credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+            # Statistical analysis
+            control_variant, test_variants = self._get_variants_with_base_stats(funnels_result)
+            probabilities = calculate_probabilities(control_variant, test_variants)
+            significance_code, loss = are_results_significant(control_variant, test_variants, probabilities)
+            credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+        except Exception as e:
+            raise ValueError(f"Error calculating experiment funnel results: {str(e)}") from e
 
         return ExperimentFunnelsQueryResponse(
             kind="ExperimentFunnelsQuery",
@@ -113,9 +117,10 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             breakdown_type="event",
         )
 
-        prepared_funnels_query.funnelsFilter = FunnelsFilter(
-            funnelVizType="steps",
-        )
+        # Set the layout to vertical
+        if prepared_funnels_query.funnelsFilter is None:
+            prepared_funnels_query.funnelsFilter = FunnelsFilter()
+        prepared_funnels_query.funnelsFilter.layout = FunnelLayout.VERTICAL
 
         return prepared_funnels_query
 

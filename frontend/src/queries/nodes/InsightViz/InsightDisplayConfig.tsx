@@ -37,7 +37,7 @@ import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 export function InsightDisplayConfig(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, canEditInsight } = useValues(insightLogic)
 
     const {
         isTrends,
@@ -58,11 +58,15 @@ export function InsightDisplayConfig(): JSX.Element {
         supportsResultCustomizationBy,
         yAxisScaleType,
         isNonTimeSeriesDisplay,
+        compareFilter,
+        supportsCompare,
     } = useValues(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
     const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
+
+    const { updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
 
     const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
     const showInterval =
@@ -183,7 +187,11 @@ export function InsightDisplayConfig(): JSX.Element {
 
                 {showCompare && (
                     <ConfigFilter>
-                        <CompareFilter />
+                        <CompareFilter
+                            compareFilter={compareFilter}
+                            updateCompareFilter={updateCompareFilter}
+                            disabled={!canEditInsight || !supportsCompare}
+                        />
                     </ConfigFilter>
                 )}
             </div>

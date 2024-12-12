@@ -1,6 +1,6 @@
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
-import { AvailableFeature, Realm } from '~/types'
+import { Realm } from '~/types'
 
 export type SettingsLogicProps = {
     logicKey?: string
@@ -112,21 +112,16 @@ export type Setting = {
     /**
      * Feature flag to gate the setting being shown.
      * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.
+     * When an array is provided, the setting will be shown if ALL of the conditions are met.
      */
-    flag?: FeatureFlagKey | `!${FeatureFlagKey}`
-    features?: AvailableFeature[]
+    flag?: FeatureFlagKey | `!${FeatureFlagKey}` | (FeatureFlagKey | `!${FeatureFlagKey}`)[]
     hideOn?: Realm[]
 }
 
-export type SettingSection = {
+export interface SettingSection extends Pick<Setting, 'flag'> {
     id: SettingSectionId
     title: string
     level: SettingLevelId
     settings: Setting[]
-    /**
-     * Feature flag to gate the section being shown.
-     * If prefixed with !, the condition is inverted - the section will only be shown if the is flag false.
-     */
-    flag?: FeatureFlagKey | `!${FeatureFlagKey}`
     minimumAccessLevel?: EitherMembershipLevel
 }

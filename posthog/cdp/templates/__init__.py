@@ -7,6 +7,7 @@ from .intercom.template_intercom import template as intercom, TemplateIntercomMi
 from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMigrator
 from .clearbit.template_clearbit import template as clearbit
 from .june.template_june import template as june
+from .make.template_make import template as make
 from .posthog.template_posthog import template as posthog, TemplatePostHogMigrator
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
 from .discord.template_discord import template as discord
@@ -19,7 +20,7 @@ from .mailjet.template_mailjet import (
 from .zapier.template_zapier import template as zapier
 from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
 from .avo.template_avo import template as avo, TemplateAvoMigrator
-from .loops.template_loops import template as loops, TemplateLoopsMigrator
+from .loops.template_loops import template as loops, template_send_event as loops_send_event, TemplateLoopsMigrator
 from .rudderstack.template_rudderstack import template as rudderstack, TemplateRudderstackMigrator
 from .gleap.template_gleap import template as gleap
 from .google_pubsub.template_google_pubsub import template as google_pubsub, TemplateGooglePubSubMigrator
@@ -39,10 +40,18 @@ from .google_cloud_storage.template_google_cloud_storage import (
 )
 from .airtable.template_airtable import template as airtable
 from .brevo.template_brevo import template as brevo
+from ._siteapps.template_early_access_features import template as early_access_features
+from ._siteapps.template_hogdesk import template as hogdesk
+from ._siteapps.template_notification_bar import template as notification_bar
+from ._siteapps.template_pineapple_mode import template as pineapple_mode
+from ._siteapps.template_debug_posthog import template as debug_posthog
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
+from ._internal.template_blank import blank_site_destination, blank_site_app
 
 HOG_FUNCTION_TEMPLATES = [
     _broadcast,
+    blank_site_destination,
+    blank_site_app,
     slack,
     webhook,
     activecampaign,
@@ -57,7 +66,7 @@ HOG_FUNCTION_TEMPLATES = [
     discord,
     engage,
     gleap,
-    google_ads,
+    # google_ads,
     google_cloud_storage,
     google_pubsub,
     hubspot,
@@ -68,11 +77,13 @@ HOG_FUNCTION_TEMPLATES = [
     klaviyo_user,
     knock,
     loops,
+    loops_send_event,
     mailchimp,
     mailgun,
     mailjet_create_contact,
     mailjet_update_contact_list,
     mailset_send_email,
+    make,
     meta_ads,
     microsoft_teams,
     posthog,
@@ -82,6 +93,11 @@ HOG_FUNCTION_TEMPLATES = [
     sendgrid,
     zapier,
     zendesk,
+    early_access_features,
+    hogdesk,
+    notification_bar,
+    pineapple_mode,
+    debug_posthog,
 ]
 
 

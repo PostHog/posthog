@@ -9,29 +9,29 @@ use health::HealthRegistry;
 use tower::limit::ConcurrencyLimitLayer;
 
 use crate::{
-    cohort_cache::CohortCacheManager,
+    api::endpoint,
+    client::{
+        database::Client as DatabaseClient, geoip::GeoIpClient, redis::Client as RedisClient,
+    },
+    cohort::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdsToTrack},
-    database::Client as DatabaseClient,
-    geoip::GeoIpClient,
-    metrics_utils::team_id_label_filter,
-    redis::Client as RedisClient,
-    v0_endpoint,
+    metrics::metrics_utils::team_id_label_filter,
 };
 
 #[derive(Clone)]
 pub struct State {
     pub redis: Arc<dyn RedisClient + Send + Sync>,
-    pub postgres_reader: Arc<dyn DatabaseClient + Send + Sync>,
-    pub postgres_writer: Arc<dyn DatabaseClient + Send + Sync>,
-    pub cohort_cache: Arc<CohortCacheManager>, // TODO does this need a better name than just `cohort_cache`?
+    pub reader: Arc<dyn DatabaseClient + Send + Sync>,
+    pub writer: Arc<dyn DatabaseClient + Send + Sync>,
+    pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdsToTrack,
 }
 
 pub fn router<R, D>(
     redis: Arc<R>,
-    postgres_reader: Arc<D>,
-    postgres_writer: Arc<D>,
+    reader: Arc<D>,
+    writer: Arc<D>,
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
@@ -43,9 +43,9 @@ where
 {
     let state = State {
         redis,
-        postgres_reader,
-        postgres_writer,
-        cohort_cache,
+        reader,
+        writer,
+        cohort_cache_manager: cohort_cache,
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
     };
@@ -56,7 +56,7 @@ where
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     let flags_router = Router::new()
-        .route("/flags", post(v0_endpoint::flags).get(v0_endpoint::flags))
+        .route("/flags", post(endpoint::flags).get(endpoint::flags))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
         .with_state(state);
 

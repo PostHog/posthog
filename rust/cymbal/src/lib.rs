@@ -13,6 +13,7 @@ pub mod config;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;
+pub mod hack;
 pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;
@@ -52,14 +53,18 @@ pub async fn handle_event(
     props.exception_list = results;
     let fingerprinted = props.to_fingerprinted(fingerprint.clone());
 
-    let output = resolve_issue(&context.pool, event.team_id, fingerprinted).await?;
+    let mut output = resolve_issue(&context.pool, event.team_id, fingerprinted).await?;
+
+    // TODO - I'm not sure we actually want to do this? Maybe junk drawer stuff should end up in clickhouse, and
+    // be directly queryable by users? Stripping it for now, so it only ends up in postgres
+    output.strip_frame_junk();
 
     event.properties = Some(serde_json::to_string(&output).unwrap());
 
     Ok(event)
 }
 
-fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
+pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
     if event.event != "$exception" {
         return Err(EventError::WrongEventType(event.event.clone(), event.uuid));
     }
