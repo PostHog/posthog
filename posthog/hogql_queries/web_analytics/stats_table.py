@@ -242,9 +242,6 @@ ORDER BY "context.columns.visitors" DESC,
         with self.timings.measure("stats_table_scroll_query"):
             query = parse_select(
                 """
-WITH
-    start_timestamp >= {current_date_range_start} AND start_timestamp < {current_date_range_end} AS current_period_segment,
-    start_timestamp >= {previous_date_range_start} AND start_timestamp < {previous_date_range_end} AS previous_period_segment
 SELECT
     counts.breakdown_value AS "context.columns.breakdown_value",
     tuple(counts.visitors, counts.previous_visitors) AS "context.columns.visitors",
