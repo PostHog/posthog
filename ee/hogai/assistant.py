@@ -21,9 +21,9 @@ from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
 )
 from ee.hogai.utils.state import (
-    GraphMessageUpdate,
-    GraphTaskStartedUpdate,
-    GraphValueUpdate,
+    GraphMessageUpdateTuple,
+    GraphTaskStartedUpdateTuple,
+    GraphValueUpdateTuple,
     is_message_update,
     is_state_update,
     is_task_started_update,
@@ -218,7 +218,7 @@ class Assistant:
             return new_message
         return None
 
-    def _process_value_update(self, update: GraphValueUpdate) -> BaseModel | None:
+    def _process_value_update(self, update: GraphValueUpdateTuple) -> BaseModel | None:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
 
@@ -238,13 +238,13 @@ class Assistant:
             elif node_val.intermediate_steps:
                 return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
         elif node_val := state_update.get(AssistantNodeName.SUMMARIZER):
-            if isinstance(node_val, PartialAssistantState):
+            if isinstance(node_val, PartialAssistantState) and node_val.messages:
                 self._chunks = AIMessageChunk(content="")
                 return node_val.messages[0]
 
         return None
 
-    def _process_message_update(self, update: GraphMessageUpdate) -> BaseModel | None:
+    def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
         if isinstance(langchain_message, AIMessageChunk):
             if langgraph_state["langgraph_node"] in VISUALIZATION_NODES.keys():
@@ -260,7 +260,7 @@ class Assistant:
                 return AssistantMessage(content=self._chunks.content)
         return None
 
-    def _process_task_started_update(self, update: GraphTaskStartedUpdate) -> BaseModel | None:
+    def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:
         _, task_update = update
         node_name = task_update["payload"]["name"]  # type: ignore
         node_input = task_update["payload"]["input"]  # type: ignore

@@ -48,20 +48,20 @@ class LangGraphState(TypedDict):
     langgraph_node: AssistantNodeName
 
 
-GraphMessageUpdate = tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]
+GraphMessageUpdateTuple = tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]
 
 
-def is_message_update(update: list[Any]) -> TypeGuard[GraphMessageUpdate]:
+def is_message_update(update: list[Any]) -> TypeGuard[GraphMessageUpdateTuple]:
     """
     Streaming of messages.
     """
     return len(update) == 2 and update[0] == "messages"
 
 
-GraphStateUpdate = tuple[Literal["updates"], dict[Any, Any]]
+GraphStateUpdateTuple = tuple[Literal["updates"], dict[Any, Any]]
 
 
-def is_state_update(update: list[Any]) -> TypeGuard[GraphStateUpdate]:
+def is_state_update(update: list[Any]) -> TypeGuard[GraphStateUpdateTuple]:
     """
     Update of the state. Returns a full state.
     """
@@ -72,12 +72,12 @@ def validate_state_update(state_update: dict[Any, Any]) -> AssistantState:
     return AssistantState.model_validate(state_update)
 
 
-GraphTaskStartedUpdate = tuple[Literal["debug"], tuple[Union[AIMessageChunk, Any], LangGraphState]]
+GraphTaskStartedUpdateTuple = tuple[Literal["debug"], tuple[Union[AIMessageChunk, Any], LangGraphState]]
 
 
 def is_task_started_update(
     update: list[Any],
-) -> TypeGuard[GraphTaskStartedUpdate]:
+) -> TypeGuard[GraphTaskStartedUpdateTuple]:
     """
     Streaming of messages.
     """
