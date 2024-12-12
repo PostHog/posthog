@@ -376,7 +376,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                                     explicitValue={actor.distinct_ids[0]}
                                     iconStyle={{ color: 'var(--primary)' }}
                                     iconPosition="end"
-                                    className="text-xs text-muted-alt"
+                                    className="text-xs content-tertiary"
                                 >
                                     {midEllipsis(actor.distinct_ids[0], 32)}
                                 </CopyToClipboardInline>

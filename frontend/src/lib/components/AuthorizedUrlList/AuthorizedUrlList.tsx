@@ -31,7 +31,7 @@ function EmptyState({
     }
 
     return isSearching || !isAddingEntry ? (
-        <div className="border rounded p-4 text-muted-alt">
+        <div className="border rounded p-4 content-tertiary">
             {isSearching ? (
                 <>
                     There are no authorized {type === AuthorizedUrlListType.RECORDING_DOMAINS ? 'domains' : 'URLs'} that

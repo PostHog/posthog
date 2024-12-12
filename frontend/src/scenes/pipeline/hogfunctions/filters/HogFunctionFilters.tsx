@@ -105,7 +105,7 @@ export function HogFunctionFilters(): JSX.Element {
                         />
 
                         <LemonLabel>Match event and actions</LemonLabel>
-                        <p className="mb-0 text-muted-alt text-xs">
+                        <p className="mb-0 content-tertiary text-xs">
                             If set, the destination will only run if the <b>event matches any</b> of the below.
                         </p>
                         <ActionFilter

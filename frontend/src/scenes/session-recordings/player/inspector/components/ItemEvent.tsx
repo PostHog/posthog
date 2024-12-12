@@ -79,10 +79,12 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
                         type={TaxonomicFilterGroupType.Events}
                     />
-                    {item.data.event === '$autocapture' ? <span className="text-muted-alt">(Autocapture)</span> : null}
+                    {item.data.event === '$autocapture' ? (
+                        <span className="content-tertiary">(Autocapture)</span>
+                    ) : null}
                 </div>
                 {subValue ? (
-                    <div className="text-muted-alt truncate" title={isString(subValue) ? subValue : undefined}>
+                    <div className="content-tertiary truncate" title={isString(subValue) ? subValue : undefined}>
                         {subValue}
                     </div>
                 ) : null}
@@ -183,7 +185,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                     key: 'raw',
                                     label: 'Raw',
                                     content: (
-                                        <pre className="text-xs text-muted-alt whitespace-pre-wrap">
+                                        <pre className="text-xs content-tertiary whitespace-pre-wrap">
                                             {JSON.stringify(item.data.properties, null, 2)}
                                         </pre>
                                     ),
@@ -192,7 +194,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                         />
                     )
                 ) : (
-                    <div className="text-muted-alt flex gap-1 items-center">
+                    <div className="content-tertiary flex gap-1 items-center">
                         <Spinner textColored />
                         Loading...
                     </div>

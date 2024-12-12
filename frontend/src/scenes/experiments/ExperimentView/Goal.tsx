@@ -266,7 +266,7 @@ export function Goal(): JSX.Element {
                             </>
                         }
                     >
-                        <IconInfo className="text-muted-alt text-base" />
+                        <IconInfo className="content-tertiary text-base" />
                     </Tooltip>
                 </div>
             </div>

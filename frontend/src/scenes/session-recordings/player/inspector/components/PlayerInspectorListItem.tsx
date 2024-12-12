@@ -364,7 +364,7 @@ export function PlayerInspectorListItem({
                             className="flex justify-end cursor-pointer mx-2 my-1"
                             onClick={() => setItemExpanded(index, false)}
                         >
-                            <span className="text-muted-alt">Collapse</span>
+                            <span className="content-tertiary">Collapse</span>
                         </div>
                     </div>
                 </div>

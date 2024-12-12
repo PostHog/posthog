@@ -223,7 +223,7 @@ export function PipelinePluginConfiguration({
                                 {fields.length ? (
                                     fields
                                 ) : (
-                                    <span className="italic text-muted-alt">
+                                    <span className="italic content-tertiary">
                                         This app does not have specific configuration options
                                     </span>
                                 )}

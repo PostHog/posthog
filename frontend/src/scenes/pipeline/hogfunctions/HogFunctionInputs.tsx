@@ -414,7 +414,7 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
                                 </div>
                                 {value?.secret ? (
                                     <div className="border border-dashed rounded p-1 flex gap-2 items-center">
-                                        <span className="flex-1 text-muted-alt italic p-1">
+                                        <span className="flex-1 content-tertiary italic p-1">
                                             This value is secret and is not displayed here.
                                         </span>
                                         <LemonButton
@@ -456,7 +456,7 @@ export function HogFunctionInputs(): JSX.Element {
     const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
 
     if (!configuration?.inputs_schema?.length) {
-        return <span className="italic text-muted-alt">This function does not require any input variables.</span>
+        return <span className="italic content-tertiary">This function does not require any input variables.</span>
     }
 
     const inputSchemas = configuration.inputs_schema

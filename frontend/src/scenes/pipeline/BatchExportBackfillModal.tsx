@@ -122,7 +122,7 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                                     <span className="flex items-center gap-2">
                                         Backfill since beginning of time
                                         <Tooltip title="If selected, we will backfill all data since the beginning of time until the end date set below. There is no need to set a start date for the backfill.">
-                                            <IconInfo className=" text-lg text-muted-alt" />
+                                            <IconInfo className=" text-lg content-tertiary" />
                                         </Tooltip>
                                     </span>
                                 }

@@ -95,7 +95,7 @@ export function PlayerInspectorList(): JSX.Element {
     return (
         <div className="flex flex-col bg-bg-3000 flex-1 overflow-hidden relative">
             {!snapshotsLoaded ? (
-                <div className="p-16 text-center text-muted-alt">Data will be shown once playback starts</div>
+                <div className="p-16 text-center content-tertiary">Data will be shown once playback starts</div>
             ) : items.length ? (
                 <div
                     className="absolute inset-0"
@@ -137,7 +137,7 @@ export function PlayerInspectorList(): JSX.Element {
               inspectorDataState[FilterableInspectorListItemTypes.CONSOLE] === 'ready' ||
               inspectorDataState[FilterableInspectorListItemTypes.NETWORK] === 'ready' ? (
                 // If we are "ready" but with no results this must mean some results are filtered out
-                <div className="p-16 text-center text-muted-alt">No results matching your filters.</div>
+                <div className="p-16 text-center content-tertiary">No results matching your filters.</div>
             ) : null}
         </div>
     )

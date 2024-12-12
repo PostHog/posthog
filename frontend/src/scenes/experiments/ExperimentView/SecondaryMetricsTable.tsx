@@ -267,7 +267,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                             <h2 className="mb-0 font-semibold text-lg">Secondary metrics</h2>
                             {metrics.length > 0 && (
                                 <Tooltip title="Monitor side effects of your experiment.">
-                                    <IconInfo className="text-muted-alt text-base" />
+                                    <IconInfo className="content-tertiary text-base" />
                                 </Tooltip>
                             )}
                         </div>

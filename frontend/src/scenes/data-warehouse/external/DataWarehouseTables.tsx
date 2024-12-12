@@ -309,13 +309,13 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                         icon={<IconDatabase />}
                         className="font-normal"
                     >
-                        <span className="uppercase text-muted-alt tracking-wider">Sources</span>
+                        <span className="uppercase content-tertiary tracking-wider">Sources</span>
                     </LemonButton>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>
             ) : (
                 <>
-                    <span className="text-muted-alt tracking-wider font-normal">Sources</span>
+                    <span className="content-tertiary tracking-wider font-normal">Sources</span>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>
             )}

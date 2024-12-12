@@ -126,7 +126,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         />
                     </div>
                 ) : (
-                    <i className="text-muted-alt">Verify domain to enable automatic provisioning</i>
+                    <i className="content-tertiary">Verify domain to enable automatic provisioning</i>
                 )
             },
         },
@@ -159,7 +159,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         samlAvailable={has_saml}
                     />
                 ) : (
-                    <i className="text-muted-alt">Verify domain to enable</i>
+                    <i className="content-tertiary">Verify domain to enable</i>
                 )
             },
         },
@@ -193,7 +193,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         )}
                     </>
                 ) : (
-                    <i className="text-muted-alt">Verify domain to enable</i>
+                    <i className="content-tertiary">Verify domain to enable</i>
                 )
             },
         },
