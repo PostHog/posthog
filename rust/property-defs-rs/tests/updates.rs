@@ -2,7 +2,6 @@ use chrono::{DateTime, Duration, Utc};
 use property_defs_rs::types::{Event, PropertyParentType, PropertyValueType};
 use serde_json::json;
 use sqlx::PgPool;
-use uuid::Uuid;
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_updates(db: PgPool) {
