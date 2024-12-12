@@ -115,7 +115,7 @@ class AssistantEventMultipleBreakdownFilterType(StrEnum):
 class AssistantEventType(StrEnum):
     STATUS = "status"
     MESSAGE = "message"
-    THREAD = "thread"
+    CONVERSATION = "conversation"
 
 
 class AssistantFunnelsBreakdownType(StrEnum):

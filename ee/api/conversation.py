@@ -64,6 +64,6 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             conversation,
             serializer.validated_data["message"],
             user=cast(User, request.user),
-            send_conversation=not conversation_id,
+            is_new_conversation=not conversation_id,
         )
         return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)

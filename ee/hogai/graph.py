@@ -1,6 +1,7 @@
 from collections.abc import Hashable
 from typing import Optional, cast
 
+from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
@@ -37,6 +38,10 @@ class AssistantGraph:
         if from_node == AssistantNodeName.START:
             self._has_start_node = True
         self._graph.add_edge(from_node, to_node)
+        return self
+
+    def add_node(self, node: AssistantNodeName, action: RunnableLike):
+        self._graph.add_node(node, action)
         return self
 
     def compile(self):

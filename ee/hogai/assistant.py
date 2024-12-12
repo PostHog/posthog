@@ -100,13 +100,13 @@ class Assistant:
         conversation: Conversation,
         new_message: HumanMessage,
         user: Optional[User] = None,
-        send_conversation: bool = False,
+        is_new_conversation: bool = False,
     ):
         self._team = team
         self._user = user
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())})
-        self._send_conversation = send_conversation
+        self._is_new_conversation = is_new_conversation
         self._graph = AssistantGraph(team).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
         self._state = None
@@ -134,7 +134,7 @@ class Assistant:
         )
 
         # Assign the conversation id to the client.
-        if self._send_conversation:
+        if self._is_new_conversation:
             yield self._serialize_conversation()
 
         # Send the last message with the initialized id.
@@ -291,7 +291,7 @@ class Assistant:
         return output + f"data: {message.model_dump_json(exclude_none=True)}\n\n"
 
     def _serialize_conversation(self) -> str:
-        output = f"event: {AssistantEventType.THREAD}\n"
+        output = f"event: {AssistantEventType.CONVERSATION}\n"
         json_conversation = json.dumps({"id": str(self._conversation.id)})
         output += f"data: {json_conversation}\n\n"
         return output

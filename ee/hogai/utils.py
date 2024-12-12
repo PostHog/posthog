@@ -11,7 +11,6 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START
-from pydantic import BaseModel, Field
 
 from posthog.models.team.team import Team
 from posthog.schema import (
@@ -19,18 +18,12 @@ from posthog.schema import (
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
-    RootAssistantMessage,
     RouterMessage,
     VisualizationMessage,
 )
 
 AIMessageUnion = Union[AssistantMessage, VisualizationMessage, FailureMessage, RouterMessage, ReasoningMessage]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
-
-
-class ConversationState(BaseModel):
-    messages: list[RootAssistantMessage] = Field(..., min_length=1, max_length=50)
-    id: str
 
 
 class ReplaceMessages(list[AssistantMessageUnion]):

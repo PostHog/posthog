@@ -585,7 +585,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "thread"],
+            "enum": ["status", "message", "conversation"],
             "type": "string"
         },
         "AssistantFunnelsBreakdownFilter": {

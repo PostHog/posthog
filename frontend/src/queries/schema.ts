@@ -2535,7 +2535,7 @@ export type RootAssistantMessage =
 export enum AssistantEventType {
     Status = 'status',
     Message = 'message',
-    Thread = 'thread',
+    Conversation = 'conversation',
 }
 
 export enum AssistantGenerationStatusType {
