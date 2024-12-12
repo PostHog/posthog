@@ -746,7 +746,7 @@
        (SELECT ifNull(avgOrNull(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                day_start AS day_start
         FROM
-          (SELECT anyOrNull(e__session.`$session_duration`) AS session_duration,
+          (SELECT any(e__session.`$session_duration`) AS session_duration,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
            FROM events AS e SAMPLE 1
            LEFT JOIN
