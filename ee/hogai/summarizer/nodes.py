@@ -11,7 +11,8 @@ from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception
 
 from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
-from ee.hogai.utils import AssistantNode, AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.nodes import AssistantNode
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.errors import ExposedCHQueryError

@@ -6,7 +6,7 @@ from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.taxonomy_agent.nodes import TaxonomyAgentPlannerNode, TaxonomyAgentPlannerToolsNode
 from ee.hogai.trends.prompts import REACT_SYSTEM_PROMPT, TRENDS_SYSTEM_PROMPT
 from ee.hogai.trends.toolkit import TRENDS_SCHEMA, TrendsTaxonomyAgentToolkit
-from ee.hogai.utils import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantTrendsQuery
 
 

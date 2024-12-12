@@ -9,7 +9,7 @@ from rest_framework.exceptions import ValidationError
 
 from ee.hogai.summarizer.nodes import SummarizerNode
 from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
-from ee.hogai.utils import AssistantState
+from ee.hogai.utils.types import AssistantState
 from posthog.api.services.query import process_query_dict
 from posthog.schema import (
     AssistantTrendsEventsNode,

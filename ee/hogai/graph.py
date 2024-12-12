@@ -19,7 +19,7 @@ from ee.hogai.trends.nodes import (
     TrendsPlannerNode,
     TrendsPlannerToolsNode,
 )
-from ee.hogai.utils import AssistantNodeName, AssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
 
 checkpointer = DjangoCheckpointer()

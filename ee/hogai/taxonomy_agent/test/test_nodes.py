@@ -11,7 +11,7 @@ from ee.hogai.taxonomy_agent.nodes import (
     TaxonomyAgentPlannerToolsNode,
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
-from ee.hogai.utils import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.models import GroupTypeMapping
 from posthog.schema import (
     AssistantMessage,

@@ -20,8 +20,10 @@ from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
 )
-from ee.hogai.utils import GraphMessageUpdate, GraphTaskStartedUpdate, GraphValueUpdate
 from ee.hogai.utils.state import (
+    GraphMessageUpdate,
+    GraphTaskStartedUpdate,
+    GraphValueUpdate,
     is_message_update,
     is_state_update,
     is_task_started_update,

@@ -1,4 +1,4 @@
-from ee.hogai.utils import filter_messages
+from ee.hogai.utils.helpers import filter_messages
 from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,

@@ -29,14 +29,9 @@ from ee.hogai.schema_generator.prompts import (
     QUESTION_PROMPT,
 )
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.utils import (
-    AssistantMessageUnion,
-    AssistantNode,
-    AssistantState,
-    PartialAssistantState,
-    find_last_message_of_type,
-    slice_messages_to_conversation_start,
-)
+from ee.hogai.utils.helpers import find_last_message_of_type, slice_messages_to_conversation_start
+from ee.hogai.utils.nodes import AssistantNode
+from ee.hogai.utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     AssistantMessage,

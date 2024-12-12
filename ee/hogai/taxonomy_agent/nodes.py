@@ -39,14 +39,9 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_USER_PROMPT,
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
-from ee.hogai.utils import (
-    AssistantNode,
-    AssistantState,
-    PartialAssistantState,
-    filter_messages,
-    remove_line_breaks,
-    slice_messages_to_conversation_start,
-)
+from ee.hogai.utils.helpers import filter_messages, remove_line_breaks, slice_messages_to_conversation_start
+from ee.hogai.utils.nodes import AssistantNode
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping

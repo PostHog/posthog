@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.utils import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,

@@ -4,7 +4,7 @@ from django.test import override_settings
 from langchain_core.runnables import RunnableLambda
 
 from ee.hogai.trends.nodes import TrendsGeneratorNode, TrendsSchemaGeneratorOutput
-from ee.hogai.utils import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
     AssistantTrendsQuery,
     HumanMessage,

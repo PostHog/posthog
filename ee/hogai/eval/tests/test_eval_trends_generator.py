@@ -2,7 +2,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from ee.hogai.assistant import AssistantGraph
 from ee.hogai.eval.utils import EvalBaseTest
-from ee.hogai.utils import AssistantNodeName, AssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.schema import AssistantTrendsQuery, HumanMessage
 
 

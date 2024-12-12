@@ -6,7 +6,7 @@ from ee.hogai.funnels.toolkit import FUNNEL_SCHEMA, FunnelsTaxonomyAgentToolkit
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.taxonomy_agent.nodes import TaxonomyAgentPlannerNode, TaxonomyAgentPlannerToolsNode
-from ee.hogai.utils import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantFunnelsQuery
 
 
