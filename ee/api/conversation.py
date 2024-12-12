@@ -23,8 +23,8 @@ class MessageSerializer(serializers.Serializer):
         try:
             message = HumanMessage(content=data["content"])
             data["message"] = message
-        except ValidationError as e:
-            raise serializers.ValidationError(str(e))
+        except ValidationError:
+            raise serializers.ValidationError("Invalid message content.")
         return data
 
 
