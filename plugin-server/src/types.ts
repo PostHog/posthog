@@ -640,6 +640,7 @@ export interface Team {
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null
+    cookieless_server_hash_opt_in?: boolean
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

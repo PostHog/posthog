@@ -91,6 +91,9 @@ dependencies:
   fast-deep-equal:
     specifier: ^3.1.3
     version: 3.1.3
+  fastpriorityqueue:
+    specifier: ^0.7.5
+    version: 0.7.5
   fernet-nodejs:
     specifier: ^1.0.6
     version: 1.0.6
@@ -151,9 +154,15 @@ dependencies:
   safe-stable-stringify:
     specifier: ^2.4.0
     version: 2.4.3
+  siphash:
+    specifier: git://github.com/robbie-c/siphash-js.git#34055d9
+    version: github.com/robbie-c/siphash-js/34055d9
   tail:
     specifier: ^2.2.6
     version: 2.2.6
+  tldts:
+    specifier: ^6.1.57
+    version: 6.1.57
   uuid:
     specifier: ^9.0.1
     version: 9.0.1
@@ -6138,6 +6147,10 @@ packages:
       strnum: 1.0.5
     dev: false
 
+  /fastpriorityqueue@0.7.5:
+    resolution: {integrity: sha512-3Pa0n9gwy8yIbEsT3m2j/E9DXgWvvjfiZjjqcJ+AdNKTAlVMIuFYrYG5Y3RHEM8O6cwv9hOpOWY/NaMfywoQVA==}
+    dev: false
+
   /fastq@1.15.0:
     resolution: {integrity: sha512-wBrocU2LCXXa+lWBt8RoIRD89Fi8OdABODa/kEnyeyjS5aZO5/GNvI5sEINADqP/h8M29UHTHUb53sUu5Ihqdw==}
     dependencies:
@@ -10115,6 +10128,17 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
+  /tldts-core@6.1.57:
+    resolution: {integrity: sha512-lXnRhuQpx3zU9EONF9F7HfcRLvN1uRYUBIiKL+C/gehC/77XTU+Jye6ui86GA3rU6FjlJ0triD1Tkjt2F/2lEg==}
+    dev: false
+
+  /tldts@6.1.57:
+    resolution: {integrity: sha512-Oy7yDXK8meJl8vPMOldzA+MtueAJ5BrH4l4HXwZuj2AtfoQbLjmTJmjNWPUcAo+E/ibHn7QlqMS0BOcXJFJyHQ==}
+    hasBin: true
+    dependencies:
+      tldts-core: 6.1.57
+    dev: false
+
   /tmp@0.2.1:
     resolution: {integrity: sha512-76SUhtfqR2Ijn+xllcI5P1oyannHNHByD80W1q447gU3mp9G9PSpGdWmjUOHRDPiHYacIk66W7ubDTuPF3BEtQ==}
     engines: {node: '>=8.17.0'}
@@ -10773,4 +10797,10 @@ packages:
   file:../rust/cyclotron-node:
     resolution: {directory: ../rust/cyclotron-node, type: directory}
     name: '@posthog/cyclotron'
+    dev: false
+
+  github.com/robbie-c/siphash-js/34055d9:
+    resolution: {tarball: https://codeload.github.com/robbie-c/siphash-js/tar.gz/34055d9}
+    name: siphash
+    version: 1.1.0
     dev: false

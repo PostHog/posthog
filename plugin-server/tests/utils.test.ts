@@ -13,6 +13,7 @@ import {
     sanitizeSqlIdentifier,
     stringify,
     UUID,
+    UUID7,
     UUIDT,
 } from '../src/utils/utils'
 
@@ -121,6 +122,28 @@ describe('utils', () => {
             expect(uuidtString.slice(0, 8)).toEqual(Date.now().toString(16).padStart(12, '0').slice(0, 8))
             // series matching
             expect(uuidtString.slice(14, 18)).toEqual('0000')
+        })
+    })
+
+    describe('UUIDv7', () => {
+        it('is well-formed', () => {
+            const uuid7 = new UUID7()
+            const uuid7String = uuid7.toString()
+            // UTC timestamp matching (roughly, only comparing the beginning as the timestamp's end inevitably drifts away)
+            expect(uuid7String.slice(0, 8)).toEqual(Date.now().toString(16).padStart(12, '0').slice(0, 8))
+            // version digit matching
+            expect(uuid7String[14]).toEqual('7')
+            // var matching
+            const variant = parseInt(uuid7String[19], 16) >>> 2
+            expect(variant).toEqual(2)
+        })
+        it('has the correct value when given a timestamp and random bytes', () => {
+            const timestamp = new Date('Wed, 30 Oct 2024 21:46:23 GMT').getTime()
+            const randomBytes = Buffer.from(
+                new Uint8Array([0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23])
+            )
+            const uuid7 = new UUID7(timestamp, randomBytes)
+            expect(uuid7.toString()).toEqual('0192df64-df98-7123-8567-89abcdef0123')
         })
     })
 
