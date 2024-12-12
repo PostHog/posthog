@@ -22,6 +22,7 @@ from posthog.schema import (
     TrendsQuery,
     FunnelsQuery,
     LifecycleQuery,
+    StickinessActorsQuery,
 )
 from posthog.types import InsightActorsQueryNode
 
@@ -62,8 +63,12 @@ class InsightActorsQueryRunner(QueryRunner):
             return paths_runner.to_actors_query()
         elif isinstance(self.source_runner, StickinessQueryRunner):
             stickiness_runner = cast(StickinessQueryRunner, self.source_runner)
-            query = cast(InsightActorsQuery, self.query)
-            return stickiness_runner.to_actors_query(interval_num=int(query.day) if query.day is not None else None)
+            # might have to isinstance this
+            query = cast(StickinessActorsQuery, self.query)
+            return stickiness_runner.to_actors_query(
+                interval_num=int(query.day) if query.day is not None else None,
+                operator=getattr(query, "operator", None),
+            )
         elif isinstance(self.source_runner, LifecycleQueryRunner):
             lifecycle_runner = cast(LifecycleQueryRunner, self.source_runner)
             query = cast(InsightActorsQuery, self.query)
