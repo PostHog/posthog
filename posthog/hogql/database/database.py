@@ -45,6 +45,11 @@ from posthog.hogql.database.schema.person_distinct_id_overrides import (
     RawPersonDistinctIdOverridesTable,
     join_with_person_distinct_id_overrides_table,
 )
+from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
+    ErrorTrackingIssueFingerprintOverridesTable,
+    RawErrorTrackingIssueFingerprintOverridesTable,
+    join_with_error_tracking_issue_fingerprint_overrides_table,
+)
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
@@ -54,6 +59,7 @@ from posthog.hogql.database.schema.persons import (
     RawPersonsTable,
     join_with_persons_table,
 )
+from posthog.hogql.database.schema.query_log import QueryLogTable, RawQueryLogTable
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
@@ -104,11 +110,15 @@ class Database(BaseModel):
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
     person_distinct_id_overrides: PersonDistinctIdOverridesTable = PersonDistinctIdOverridesTable()
+    error_tracking_issue_fingerprint_overrides: ErrorTrackingIssueFingerprintOverridesTable = (
+        ErrorTrackingIssueFingerprintOverridesTable()
+    )
 
     session_replay_events: SessionReplayEventsTable = SessionReplayEventsTable()
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
     log_entries: LogEntriesTable = LogEntriesTable()
+    query_log: QueryLogTable = QueryLogTable()
     app_metrics: AppMetrics2Table = AppMetrics2Table()
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
@@ -121,7 +131,11 @@ class Database(BaseModel):
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_distinct_id_overrides: RawPersonDistinctIdOverridesTable = RawPersonDistinctIdOverridesTable()
+    raw_error_tracking_issue_fingerprint_overrides: RawErrorTrackingIssueFingerprintOverridesTable = (
+        RawErrorTrackingIssueFingerprintOverridesTable()
+    )
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
+    raw_query_log: RawQueryLogTable = RawQueryLogTable()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -139,6 +153,7 @@ class Database(BaseModel):
         "app_metrics",
         "sessions",
         "heatmaps",
+        "query_log",
     ]
 
     _warehouse_table_names: list[str] = []
@@ -213,6 +228,27 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
     )
 
 
+def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: Database) -> None:
+    database.events.fields["event_issue_id"] = ExpressionField(
+        name="event_issue_id",
+        # convert to UUID to match type of `issue_id` on overrides table
+        expr=parse_expr("toUUID(properties.$exception_issue_id)"),
+    )
+    database.events.fields["exception_issue_override"] = LazyJoin(
+        from_field=["fingerprint"],
+        join_table=ErrorTrackingIssueFingerprintOverridesTable(),
+        join_function=join_with_error_tracking_issue_fingerprint_overrides_table,
+    )
+    database.events.fields["issue_id"] = ExpressionField(
+        name="issue_id",
+        expr=parse_expr(
+            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.fingerprint`` is not Nullable
+            "if(not(empty(exception_issue_override.issue_id)), exception_issue_override.issue_id, event_issue_id)",
+            start=None,
+        ),
+    )
+
+
 def create_hogql_database(
     team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
 ) -> Database:
@@ -279,6 +315,8 @@ def create_hogql_database(
             join_function=join_replay_table_to_sessions_table_v2,
         )
         cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
+
+    _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
@@ -412,9 +450,11 @@ def create_hogql_database(
                 from_field=from_field,
                 to_field=to_field,
                 join_table=joining_table,
-                join_function=join.join_function_for_experiments()
-                if "events" == join.joining_table_name and join.configuration.get("experiments_optimized")
-                else join.join_function(),
+                join_function=(
+                    join.join_function_for_experiments()
+                    if "events" == join.joining_table_name and join.configuration.get("experiments_optimized")
+                    else join.join_function()
+                ),
             )
 
             if join.source_table_name == "persons":

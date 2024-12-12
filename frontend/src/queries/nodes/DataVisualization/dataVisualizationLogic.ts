@@ -1,7 +1,7 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { dayjs } from 'lib/dayjs'
-import { lightenDarkenColor, RGBToHex, uuid } from 'lib/utils'
+import { lightenDarkenColor, objectsEqual, RGBToHex, uuid } from 'lib/utils'
 import mergeObject from 'lodash.merge'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -242,6 +242,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             ['loadData'],
         ],
     })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.query && !objectsEqual(props.query, oldProps.query)) {
+            actions._setQuery(props.query)
+        }
+    }),
     props({ query: { source: {} } } as DataVisualizationLogicProps),
     actions(({ values }) => ({
         setVisualizationType: (visualizationType: ChartDisplayType) => ({ visualizationType }),
@@ -280,12 +285,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             colorMode: values.isDarkModeOn ? 'dark' : 'light',
         }),
         setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
+        _setQuery: (node: DataVisualizationNode) => ({ node }),
     })),
     reducers(({ props }) => ({
         query: [
             props.query,
             {
                 setQuery: (_, { node }) => node,
+                _setQuery: (_, { node }) => node,
             },
         ],
         visualizationType: [
