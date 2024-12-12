@@ -124,18 +124,14 @@ export function convertToPipelineNode<S extends PipelineStage>(
     ? Source
     : never {
     let node: PipelineNode
+
     // check if type is a hog function
     if ('hog' in candidate) {
         node = {
             stage: stage as PipelineStage.Destination,
             backend: PipelineBackend.HogFunction,
             interval: 'realtime',
-            id:
-                candidate.type === 'destination' ||
-                candidate.type === 'site_destination' ||
-                candidate.type === 'site_app'
-                    ? `hog-${candidate.id}`
-                    : candidate.id,
+            id: `hog-${candidate.id}`,
             name: candidate.name,
             description: candidate.description,
             enabled: candidate.enabled,

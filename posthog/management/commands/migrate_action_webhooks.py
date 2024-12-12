@@ -140,7 +140,7 @@ def convert_to_hog_function(action: Action, inert=False) -> Optional[HogFunction
         inputs_schema=webhook_template.inputs_schema,
         template_id=webhook_template.id,
         hog=hog_code,
-        bytecode=compile_hog(hog_code),
+        bytecode=compile_hog(hog_code, "destination"),
         filters=compile_filters_bytecode(
             {"actions": [{"id": f"{action.id}", "type": "actions", "name": action.name, "order": 0}]}, action.team
         ),

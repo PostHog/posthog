@@ -58,12 +58,7 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
                     caption="Run custom scripts on your website."
                     buttons={<NewButton stage={PipelineStage.SiteApp} />}
                 />
-            ) : (
-                <PageHeader
-                    caption="Run custom scripts on your website or send your data in real time or in batches to destinations outside of PostHog."
-                    buttons={<NewButton stage={PipelineStage.SiteApp} />}
-                />
-            )}
+            ) : null}
 
             <DestinationsTable types={types} />
             <div className="mt-4" />
@@ -72,7 +67,9 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
                     ? 'New destinations'
                     : types.includes('site_app')
                     ? 'New site app'
-                    : 'New Hog function'}
+                    : types.includes('transformation')
+                    ? 'New transformation'
+                    : 'New'}
             </h2>
             <DestinationOptionsTable types={types} />
             {/* Old site-apps until we migrate everyone onto the new ones */}

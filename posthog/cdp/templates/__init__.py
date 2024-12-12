@@ -46,6 +46,7 @@ from ._siteapps.template_notification_bar import template as notification_bar
 from ._siteapps.template_pineapple_mode import template as pineapple_mode
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
 from ._internal.template_blank import blank_site_destination, blank_site_app
+from ._transformations.template_pass_through import template as pass_through_transformation
 
 HOG_FUNCTION_TEMPLATES = [
     _broadcast,
@@ -96,6 +97,7 @@ HOG_FUNCTION_TEMPLATES = [
     hogdesk,
     notification_bar,
     pineapple_mode,
+    pass_through_transformation,
 ]
 
 
