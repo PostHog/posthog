@@ -13,6 +13,7 @@ class BatchImport(UUIDModel):
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     # Workers pick up a lease for a job, run a batch of it, then renew their lease, in a loop,
     # until the job is done.
