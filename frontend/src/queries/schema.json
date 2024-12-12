@@ -2287,7 +2287,6 @@
                 "probability",
                 "significance_code",
                 "significant",
-                "stats_version",
                 "timezone",
                 "variants"
             ],
@@ -4623,7 +4622,6 @@
                                 "probability",
                                 "significance_code",
                                 "significant",
-                                "stats_version",
                                 "variants"
                             ],
                             "type": "object"
@@ -6184,7 +6182,6 @@
                 "probability",
                 "significant",
                 "significance_code",
-                "stats_version",
                 "p_value",
                 "credible_intervals"
             ],
@@ -9900,7 +9897,6 @@
                         "probability",
                         "significant",
                         "significance_code",
-                        "stats_version",
                         "p_value",
                         "credible_intervals"
                     ],
@@ -10533,7 +10529,6 @@
                         "probability",
                         "significance_code",
                         "significant",
-                        "stats_version",
                         "variants"
                     ],
                     "type": "object"
@@ -12698,6 +12693,17 @@
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range"
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Whether we should be comparing against a specific conversion goal"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
