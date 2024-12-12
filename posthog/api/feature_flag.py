@@ -385,7 +385,9 @@ class FeatureFlagSerializer(
         request = self.context["request"]
         validated_key = validated_data.get("key", None)
         if validated_key:
-            FeatureFlag.objects.filter(key=validated_key, team__project_id=self.project_id, deleted=True).delete()
+            FeatureFlag.objects.filter(
+                key=validated_key, team__project_id=instance.team.project_id, deleted=True
+            ).delete()
         self._update_filters(validated_data)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)

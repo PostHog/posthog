@@ -6004,7 +6004,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides(self):
         set_feature_flag_hash_key_overrides(
-            team_id=self.team,
+            team=self.team,
             distinct_ids=self.person.distinct_ids,
             hash_key_override="other_id",
         )
@@ -6019,7 +6019,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_retrieving_hash_key_overrides(self):
         set_feature_flag_hash_key_overrides(
-            team_id=self.team,
+            team=self.team,
             distinct_ids=self.person.distinct_ids,
             hash_key_override="other_id",
         )
@@ -6041,8 +6041,8 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             properties={"email": "beuk2@posthog.com", "team": "posthog"},
         )
 
-        set_feature_flag_hash_key_overrides(team_id=self.team, distinct_ids=["1"], hash_key_override="other_id1")
-        set_feature_flag_hash_key_overrides(team_id=self.team, distinct_ids=["2"], hash_key_override="aother_id2")
+        set_feature_flag_hash_key_overrides(team=self.team, distinct_ids=["1"], hash_key_override="other_id1")
+        set_feature_flag_hash_key_overrides(team=self.team, distinct_ids=["2"], hash_key_override="aother_id2")
 
         hash_keys = get_feature_flag_hash_key_overrides(self.team.pk, ["1", "2"])
 
@@ -6067,7 +6067,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
         # and now we come to get new overrides
         set_feature_flag_hash_key_overrides(
-            team_id=self.team,
+            team=self.team,
             distinct_ids=self.person.distinct_ids,
             hash_key_override="other_id",
         )
@@ -6082,7 +6082,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides_when_persons_dont_exist(self):
         set_feature_flag_hash_key_overrides(
-            team_id=self.team,
+            team=self.team,
             distinct_ids=["1", "2", "3", "4"],
             hash_key_override="other_id",
         )
