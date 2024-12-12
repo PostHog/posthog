@@ -37,7 +37,7 @@ export function OutputPane(): JSX.Element {
     const { setActiveTab } = useActions(outputPaneLogic)
     const { variablesForInsight } = useValues(variablesLogic)
 
-    const { editingView, sourceQuery, exportContext, isValidView, editorKey, error } = useValues(multitabEditorLogic)
+    const { editingView, sourceQuery, exportContext, isValidView, error, editorKey } = useValues(multitabEditorLogic)
     const { saveAsInsight, saveAsView, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading, responseError } = useValues(dataNodeLogic)
@@ -158,10 +158,6 @@ export function OutputPane(): JSX.Element {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
                         },
-                        {
-                            key: OutputTab.Info,
-                            label: 'Info',
-                        },
                     ]}
                 />
                 <div className="flex gap-4">
@@ -223,8 +219,9 @@ export function OutputPane(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-
-            <Content />
+            <div className="flex flex-1 relative bg-dark justify-center items-center">
+                <Content />
+            </div>
         </div>
     )
 }
