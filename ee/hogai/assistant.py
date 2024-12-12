@@ -292,7 +292,7 @@ class Assistant:
 
     def _serialize_conversation(self) -> str:
         output = f"event: {AssistantEventType.THREAD}\n"
-        json_conversation = json.dumps({"id": self._conversation.id})
+        json_conversation = json.dumps({"id": str(self._conversation.id)})
         output += f"data: {json_conversation}\n\n"
         return output
 

@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import cast
 
 from django.http import StreamingHttpResponse
 from pydantic import ValidationError
@@ -12,24 +12,20 @@ from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.schema import RootAssistantMessage
+from posthog.schema import HumanMessage
 
 
-class ConversationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Conversation
-        fields = ["id", "message"]
-        extra_kwargs = {
-            "id": {"required": False},
-        }
+class MessageSerializer(serializers.Serializer):
+    content = serializers.CharField(required=True)
+    conversation = serializers.UUIDField(required=False)
 
-    message = serializers.DictField(required=True)
-
-    def validate_message(self, value: Any):
+    def validate(self, data):
         try:
-            return RootAssistantMessage.model_validate(value)
+            message = HumanMessage(content=data["content"])
+            data["message"] = message
         except ValidationError as e:
             raise serializers.ValidationError(str(e))
+        return data
 
 
 class ServerSentEventRenderer(BaseRenderer):
@@ -41,13 +37,15 @@ class ServerSentEventRenderer(BaseRenderer):
 
 
 class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
-    scope_object = "conversation"
-    serializer_class = ConversationSerializer
+    scope_object = "INTERNAL"
+    serializer_class = MessageSerializer
     renderer_classes = [ServerSentEventRenderer]
+    queryset = Conversation.objects.all()
+    lookup_url_kwarg = "conversation"
 
     def safely_get_queryset(self, queryset):
         # Only allow access to conversations created by the current user
-        return Conversation.objects.filter(user=self.request.user)
+        return queryset.filter(user=self.request.user)
 
     def get_throttles(self):
         return [AIBurstRateThrottle(), AISustainedRateThrottle()]
@@ -55,15 +53,17 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def create(self, request: Request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-        conversation = None
-        if data.get("id"):
+        conversation_id = serializer.validated_data.get("conversation")
+        if conversation_id:
+            self.kwargs[self.lookup_url_kwarg] = conversation_id
             conversation = self.get_object()
-            created = False
-        if not conversation:
+        else:
             conversation = self.get_queryset().create(user=request.user, team=self.team)
-            created = True
         assistant = Assistant(
-            self.team, conversation, data["message"], user=cast(User, request.user), send_conversation=created
+            self.team,
+            conversation,
+            serializer.validated_data["message"],
+            user=cast(User, request.user),
+            send_conversation=not conversation_id,
         )
         return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
