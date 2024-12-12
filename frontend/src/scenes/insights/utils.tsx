@@ -15,6 +15,7 @@ import {
     DataWarehouseNode,
     EventsNode,
     InsightVizNode,
+    Node,
     NodeKind,
     PathsFilter,
 } from '~/queries/schema'
@@ -432,4 +433,10 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
     }
 
     return query ? urls.insightNew(undefined, undefined, query) : undefined
+}
+
+export function isQueryTooLarge(query: Node<Record<string, any>>): boolean {
+    // Chrome has a 2MB limit for the HASH params, limit ours at 1MB
+    const queryLength = JSON.stringify(query).length
+    return queryLength > 1024 * 1024
 }

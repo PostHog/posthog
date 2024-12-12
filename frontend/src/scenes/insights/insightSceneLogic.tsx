@@ -272,7 +272,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             { shortId, mode, itemId }, // url params
             { dashboard, alert_id, ...searchParams }, // search params
             { insight: insightType, q }, // hash params
-            { method, initial }, // "location changed" event payload
+            { method }, // "location changed" event payload
             { searchParams: previousSearchParams } // previous location
         ) => {
             const insightMode =
@@ -335,19 +335,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 queryFromUrl = getDefaultQuery(insightType, values.filterTestAccountsDefault)
             }
 
-            // Redirect to a simple URL if we had a query in the URL
-            if (q || insightType) {
-                router.actions.replace(
-                    insightId === 'new'
-                        ? urls.insightNew(undefined, dashboard)
-                        : insightMode === ItemMode.Edit
-                        ? urls.insightEdit(insightId)
-                        : urls.insightView(insightId)
-                )
-            }
-
             // reset the insight's state if we have to
-            if (initial || method === 'PUSH' || queryFromUrl) {
+            if (queryFromUrl && method !== 'REPLACE') {
                 if (insightId === 'new') {
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
                     values.insightLogicRef?.logic.actions.setInsight(
@@ -414,6 +403,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             const metadataChanged = !!values.insightLogicRef?.logic.values.insightChanged
             const queryChanged = !!values.insightDataLogicRef?.logic.values.queryChanged
+            const draftQueryFromLocalStorage = localStorage.getItem('draft-query')
+            let draftQuery: { query: Node; timestamp: number } | null = null
+            if (draftQueryFromLocalStorage) {
+                try {
+                    draftQuery = JSON.parse(draftQueryFromLocalStorage)
+                } catch (e) {
+                    // If the draft query is invalid, remove it
+                    localStorage.removeItem('draft-query')
+                }
+            }
+            const query = values.insightDataLogicRef?.logic.values.query
+
+            if (draftQuery && query && objectsEqual(draftQuery.query, query)) {
+                return false
+            }
 
             return metadataChanged || queryChanged
         },

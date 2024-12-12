@@ -1,7 +1,9 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actionToUrl, router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/external/dataWarehouseExternalSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { examples } from '~/queries/examples'
@@ -12,12 +14,14 @@ import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils
 import { queryExportContext } from '~/queries/query'
 import { DataVisualizationNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 import { isDataTableNode, isDataVisualizationNode, isHogQuery, isInsightVizNode } from '~/queries/utils'
-import { ExportContext, InsightLogicProps, InsightType } from '~/types'
+import { ExportContext, InsightLogicProps, InsightType, ItemMode } from '~/types'
 
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
+import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
+import { isQueryTooLarge } from './utils'
 import { compareQuery } from './utils/queryUtils'
 
 export const insightDataLogic = kea<insightDataLogicType>([
@@ -29,6 +33,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         values: [
             insightLogic,
             ['insight', 'savedInsight'],
+            insightSceneLogic,
+            ['insightId', 'insightMode', 'activeScene'],
             dataNodeLogic({
                 key: insightVizDataNodeKey(props),
                 loadPriority: props.loadPriority,
@@ -187,16 +193,36 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 actions.setInsightData({ ...values.insightData, result })
             }
         },
-        loadInsightSuccess: ({ insight }) => {
-            if (insight.query) {
-                actions.setQuery(insight.query)
-            }
-        },
         cancelChanges: () => {
             const savedQuery = values.savedInsight.query
             const savedResult = values.savedInsight.result
             actions.setQuery(savedQuery || null)
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
+        },
+        setQuery: ({ query }) => {
+            // if the query is not changed, don't save it
+            if (!query || !values.queryChanged) {
+                return
+            }
+            // if the insight is not in edit mode, don't save it
+            if (insightSceneLogic.values.insightMode !== ItemMode.Edit) {
+                return
+            }
+            // only run on insight scene
+            if (insightSceneLogic.values.activeScene !== Scene.Insight) {
+                return
+            }
+
+            if (isQueryTooLarge(query)) {
+                localStorage.removeItem('draft-query')
+            }
+            localStorage.setItem(
+                'draft-query',
+                JSON.stringify({
+                    query,
+                    timestamp: Date.now(),
+                })
+            )
         },
     })),
     propsChanged(({ actions, props, values }) => {
@@ -204,4 +230,21 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setQuery(props.cachedInsight.query)
         }
     }),
+    actionToUrl(({ values }) => ({
+        setQuery: ({ query }) => {
+            if (values.queryChanged && insightSceneLogic.values.insightMode === ItemMode.Edit) {
+                // query is changed and we are in edit mode
+                return [
+                    router.values.currentLocation.pathname,
+                    {
+                        ...router.values.currentLocation.searchParams,
+                    },
+                    {
+                        ...router.values.currentLocation.hashParams,
+                        q: JSON.stringify(query),
+                    },
+                ]
+            }
+        },
+    })),
 ])
