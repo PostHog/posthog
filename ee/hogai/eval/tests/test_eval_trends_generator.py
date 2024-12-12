@@ -2,7 +2,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from ee.hogai.assistant import AssistantGraph
 from ee.hogai.eval.utils import EvalBaseTest
-from ee.hogai.utils import AssistantNodeName
+from ee.hogai.utils import AssistantNodeName, AssistantState
 from posthog.schema import AssistantTrendsQuery, HumanMessage
 
 
@@ -14,8 +14,8 @@ class TestEvalTrendsGenerator(EvalBaseTest):
             .add_trends_generator(AssistantNodeName.END)
             .compile()
         )
-        state = graph.invoke({"messages": [HumanMessage(content=query)], "plan": plan})
-        return state["messages"][-1].answer
+        state = graph.invoke(AssistantState(messages=[HumanMessage(content=query)], plan=plan))
+        return AssistantState.model_validate(state).messages[-1].answer
 
     def test_node_replaces_equals_with_contains(self):
         query = "what is pageview trend for users with name John?"

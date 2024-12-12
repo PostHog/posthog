@@ -1,10 +1,10 @@
 import json
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from unittest.mock import patch
 
 from langchain_core import messages
 from langchain_core.agents import AgentAction
-from langchain_core.runnables import RunnableLambda
+from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
@@ -34,7 +34,7 @@ class TestAssistant(NonAtomicBaseTest):
         # Create assistant instance with our test graph
         assistant = Assistant(
             self.team,
-            conversation,
+            conversation or self.conversation,
             HumanMessage(content=message),
             self.user,
             is_new_conversation=is_new_conversation,
@@ -44,7 +44,7 @@ class TestAssistant(NonAtomicBaseTest):
         # Capture and parse output of assistant.stream()
         output: list[tuple[str, Any]] = []
         for message in assistant.stream():
-            event_line, data_line, *_ = message.split("\n")
+            event_line, data_line, *_ = cast(str, message).split("\n")
             output.append((event_line.removeprefix("event: "), json.loads(data_line.removeprefix("data: "))))
         return output
 
@@ -176,7 +176,7 @@ class TestAssistant(NonAtomicBaseTest):
 
     def _test_human_in_the_loop(self, graph: CompiledStateGraph):
         with patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as mock:
-            config = {
+            config: RunnableConfig = {
                 "configurable": {
                     "thread_id": self.conversation.id,
                 }
@@ -256,7 +256,7 @@ class TestAssistant(NonAtomicBaseTest):
                 .add_trends_planner(AssistantNodeName.END)
                 .compile()
             )
-            config = {
+            config: RunnableConfig = {
                 "configurable": {
                     "thread_id": self.conversation.id,
                 }
