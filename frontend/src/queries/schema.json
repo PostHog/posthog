@@ -2279,7 +2279,6 @@
                 "probability",
                 "significance_code",
                 "significant",
-                "stats_version",
                 "timezone",
                 "variants"
             ],
@@ -4615,7 +4614,6 @@
                                 "probability",
                                 "significance_code",
                                 "significant",
-                                "stats_version",
                                 "variants"
                             ],
                             "type": "object"
@@ -6176,7 +6174,6 @@
                 "probability",
                 "significant",
                 "significance_code",
-                "stats_version",
                 "p_value",
                 "credible_intervals"
             ],
@@ -9907,7 +9904,6 @@
                         "probability",
                         "significant",
                         "significance_code",
-                        "stats_version",
                         "p_value",
                         "credible_intervals"
                     ],
@@ -10540,7 +10536,6 @@
                         "probability",
                         "significance_code",
                         "significant",
-                        "stats_version",
                         "variants"
                     ],
                     "type": "object"
