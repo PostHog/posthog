@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestFormula.test_aggregated_one_without_events
   '''
-  SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total
+  SELECT ifNull(sumOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total
   FROM events AS e SAMPLE 1
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'session start'))
   ORDER BY 1 DESC
@@ -16,7 +16,7 @@
 # ---
 # name: TestFormula.test_aggregated_one_without_events.1
   '''
-  SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'session not here'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total
+  SELECT ifNull(sumOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'session not here'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total
   FROM events AS e SAMPLE 1
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'session error'))
   ORDER BY 1 DESC
@@ -41,11 +41,11 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+          (SELECT ifNull(sumOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -81,11 +81,11 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+          (SELECT ifNull(avgOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -111,7 +111,7 @@
 # ---
 # name: TestFormula.test_breakdown_aggregated
   '''
-  SELECT sum(total) AS total,
+  SELECT sumOrNull(total) AS total,
          if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
@@ -119,10 +119,10 @@
                      row_number() OVER (
                                         ORDER BY total DESC) AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+          (SELECT ifNull(sumOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'session start'))
@@ -145,7 +145,7 @@
 # ---
 # name: TestFormula.test_breakdown_aggregated.1
   '''
-  SELECT sum(total) AS total,
+  SELECT sumOrNull(total) AS total,
          if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
@@ -153,10 +153,10 @@
                      row_number() OVER (
                                         ORDER BY total DESC) AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+          (SELECT ifNull(avgOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'session start'))
@@ -209,11 +209,11 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+          (SELECT ifNull(sumOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   toString(0) AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -249,11 +249,11 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+          (SELECT ifNull(avgOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   toString(0) AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -289,11 +289,11 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+          (SELECT ifNull(sumOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   toString(999932324) AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -339,11 +339,11 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+          (SELECT ifNull(avgOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   toString(999932324) AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -389,11 +389,11 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+          (SELECT ifNull(sumOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(concat(ifNull(toString(e__person.`properties___$some_prop`), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), ''))), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -409,7 +409,7 @@
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
               FROM person
               WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                                   (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                     FROM person
                                                                     WHERE equals(person.team_id, 99999)
                                                                     GROUP BY person.id
@@ -446,11 +446,11 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+          (SELECT ifNull(avgOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(concat(ifNull(toString(e__person.`properties___$some_prop`), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), ''))), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -466,7 +466,7 @@
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
               FROM person
               WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                                   (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                     FROM person
                                                                     WHERE equals(person.team_id, 99999)
                                                                     GROUP BY person.id
@@ -503,11 +503,11 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+          (SELECT ifNull(sumOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -543,11 +543,11 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+          (SELECT ifNull(sumOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
@@ -577,7 +577,7 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
        (SELECT count(DISTINCT e.`$session_id`) AS total,
@@ -603,7 +603,7 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
@@ -636,10 +636,10 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+       (SELECT ifNull(sumOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-02 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 13:59:59', 6, 'UTC'))), equals(e.event, 'session start'))
@@ -662,10 +662,10 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT ifNull(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+       (SELECT ifNull(avgOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-02 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 13:59:59', 6, 'UTC'))), equals(e.event, 'session start'))
@@ -688,10 +688,10 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+       (SELECT ifNull(sumOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-02 13:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 13:59:59', 6, 'UTC'))), equals(e.event, 'session start'))
@@ -714,10 +714,10 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT ifNull(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+       (SELECT ifNull(avgOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-02 13:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 13:59:59', 6, 'UTC'))), equals(e.event, 'session start'))
@@ -740,17 +740,17 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT ifNull(avg(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
+       (SELECT ifNull(avgOrNull(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                day_start AS day_start
         FROM
-          (SELECT any(e__session.`$session_duration`) AS session_duration,
+          (SELECT anyOrNull(e__session.`$session_duration`) AS session_duration,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
            FROM events AS e SAMPLE 1
            LEFT JOIN
-             (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+             (SELECT dateDiff('second', minOrNull(toTimeZone(raw_sessions.min_timestamp, 'UTC')), maxOrNull(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                      raw_sessions.session_id_v7 AS session_id_v7
               FROM raw_sessions
               WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
@@ -779,7 +779,7 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
        (SELECT count() AS total,
@@ -805,14 +805,14 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
        (SELECT count(DISTINCT e.`$session_id`) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         LEFT JOIN
-          (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+          (SELECT dateDiff('second', minOrNull(toTimeZone(raw_sessions.min_timestamp, 'UTC')), maxOrNull(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                   raw_sessions.session_id_v7 AS session_id_v7
            FROM raw_sessions
            WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
@@ -838,7 +838,7 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
        (SELECT count(DISTINCT e.`$session_id`) AS total,
@@ -864,14 +864,14 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
        (SELECT count(DISTINCT e.`$session_id`) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         LEFT JOIN
-          (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+          (SELECT dateDiff('second', minOrNull(toTimeZone(raw_sessions.min_timestamp, 'UTC')), maxOrNull(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                   raw_sessions.session_id_v7 AS session_id_v7
            FROM raw_sessions
            WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
@@ -897,14 +897,14 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
        (SELECT count(DISTINCT e.`$session_id`) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         LEFT JOIN
-          (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+          (SELECT dateDiff('second', minOrNull(toTimeZone(raw_sessions.min_timestamp, 'UTC')), maxOrNull(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                   raw_sessions.session_id_v7 AS session_id_v7
            FROM raw_sessions
            WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))

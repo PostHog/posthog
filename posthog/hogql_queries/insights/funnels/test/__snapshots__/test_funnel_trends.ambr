@@ -15,7 +15,7 @@
      FROM
        (SELECT aggregation_target AS aggregation_target,
                toStartOfDay(timestamp) AS entrance_period_start,
-               max(steps) AS steps_completed
+               maxOrNull(steps) AS steps_completed
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   timestamp AS timestamp,
@@ -107,7 +107,7 @@
      FROM
        (SELECT aggregation_target AS aggregation_target,
                toStartOfDay(timestamp) AS entrance_period_start,
-               max(steps) AS steps_completed
+               maxOrNull(steps) AS steps_completed
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   timestamp AS timestamp,
@@ -199,7 +199,7 @@
      FROM
        (SELECT aggregation_target AS aggregation_target,
                toStartOfWeek(timestamp, 0) AS entrance_period_start,
-               max(steps) AS steps_completed
+               maxOrNull(steps) AS steps_completed
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   timestamp AS timestamp,
