@@ -60,6 +60,7 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
                         ? await api.dataColorThemes.update(id, payload)
                         : await api.dataColorThemes.create(payload)
 
+                    lemonToast.success(updatedTheme ? 'Theme saved.' : 'Theme created.')
                     actions.closeModal()
 
                     return updatedTheme
