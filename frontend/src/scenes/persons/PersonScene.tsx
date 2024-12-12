@@ -108,6 +108,7 @@ export function PersonScene(): JSX.Element | null {
         splitMergeModalShown,
         urlId,
         distinctId,
+        primaryDistinctId,
     } = useValues(personsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
@@ -297,7 +298,7 @@ export function PersonScene(): JSX.Element | null {
                                               </Tooltip>
                                           </div>
                                           <LemonSelect
-                                              value={distinctId || person.distinct_ids[0]}
+                                              value={distinctId || primaryDistinctId}
                                               onChange={(value) => value && setDistinctId(value)}
                                               options={person.distinct_ids.map((distinct_id) => ({
                                                   label: distinct_id,

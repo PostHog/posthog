@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { shortTimeZone } from 'lib/utils'
 
@@ -9,14 +10,31 @@ function formatStringFor(d: Dayjs): string {
     return 'DD/MM/YYYY HH:mm:ss'
 }
 
-export function SimpleTimeLabel({ startTime, isUTC }: { startTime: string | number; isUTC: boolean }): JSX.Element {
+export function SimpleTimeLabel({
+    startTime,
+    isUTC,
+    muted = true,
+    size = 'xsmall',
+}: {
+    startTime: string | number | Dayjs
+    isUTC: boolean
+    muted?: boolean
+    size?: 'small' | 'xsmall'
+}): JSX.Element {
     let d = dayjs(startTime)
     if (isUTC) {
         d = d.tz('UTC')
     }
 
     return (
-        <div className="overflow-hidden text-ellipsis text-xs text-muted shrink-0">
+        <div
+            className={clsx(
+                'overflow-hidden text-ellipsis shrink-0',
+                muted && 'text-muted',
+                size === 'xsmall' && 'text-xs',
+                size === 'small' && 'text-sm'
+            )}
+        >
             {d.format(formatStringFor(d))} {isUTC ? 'UTC' : shortTimeZone(undefined, dayjs(d).toDate())}
         </div>
     )
