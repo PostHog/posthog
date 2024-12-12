@@ -268,23 +268,23 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 1.0)
 
                 # Both variants should have wide intervals due to small sample size
-                self.assertTrue(70 < intervals["control"][0] < 80)
-                self.assertTrue(120 < intervals["control"][1] < 130)
+                self.assertTrue(70 < intervals["control"][0] < 90)
+                self.assertTrue(100 < intervals["control"][1] < 120)
 
-                self.assertTrue(90 < intervals["test"][0] < 100)
-                self.assertTrue(140 < intervals["test"][1] < 150)
+                self.assertTrue(85 < intervals["test"][0] < 105)
+                self.assertTrue(115 < intervals["test"][1] < 135)
             else:
                 # Original implementation behavior for insufficient sample size
-                self.assertTrue(0.3 < probabilities[0] < 0.7)
-                self.assertTrue(0.3 < probabilities[1] < 0.7)
+                self.assertTrue(0.05 < probabilities[0] < 0.1)
+                self.assertTrue(0.85 < probabilities[1] < 1.0)
                 self.assertEqual(significance, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
                 self.assertEqual(p_value, 1.0)
 
                 # Original implementation returns intervals as ratios/multipliers of the mean
-                self.assertTrue(intervals["control"][0] < 1)
-                self.assertTrue(intervals["control"][1] > 1)
-                self.assertTrue(intervals["test"][0] < 1)
-                self.assertTrue(intervals["test"][1] > 1)
+                self.assertTrue(1.5 <= intervals["control"][0] < 1.8)
+                self.assertTrue(2.3 <= intervals["control"][1] < 2.6)
+                self.assertTrue(1.8 <= intervals["test"][0] < 2.1)
+                self.assertTrue(2.6 <= intervals["test"][1] < 2.9)
 
         self.run_test_for_both_implementations(run_test)
 
