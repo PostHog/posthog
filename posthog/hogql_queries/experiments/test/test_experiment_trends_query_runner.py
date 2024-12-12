@@ -240,7 +240,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             source_table_name=table_name,
             source_table_key="userid",
             joining_table_name="events",
-            joining_table_key="distinct_id",
+            joining_table_key="properties.$user_id",
             field_name="events",
             configuration={"experiments_optimized": True, "experiments_timestamp_key": "ds"},
         )
@@ -800,7 +800,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 _create_event(
                     team=self.team,
                     event="$feature_flag_called",
-                    distinct_id=f"user_{variant}_{i}",
+                    distinct_id=f"distinct_{variant}_{i}",
                     properties={feature_flag_property: variant, "$user_id": f"user_{variant}_{i}"},
                     timestamp=datetime(2023, 1, i + 1),
                 )
@@ -814,21 +814,21 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             team=self.team,
             event="$feature_flag_called",
-            distinct_id="user_test_3",
+            distinct_id="distinct_test_3",
             properties={feature_flag_property: "control", "$user_id": "user_test_3"},
             timestamp=datetime(2023, 1, 3),
         )
         _create_event(
             team=self.team,
             event="Some other event",
-            distinct_id="user_test_3",
+            distinct_id="distinct_test_3",
             properties={feature_flag_property: "control", "$user_id": "user_test_3"},
             timestamp=datetime(2023, 1, 5),
         )
         _create_event(
             team=self.team,
             event="$feature_flag_called",
-            distinct_id="user_test_3",
+            distinct_id="distinct_test_3",
             properties={feature_flag_property: "control", "$user_id": "user_test_3"},
             timestamp=datetime(2023, 1, 9),
         )
@@ -850,7 +850,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
             # Assert the expected join condition in the clickhouse SQL
-            expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_7)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_8)s, 6, %(hogql_val_9)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_10)s, 6, %(hogql_val_11)s))))) AS e__events ON"
+            expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_8)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_9)s, 6, %(hogql_val_10)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_11)s, 6, %(hogql_val_12)s))))) AS e__events ON"
             self.assertIn(expected_join_condition, str(response.clickhouse))
 
             result = query_runner.calculate()
