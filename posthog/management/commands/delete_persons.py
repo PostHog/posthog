@@ -63,11 +63,16 @@ def run(options, sync: bool = False):
         logger.info("Set --live-run to actually delete.")
         return exit(0)
 
-    logger.info(f"Will run the deletion for {num_to_delete} people. You have 10 seconds to cancel...")
+    if num_to_delete == 0:
+        logger.info("No people to delete")
+        return exit(0)
 
-    sleep(5)
-    logger.info(f"5 seconds left...")
-    sleep(5)
+    logger.info(f"Will run the deletion for {num_to_delete} people.")
+    confirm = input("Type 'delete' to confirm: ")
+
+    if confirm != "delete":
+        logger.info("Aborting")
+        return exit(0)
 
     logger.info(f"Executing delete query...")
 
