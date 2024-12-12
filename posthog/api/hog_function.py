@@ -178,7 +178,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             attrs["mappings"] = attrs.get("mappings") or None
 
         # Used for both top level input validation, and mappings input validation
-        def validate_input_and_filters(attrs: dict, type: str):
+        def validate_input_and_filters(attrs: dict):
             if "inputs_schema" in attrs:
                 attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
 
@@ -193,22 +193,22 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs, hog_type)
 
             if "filters" in attrs:
-                if type in TYPES_WITH_COMPILED_FILTERS:
+                if hog_type in TYPES_WITH_COMPILED_FILTERS:
                     attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
-                elif type in TYPES_WITH_TRANSPILED_FILTERS:
+                elif hog_type in TYPES_WITH_TRANSPILED_FILTERS:
                     compiler = JavaScriptCompiler()
                     code = compiler.visit(compile_filters_expr(attrs["filters"], team))
                     attrs["filters"]["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
                     if "bytecode" in attrs["filters"]:
                         del attrs["filters"]["bytecode"]
 
-        validate_input_and_filters(attrs, attrs["type"])
+        validate_input_and_filters(attrs)
 
         if attrs.get("mappings", None) is not None:
-            if attrs["type"] != "site_destination":
+            if hog_type != "site_destination":
                 raise serializers.ValidationError({"mappings": "Mappings are only allowed for site destinations."})
             for mapping in attrs["mappings"]:
-                validate_input_and_filters(mapping, attrs["type"])
+                validate_input_and_filters(mapping)
 
         if "hog" in attrs:
             if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:
