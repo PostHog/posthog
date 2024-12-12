@@ -17,7 +17,7 @@ import { HogFunctionInputs } from '../HogFunctionInputs'
 
 export function HogFunctionMapping(): JSX.Element | null {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { useMapping, showSource, template } = useValues(hogFunctionConfigurationLogic)
+    const { useMapping, showSource, mappingTemplates } = useValues(hogFunctionConfigurationLogic)
     const [selectedMappingTemplate, setSelectedMappingTemplate] = useState<string | null>(null)
 
     if (!useMapping) {
@@ -121,12 +121,12 @@ export function HogFunctionMapping(): JSX.Element | null {
                         <div className="border bg-bg-light rounded p-3 space-y-2">
                             <LemonLabel>New Mapping</LemonLabel>
                             <div className="flex gap-2">
-                                {template?.mapping_templates?.length ? (
+                                {mappingTemplates.length ? (
                                     <LemonSelect
                                         placeholder="Select a template"
                                         value={selectedMappingTemplate}
                                         onChange={setSelectedMappingTemplate}
-                                        options={template.mapping_templates.map((t) => ({
+                                        options={mappingTemplates.map((t) => ({
                                             label: t.name,
                                             value: t.name,
                                         }))}
@@ -137,13 +137,13 @@ export function HogFunctionMapping(): JSX.Element | null {
                                     data-attr="add-action-event-button"
                                     icon={<IconPlusSmall />}
                                     disabledReason={
-                                        template?.mapping_templates?.length && !selectedMappingTemplate
+                                        mappingTemplates.length && !selectedMappingTemplate
                                             ? 'Select a mapping template'
                                             : undefined
                                     }
                                     onClick={() => {
                                         if (selectedMappingTemplate) {
-                                            const mappingTemplate = template?.mapping_templates?.find(
+                                            const mappingTemplate = mappingTemplates.find(
                                                 (t) => t.name === selectedMappingTemplate
                                             )
                                             if (mappingTemplate) {
