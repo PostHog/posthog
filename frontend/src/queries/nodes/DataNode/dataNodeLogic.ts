@@ -32,7 +32,6 @@ import {
     DashboardFilter,
     ErrorTrackingQuery,
     ErrorTrackingQueryResponse,
-    HogQLQuery,
     HogQLVariable,
     QueryStatus,
 } from '~/queries/schema'
@@ -175,10 +174,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const query = overrideQuery ?? props.query
                     const refresh = props.alwaysRefresh || refreshArg
 
-                    if (query.kind === NodeKind.HogQLQuery && !(query as HogQLQuery).query) {
-                        return null
-                    }
-
                     if (props.doNotLoad) {
                         return props.cachedResults
                     }
@@ -195,6 +190,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         const stringifiedQuery = JSON.stringify(query.query)
                         if (cache.localResults[stringifiedQuery] && !refresh) {
                             return cache.localResults[stringifiedQuery]
+                        }
+
+                        if (!query.query) {
+                            return null
                         }
                     }
 
@@ -342,6 +341,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        isRefresh: [
+            false,
+            {
+                loadData: (_, { refresh }) => !!refresh,
+            },
+        ],
         dataLoading: [
             false,
             {
@@ -479,8 +484,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (variablesOverride) => !!variablesOverride,
         ],
         isShowingCachedResults: [
-            () => [(_, props) => props.cachedResults ?? null, (_, props) => props.query],
-            (cachedResults: AnyResponseType | null, query: DataNode): boolean => {
+            (s) => [(_, props) => props.cachedResults ?? null, (_, props) => props.query, s.isRefresh],
+            (cachedResults: AnyResponseType | null, query: DataNode, isRefresh): boolean => {
+                if (isRefresh) {
+                    return false
+                }
+
                 return (
                     !!cachedResults ||
                     (cache.localResults && 'query' in query && JSON.stringify(query.query) in cache.localResults)

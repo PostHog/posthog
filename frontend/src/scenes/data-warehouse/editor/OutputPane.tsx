@@ -15,6 +15,7 @@ import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
@@ -168,6 +169,9 @@ export function OutputPane(): JSX.Element {
                     queryId={queryId}
                     pollResponse={pollResponse}
                 />
+            </div>
+            <div className="flex justify-end pr-2 border-t">
+                <ElapsedTime />
             </div>
         </div>
     )

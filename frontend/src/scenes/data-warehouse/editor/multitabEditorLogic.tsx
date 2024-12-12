@@ -54,7 +54,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     actions({
         setQueryInput: (queryInput: string) => ({ queryInput }),
         updateState: true,
-        runQuery: (queryOverride?: string) => ({ queryOverride }),
+        runQuery: (queryOverride?: string, switchTab?: boolean) => ({ queryOverride, switchTab }),
         setActiveQuery: (query: string) => ({ query }),
         setTabs: (tabs: QueryTab[]) => ({ tabs }),
         addTab: (tab: QueryTab) => ({ tab }),
@@ -311,7 +311,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
             localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
         },
-        runQuery: ({ queryOverride }) => {
+        runQuery: ({ queryOverride, switchTab }) => {
             const query = queryOverride || values.queryInput
 
             actions.setSourceQuery({
@@ -328,7 +328,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     query,
                 },
                 autoLoad: false,
-            }).actions.loadData(true)
+            }).actions.loadData(!switchTab)
         },
         saveAsView: async () => {
             LemonDialog.openForm({
@@ -418,7 +418,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const _model = props.monaco.editor.getModel(activeModelUri.uri)
                 const val = _model?.getValue()
                 actions.setQueryInput(val ?? '')
-                actions.runQuery()
+                actions.runQuery(undefined, true)
             }
         },
     })),
