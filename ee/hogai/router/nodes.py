@@ -12,7 +12,7 @@ from ee.hogai.router.prompts import (
     ROUTER_SYSTEM_PROMPT,
     ROUTER_USER_PROMPT,
 )
-from ee.hogai.utils import AssistantNode, AssistantState
+from ee.hogai.utils import AssistantNode, AssistantState, PartialAssistantState
 from posthog.schema import HumanMessage, RouterMessage
 
 RouteName = Literal["trends", "funnel"]
@@ -23,7 +23,7 @@ class RouterOutput(BaseModel):
 
 
 class RouterNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", ROUTER_SYSTEM_PROMPT),
@@ -32,10 +32,10 @@ class RouterNode(AssistantNode):
         ) + self._construct_messages(state)
         chain = prompt | self._model
         output: RouterOutput = chain.invoke({}, config)
-        return {"messages": [RouterMessage(content=output.visualization_type, id=str(uuid4()))]}
+        return PartialAssistantState(messages=[RouterMessage(content=output.visualization_type, id=str(uuid4()))])
 
     def router(self, state: AssistantState) -> RouteName:
-        last_message = state["messages"][-1]
+        last_message = state.messages[-1]
         if isinstance(last_message, RouterMessage):
             return cast(RouteName, last_message.content)
         raise ValueError("Invalid route.")
@@ -48,7 +48,7 @@ class RouterNode(AssistantNode):
 
     def _construct_messages(self, state: AssistantState):
         history: list[BaseMessage] = []
-        for message in state["messages"]:
+        for message in state.messages:
             if isinstance(message, HumanMessage):
                 history += ChatPromptTemplate.from_messages(
                     [("user", ROUTER_USER_PROMPT.strip())], template_format="mustache"

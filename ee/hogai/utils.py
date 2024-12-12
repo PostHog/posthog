@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Optional, TypedDict, TypeVar, Union
+from typing import Annotated, Optional, TypeVar, Union
 
 from jsonref import replace_refs
 from langchain_core.agents import AgentAction
@@ -11,6 +11,7 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START
+from pydantic import BaseModel, Field
 
 from posthog.models.team.team import Team
 from posthog.schema import (
@@ -38,14 +39,21 @@ def add_messages(
     return list(left) + list(right)
 
 
-class AssistantState(TypedDict, total=False):
-    messages: Annotated[Sequence[AssistantMessageUnion], add_messages]
-    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]]
-    start_id: Optional[str]
+class _SharedAssistantState(BaseModel):
+    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
+    start_id: Optional[str] = Field(default=None)
     """
     The ID of the message from which the conversation started.
     """
-    plan: Optional[str]
+    plan: Optional[str] = Field(default=None)
+
+
+class AssistantState(_SharedAssistantState):
+    messages: Annotated[Sequence[AssistantMessageUnion], add_messages]
+
+
+class PartialAssistantState(_SharedAssistantState):
+    messages: Optional[Annotated[Sequence[AssistantMessageUnion], add_messages]] = Field(default=None)
 
 
 class AssistantNodeName(StrEnum):
@@ -70,7 +78,7 @@ class AssistantNode(ABC):
         self._team = team
 
     @abstractmethod
-    def run(cls, state: AssistantState, config: RunnableConfig) -> AssistantState:
+    def run(cls, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         raise NotImplementedError
 
 

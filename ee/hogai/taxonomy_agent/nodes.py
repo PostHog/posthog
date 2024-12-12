@@ -42,6 +42,7 @@ from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentTool
 from ee.hogai.utils import (
     AssistantNode,
     AssistantState,
+    PartialAssistantState,
     filter_messages,
     remove_line_breaks,
     slice_messages_to_conversation_start,
@@ -65,8 +66,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         prompt: ChatPromptTemplate,
         toolkit: TaxonomyAgentToolkit,
         config: Optional[RunnableConfig] = None,
-    ) -> AssistantState:
-        intermediate_steps = state.get("intermediate_steps") or []
+    ) -> PartialAssistantState:
+        intermediate_steps = state.intermediate_steps or []
         conversation = (
             prompt
             + ChatPromptTemplate.from_messages(
@@ -124,12 +125,12 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     e.llm_output,
                 )
 
-        return {
-            "intermediate_steps": [*intermediate_steps, (result, None)],
-        }
+        return PartialAssistantState(
+            intermediate_steps=[*intermediate_steps, (result, None)],
+        )
 
     def router(self, state: AssistantState):
-        if state.get("intermediate_steps", []):
+        if state.intermediate_steps:
             return "tools"
         raise ValueError("Invalid state.")
 
@@ -204,8 +205,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
-        start_id = state.get("start_id")
-        filtered_messages = filter_messages(slice_messages_to_conversation_start(state.get("messages", []), start_id))
+        start_id = state.start_id
+        filtered_messages = filter_messages(slice_messages_to_conversation_start(state.messages, start_id))
         conversation = []
 
         for idx, message in enumerate(filtered_messages):
@@ -247,8 +248,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
     def _run_with_toolkit(
         self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
-    ) -> AssistantState:
-        intermediate_steps = state.get("intermediate_steps") or []
+    ) -> PartialAssistantState:
+        intermediate_steps = state.intermediate_steps or []
         action, observation = intermediate_steps[-1]
 
         try:
@@ -259,21 +260,25 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
                 .format_messages(exception=e.errors(include_url=False))[0]
                 .content
             )
-            return {"intermediate_steps": [*intermediate_steps[:-1], (action, str(observation))]}
+            return PartialAssistantState(
+                intermediate_steps=[*intermediate_steps[:-1], (action, str(observation))],
+            )
 
         # The plan has been found. Move to the generation.
         if input.name == "final_answer":
-            return {
-                "plan": input.arguments,
-                "intermediate_steps": None,
-            }
+            return PartialAssistantState(
+                plan=input.arguments,
+                intermediate_steps=None,
+            )
         if input.name == "ask_user_for_help":
             # The agent has requested help, so we interrupt the graph.
             if not observation:
                 raise NodeInterrupt(input.arguments)
 
             # Feedback was provided.
-            return {"intermediate_steps": [*intermediate_steps[:-1], (action, observation)]}
+            return PartialAssistantState(
+                intermediate_steps=[*intermediate_steps[:-1], (action, observation)],
+            )
 
         output = ""
         if input.name == "retrieve_event_properties":
@@ -287,9 +292,11 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         else:
             output = toolkit.handle_incorrect_response(input.arguments)
 
-        return {"intermediate_steps": [*intermediate_steps[:-1], (action, output)]}
+        return PartialAssistantState(
+            intermediate_steps=[*intermediate_steps[:-1], (action, output)],
+        )
 
     def router(self, state: AssistantState):
-        if state.get("plan") is not None:
+        if state.plan is not None:
             return "plan_found"
         return "continue"

@@ -47,7 +47,7 @@ class AssistantGraph:
     def compile(self):
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
-        return self._graph.compile(checkpointer=checkpointer)
+        return self._graph.compile()
 
     def add_start(self):
         return self.add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)

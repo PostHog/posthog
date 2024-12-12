@@ -33,6 +33,7 @@ from ee.hogai.utils import (
     AssistantMessageUnion,
     AssistantNode,
     AssistantState,
+    PartialAssistantState,
     find_last_message_of_type,
     slice_messages_to_conversation_start,
 )
@@ -77,10 +78,10 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         state: AssistantState,
         prompt: ChatPromptTemplate,
         config: Optional[RunnableConfig] = None,
-    ) -> AssistantState:
-        start_id = state.get("start_id")
-        generated_plan = state.get("plan", "")
-        intermediate_steps = state.get("intermediate_steps") or []
+    ) -> PartialAssistantState:
+        start_id = state.start_id
+        generated_plan = state.plan or ""
+        intermediate_steps = state.intermediate_steps or []
         validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
 
         generation_prompt = prompt + self._construct_messages(state, validation_error_message=validation_error_message)
@@ -94,24 +95,24 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         except PydanticOutputParserException as e:
             # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
             if len(intermediate_steps) >= 2:
-                return {
-                    "messages": [
+                return PartialAssistantState(
+                    messages=[
                         FailureMessage(
                             content=f"Oops! It looks like I’m having trouble generating this {self.INSIGHT_NAME} insight. Could you please try again?"
                         )
                     ],
-                    "intermediate_steps": None,
-                }
+                    intermediate_steps=None,
+                )
 
-            return {
-                "intermediate_steps": [
+            return PartialAssistantState(
+                intermediate_steps=[
                     *intermediate_steps,
                     (AgentAction("handle_incorrect_response", e.llm_output, e.validation_message), None),
                 ],
-            }
+            )
 
-        return {
-            "messages": [
+        return PartialAssistantState(
+            messages=[
                 VisualizationMessage(
                     plan=generated_plan,
                     answer=message.query,
@@ -119,11 +120,11 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                     id=str(uuid4()),
                 )
             ],
-            "intermediate_steps": None,
-        }
+            intermediate_steps=None,
+        )
 
     def router(self, state: AssistantState):
-        if state.get("intermediate_steps") is not None:
+        if state.intermediate_steps is not None:
             return "tools"
         return "next"
 
@@ -152,9 +153,9 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         """
         Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
         """
-        messages = state.get("messages", [])
-        generated_plan = state.get("plan", "")
-        start_id = state.get("start_id")
+        messages = state.messages
+        generated_plan = state.plan
+        start_id = state.start_id
 
         if start_id is not None:
             messages = slice_messages_to_conversation_start(messages, start_id)
@@ -237,10 +238,10 @@ class SchemaGeneratorToolsNode(AssistantNode):
     Used for failover from generation errors.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-        intermediate_steps = state.get("intermediate_steps", [])
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        intermediate_steps = state.intermediate_steps or []
         if not intermediate_steps:
-            return state
+            return PartialAssistantState()
 
         action, _ = intermediate_steps[-1]
         prompt = (
@@ -249,9 +250,9 @@ class SchemaGeneratorToolsNode(AssistantNode):
             .content
         )
 
-        return {
-            "intermediate_steps": [
+        return PartialAssistantState(
+            intermediate_steps=[
                 *intermediate_steps[:-1],
                 (action, str(prompt)),
             ]
-        }
+        )

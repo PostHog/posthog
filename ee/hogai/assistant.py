@@ -20,7 +20,7 @@ from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
 )
-from ee.hogai.utils import AssistantNodeName, AssistantState
+from ee.hogai.utils import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
@@ -43,32 +43,48 @@ if settings.LANGFUSE_PUBLIC_KEY:
 else:
     langfuse_handler = None
 
+GraphValueUpdate = tuple[Literal["values"], dict[AssistantNodeName, dict]]
 
-def is_value_update(update: list[Any]) -> TypeGuard[tuple[Literal["values"], dict[AssistantNodeName, AssistantState]]]:
+
+def is_value_update(update: list[Any]) -> TypeGuard[GraphValueUpdate]:
     """
-    Transition between nodes.
+    Transition between nodes. Returns a partial state.
     """
     return len(update) == 2 and update[0] == "updates"
+
+
+def validate_value_update(update: GraphValueUpdate):
+    name, state = update
+    return name, {n: PartialAssistantState.model_validate(v) for n, v in state.items()}
 
 
 class LangGraphState(TypedDict):
     langgraph_node: AssistantNodeName
 
 
-def is_message_update(
-    update: list[Any],
-) -> TypeGuard[tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]]:
+GraphMessageUpdate = tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]
+
+
+def is_message_update(update: list[Any]) -> TypeGuard[GraphMessageUpdate]:
     """
     Streaming of messages. Returns a partial state.
     """
     return len(update) == 2 and update[0] == "messages"
 
 
-def is_state_update(update: list[Any]) -> TypeGuard[tuple[Literal["updates"], AssistantState]]:
+GraphStateUpdate = tuple[Literal["updates"], dict]
+
+
+def is_state_update(update: list[Any]) -> TypeGuard[GraphStateUpdate]:
     """
-    Update of the state.
+    Update of the state. Returns a full state.
     """
     return len(update) == 2 and update[0] == "values"
+
+
+def validate_state_update(update: GraphStateUpdate):
+    name, state = update
+    return name, AssistantState.model_validate(state)
 
 
 def is_task_started_update(
@@ -163,12 +179,7 @@ class Assistant:
 
     @property
     def _initial_state(self) -> AssistantState:
-        return {
-            "messages": [self._latest_message],
-            "intermediate_steps": None,
-            "start_id": self._latest_message.id,
-            "plan": None,
-        }
+        return AssistantState(messages=[self._latest_message], start_id=self._latest_message.id)
 
     def _get_config(self) -> RunnableConfig:
         callbacks = [langfuse_handler] if langfuse_handler else []
@@ -185,16 +196,12 @@ class Assistant:
         if snapshot.next:
             saved_state = cast(AssistantState, snapshot.values)
             self._state = saved_state
-            intermediate_steps = saved_state.get("intermediate_steps")
-            if intermediate_steps:
-                intermediate_steps = intermediate_steps.copy()
+            if saved_state.intermediate_steps:
+                intermediate_steps = saved_state.intermediate_steps.copy()
                 intermediate_steps[-1] = (intermediate_steps[-1][0], self._latest_message.content)
                 self._graph.update_state(
                     config,
-                    {
-                        "messages": [self._latest_message],
-                        "intermediate_steps": intermediate_steps,
-                    },
+                    PartialAssistantState(messages=[self._latest_message], intermediate_steps=intermediate_steps),
                 )
             return None
         initial_state = self._initial_state
@@ -215,7 +222,7 @@ class Assistant:
             ):
                 substeps: list[str] = []
                 if input:
-                    if intermediate_steps := input.get("intermediate_steps"):
+                    if intermediate_steps := input.intermediate_steps:
                         for action, _ in intermediate_steps:
                             match action.tool:
                                 case "retrieve_event_properties":
@@ -242,24 +249,25 @@ class Assistant:
 
     def _process_update(self, update: Any) -> BaseModel | None:
         if is_state_update(update):
-            self._state = update[1]
+            _, new_state = validate_state_update(update)
+            self._state = new_state
         elif is_value_update(update):
-            _, state_update = update
+            _, state_update = validate_value_update(update)
 
-            if AssistantNodeName.ROUTER in state_update and "messages" in state_update[AssistantNodeName.ROUTER]:
-                return state_update[AssistantNodeName.ROUTER]["messages"][0]
+            if AssistantNodeName.ROUTER in state_update and state_update[AssistantNodeName.ROUTER].messages:
+                return state_update[AssistantNodeName.ROUTER].messages[0]
             elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
                 # Reset chunks when schema validation fails.
                 self._chunks = AIMessageChunk(content="")
 
                 node_name = intersected_nodes.pop()
-                if "messages" in state_update[node_name]:
-                    return state_update[node_name]["messages"][0]
-                elif state_update[node_name].get("intermediate_steps", []):
+                if state_update[node_name].messages:
+                    return state_update[node_name].messages[0]
+                elif state_update[node_name].intermediate_steps:
                     return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-            elif AssistantNodeName.SUMMARIZER in state_update:
+            elif AssistantNodeName.SUMMARIZER in state_update and state_update[AssistantNodeName.SUMMARIZER].messages:
                 self._chunks = AIMessageChunk(content="")
-                return state_update[AssistantNodeName.SUMMARIZER]["messages"][0]
+                return state_update[AssistantNodeName.SUMMARIZER].messages[0]
         elif is_message_update(update):
             langchain_message, langgraph_state = update[1]
             if isinstance(langchain_message, AIMessageChunk):
@@ -269,7 +277,7 @@ class Assistant:
                         self._chunks.tool_calls[0]["args"]
                     )
                     if parsed_message:
-                        initiator_id = self._state.get("start_id") if self._state is not None else None
+                        initiator_id = self._state.start_id if self._state is not None else None
                         return VisualizationMessage(answer=parsed_message.query, initiator=initiator_id)
                 elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
                     self._chunks += langchain_message  # type: ignore
