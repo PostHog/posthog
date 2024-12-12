@@ -113,6 +113,26 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if not timestamp_key:
                 raise ResolutionError("experiments_timestamp_key is not set for this join")
 
+            whereExpr: list[ast.Expr] = [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value="$feature_flag_called"),
+                )
+            ]
+            # :HACK: We need to pull the timestamp gt/lt values from node.where.exprs[0] because
+            # we can't reference the parent data warehouse table in the where clause.
+            if node.where and hasattr(node.where, "exprs"):
+                for expr in node.where.exprs:
+                    if isinstance(expr, ast.CompareOperation):
+                        if expr.op == ast.CompareOperationOp.GtEq or expr.op == ast.CompareOperationOp.LtEq:
+                            if isinstance(expr.left, ast.Alias) and expr.left.expr.to_hogql() == timestamp_key:
+                                whereExpr.append(
+                                    ast.CompareOperation(
+                                        op=expr.op, left=ast.Field(chain=["timestamp"]), right=expr.right
+                                    )
+                                )
+
             return ast.JoinExpr(
                 table=ast.SelectQuery(
                     select=[
@@ -128,11 +148,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                         }.items()
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    where=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value="$feature_flag_called"),
-                    ),
+                    where=ast.And(exprs=whereExpr),
                 ),
                 # ASOF JOIN finds the most recent matching event that occurred at or before each data warehouse timestamp.
                 #

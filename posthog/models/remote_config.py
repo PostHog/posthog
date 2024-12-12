@@ -113,8 +113,10 @@ class RemoteConfig(UUIDModel):
                 if team.autocapture_exceptions_opt_in
                 else False
             ),
-            "analytics": {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT},
         }
+
+        if str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):
+            config["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
         if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
             config["elementsChainAsString"] = True
@@ -124,9 +126,13 @@ class RemoteConfig(UUIDModel):
 
         # TODO: Support the domain based check for recordings (maybe do it client side)?
         if team.session_recording_opt_in:
-            sample_rate = team.session_recording_sample_rate or None
+            capture_console_logs = True if team.capture_console_log_opt_in else False
+            sample_rate = str(team.session_recording_sample_rate) if team.session_recording_sample_rate else None
+
             if sample_rate == "1.00":
                 sample_rate = None
+
+            minimum_duration = team.session_recording_minimum_duration_milliseconds or None
 
             linked_flag = None
             linked_flag_config = team.session_recording_linked_flag or None
@@ -138,17 +144,28 @@ class RemoteConfig(UUIDModel):
                 else:
                     linked_flag = linked_flag_key
 
+            rrweb_script_config = None
+
+            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
+                "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
+                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
+            ):
+                rrweb_script_config = {
+                    "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
+                }
+
             session_recording_config_response = {
                 "endpoint": "/s/",
-                "consoleLogRecordingEnabled": True if team.capture_console_log_opt_in else False,
+                "consoleLogRecordingEnabled": capture_console_logs,
                 "recorderVersion": "v2",
-                "sampleRate": str(sample_rate) if sample_rate else None,
-                "minimumDurationMilliseconds": team.session_recording_minimum_duration_milliseconds or None,
+                "sampleRate": sample_rate,
+                "minimumDurationMilliseconds": minimum_duration,
                 "linkedFlag": linked_flag,
                 "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
+                "scriptConfig": rrweb_script_config,
             }
 
             if isinstance(team.session_replay_config, dict):
@@ -161,6 +178,7 @@ class RemoteConfig(UUIDModel):
                         "canvasQuality": "0.4" if record_canvas else None,
                     }
                 )
+
         config["sessionRecording"] = session_recording_config_response
 
         # MARK: Quota limiting
@@ -185,11 +203,7 @@ class RemoteConfig(UUIDModel):
         if surveys_response["survey_config"]:
             config["survey_config"] = surveys_response["survey_config"]
 
-        try:
-            default_identified_only = team.pk >= int(settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN)
-        except Exception:
-            default_identified_only = False
-        config["defaultIdentifiedOnly"] = bool(default_identified_only)
+        config["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 
         # MARK: Site apps - we want to eventually inline the JS but that will come later
         site_apps = []

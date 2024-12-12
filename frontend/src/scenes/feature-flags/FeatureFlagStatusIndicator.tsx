@@ -10,7 +10,12 @@ export function FeatureFlagStatusIndicator({
 }): JSX.Element | null {
     if (
         !flagStatus ||
-        [FeatureFlagStatus.ACTIVE, FeatureFlagStatus.DELETED, FeatureFlagStatus.UNKNOWN].includes(flagStatus.status)
+        [
+            FeatureFlagStatus.ACTIVE,
+            FeatureFlagStatus.INACTIVE,
+            FeatureFlagStatus.DELETED,
+            FeatureFlagStatus.UNKNOWN,
+        ].includes(flagStatus.status)
     ) {
         return null
     }

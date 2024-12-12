@@ -9,12 +9,13 @@ from django.conf import settings
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.celery import app
 from posthog.tasks.alerts.checks import (
+    alerts_backlog_task,
     check_alerts_task,
     checks_cleanup_task,
-    alerts_backlog_task,
     reset_stuck_alerts_task,
 )
 from posthog.tasks.integrations import refresh_integrations
+from posthog.tasks.periodic_digest import send_all_periodic_digest_reports
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -51,9 +52,9 @@ from posthog.tasks.tasks import (
     sync_all_organization_available_product_features,
     update_event_partitions,
     update_quota_limiting,
+    update_survey_adaptive_sampling,
     update_survey_iteration,
     verify_persons_data_in_sync,
-    update_survey_adaptive_sampling,
 )
 from posthog.utils import get_crontab
 
@@ -129,6 +130,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="30"),
         update_quota_limiting.s(),
         name="update quota limiting",
+    )
+
+    # Send all periodic digest reports
+    sender.add_periodic_task(
+        crontab(hour="9", minute="0", day_of_week="mon"),
+        send_all_periodic_digest_reports.s(),
+        name="send all weekly digest reports",
     )
 
     # PostHog Cloud cron jobs
