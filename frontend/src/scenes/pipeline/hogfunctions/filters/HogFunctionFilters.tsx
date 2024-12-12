@@ -75,6 +75,7 @@ export function HogFunctionFilters(): JSX.Element {
     }
 
     const showMasking = type === 'destination'
+    const showDropEvents = type === 'transformation'
 
     return (
         <div className="p-3 space-y-2 border rounded bg-bg-light">
@@ -154,26 +155,31 @@ export function HogFunctionFilters(): JSX.Element {
                                         buttonCopy="Add event matcher"
                                     />
 
-                                    <LemonLabel>
-                                        <span className="flex items-center justify-between flex-1 gap-2">
-                                            Drop events that don't match
-                                            <LemonSwitch
-                                                checked={value?.drop_events ?? false}
-                                                onChange={(drop_events) => onChange({ ...value, drop_events })}
-                                            />
-                                        </span>
-                                    </LemonLabel>
+                                    {showDropEvents && (
+                                        <>
+                                            <LemonLabel>
+                                                <span className="flex items-center justify-between flex-1 gap-2">
+                                                    Drop events that don't match
+                                                    <LemonSwitch
+                                                        checked={value?.drop_events ?? false}
+                                                        onChange={(drop_events) => onChange({ ...value, drop_events })}
+                                                    />
+                                                </span>
+                                            </LemonLabel>
 
-                                    {!value?.drop_events ? (
-                                        <p>
-                                            Currently, this will run for all events that match the above conditions. Any
-                                            that do not match will be unmodified and ingested as they are.
-                                        </p>
-                                    ) : (
-                                        <LemonBanner type="error">
-                                            This will drop all events that don't match the above conditions. Please
-                                            ensure this is definitely intended.
-                                        </LemonBanner>
+                                            {!value?.drop_events ? (
+                                                <p>
+                                                    Currently, this will run for all events that match the above
+                                                    conditions. Any that do not match will be unmodified and ingested as
+                                                    they are.
+                                                </p>
+                                            ) : (
+                                                <LemonBanner type="error">
+                                                    This will drop all events that don't match the above conditions.
+                                                    Please ensure this is definitely intended.
+                                                </LemonBanner>
+                                            )}
+                                        </>
                                     )}
                                 </>
                             ) : null}
