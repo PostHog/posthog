@@ -218,7 +218,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "icon_url": None,
             "template": None,
             "masking": None,
-            "mappings": [],
+            "mappings": None,
             "status": {"rating": 0, "state": 0, "tokens": 0},
         }
 
