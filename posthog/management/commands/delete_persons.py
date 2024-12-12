@@ -1,16 +1,10 @@
 import logging
 from time import sleep
-from typing import Optional
 
 import structlog
 from django.core.management.base import BaseCommand
-from django.db import transaction
 
-from posthog.client import sync_execute
-from posthog.kafka_client.client import KafkaProducer
-from posthog.models.person import PersonDistinctId
 from posthog.models.person.person import Person
-from posthog.models.person.util import create_person_distinct_id
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -48,33 +42,35 @@ def run(options, sync: bool = False):
     # Print the plan
     logger.info("Plan:")
     if team_id:
-        logger.info(f"Team ID: {team_id}")
+        logger.info(f"-> Team ID: {team_id}")
     if person_ids:
-        logger.info(f"Person IDs: {person_ids}")
+        logger.info(f"-> Person IDs: {person_ids}")
     if include_distinct_ids:
-        logger.info(f"Include distinctIDs table")
-    logger.info(f"Number of rows to delete: {limit}")
+        logger.info(f"-> Include distinctIDs table")
+    logger.info(f"-> Limit: {limit}")
+
+    list_query = Person.objects.filter(team_id=team_id)
+
+    if person_ids:
+        list_query = list_query.filter(id__in=person_ids)
+
+    list_query = list_query.order_by("id")[:limit]
+
+    num_to_delete = list_query.count()
 
     if not live_run:
-        logger.info("Dry run, not deleting anything.")
+        logger.info(f"Dry run. Would have deleted {num_to_delete} people.")
+        logger.info("Set --live-run to actually delete.")
         return exit(0)
 
-    person_queryset = Person.objects.filter(team_id=team_id)
-
-    if person_ids:
-        person_queryset = person_queryset.filter(id__in=person_ids)
-
-    person_queryset = person_queryset[:limit]
-
-    count = person_queryset.count()
-
-    logger.info(f"Will delete {count} rows. You have 10 seconds to cancel...")
+    logger.info(f"Will run the deletion for {num_to_delete} people. You have 10 seconds to cancel...")
 
     sleep(5)
     logger.info(f"5 seconds left...")
     sleep(5)
 
-    logger.info(f"Deleting {count} rows...")
-    person_queryset.delete()
+    logger.info(f"Executing delete query...")
 
-    logger.info(f"Deleting {count} rows...")
+    Person.objects.filter(team_id=team_id, id__in=list_query.values_list("id", flat=True)).delete()
+
+    logger.info("Done")
