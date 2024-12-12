@@ -40,10 +40,10 @@ export function OutputPane(): JSX.Element {
     const { editingView, sourceQuery, exportContext, isValidView, editorKey, error } = useValues(multitabEditorLogic)
     const { saveAsInsight, saveAsView, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { response, responseLoading } = useValues(dataNodeLogic)
+    const { response, responseLoading, responseError } = useValues(dataNodeLogic)
     const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
-    const { visualizationType } = useValues(dataVisualizationLogic)
+    const { visualizationType, queryCancelled } = useValues(dataVisualizationLogic)
 
     const vizKey = `SQLEditorScene`
 
@@ -70,45 +70,63 @@ export function OutputPane(): JSX.Element {
         })
     }, [response])
 
+    const ErrorState = useMemo((): JSX.Element | null => {
+        return (
+            <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
+                <InsightErrorState
+                    query={sourceQuery}
+                    excludeDetail
+                    title={
+                        queryCancelled
+                            ? 'The query was cancelled'
+                            : response && 'error' in response
+                            ? (response as any).error
+                            : responseError
+                    }
+                />
+            </div>
+        )
+    }, [responseError, sourceQuery, queryCancelled, response])
+
     const Content = (): JSX.Element | null => {
         if (activeTab === OutputTab.Results) {
-            return (
-                <div className="flex flex-1 relative bg-dark justify-center items-center">
-                    {responseLoading ? (
-                        <Spinner className="text-3xl" />
-                    ) : !response ? (
-                        <span className="text-muted mt-3">Query results will appear here</span>
-                    ) : (
-                        <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
-                            <DataGrid
-                                className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
-                                columns={columns}
-                                rows={rows}
-                            />
-                        </div>
-                    )}
+            if (responseError) {
+                return ErrorState
+            }
+
+            return responseLoading ? (
+                <Spinner className="text-3xl" />
+            ) : !response ? (
+                <span className="text-muted mt-3">Query results will appear here</span>
+            ) : (
+                <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
+                    <DataGrid
+                        className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
+                        columns={columns}
+                        rows={rows}
+                    />
                 </div>
             )
         }
 
         if (activeTab === OutputTab.Visualization) {
-            return (
-                <div className="flex flex-1 relative bg-dark justify-center items-center">
-                    {!response ? (
-                        <span className="text-muted mt-3">Query be results will be visualized here</span>
-                    ) : (
-                        <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
-                            <InternalDataTableVisualization
-                                uniqueKey={vizKey}
-                                query={sourceQuery}
-                                setQuery={setSourceQuery}
-                                context={{}}
-                                cachedResults={undefined}
-                                exportContext={exportContext}
-                                onSaveInsight={saveAsInsight}
-                            />
-                        </div>
-                    )}
+            if (responseError) {
+                return ErrorState
+            }
+
+            return !response ? (
+                <span className="text-muted mt-3">Query be results will be visualized here</span>
+            ) : (
+                <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
+                    <InternalDataTableVisualization
+                        uniqueKey={vizKey}
+                        query={sourceQuery}
+                        setQuery={setSourceQuery}
+                        context={{}}
+                        cachedResults={undefined}
+                        exportContext={exportContext}
+                        onSaveInsight={saveAsInsight}
+                    />
                 </div>
             )
         }
@@ -221,8 +239,6 @@ function InternalDataTableVisualization(
         showResultControls,
         response,
         responseLoading,
-        responseError,
-        queryCancelled,
         isChartSettingsPanelOpen,
     } = useValues(dataVisualizationLogic)
 
@@ -266,29 +282,7 @@ function InternalDataTableVisualization(
                             <SideBar />
                         </div>
                     )}
-                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>
-                        {visualizationType !== ChartDisplayType.ActionsTable && responseError ? (
-                            <div
-                                className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
-                                    border: showEditingUI,
-                                })}
-                            >
-                                <InsightErrorState
-                                    query={props.query}
-                                    excludeDetail
-                                    title={
-                                        queryCancelled
-                                            ? 'The query was cancelled'
-                                            : response && 'error' in response
-                                            ? (response as any).error
-                                            : responseError
-                                    }
-                                />
-                            </div>
-                        ) : (
-                            component
-                        )}
-                    </div>
+                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>{component}</div>
                 </div>
                 {showResultControls && (
                     <>
