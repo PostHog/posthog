@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 #
 # This management command is intended to be used to migrate data from one Kafka
 # cluster to another. It is intended for the use case where the Kafka cluster

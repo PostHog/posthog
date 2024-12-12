@@ -1,9 +1,9 @@
-venv
-env
-.venv
+/venv
+/env
+/.venv
 *.pyc
 __pycache__/
-staticfiles
+/staticfiles
 .env
 settings.yml
 .DS_Store
@@ -12,18 +12,17 @@ debug.log
 *.swo
 node_modules/
 *.code-workspace
-node_modules
 .mypy_cache
-frontend/.cache/
-frontend/dist/
+/frontend/.cache/
+/frontend/dist/
 # Paid font
-frontend/public/Matter*.woff*
-frontend/types/
-frontend/__snapshots__/__diff_output__/
-frontend/__snapshots__/__failures__/
+/frontend/public/Matter*.woff*
+/frontend/types/
+/frontend/__snapshots__/__diff_output__/
+/frontend/__snapshots__/__failures__/
 *Type.ts
-frontend/pnpm-error.log
-frontend/tmp
+/frontend/pnpm-error.log
+/frontend/tmp
 **/*.tsbuildinfo
 .idea
 celerybeat-schedule
@@ -33,12 +32,12 @@ pnpm-error.log
 yalc.lock
 .vscode/*
 !.vscode/launch.json
-cypress/screenshots/
-cypress/downloads/
-cypress/**/*.diff.png
+/cypress/screenshots/
+/cypress/downloads/
+/cypress/**/*.diff.png
 docker-compose.prod.yml
 # pyenv local config
-.python-version
+/.python-version
 *.isorted
 build-storybook.log
 storybook-static
@@ -47,11 +46,11 @@ ee/benchmarks/results
 coverage-*.xml
 object_storage/
 __emails__
-share/GeoLite2-City.mmdb
-a11y/
+/share/GeoLite2-City.mmdb
+/a11y/
 /test-results/
 /playwright-report/
-playwright/e2e-vrt/**/*-darwin.png
+/playwright/e2e-vrt/**/*-darwin.png
 # ANTLR-generated temp files when "npm run grammar:build" crashes
 gen/
 # Local files generated for the ANTLR VS Code extension (https://github.com/mike-lischke/vscode-antlr4)
