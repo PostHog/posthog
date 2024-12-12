@@ -2,7 +2,6 @@ import { LemonDropdown } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { capitalizeFirstLetter, percentage } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Noun } from '~/models/groupsModel'

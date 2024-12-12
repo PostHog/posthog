@@ -3,6 +3,8 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
 
+import { DataColorThemeModel } from '~/types'
+
 import type { dataThemeLogicType } from './dataThemeLogicType'
 import { teamLogic } from './teamLogic'
 
@@ -10,9 +12,12 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
     path(['scenes', 'dataThemeLogic']),
     connect({ values: [teamLogic, ['currentTeam']] }),
     loaders({
-        themes: {
-            loadThemes: async () => await api.dataColorThemes.list(),
-        },
+        themes: [
+            null as DataColorThemeModel[] | null,
+            {
+                loadThemes: async () => await api.dataColorThemes.list(),
+            },
+        ],
     }),
     selectors({
         defaultTheme: [
@@ -30,7 +35,7 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
         getTheme: [
             (s) => [s.themes, s.defaultTheme],
             (themes, defaultTheme) =>
-                (themeId: string | number | null): DataColorTheme | null => {
+                (themeId: string | number | null | undefined): DataColorTheme | null => {
                     let customTheme
 
                     if (Number.isInteger(themeId) && themes != null) {
