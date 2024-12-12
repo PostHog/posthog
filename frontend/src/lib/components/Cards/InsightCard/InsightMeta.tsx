@@ -201,26 +201,30 @@ export function InsightMeta({
                             Move to
                         </LemonButtonWithDropdown>
                     )}
-                    <LemonDivider />
                     {editable && (
-                        <LemonButton to={urls.insightEdit(short_id)} fullWidth>
-                            Edit
-                        </LemonButton>
+                        <>
+                            <LemonDivider />
+                            <LemonButton to={urls.insightEdit(short_id)} fullWidth>
+                                Edit
+                            </LemonButton>
+
+                            <LemonButton onClick={rename} fullWidth>
+                                Rename
+                            </LemonButton>
+
+                            <LemonButton
+                                onClick={duplicate}
+                                fullWidth
+                                data-attr={
+                                    dashboardId
+                                        ? 'duplicate-insight-from-dashboard'
+                                        : 'duplicate-insight-from-card-list-view'
+                                }
+                            >
+                                Duplicate
+                            </LemonButton>
+                        </>
                     )}
-                    {editable && (
-                        <LemonButton onClick={rename} fullWidth>
-                            Rename
-                        </LemonButton>
-                    )}
-                    <LemonButton
-                        onClick={duplicate}
-                        fullWidth
-                        data-attr={
-                            dashboardId ? 'duplicate-insight-from-dashboard' : 'duplicate-insight-from-card-list-view'
-                        }
-                    >
-                        Duplicate
-                    </LemonButton>
                     {exportContext ? (
                         <>
                             <LemonDivider />
