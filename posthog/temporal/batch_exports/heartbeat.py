@@ -82,7 +82,7 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
             (start.isoformat() if start is not None else start, end.isoformat()) for (start, end) in self.done_ranges
         ]
         serialized_parent_details = super().serialize_details()
-        return (*serialized_parent_details[:-1], serialized_done_ranges, self._remaining)
+        return (*serialized_parent_details[:-1], serialized_done_ranges, self.records_completed, self._remaining)
 
     @property
     def empty(self) -> bool:
