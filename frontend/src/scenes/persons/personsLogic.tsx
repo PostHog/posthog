@@ -286,6 +286,21 @@ export const personsLogic = kea<personsLogicType>([
             (featureFlags) => featureFlags[FEATURE_FLAGS.CS_DASHBOARDS],
         ],
         feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.PERSON_FEED_CANVAS]],
+        primaryDistinctId: [
+            (s) => [s.person],
+            (person): string | null => {
+                // We do not track which distinct ID was created through identify, but we can try to guess
+                const nonUuidDistinctIds = person?.distinct_ids.filter((id) => !id.match(/^[0-9a-f-]{36}$/))
+
+                if (nonUuidDistinctIds?.length === 1) {
+                    // If only one of the distinct IDs is not a UUID, that one is most likely the identified ID
+                    return nonUuidDistinctIds[0]
+                }
+
+                // Otherwise, just fall back to the default first distinct ID
+                return person?.distinct_ids[0] || null
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         editProperty: async ({ key, newValue }) => {
