@@ -227,7 +227,7 @@ class TestAssistant(NonAtomicBaseTest):
             self.assertConversationEqual(output, expected_output)
             snapshot: StateSnapshot = graph.get_state(config)
             self.assertFalse(snapshot.next)
-            self.assertIsNone(snapshot.values.get("intermediate_steps"))
+            self.assertEqual(snapshot.values.get("intermediate_steps"), [])
             self.assertEqual(snapshot.values["plan"], "Plan")
 
     def test_trends_interrupt_when_asking_for_help(self):
