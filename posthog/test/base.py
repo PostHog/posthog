@@ -1114,6 +1114,7 @@ def snapshot_clickhouse_queries(fn):
     Update snapshots via --snapshot-update.
     """
 
+    @pytest.mark.snapshot_tests
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
         with self.capture_select_queries() as queries:
