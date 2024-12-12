@@ -1,7 +1,9 @@
 use chrono::{DateTime, Duration, Utc};
 use property_defs_rs::types::{Event, PropertyParentType, PropertyValueType};
 use serde_json::json;
-use sqlx::PgPool;
+use sqlx::postgres::PgArguments;
+use sqlx::{Arguments, PgPool};
+use uuid::Uuid;
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_updates(db: PgPool) {
@@ -107,16 +109,16 @@ async fn test_updates(db: PgPool) {
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_update_on_project_id_conflict(db: PgPool) {
     let definition_created_at: DateTime<Utc> = Utc::now() - Duration::days(1);
-
-    sqlx::query!(
+    let mut args = PgArguments::default();
+    args.add(Uuid::now_v7()).unwrap();
+    args.add("foo").unwrap();
+    args.add(1).unwrap();
+    args.add(definition_created_at).unwrap();
+    sqlx::query_with(
         r#"
         INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
         VALUES ($1, $2, NULL, NULL, $3, NULL, $4, $4) -- project_id is NULL! This definition is from before environments
-    "#,
-        Uuid::now_v7(),
-        "foo",
-        1,
-        definition_created_at
+    "#, args
     ).execute(&db).await.unwrap();
 
     assert_eventdefinition_exists(
