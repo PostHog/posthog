@@ -552,7 +552,8 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
                     let __getGlobal = (key) => filterGlobals[key];
                     const filterMatches = !!(!!(!ilike(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true), "%@posthog.com%") && ((!match(toString(__getProperty(__getGlobal("properties"), "$host", true)), "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)")) ?? 1) && (__getGlobal("event") == "$pageview")));
-                    if (filterMatches) { source.onEvent({ ...globals, inputs, posthog }); }
+                    if (!filterMatches) { return; }
+                    ;
                 }
             }
         
@@ -560,7 +561,12 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                 const posthog = config.posthog;
                 const callback = config.callback;
                 if ('onLoad' in source) {
-                    const r = source.onLoad({ inputs: buildInputs({}, true), posthog: posthog });
+                    const globals = {
+                        person: {
+                            properties: posthog.get_property('$stored_person_properties'),
+                        }
+                    }
+                    const r = source.onLoad({ inputs: buildInputs(globals, true), posthog: posthog });
                     if (r && typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => callback(false)).then(() => callback(true)) } else { callback(true) }
                 } else {
                     callback(true);
@@ -592,7 +598,8 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
                     let __getGlobal = (key) => filterGlobals[key];
                     const filterMatches = true;
-                    if (filterMatches) { source.onEvent({ ...globals, inputs, posthog }); }
+                    if (!filterMatches) { return; }
+                    ;
                 }
             }
         
@@ -600,7 +607,12 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                 const posthog = config.posthog;
                 const callback = config.callback;
                 if ('onLoad' in source) {
-                    const r = source.onLoad({ inputs: buildInputs({}, true), posthog: posthog });
+                    const globals = {
+                        person: {
+                            properties: posthog.get_property('$stored_person_properties'),
+                        }
+                    }
+                    const r = source.onLoad({ inputs: buildInputs(globals, true), posthog: posthog });
                     if (r && typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => callback(false)).then(() => callback(true)) } else { callback(true) }
                 } else {
                     callback(true);
