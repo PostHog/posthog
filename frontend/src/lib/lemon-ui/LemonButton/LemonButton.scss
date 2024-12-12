@@ -357,10 +357,14 @@
         // Danger status
         &.LemonButton--status-danger {
             --lemon-button-bg-color: transparent;
+            --lemon-button-outside-border-color: var(--border-danger-subtle);
+            --lemon-button-inside-border-color: var(--border-danger-subtle);
+            --lemon-button-color: var(--content-danger-bold);
+            --lemon-button-frame-bg-color: var(--background-danger-bold);
 
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
-                --lemon-button-bg-color: var(--background-danger-subtle);
+                --lemon-button-bg-color: transparent;
                 --lemon-button-color: var(--content-danger-bold);
                 --lemon-button-outside-border-color: var(--border-danger-subtle);
                 --lemon-button-inside-border-color: var(--border-danger-subtle);
