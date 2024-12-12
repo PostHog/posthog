@@ -143,11 +143,13 @@ def is_valid_view(select_query: ast.SelectQuery | ast.SelectSetQuery) -> bool:
                     return False
     return True
 
+
 def get_table_names(select_query: ast.SelectQuery | ast.SelectSetQuery) -> list[str]:
     # Don't need types, we're only interested in the table names as passed in
     collector = TableCollector()
     collector.visit(select_query)
     return list(collector.table_names)
+
 
 class TableCollector(TraversingVisitor):
     def __init__(self):
