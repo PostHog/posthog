@@ -4437,6 +4437,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 properties={"property": "woah"},
             )
             query.series[0].math = FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS
+            assert query.dateRange is not None
             query.dateRange.date_from = "2024-03-19"
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             self.assertEqual(results[0]["count"], 1)
