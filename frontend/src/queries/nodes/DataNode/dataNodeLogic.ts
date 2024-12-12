@@ -32,6 +32,7 @@ import {
     DashboardFilter,
     ErrorTrackingQuery,
     ErrorTrackingQueryResponse,
+    HogQLQuery,
     HogQLVariable,
     QueryStatus,
 } from '~/queries/schema'
@@ -173,6 +174,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
                     const query = overrideQuery ?? props.query
                     const refresh = props.alwaysRefresh || refreshArg
+
+                    if (query.kind === NodeKind.HogQLQuery && !(query as HogQLQuery).query) {
+                        return null
+                    }
 
                     if (props.doNotLoad) {
                         return props.cachedResults

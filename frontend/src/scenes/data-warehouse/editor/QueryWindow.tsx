@@ -1,5 +1,4 @@
 import { Monaco } from '@monaco-editor/react'
-import { Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import type { editor as importedEditor } from 'monaco-editor'
@@ -87,16 +86,13 @@ export function QueryWindow(): JSX.Element {
     )
 }
 
-function InternalQueryWindow(): JSX.Element {
+function InternalQueryWindow(): JSX.Element | null {
     const { cacheLoading, sourceQuery, queryInput } = useValues(multitabEditorLogic)
     const { setSourceQuery } = useActions(multitabEditorLogic)
 
+    // NOTE: hacky way to avoid flicker loading
     if (cacheLoading) {
-        return (
-            <div className="flex-1 flex justify-center items-center">
-                <Spinner className="text-3xl" />
-            </div>
-        )
+        return null
     }
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
