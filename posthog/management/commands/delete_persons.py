@@ -1,9 +1,9 @@
 import logging
 
+from django.db import connection
 import structlog
 from django.core.management.base import BaseCommand
 
-from posthog.models.person.person import Person
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -40,27 +40,54 @@ def run(options, sync: bool = False):
         logger.info(f"-> Team ID: {team_id}")
     if person_ids:
         logger.info(f"-> Person IDs: {person_ids}")
-    logger.info(f"-> Limit: {limit}")
+    logger.info(f"-> Limit: {limit} ")
 
-    list_query = Person.objects.filter(team_id=team_id)
+    select_query = f"""
+        SELECT id
+        FROM posthog_person
+        WHERE team_id=%(team_id)s {f"AND id IN ({person_ids})" if person_ids else ""}
+        ORDER BY id ASC
+        LIMIT %(limit)s
+    """
 
-    if person_ids:
-        list_query = list_query.filter(id__in=person_ids)
+    delete_query_person_distinct_ids = f"""
+    WITH to_delete AS ({select_query})
+    DELETE FROM posthog_persondistinctid
+    WHERE team_id = %(team_id)s AND person_id IN (SELECT id FROM to_delete);
+    """
 
-    list_query = list_query.order_by("id")[:limit]
+    delete_query_person_override = f"""
+    WITH to_delete AS ({select_query})
+    DELETE FROM posthog_personoverride
+    WHERE team_id = %(team_id)s AND (old_person_id IN (SELECT id FROM to_delete) OR override_person_id IN (SELECT id FROM to_delete));
+    """
 
-    num_to_delete = list_query.count()
+    delete_query_person = f"""
+    WITH to_delete AS ({select_query})
+    DELETE FROM posthog_person
+    WHERE team_id = %(team_id)s AND id IN (SELECT id FROM to_delete);
+    """
+
+    with connection.cursor() as cursor:
+        prepared_person_distinct_ids_query = cursor.mogrify(
+            delete_query_person_distinct_ids, {"team_id": team_id, "limit": limit, "person_ids": person_ids}
+        )
+        prepared_person_override_query = cursor.mogrify(
+            delete_query_person_override, {"team_id": team_id, "limit": limit, "person_ids": person_ids}
+        )
+        prepared_person_query = cursor.mogrify(
+            delete_query_person, {"team_id": team_id, "limit": limit, "person_ids": person_ids}
+        )
+
+    logger.info(f"Delete query to run:")
+    logger.info(prepared_person_distinct_ids_query)
+    logger.info(prepared_person_override_query)
+    logger.info(prepared_person_query)
 
     if not live_run:
-        logger.info(f"Dry run. Would have deleted {num_to_delete} people.")
-        logger.info("Set --live-run to actually delete.")
+        logger.info(f"Dry run. Set --live-run to actually delete.")
         return exit(0)
 
-    if num_to_delete == 0:
-        logger.info("No people to delete")
-        return exit(0)
-
-    logger.info(f"Will run the deletion for {num_to_delete} people.")
     confirm = input("Type 'delete' to confirm: ")
 
     if confirm != "delete":
@@ -70,6 +97,12 @@ def run(options, sync: bool = False):
     logger.info(f"Executing delete query...")
 
     # distinct_ids are deleted by cascade
-    Person.objects.filter(team_id=team_id, id__in=list_query.values_list("id", flat=True)).delete()
+    with connection.cursor() as cursor:
+        cursor.execute(delete_query_person_distinct_ids, {"team_id": team_id, "limit": limit, "person_ids": person_ids})
+        logger.info(f"Deleted {cursor.rowcount} distinct_ids")
+        cursor.execute(delete_query_person_override, {"team_id": team_id, "limit": limit, "person_ids": person_ids})
+        logger.info(f"Deleted {cursor.rowcount} person overrides")
+        cursor.execute(delete_query_person, {"team_id": team_id, "limit": limit, "person_ids": person_ids})
+        logger.info(f"Deleted {cursor.rowcount} persons")
 
     logger.info("Done")
