@@ -1,6 +1,7 @@
 import api from 'lib/api'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
+import { useMemo } from 'react'
 
 import { HogFunctionInputSchemaType, IntegrationType } from '~/types'
 
@@ -11,7 +12,7 @@ export function IntegrationScopesWarning({
     integration: IntegrationType
     schema?: HogFunctionInputSchemaType
 }): JSX.Element {
-    const getScopes = (): string[] => {
+    const getScopes = useMemo((): string[] => {
         const scopes: any[] = []
         const possibleScopeLocation = [integration.config.scope, integration.config.scopes]
 
@@ -27,12 +28,12 @@ export function IntegrationScopesWarning({
         return scopes
             .filter((scope: any) => typeof scope === 'object')
             .reduce((a, b) => (a.length > b.length ? a : b), [])
-    }
+    }, [integration.config])
 
     const requiredScopes = schema?.requiredScopes?.split(' ') || []
-    const missingScopes = requiredScopes.filter((scope: string) => !getScopes().includes(scope))
+    const missingScopes = requiredScopes.filter((scope: string) => !getScopes.includes(scope))
 
-    if (missingScopes.length === 0 || getScopes().length === 0) {
+    if (missingScopes.length === 0 || getScopes.length === 0) {
         return <></>
     }
     return (
