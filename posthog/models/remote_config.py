@@ -203,11 +203,7 @@ class RemoteConfig(UUIDModel):
         if surveys_response["survey_config"]:
             config["survey_config"] = surveys_response["survey_config"]
 
-        try:
-            default_identified_only = team.pk >= int(settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN)
-        except Exception:
-            default_identified_only = False
-        config["defaultIdentifiedOnly"] = bool(default_identified_only)
+        config["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 
         # MARK: Site apps - we want to eventually inline the JS but that will come later
         site_apps = []

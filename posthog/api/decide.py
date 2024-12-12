@@ -143,11 +143,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     response["surveys"] = True if team.surveys_opt_in else False
     response["heatmaps"] = True if team.heatmaps_opt_in else False
-    try:
-        default_identified_only = team.pk >= int(settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN)
-    except Exception:
-        default_identified_only = False
-    response["defaultIdentifiedOnly"] = bool(default_identified_only)
+    response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 
     site_apps = []
     # errors mean the database is unavailable, bail in this case
