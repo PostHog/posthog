@@ -47,7 +47,7 @@ export async function cookielessServerHashStep(
     event: PluginEvent
 ): Promise<[PluginEvent | undefined]> {
     // if events aren't using this mode, skip all processing
-    if (event.properties?.['$device_id'] !== COOKIELESS_SENTINEL_VALUE) {
+    if (!event.properties?.['$cklsh']) {
         return [event]
     }
 
@@ -65,11 +65,12 @@ export async function cookielessServerHashStep(
         // TODO log
         return [undefined]
     }
-    const sessionId = event.properties['$session_id']
-    if (sessionId != null) {
+    const { $session_id: sessionId, $device_id: deviceId } = event.properties
+    if (sessionId != null || deviceId != null) {
         // TODO log
         return [undefined]
     }
+
     // if it's an identify event, it must have the sentinel distinct id
     if (event.event === '$identify' && event.properties['$anon_distinct_id'] !== COOKIELESS_SENTINEL_VALUE) {
         // TODO log
