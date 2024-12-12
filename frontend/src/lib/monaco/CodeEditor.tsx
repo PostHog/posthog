@@ -134,7 +134,7 @@ export function CodeEditor({
     const [realKey] = useState(() => codeEditorIndex++)
     const builtCodeEditorLogic = codeEditorLogic({
         key: queryKey ?? `new/${realKey}`,
-        query: value ?? '', 
+        query: value ?? '',
         language: editorProps.language ?? 'text',
         globals,
         sourceQuery,
