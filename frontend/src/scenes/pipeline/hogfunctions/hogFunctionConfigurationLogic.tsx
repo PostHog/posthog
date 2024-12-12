@@ -454,7 +454,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     mappings:
                         data.type === 'site_destination' && (!data.mappings || data.mappings.length === 0)
                             ? 'You must add at least one mapping'
-                            : '',
+                            : undefined,
                     ...(values.inputFormErrors as any),
                 }
             },
