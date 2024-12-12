@@ -882,7 +882,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   kind: NodeKind.WebExternalClicksTableQuery,
                                                   properties: webAnalyticsFilters,
                                                   dateRange,
-                                                  compareFilter, // NOTE: Backend is not using this yet
+                                                  compareFilter,
                                                   sampling,
                                                   limit: 10,
                                                   filterTestAccounts,
