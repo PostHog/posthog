@@ -643,8 +643,26 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         matchingFilters: [
-            (s) => [s.configuration],
-            (configuration): PropertyGroupFilter => {
+            (s) => [s.configuration, s.useMapping],
+            (configuration, useMapping): PropertyGroupFilter => {
+                // We're using mappings, but none are provided, so match zero events.
+                if (useMapping && !configuration.mappings?.length) {
+                    return {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.HogQL,
+                                        key: 'false',
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                }
+
                 const seriesProperties: PropertyGroupFilterValue = {
                     type: FilterLogicalOperator.Or,
                     values: [],
