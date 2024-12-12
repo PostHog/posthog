@@ -212,7 +212,6 @@ runs:
               AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
           run: |
               pytest posthog/temporal -m "snapshot_tests" \
-                  --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
