@@ -1,4 +1,5 @@
 from typing import Literal, cast
+from uuid import uuid4
 
 from langchain_core.messages import AIMessage as LangchainAIMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -11,7 +12,7 @@ from ee.hogai.router.prompts import (
     ROUTER_SYSTEM_PROMPT,
     ROUTER_USER_PROMPT,
 )
-from ee.hogai.utils import AssistantState, AssistantNode
+from ee.hogai.utils import AssistantNode, AssistantState
 from posthog.schema import HumanMessage, RouterMessage
 
 RouteName = Literal["trends", "funnel"]
@@ -31,7 +32,7 @@ class RouterNode(AssistantNode):
         ) + self._construct_messages(state)
         chain = prompt | self._model
         output: RouterOutput = chain.invoke({}, config)
-        return {"messages": [RouterMessage(content=output.visualization_type)]}
+        return {"messages": [RouterMessage(content=output.visualization_type, id=str(uuid4()))]}
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state["messages"][-1]

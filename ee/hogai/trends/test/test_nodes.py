@@ -17,6 +17,7 @@ class TestTrendsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def setUp(self):
+        super().setUp()
         self.schema = AssistantTrendsQuery(series=[])
 
     def test_node_runs(self):
@@ -35,7 +36,7 @@ class TestTrendsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 new_state,
                 {
-                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", done=True)],
+                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", id=new_state["messages"][0].id)],
                     "intermediate_steps": None,
                 },
             )

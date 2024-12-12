@@ -1,4 +1,3 @@
-import itertools
 import xml.etree.ElementTree as ET
 from abc import ABC
 from functools import cached_property
@@ -7,10 +6,16 @@ from typing import cast
 from git import Optional
 from langchain.agents.format_scratchpad import format_log_to_str
 from langchain_core.agents import AgentAction
-from langchain_core.messages import AIMessage as LangchainAssistantMessage, BaseMessage, merge_message_runs
+from langchain_core.messages import (
+    AIMessage as LangchainAssistantMessage,
+    BaseMessage,
+    HumanMessage as LangchainHumanMessage,
+    merge_message_runs,
+)
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
+from langgraph.errors import NodeInterrupt
 from pydantic import ValidationError
 
 from ee.hogai.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
@@ -24,6 +29,7 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
     REACT_FORMAT_REMINDER_PROMPT,
+    REACT_HUMAN_IN_THE_LOOP_PROMPT,
     REACT_MALFORMED_JSON_PROMPT,
     REACT_MISSING_ACTION_CORRECTION_PROMPT,
     REACT_MISSING_ACTION_PROMPT,
@@ -33,13 +39,22 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_USER_PROMPT,
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
-from ee.hogai.utils import AssistantNode, AssistantState, filter_visualization_conversation, remove_line_breaks
+from ee.hogai.utils import (
+    AssistantNode,
+    AssistantState,
+    filter_messages,
+    remove_line_breaks,
+    slice_messages_to_conversation_start,
+)
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
+    AssistantMessage,
     CachedTeamTaxonomyQueryResponse,
+    HumanMessage,
     TeamTaxonomyQuery,
+    VisualizationMessage,
 )
 
 
@@ -79,6 +94,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "react_format": self._get_react_format_prompt(toolkit),
                         "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
                         "react_property_filters": self._get_react_property_filters_prompt(),
+                        "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
                         "product_description": self._team.project.product_description,
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
@@ -188,33 +204,34 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
-        human_messages, visualization_messages = filter_visualization_conversation(state.get("messages", []))
-
-        if not human_messages:
-            return []
-
+        start_id = state.get("start_id")
+        filtered_messages = filter_messages(slice_messages_to_conversation_start(state.get("messages", []), start_id))
         conversation = []
 
-        for idx, messages in enumerate(itertools.zip_longest(human_messages, visualization_messages)):
-            human_message, viz_message = messages
-
-            if human_message:
+        for idx, message in enumerate(filtered_messages):
+            if isinstance(message, HumanMessage):
+                # Add initial instructions.
                 if idx == 0:
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(REACT_USER_PROMPT, template_format="mustache").format(
-                            question=human_message.content
+                            question=message.content
                         )
                     )
-                else:
+                # Add follow-up instructions only for the human message that initiated a generation.
+                elif message.id == start_id:
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(
                             REACT_FOLLOW_UP_PROMPT,
                             template_format="mustache",
-                        ).format(feedback=human_message.content)
+                        ).format(feedback=message.content)
                     )
-
-            if viz_message:
-                conversation.append(LangchainAssistantMessage(content=viz_message.plan or ""))
+                # Everything else leave as is.
+                else:
+                    conversation.append(LangchainHumanMessage(content=message.content))
+            elif isinstance(message, VisualizationMessage):
+                conversation.append(LangchainAssistantMessage(content=message.plan or ""))
+            elif isinstance(message, AssistantMessage):
+                conversation.append(LangchainAssistantMessage(content=message.content))
 
         return conversation
 
@@ -232,12 +249,12 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
     ) -> AssistantState:
         intermediate_steps = state.get("intermediate_steps") or []
-        action, _ = intermediate_steps[-1]
+        action, observation = intermediate_steps[-1]
 
         try:
             input = TaxonomyAgentTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
         except ValidationError as e:
-            observation = (
+            observation = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
                 .format_messages(exception=e.errors(include_url=False))[0]
                 .content
@@ -250,6 +267,13 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
                 "plan": input.arguments,
                 "intermediate_steps": None,
             }
+        if input.name == "ask_user_for_help":
+            # The agent has requested help, so we interrupt the graph.
+            if not observation:
+                raise NodeInterrupt(input.arguments)
+
+            # Feedback was provided.
+            return {"intermediate_steps": [*intermediate_steps[:-1], (action, observation)]}
 
         output = ""
         if input.name == "retrieve_event_properties":

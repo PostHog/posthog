@@ -1,9 +1,12 @@
 from collections.abc import AsyncGenerator, Generator, Iterator
 from functools import partial
-from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union
+from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union, cast
+from uuid import uuid4
 
 from asgiref.sync import sync_to_async
+from django.forms import ValidationError
 from langchain_core.messages import AIMessageChunk
+from langchain_core.runnables.config import RunnableConfig
 from langfuse.callback import CallbackHandler
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
@@ -17,7 +20,8 @@ from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
 )
-from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation
+from ee.hogai.utils import AssistantMessageUnion, AssistantNodeName, AssistantState, Conversation, ReplaceMessages
+from ee.models import AssistantThread
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.schema import (
@@ -87,6 +91,7 @@ class Assistant:
     _graph: CompiledStateGraph
     _user: Optional[User]
     _conversation: Conversation
+    _state: Optional[AssistantState]
 
     def __init__(self, team: Team, conversation: Conversation, user: Optional[User] = None):
         self._team = team
@@ -94,6 +99,7 @@ class Assistant:
         self._conversation = conversation
         self._graph = AssistantGraph(team).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
+        self._state = None
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -110,15 +116,16 @@ class Assistant:
                 break
 
     def _stream(self) -> Generator[str, None, None]:
-        callbacks = [langfuse_handler] if langfuse_handler else []
+        thread, last_message = self._init_thread()
+        state = self._init_or_update_state(thread)
+        config = self._get_config(thread)
+
         generator: Iterator[Any] = self._graph.stream(
-            self._initial_state,
-            config={"recursion_limit": 24, "callbacks": callbacks},
-            stream_mode=["messages", "values", "updates", "debug"],
+            state, config=config, stream_mode=["messages", "values", "updates", "debug"]
         )
 
-        # Send a chunk to establish the connection avoiding the worker's timeout.
-        yield self._serialize_message(AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK))
+        # Send the last message with the initialized id.
+        yield self._serialize_message(last_message)
 
         try:
             last_viz_message = None
@@ -127,16 +134,76 @@ class Assistant:
                     if isinstance(message, VisualizationMessage):
                         last_viz_message = message
                     yield self._serialize_message(message)
-            self._report_conversation(last_viz_message)
+
+            # Check if the assistant has requested help.
+            state = self._graph.get_state(config)
+            if state.next:
+                yield self._serialize_message(
+                    AssistantMessage(content=state.tasks[0].interrupts[0].value, id=str(uuid4()))
+                )
+            else:
+                self._report_conversation(last_viz_message)
         except:
             # This is an unhandled error, so we just stop further generation at this point
             yield self._serialize_message(FailureMessage())
             raise  # Re-raise, so that the error is printed or goes into Sentry
 
+    def _unpack_messages(self) -> list[AssistantMessageUnion]:
+        return [msg.root for msg in self._conversation.messages]
+
     @property
     def _initial_state(self) -> AssistantState:
-        messages = [message.root for message in self._conversation.messages]
-        return {"messages": messages, "intermediate_steps": None, "plan": None}
+        messages = self._unpack_messages()
+        return {
+            "messages": messages,
+            "intermediate_steps": None,
+            "start_id": messages[-1].id,
+            "plan": None,
+        }
+
+    def _get_config(self, thread: AssistantThread) -> RunnableConfig:
+        callbacks = [langfuse_handler] if langfuse_handler else []
+        config: RunnableConfig = {
+            "recursion_limit": 24,
+            "callbacks": callbacks,
+            "configurable": {"thread_id": thread.id},
+        }
+        return config
+
+    def _init_or_update_state(self, thread: AssistantThread):
+        config = self._get_config(thread)
+        snapshot = self._graph.get_state(config)
+        if snapshot.next:
+            saved_state = cast(AssistantState, snapshot.values)
+            self._state = saved_state
+            intermediate_steps = saved_state.get("intermediate_steps")
+            if intermediate_steps:
+                last_message = self._conversation.messages[-1].root
+                if isinstance(last_message, HumanMessage):
+                    intermediate_steps = intermediate_steps.copy()
+                    intermediate_steps[-1] = (intermediate_steps[-1][0], last_message.content)
+                    self._graph.update_state(
+                        config,
+                        {
+                            "messages": ReplaceMessages([msg.root for msg in self._conversation.messages]),
+                            "intermediate_steps": intermediate_steps,
+                        },
+                    )
+            return None
+        initial_state = self._initial_state
+        self._state = initial_state
+        return initial_state
+
+    def _init_thread(self):
+        thread, _ = AssistantThread.objects.get_or_create(
+            id=self._conversation.session_id, team=self._team, user=self._user
+        )
+        last_message = self._conversation.messages[-1].root
+        if isinstance(last_message, HumanMessage):
+            last_message.id = str(uuid4())
+        else:
+            raise ValidationError("The last message must be a human message.")
+        return thread, last_message
 
     def _node_to_reasoning_message(
         self, node_name: AssistantNodeName, input: AssistantState
@@ -178,7 +245,9 @@ class Assistant:
                 return None
 
     def _process_update(self, update: Any) -> BaseModel | None:
-        if is_value_update(update):
+        if is_state_update(update):
+            self._state = update[1]
+        elif is_value_update(update):
             _, state_update = update
 
             if AssistantNodeName.ROUTER in state_update and "messages" in state_update[AssistantNodeName.ROUTER]:
@@ -204,7 +273,8 @@ class Assistant:
                         self._chunks.tool_calls[0]["args"]
                     )
                     if parsed_message:
-                        return VisualizationMessage(answer=parsed_message.query)
+                        initiator_id = self._state.get("start_id") if self._state is not None else None
+                        return VisualizationMessage(answer=parsed_message.query, initiator=initiator_id)
                 elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
                     self._chunks += langchain_message  # type: ignore
                     return AssistantMessage(content=self._chunks.content)

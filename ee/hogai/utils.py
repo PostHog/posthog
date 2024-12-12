@@ -1,8 +1,7 @@
-import operator
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Optional, TypedDict, Union
+from typing import Annotated, Optional, TypedDict, TypeVar, Union
 
 from jsonref import replace_refs
 from langchain_core.agents import AgentAction
@@ -25,9 +24,8 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-AssistantMessageUnion = Union[
-    AssistantMessage, HumanMessage, VisualizationMessage, FailureMessage, RouterMessage, ReasoningMessage
-]
+AIMessageUnion = Union[AssistantMessage, VisualizationMessage, FailureMessage, RouterMessage, ReasoningMessage]
+AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
 
 
 class Conversation(BaseModel):
@@ -35,9 +33,25 @@ class Conversation(BaseModel):
     session_id: str
 
 
+class ReplaceMessages(list[AssistantMessageUnion]):
+    pass
+
+
+def add_messages(
+    left: Sequence[AssistantMessageUnion], right: Sequence[AssistantMessageUnion]
+) -> Sequence[AssistantMessageUnion]:
+    if isinstance(right, ReplaceMessages):
+        return list(right)
+    return list(left) + list(right)
+
+
 class AssistantState(TypedDict, total=False):
-    messages: Annotated[Sequence[AssistantMessageUnion], operator.add]
+    messages: Annotated[Sequence[AssistantMessageUnion], add_messages]
     intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]]
+    start_id: Optional[str]
+    """
+    The ID of the message from which the conversation started.
+    """
     plan: Optional[str]
 
 
@@ -71,43 +85,56 @@ def remove_line_breaks(line: str) -> str:
     return line.replace("\n", " ")
 
 
-def merge_human_messages(messages: list[LangchainHumanMessage]) -> list[LangchainHumanMessage]:
-    """
-    Filters out duplicated human messages and merges them into one message.
-    """
-    contents = set()
-    filtered_messages = []
-    for message in messages:
-        if message.content in contents:
-            continue
-        contents.add(message.content)
-        filtered_messages.append(message)
-    return merge_message_runs(filtered_messages)
-
-
-def filter_visualization_conversation(
+def filter_messages(
     messages: Sequence[AssistantMessageUnion],
-) -> tuple[list[LangchainHumanMessage], list[VisualizationMessage]]:
+    entity_filter: Union[tuple[type[AIMessageUnion], ...], type[AIMessageUnion]] = (
+        AssistantMessage,
+        VisualizationMessage,
+    ),
+) -> list[AssistantMessageUnion]:
     """
-    Splits, filters and merges the message history to be consumable by agents. Returns human and visualization messages.
+    Filters and merges the message history to be consumable by agents. Returns human and AI messages.
     """
     stack: list[LangchainHumanMessage] = []
-    human_messages: list[LangchainHumanMessage] = []
-    visualization_messages: list[VisualizationMessage] = []
+    filtered_messages: list[AssistantMessageUnion] = []
+
+    def _merge_stack(stack: list[LangchainHumanMessage]) -> list[HumanMessage]:
+        return [
+            HumanMessage(content=langchain_message.content, id=langchain_message.id)
+            for langchain_message in merge_message_runs(stack)
+        ]
 
     for message in messages:
         if isinstance(message, HumanMessage):
-            stack.append(LangchainHumanMessage(content=message.content))
-        elif isinstance(message, VisualizationMessage) and message.answer:
+            stack.append(LangchainHumanMessage(content=message.content, id=message.id))
+        elif isinstance(message, entity_filter):
             if stack:
-                human_messages += merge_human_messages(stack)
+                filtered_messages += _merge_stack(stack)
                 stack = []
-            visualization_messages.append(message)
+            filtered_messages.append(message)
 
     if stack:
-        human_messages += merge_human_messages(stack)
+        filtered_messages += _merge_stack(stack)
 
-    return human_messages, visualization_messages
+    return filtered_messages
+
+
+T = TypeVar("T", bound=AssistantMessageUnion)
+
+
+def find_last_message_of_type(messages: Sequence[AssistantMessageUnion], message_type: type[T]) -> Optional[T]:
+    return next((msg for msg in reversed(messages) if isinstance(msg, message_type)), None)
+
+
+def slice_messages_to_conversation_start(
+    messages: Sequence[AssistantMessageUnion], start_id: str
+) -> Sequence[AssistantMessageUnion]:
+    result = []
+    for msg in messages:
+        result.append(msg)
+        if msg.id == start_id:
+            break
+    return result
 
 
 def dereference_schema(schema: dict) -> dict:

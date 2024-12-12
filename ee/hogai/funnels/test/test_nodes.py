@@ -15,6 +15,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 @override_settings(IN_UNIT_TESTING=True)
 class TestFunnelsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
+        super().setUp()
         self.schema = AssistantFunnelsQuery(series=[])
 
     def test_node_runs(self):
@@ -33,7 +34,7 @@ class TestFunnelsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 new_state,
                 {
-                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", done=True)],
+                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", id=new_state["messages"][0].id)],
                     "intermediate_steps": None,
                 },
             )
