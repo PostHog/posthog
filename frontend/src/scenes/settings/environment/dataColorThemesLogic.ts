@@ -29,12 +29,12 @@ export const dataColorThemesLogic = kea<dataColorThemesLogicType>([
             }
         },
         submitThemeSuccess: ({ theme }) => {
-            const existingTheme = values.themes.find((t) => t.id === theme.id)
+            const existingTheme = values.themes!.find((t) => t.id === theme.id)
             if (existingTheme != null) {
-                const updatedThemes = values.themes.map((t) => (t.id === theme.id ? theme : t))
+                const updatedThemes = values.themes!.map((t) => (t.id === theme.id ? theme : t))
                 actions.setThemes(updatedThemes)
             } else {
-                actions.setThemes([...values.themes, theme])
+                actions.setThemes([...values.themes!, theme])
             }
         },
     })),
