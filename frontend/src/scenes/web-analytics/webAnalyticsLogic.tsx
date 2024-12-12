@@ -45,6 +45,7 @@ import {
     PropertyOperator,
     RecordingUniversalFilters,
     RetentionPeriod,
+    UniversalFiltersGroupValue,
 } from '~/types'
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
@@ -622,6 +623,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             compareFilter: compareFilter || { compare: false },
                             filterTestAccounts,
+                            conversionGoal: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS]
+                                ? conversionGoal
+                                : undefined,
                             properties: webAnalyticsFilters,
                         },
                         hidePersonsModal: true,
@@ -662,6 +666,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 compareFilter,
                                 limit: 10,
                                 filterTestAccounts,
+                                conversionGoal: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS]
+                                    ? conversionGoal
+                                    : undefined,
                                 ...(source || {}),
                             },
                             embedded: false,
@@ -783,14 +790,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                         accessed in your application, regardless of when they were
                                                         accessed through the lifetime of a user session.
                                                     </p>
-                                                    <p>
-                                                        The{' '}
-                                                        <Link to="https://posthog.com/docs/web-analytics/dashboard#bounce-rate">
-                                                            bounce rate
-                                                        </Link>{' '}
-                                                        indicates the percentage of users who left your page immediately
-                                                        after visiting without capturing any event.
-                                                    </p>
+                                                    {conversionGoal ? (
+                                                        <p>
+                                                            The conversion rate is the percentage of users who completed
+                                                            the conversion goal in this specific path.
+                                                        </p>
+                                                    ) : (
+                                                        <p>
+                                                            The{' '}
+                                                            <Link to="https://posthog.com/docs/web-analytics/dashboard#bounce-rate">
+                                                                bounce rate
+                                                            </Link>{' '}
+                                                            indicates the percentage of users who left your page
+                                                            immediately after visiting without capturing any event.
+                                                        </p>
+                                                    )}
                                                 </div>
                                             ),
                                         },
@@ -814,8 +828,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             title: 'Entry Path',
                                             description: (
                                                 <div>
-                                                    Entry paths are the paths a user session started, i.e. the first
-                                                    path they saw when they opened your website.
+                                                    <p>
+                                                        Entry paths are the paths a user session started, i.e. the first
+                                                        path they saw when they opened your website.
+                                                    </p>
+                                                    {conversionGoal && (
+                                                        <p>
+                                                            The conversion rate is the percentage of users who completed
+                                                            the conversion goal after the first path in their session
+                                                            being this path.
+                                                        </p>
+                                                    )}
                                                 </div>
                                             ),
                                         },
@@ -862,6 +885,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   sampling,
                                                   limit: 10,
                                                   filterTestAccounts,
+                                                  conversionGoal: featureFlags[
+                                                      FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS
+                                                  ]
+                                                      ? conversionGoal
+                                                      : undefined,
                                                   stripQueryParams: shouldStripQueryParams,
                                               },
                                               embedded: false,
@@ -1136,6 +1164,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               trendsFilter: {
                                                   display: ChartDisplayType.WorldMap,
                                               },
+                                              conversionGoal: featureFlags[
+                                                  FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS
+                                              ]
+                                                  ? conversionGoal
+                                                  : undefined,
                                               filterTestAccounts,
                                               properties: webAnalyticsFilters,
                                           },
@@ -1183,63 +1216,66 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               ],
                           }
                         : null,
-                    {
-                        kind: 'query',
-                        tileId: TileId.RETENTION,
-                        title: 'Retention',
-                        layout: {
-                            colSpanClassName: 'md:col-span-2',
-                        },
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            source: {
-                                kind: NodeKind.RetentionQuery,
-                                properties: webAnalyticsFilters,
-                                dateRange,
-                                filterTestAccounts,
-                                retentionFilter: {
-                                    retentionType: RETENTION_FIRST_TIME,
-                                    retentionReference: 'total',
-                                    totalIntervals: isGreaterThanMd ? 8 : 5,
-                                    period: RetentionPeriod.Week,
-                                },
-                            },
-                            vizSpecificOptions: {
-                                [InsightType.RETENTION]: {
-                                    hideLineGraph: true,
-                                    hideSizeColumn: !isGreaterThanMd,
-                                    useSmallLayout: !isGreaterThanMd,
-                                },
-                            },
-                            embedded: true,
-                        },
-                        insightProps: createInsightProps(TileId.RETENTION),
-                        canOpenInsight: false,
-                        canOpenModal: true,
-                        docs: {
-                            url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
-                            title: 'Retention',
-                            description: (
-                                <>
-                                    <div>
-                                        <p>
-                                            Retention creates a cohort of unique users who performed any event for the
-                                            first time in the last week. It then tracks the percentage of users who
-                                            return to perform any event in the following weeks.
-                                        </p>
-                                        <p>
-                                            You want the numbers numbers to be the highest possible, suggesting that
-                                            people that come to your page continue coming to your page - and performing
-                                            an actions. Also, the further down the table the higher the numbers should
-                                            be (or at least as high), which would indicate that you're either increasing
-                                            or keeping your retention at the same level.
-                                        </p>
-                                    </div>
-                                </>
-                            ),
-                        },
-                    },
-                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS]
+                    !conversionGoal
+                        ? {
+                              kind: 'query',
+                              tileId: TileId.RETENTION,
+                              title: 'Retention',
+                              layout: {
+                                  colSpanClassName: 'md:col-span-2',
+                              },
+                              query: {
+                                  kind: NodeKind.InsightVizNode,
+                                  source: {
+                                      kind: NodeKind.RetentionQuery,
+                                      properties: webAnalyticsFilters,
+                                      dateRange,
+                                      filterTestAccounts,
+                                      retentionFilter: {
+                                          retentionType: RETENTION_FIRST_TIME,
+                                          retentionReference: 'total',
+                                          totalIntervals: isGreaterThanMd ? 8 : 5,
+                                          period: RetentionPeriod.Week,
+                                      },
+                                  },
+                                  vizSpecificOptions: {
+                                      [InsightType.RETENTION]: {
+                                          hideLineGraph: true,
+                                          hideSizeColumn: !isGreaterThanMd,
+                                          useSmallLayout: !isGreaterThanMd,
+                                      },
+                                  },
+                                  embedded: true,
+                              },
+                              insightProps: createInsightProps(TileId.RETENTION),
+                              canOpenInsight: false,
+                              canOpenModal: true,
+                              docs: {
+                                  url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
+                                  title: 'Retention',
+                                  description: (
+                                      <>
+                                          <div>
+                                              <p>
+                                                  Retention creates a cohort of unique users who performed any event for
+                                                  the first time in the last week. It then tracks the percentage of
+                                                  users who return to perform any event in the following weeks.
+                                              </p>
+                                              <p>
+                                                  You want the numbers numbers to be the highest possible, suggesting
+                                                  that people that come to your page continue coming to your page - and
+                                                  performing an actions. Also, the further down the table the higher the
+                                                  numbers should be (or at least as high), which would indicate that
+                                                  you're either increasing or keeping your retention at the same level.
+                                              </p>
+                                          </div>
+                                      </>
+                                  ),
+                              },
+                          }
+                        : null,
+                    // Hiding if conversionGoal is set already because values aren't representative
+                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS]
                         ? {
                               kind: 'query',
                               tileId: TileId.GOALS,
@@ -1290,7 +1326,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               kind: 'replay',
                               tileId: TileId.REPLAY,
                               layout: {
-                                  colSpanClassName: 'md:col-span-1',
+                                  colSpanClassName: conversionGoal ? 'md:col-span-full' : 'md:col-span-1',
                               },
                               docs: {
                                   url: 'https://posthog.com/docs/session-replay',
@@ -1300,7 +1336,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
+                    !conversionGoal && featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
                         ? {
                               kind: 'error_tracking',
                               tileId: TileId.ERROR_TRACKING,
@@ -1433,12 +1469,31 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         replayFilters: [
-            (s) => [s.webAnalyticsFilters, s.dateFilter, s.shouldFilterTestAccounts],
+            (s) => [s.webAnalyticsFilters, s.dateFilter, s.shouldFilterTestAccounts, s.conversionGoal, s.featureFlags],
             (
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 dateFilter,
-                shouldFilterTestAccounts
+                shouldFilterTestAccounts,
+                conversionGoal,
+                featureFlags
             ): RecordingUniversalFilters => {
+                const filters: UniversalFiltersGroupValue[] = [...webAnalyticsFilters]
+                if (conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS]) {
+                    if ('actionId' in conversionGoal) {
+                        filters.push({
+                            id: conversionGoal.actionId,
+                            name: String(conversionGoal.actionId),
+                            type: 'actions',
+                        })
+                    } else if ('customEventName' in conversionGoal) {
+                        filters.push({
+                            id: conversionGoal.customEventName,
+                            name: conversionGoal.customEventName,
+                            type: 'events',
+                        })
+                    }
+                }
+
                 return {
                     filter_test_accounts: shouldFilterTestAccounts,
 
@@ -1449,7 +1504,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         values: [
                             {
                                 type: FilterLogicalOperator.And,
-                                values: webAnalyticsFilters || [],
+                                values: filters,
                             },
                         ],
                     },

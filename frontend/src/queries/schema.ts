@@ -910,6 +910,8 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
     compareFilter?: CompareFilter
+    /**  Whether we should be comparing against a specific conversion goal */
+    conversionGoal?: WebAnalyticsConversionGoal | null
 }
 
 export type AssistantArrayPropertyFilterOperator = PropertyOperator.Exact | PropertyOperator.IsNot
@@ -2005,7 +2007,7 @@ export interface ExperimentTrendsQueryResponse {
     probability: Record<string, number>
     significant: boolean
     significance_code: ExperimentSignificanceCode
-    stats_version: integer
+    stats_version?: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
 }

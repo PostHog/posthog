@@ -70,6 +70,7 @@ import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
+import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 
 export const scene: SceneExport = {
@@ -382,7 +383,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <div className="text-muted text-sm pl-7">
                                                 If your feature flag is applied before identifying the user, use this to
                                                 ensure that the flag value remains consistent for the same user.
-                                                Depending on your setup, this option might not always be suitable.{' '}
+                                                Depending on your setup, this option might not always be suitable. This
+                                                feature requires creating profiles for anonymous users.{' '}
                                                 <Link
                                                     to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                                                     target="_blank"
@@ -734,6 +736,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         aggregationTargetName,
         featureFlag,
         recordingFilterForFlag,
+        flagStatus,
     } = useValues(featureFlagLogic)
     const {
         distributeVariantsEqually,
@@ -788,38 +791,41 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         Deleted
                                     </LemonTag>
                                 ) : (
-                                    <LemonSwitch
-                                        onChange={(newValue) => {
-                                            LemonDialog.open({
-                                                title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
-                                                description: `This flag will be immediately ${
-                                                    newValue === true ? 'rolled out to' : 'rolled back from'
-                                                } the users matching the release conditions.`,
-                                                primaryButton: {
-                                                    children: 'Confirm',
-                                                    type: 'primary',
-                                                    onClick: () => {
-                                                        const updatedFlag = { ...featureFlag, active: newValue }
-                                                        setFeatureFlag(updatedFlag)
-                                                        saveFeatureFlag(updatedFlag)
+                                    <div className="flex gap-2">
+                                        <LemonSwitch
+                                            onChange={(newValue) => {
+                                                LemonDialog.open({
+                                                    title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
+                                                    description: `This flag will be immediately ${
+                                                        newValue === true ? 'rolled out to' : 'rolled back from'
+                                                    } the users matching the release conditions.`,
+                                                    primaryButton: {
+                                                        children: 'Confirm',
+                                                        type: 'primary',
+                                                        onClick: () => {
+                                                            const updatedFlag = { ...featureFlag, active: newValue }
+                                                            setFeatureFlag(updatedFlag)
+                                                            saveFeatureFlag(updatedFlag)
+                                                        },
+                                                        size: 'small',
                                                     },
-                                                    size: 'small',
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                    type: 'tertiary',
-                                                    size: 'small',
-                                                },
-                                            })
-                                        }}
-                                        label="Enabled"
-                                        disabledReason={
-                                            !featureFlag.can_edit
-                                                ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
-                                                : null
-                                        }
-                                        checked={featureFlag.active}
-                                    />
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                        type: 'tertiary',
+                                                        size: 'small',
+                                                    },
+                                                })
+                                            }}
+                                            label="Enabled"
+                                            disabledReason={
+                                                !featureFlag.can_edit
+                                                    ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
+                                                    : null
+                                            }
+                                            checked={featureFlag.active}
+                                        />
+                                        <FeatureFlagStatusIndicator flagStatus={flagStatus} />
+                                    </div>
                                 )}
                             </div>
                             <div className="col-span-6">

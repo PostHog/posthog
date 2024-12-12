@@ -3,7 +3,7 @@ from typing import Optional
 from freezegun import freeze_time
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.models import Cohort
+from posthog.models import Action, Cohort, Element
 from posthog.models.utils import uuid7
 from posthog.schema import (
     DateRange,
@@ -13,6 +13,8 @@ from posthog.schema import (
     PropertyOperator,
     SessionTableVersion,
     HogQLQueryModifiers,
+    CustomEventConversionGoal,
+    ActionConversionGoal,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -38,13 +40,27 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         },
                     )
                 )
-            for timestamp, session_id, pathname in timestamps:
+            for timestamp, session_id, *extra in timestamps:
+                url = None
+                elements = None
+                if event == "$pageview":
+                    url = extra[0] if extra else None
+                elif event == "$autocapture":
+                    elements = extra[0] if extra else None
+                properties = extra[1] if extra and len(extra) > 1 else {}
+
                 _create_event(
                     team=self.team,
                     event=event,
                     distinct_id=id,
                     timestamp=timestamp,
-                    properties={"$session_id": session_id, "$pathname": pathname},
+                    properties={
+                        "$session_id": session_id,
+                        "$pathname": url,
+                        "$current_url": url,
+                        **properties,
+                    },
+                    elements=elements,
                 )
         return person_result
 
@@ -107,6 +123,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         include_bounce_rate=False,
         include_scroll_depth=False,
         properties=None,
+        action: Optional[Action] = None,
+        custom_event: Optional[str] = None,
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
         filter_test_accounts: Optional[bool] = False,
     ):
@@ -119,6 +137,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             doPathCleaning=bool(path_cleaning_filters),
             includeBounceRate=include_bounce_rate,
             includeScrollDepth=include_scroll_depth,
+            conversionGoal=ActionConversionGoal(actionId=action.id)
+            if action
+            else CustomEventConversionGoal(customEventName=custom_event)
+            if custom_event
+            else None,
             filterTestAccounts=filter_test_accounts,
         )
         self.team.path_cleaning_filters = path_cleaning_filters or []
@@ -1255,3 +1278,217 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Don't crash, treat all of them null
         assert results == []
+
+    def test_conversion_goal_no_conversions(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Bar",
+            steps_json=[{"event": "$pageview", "url": "https://www.example.com/bar", "url_matching": "regex"}],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+        )
+
+        assert [["https://www.example.com/foo", (1, 0), (0, 0), (0, 0), (0, None)]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+        ] == response.columns
+
+    def test_conversion_goal_one_pageview_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://www.example.com/foo",
+                    "url_matching": "regex",
+                }
+            ],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+        )
+
+        assert [["https://www.example.com/foo", (1, 0), (1, 0), (1, 0), (1, None)]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+        ] == response.columns
+
+    def test_conversion_goal_one_custom_event_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ],
+            event="custom_event",
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,  # Allow the breakdown value to be non-null
+            custom_event="custom_event",
+        )
+
+        assert [[None, (1, 0), (1, 0), (1, 0), (1, None)]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+        ] == response.columns
+
+    def test_conversion_goal_one_custom_action_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1)]),
+            ],
+            event="custom_event",
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Did Custom Event",
+            steps_json=[
+                {
+                    "event": "custom_event",
+                }
+            ],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,  # Allow the breakdown value to be non-null
+            action=action,
+        )
+
+        assert [[None, (1, 0), (1, 0), (1, 0), (1, None)]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+        ] == response.columns
+
+    def test_conversion_goal_one_autocapture_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, [Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")])]),
+            ],
+            event="$autocapture",
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Paid $10",
+            steps_json=[
+                {
+                    "event": "$autocapture",
+                    "tag_name": "button",
+                    "text": "Pay $10",
+                }
+            ],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,  # Allow the breakdown value to be non-null
+            action=action,
+        )
+
+        assert [[None, (1, 0), (1, 0), (1, 0), (1, None)]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+        ] == response.columns
+
+    def test_conversion_rate(self):
+        s1 = str(uuid7("2023-12-01"))
+        s2 = str(uuid7("2023-12-01"))
+        s3 = str(uuid7("2023-12-01"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        ("2023-12-01", s1, "https://www.example.com/foo"),
+                        ("2023-12-01", s1, "https://www.example.com/foo"),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        ("2023-12-01", s2, "https://www.example.com/foo"),
+                        ("2023-12-01", s2, "https://www.example.com/bar"),
+                    ],
+                ),
+                ("p3", [("2023-12-01", s3, "https://www.example.com/bar")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://www.example.com/foo",
+                    "url_matching": "regex",
+                }
+            ],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+        )
+
+        assert [
+            ["https://www.example.com/foo", (2, 0), (3, 0), (2, 0), (1, None)],
+            ["https://www.example.com/bar", (2, 0), (0, 0), (0, 0), (0, None)],
+        ] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+        ] == response.columns

@@ -50,6 +50,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseDestroyTablesMixin,
     ClickhouseTestMixin,
+    QueryMatchingTest,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
@@ -140,7 +141,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
 
 
 @freeze_time("2022-01-10T00:01:00Z")
-class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
 
@@ -1600,11 +1601,11 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
         capture_event(
-            mock_client,
-            "test event",
-            organization.id,
-            {"prop1": "val1"},
-            "2021-10-10T23:01:00.00Z",
+            pha_client=mock_client,
+            name="test event",
+            organization_id=organization.id,
+            properties={"prop1": "val1"},
+            timestamp="2021-10-10T23:01:00.00Z",
         )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
 

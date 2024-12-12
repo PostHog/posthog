@@ -10,7 +10,7 @@ export const AlphaAccessScenePrompt = ({ children }: { children: React.ReactElem
     const hasErrorTracking = useFeatureFlag('ERROR_TRACKING')
     const { openSupportForm } = useActions(supportLogic)
 
-    return !hasErrorTracking ? (
+    return hasErrorTracking ? (
         children
     ) : (
         <ProductIntroduction

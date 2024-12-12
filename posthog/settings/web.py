@@ -36,6 +36,8 @@ DECIDE_SHORT_CIRCUITED_TEAM_IDS = [0]
 
 DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, type_cast=str_to_bool)
 
+DECIDE_TOKENS_FOR_REMOTE_CONFIG = get_list(os.getenv("DECIDE_TOKENS_FOR_REMOTE_CONFIG", ""))
+
 # Decide billing analytics
 
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
