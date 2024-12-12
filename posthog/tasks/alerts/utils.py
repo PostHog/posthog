@@ -63,9 +63,9 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
     Rule by calculation interval
 
     hourly alerts -> want them to run at the same min every hour (same min comes from creation time so that they're spread out and don't all run at the start of the hour)
-    daily alerts -> want them to run at the start of the day (1am) by the timezone of the team
-    weekly alerts -> want them to run at the start of the week (Mon 1am) by the timezone of the team
-    monthly alerts -> want them to run at the start of the month (first day of the month at 1am) by the timezone of the team
+    daily alerts -> want them to run at the start of the day (around 1am) by the timezone of the team
+    weekly alerts -> want them to run at the start of the week (Mon around 3am) by the timezone of the team
+    monthly alerts -> want them to run at the start of the month (first day of the month around 4am) by the timezone of the team
     """
     now = datetime.now(pytz.UTC)
     team_timezone = pytz.timezone(alert.team.timezone)
@@ -77,24 +77,25 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
             # Get the next date in the specified timezone
             tomorrow_local = datetime.now(team_timezone) + relativedelta(days=1)
 
-            # set time to 1:00 AM
-            one_am_local = tomorrow_local.replace(hour=1, minute=0, second=0, microsecond=0)
+            # set hour to 1 AM
+            # only replacing hour and not minute/second... to distribute execution of all daily alerts
+            one_am_local = tomorrow_local.replace(hour=1)
 
             # Convert to UTC
             return one_am_local.astimezone(pytz.utc)
         case AlertCalculationInterval.WEEKLY:
             next_monday_local = datetime.now(team_timezone) + relativedelta(days=1, weekday=MO(1))
 
-            # Set the time to 1:00 AM on next Monday
-            next_monday_1am_local = next_monday_local.replace(hour=1, minute=0, second=0, microsecond=0)
+            # Set the hour to around 3 AM on next Monday
+            next_monday_1am_local = next_monday_local.replace(hour=3)
 
             # Convert to UTC
             return next_monday_1am_local.astimezone(pytz.utc)
         case AlertCalculationInterval.MONTHLY:
             next_month_local = datetime.now(team_timezone) + relativedelta(months=1)
 
-            # Set time to 1:00 AM on first day of next month
-            next_month_1am_local = next_month_local.replace(day=1, hour=1, minute=0, second=0, microsecond=0)
+            # Set hour to 4 AM on first day of next month
+            next_month_1am_local = next_month_local.replace(day=1, hour=4)
 
             # Convert to UTC
             return next_month_1am_local.astimezone(pytz.utc)
