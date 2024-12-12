@@ -1,5 +1,4 @@
 import logging
-from time import sleep
 
 import structlog
 from django.core.management.base import BaseCommand
