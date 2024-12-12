@@ -11,7 +11,7 @@ import { actionsAndEventsToSeries, filtersToQueryNode } from '~/queries/nodes/In
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
-import { FilterType } from '~/types'
+import { FilterType, PropertyMathType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
@@ -99,6 +99,7 @@ export function PrimaryGoalTrends(): JSX.Element {
                 showSeriesIndicator={true}
                 entitiesLimit={1}
                 showNumericalPropsOnly={true}
+                onlyPropertyMathDefinitions={[PropertyMathType.Average, PropertyMathType.Sum]}
                 {...commonActionFilterProps}
             />
             <div className="mt-4 space-y-4">
