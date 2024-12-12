@@ -1,7 +1,7 @@
 import 'react-data-grid/lib/styles.css'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
@@ -9,7 +9,7 @@ import { Animation } from 'lib/components/Animation/Animation'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useMemo } from 'react'
 import DataGrid from 'react-data-grid'
-import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -39,7 +39,7 @@ export function OutputPane(): JSX.Element {
     const { editingView, sourceQuery, exportContext, isValidView, error } = useValues(multitabEditorLogic)
     const { saveAsInsight, saveAsView, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { response, responseLoading, responseError } = useValues(dataNodeLogic)
+    const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
     const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { visualizationType, queryCancelled } = useValues(dataVisualizationLogic)
@@ -165,6 +165,8 @@ export function OutputPane(): JSX.Element {
                     setSourceQuery={setSourceQuery}
                     exportContext={exportContext}
                     saveAsInsight={saveAsInsight}
+                    queryId={queryId}
+                    pollResponse={pollResponse}
                 />
             </div>
         </div>
@@ -286,6 +288,8 @@ const Content = ({
     setSourceQuery,
     exportContext,
     saveAsInsight,
+    queryId,
+    pollResponse,
 }: any): JSX.Element | null => {
     if (activeTab === OutputTab.Results) {
         if (responseError) {
@@ -300,7 +304,7 @@ const Content = ({
         }
 
         return responseLoading ? (
-            <Spinner className="text-3xl" />
+            <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
         ) : !response ? (
             <span className="text-muted mt-3">Query results will appear here</span>
         ) : (
