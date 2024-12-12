@@ -21,11 +21,12 @@ import {
     RootAssistantMessage,
     SuggestedQuestionsQuery,
 } from '~/queries/schema'
+import { Conversation } from '~/types'
 
 import type { maxLogicType } from './maxLogicType'
 
 export interface MaxLogicProps {
-    sessionId: string
+    conversationId?: string
 }
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
@@ -43,7 +44,7 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
     props({} as MaxLogicProps),
-    key(({ sessionId }) => sessionId),
+    key(({ conversationId }) => conversationId || 'new-conversation'),
     connect({
         values: [projectLogic, ['currentProject']],
     }),
@@ -58,6 +59,7 @@ export const maxLogic = kea<maxLogicType>([
         shuffleVisibleSuggestions: true,
         retryLastMessage: true,
         scrollThreadToBottom: true,
+        setConversation: (conversation: Conversation) => ({ conversation }),
     }),
     reducers({
         question: [
@@ -65,6 +67,12 @@ export const maxLogic = kea<maxLogicType>([
             {
                 setQuestion: (_, { question }) => question,
                 askMax: () => '',
+            },
+        ],
+        conversation: [
+            (_, props) => (props.conversationId ? ({ id: props.conversationId } as Conversation) : null),
+            {
+                setConversation: (_, { conversation }) => conversation,
             },
         ],
         threadRaw: [
@@ -118,7 +126,7 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         [projectLogic.actionTypes.updateCurrentProjectSuccess]: ({ payload }) => {
             // Load suggestions anew after product description is changed on the project
             // Most important when description is set for the first time, but also when updated,
@@ -158,9 +166,9 @@ export const maxLogic = kea<maxLogicType>([
         askMax: async ({ prompt }) => {
             actions.addMessage({ type: AssistantMessageType.Human, content: prompt, status: 'completed' })
             try {
-                const response = await api.chat({
-                    session_id: props.sessionId,
-                    messages: values.threadRaw.map(({ status, ...message }) => message),
+                const response = await api.conversations.create({
+                    content: prompt,
+                    conversation: values.conversation?.id,
                 })
                 const reader = response.body?.getReader()
 
@@ -203,6 +211,12 @@ export const maxLogic = kea<maxLogicType>([
                             if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
                                 actions.setMessageStatus(values.threadRaw.length - 1, 'error')
                             }
+                        } else if (event === AssistantEventType.Conversation) {
+                            const parsedResponse = parseResponse<Conversation>(data)
+                            if (!parsedResponse) {
+                                return
+                            }
+                            actions.setConversation(parsedResponse)
                         }
                     },
                 })
@@ -259,7 +273,6 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
     selectors({
-        sessionId: [(_, p) => [p.sessionId], (sessionId) => sessionId],
         threadGrouped: [
             (s) => [s.threadRaw, s.threadLoading],
             (thread, threadLoading): ThreadMessage[][] => {
