@@ -17,9 +17,9 @@ operations = [
     run_sql_with_exceptions(DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL()),
     run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     # now we can alter the target tables
+    run_sql_with_exceptions(ADD_LIBRARY_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     run_sql_with_exceptions(ADD_LIBRARY_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     run_sql_with_exceptions(ADD_LIBRARY_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL()),
-    run_sql_with_exceptions(ADD_LIBRARY_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     # and then recreate the materialized views and kafka tables
     run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL()),
