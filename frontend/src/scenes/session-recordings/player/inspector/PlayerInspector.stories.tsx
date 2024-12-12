@@ -62,7 +62,7 @@ export default meta
 
 const BasicTemplate: StoryFn<typeof PlayerInspector> = () => {
     const dataLogic = sessionRecordingDataLogic({ sessionRecordingId: '12345', playerKey: 'story-template' })
-    const { sessionPlayerMetaData } = useValues(dataLogic)
+    const { sessionPlayerMetaData, sessionPlayerData } = useValues(dataLogic)
 
     const { loadSnapshots, loadEvents } = useActions(dataLogic)
     loadSnapshots()
@@ -71,8 +71,10 @@ const BasicTemplate: StoryFn<typeof PlayerInspector> = () => {
     // and only when some other data has already been loaded
     // 🫠
     useEffect(() => {
-        loadEvents()
-    }, [sessionPlayerMetaData])
+        if (sessionPlayerData && sessionPlayerMetaData) {
+            loadEvents(sessionPlayerData)
+        }
+    }, [sessionPlayerMetaData, sessionPlayerData])
 
     return (
         <div className="flex flex-col gap-2 min-w-96 min-h-120">
