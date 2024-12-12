@@ -1,85 +1,19 @@
-from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from enum import StrEnum
-from typing import Annotated, Optional, TypeVar, Union
+from typing import Optional, TypeVar, Union
 
 from jsonref import replace_refs
-from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
     merge_message_runs,
 )
-from langchain_core.runnables import RunnableConfig
-from langgraph.graph import END, START
-from pydantic import BaseModel, Field
 
-from posthog.models.team.team import Team
 from posthog.schema import (
     AssistantMessage,
-    FailureMessage,
     HumanMessage,
-    ReasoningMessage,
-    RouterMessage,
     VisualizationMessage,
 )
 
-AIMessageUnion = Union[AssistantMessage, VisualizationMessage, FailureMessage, RouterMessage, ReasoningMessage]
-AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
-
-
-class ReplaceMessages(list[AssistantMessageUnion]):
-    pass
-
-
-def add_messages(
-    left: Sequence[AssistantMessageUnion], right: Sequence[AssistantMessageUnion]
-) -> Sequence[AssistantMessageUnion]:
-    if isinstance(right, ReplaceMessages):
-        return list(right)
-    return list(left) + list(right)
-
-
-class _SharedAssistantState(BaseModel):
-    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
-    start_id: Optional[str] = Field(default=None)
-    """
-    The ID of the message from which the conversation started.
-    """
-    plan: Optional[str] = Field(default=None)
-
-
-class AssistantState(_SharedAssistantState):
-    messages: Annotated[Sequence[AssistantMessageUnion], add_messages]
-
-
-class PartialAssistantState(_SharedAssistantState):
-    messages: Optional[Annotated[Sequence[AssistantMessageUnion], add_messages]] = Field(default=None)
-
-
-class AssistantNodeName(StrEnum):
-    START = START
-    END = END
-    ROUTER = "router"
-    TRENDS_PLANNER = "trends_planner"
-    TRENDS_PLANNER_TOOLS = "trends_planner_tools"
-    TRENDS_GENERATOR = "trends_generator"
-    TRENDS_GENERATOR_TOOLS = "trends_generator_tools"
-    FUNNEL_PLANNER = "funnel_planner"
-    FUNNEL_PLANNER_TOOLS = "funnel_planner_tools"
-    FUNNEL_GENERATOR = "funnel_generator"
-    FUNNEL_GENERATOR_TOOLS = "funnel_generator_tools"
-    SUMMARIZER = "summarizer"
-
-
-class AssistantNode(ABC):
-    _team: Team
-
-    def __init__(self, team: Team):
-        self._team = team
-
-    @abstractmethod
-    def run(cls, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        raise NotImplementedError
+from .types import AIMessageUnion, AssistantMessageUnion
 
 
 def remove_line_breaks(line: str) -> str:

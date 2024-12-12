@@ -1,7 +1,7 @@
 import json
 from collections.abc import AsyncGenerator, Generator, Iterator
 from functools import partial
-from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union, cast
+from typing import Any, Optional
 from uuid import uuid4
 
 from asgiref.sync import sync_to_async
@@ -20,7 +20,16 @@ from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
 )
-from ee.hogai.utils import AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils import GraphMessageUpdate, GraphTaskStartedUpdate, GraphValueUpdate
+from ee.hogai.utils.state import (
+    is_message_update,
+    is_state_update,
+    is_task_started_update,
+    is_value_update,
+    validate_state_update,
+    validate_value_update,
+)
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
@@ -42,58 +51,6 @@ if settings.LANGFUSE_PUBLIC_KEY:
     )
 else:
     langfuse_handler = None
-
-GraphValueUpdate = tuple[Literal["values"], dict[AssistantNodeName, dict]]
-
-
-def is_value_update(update: list[Any]) -> TypeGuard[GraphValueUpdate]:
-    """
-    Transition between nodes. Returns a partial state.
-    """
-    return len(update) == 2 and update[0] == "updates"
-
-
-def validate_value_update(update: GraphValueUpdate):
-    name, state = update
-    return name, {n: PartialAssistantState.model_validate(v) for n, v in state.items()}
-
-
-class LangGraphState(TypedDict):
-    langgraph_node: AssistantNodeName
-
-
-GraphMessageUpdate = tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]
-
-
-def is_message_update(update: list[Any]) -> TypeGuard[GraphMessageUpdate]:
-    """
-    Streaming of messages. Returns a partial state.
-    """
-    return len(update) == 2 and update[0] == "messages"
-
-
-GraphStateUpdate = tuple[Literal["updates"], dict]
-
-
-def is_state_update(update: list[Any]) -> TypeGuard[GraphStateUpdate]:
-    """
-    Update of the state. Returns a full state.
-    """
-    return len(update) == 2 and update[0] == "values"
-
-
-def validate_state_update(update: GraphStateUpdate):
-    name, state = update
-    return name, AssistantState.model_validate(state)
-
-
-def is_task_started_update(
-    update: list[Any],
-) -> TypeGuard[tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]]:
-    """
-    Streaming of messages. Returns a partial state.
-    """
-    return len(update) == 2 and update[0] == "debug" and update[1]["type"] == "task"
 
 
 VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
@@ -194,7 +151,7 @@ class Assistant:
         config = self._get_config()
         snapshot = self._graph.get_state(config)
         if snapshot.next:
-            saved_state = cast(AssistantState, snapshot.values)
+            saved_state = validate_state_update(snapshot.values)
             self._state = saved_state
             if saved_state.intermediate_steps:
                 intermediate_steps = saved_state.intermediate_steps.copy()
@@ -249,45 +206,64 @@ class Assistant:
 
     def _process_update(self, update: Any) -> BaseModel | None:
         if is_state_update(update):
-            _, new_state = validate_state_update(update)
-            self._state = new_state
-        elif is_value_update(update):
-            _, state_update = validate_value_update(update)
+            _, new_state = update
+            self._state = validate_state_update(new_state)
+        elif is_value_update(update) and (new_message := self._process_value_update(update)):
+            return new_message
+        elif is_message_update(update) and (new_message := self._process_message_update(update)):
+            return new_message
+        elif is_task_started_update(update) and (new_message := self._process_task_started_update(update)):
+            return new_message
+        return None
 
-            if AssistantNodeName.ROUTER in state_update and state_update[AssistantNodeName.ROUTER].messages:
-                return state_update[AssistantNodeName.ROUTER].messages[0]
-            elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
-                # Reset chunks when schema validation fails.
-                self._chunks = AIMessageChunk(content="")
+    def _process_value_update(self, update: GraphValueUpdate) -> BaseModel | None:
+        _, maybe_state_update = update
+        state_update = validate_value_update(maybe_state_update)
 
-                node_name = intersected_nodes.pop()
-                if state_update[node_name].messages:
-                    return state_update[node_name].messages[0]
-                elif state_update[node_name].intermediate_steps:
-                    return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-            elif AssistantNodeName.SUMMARIZER in state_update and state_update[AssistantNodeName.SUMMARIZER].messages:
+        if node_val := state_update.get(AssistantNodeName.ROUTER):
+            if isinstance(node_val, PartialAssistantState) and node_val.messages:
+                return node_val.messages[0]
+        elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
+            # Reset chunks when schema validation fails.
+            self._chunks = AIMessageChunk(content="")
+
+            node_name = intersected_nodes.pop()
+            node_val = state_update[node_name]
+            if not isinstance(node_val, PartialAssistantState):
+                return None
+            if node_val.messages:
+                return node_val.messages[0]
+            elif node_val.intermediate_steps:
+                return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
+        elif node_val := state_update.get(AssistantNodeName.SUMMARIZER):
+            if isinstance(node_val, PartialAssistantState):
                 self._chunks = AIMessageChunk(content="")
-                return state_update[AssistantNodeName.SUMMARIZER].messages[0]
-        elif is_message_update(update):
-            langchain_message, langgraph_state = update[1]
-            if isinstance(langchain_message, AIMessageChunk):
-                if langgraph_state["langgraph_node"] in VISUALIZATION_NODES.keys():
-                    self._chunks += langchain_message  # type: ignore
-                    parsed_message = VISUALIZATION_NODES[langgraph_state["langgraph_node"]].parse_output(
-                        self._chunks.tool_calls[0]["args"]
-                    )
-                    if parsed_message:
-                        initiator_id = self._state.start_id if self._state is not None else None
-                        return VisualizationMessage(answer=parsed_message.query, initiator=initiator_id)
-                elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
-                    self._chunks += langchain_message  # type: ignore
-                    return AssistantMessage(content=self._chunks.content)
-        elif is_task_started_update(update):
-            _, task_update = update
-            node_name = task_update["payload"]["name"]  # type: ignore
-            node_input = task_update["payload"]["input"]  # type: ignore
-            if reasoning_message := self._node_to_reasoning_message(node_name, node_input):
-                return reasoning_message
+                return node_val.messages[0]
+
+        return None
+
+    def _process_message_update(self, update: GraphMessageUpdate) -> BaseModel | None:
+        langchain_message, langgraph_state = update[1]
+        if isinstance(langchain_message, AIMessageChunk):
+            if langgraph_state["langgraph_node"] in VISUALIZATION_NODES.keys():
+                self._chunks += langchain_message  # type: ignore
+                parsed_message = VISUALIZATION_NODES[langgraph_state["langgraph_node"]].parse_output(
+                    self._chunks.tool_calls[0]["args"]
+                )
+                if parsed_message:
+                    initiator_id = self._state.start_id if self._state is not None else None
+                    return VisualizationMessage(answer=parsed_message.query, initiator=initiator_id)
+            elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
+                self._chunks += langchain_message  # type: ignore
+                return AssistantMessage(content=self._chunks.content)
+        return None
+
+    def _process_task_started_update(self, update: GraphTaskStartedUpdate) -> BaseModel | None:
+        _, task_update = update
+        node_name = task_update["payload"]["name"]  # type: ignore
+        node_input = task_update["payload"]["input"]  # type: ignore
+        if reasoning_message := self._node_to_reasoning_message(node_name, node_input):
+            return reasoning_message
         return None
 
     def _serialize_message(self, message: BaseModel) -> str:
