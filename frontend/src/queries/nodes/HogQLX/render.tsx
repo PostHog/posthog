@@ -44,6 +44,7 @@ export function renderHogQLX(value: any): JSX.Element {
             return (
                 <ErrorBoundary>
                     <ViewRecordingButton
+                        inModal
                         sessionId={sessionId}
                         type="primary"
                         size="xsmall"
