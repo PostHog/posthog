@@ -1,7 +1,6 @@
 import json
 from typing import Any, Optional
 from unittest.mock import patch
-from uuid import uuid4
 
 from langchain_core import messages
 from langchain_core.agents import AgentAction
@@ -10,8 +9,8 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
-from ee.hogai.utils import ConversationState
-from posthog.schema import AssistantMessage, HumanMessage, ReasoningMessage, RootAssistantMessage
+from ee.models.assistant import Conversation
+from posthog.schema import AssistantMessage, HumanMessage, ReasoningMessage
 from posthog.test.base import NonAtomicBaseTest
 
 from ..assistant import Assistant
@@ -21,15 +20,24 @@ from ..graph import AssistantGraph, AssistantNodeName
 class TestAssistant(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(team=self.team, user=self.user)
+
     def _run_assistant_graph(
-        self, test_graph: Optional[CompiledStateGraph] = None, conversation: Optional[ConversationState] = None
+        self,
+        test_graph: Optional[CompiledStateGraph] = None,
+        message: Optional[str] = "Hello",
+        conversation: Optional[Conversation] = None,
+        is_new_conversation: bool = False,
     ) -> list[tuple[str, Any]]:
         # Create assistant instance with our test graph
         assistant = Assistant(
-            team=self.team,
-            user=self.user,
-            conversation=conversation
-            or ConversationState(messages=[HumanMessage(content="Hello")], session_id=str(uuid4())),
+            self.team,
+            conversation,
+            HumanMessage(content=message),
+            self.user,
+            is_new_conversation=is_new_conversation,
         )
         if test_graph:
             assistant._graph = test_graph
@@ -63,7 +71,8 @@ class TestAssistant(NonAtomicBaseTest):
             .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
             .add_trends_planner(AssistantNodeName.SUMMARIZER)
             .add_summarizer(AssistantNodeName.END)
-            .compile()
+            .compile(),
+            conversation=self.conversation,
         )
 
         # Assert that ReasoningMessages are added
@@ -131,7 +140,8 @@ class TestAssistant(NonAtomicBaseTest):
             AssistantGraph(self.team)
             .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
             .add_trends_planner(AssistantNodeName.END)
-            .compile()
+            .compile(),
+            conversation=self.conversation,
         )
 
         # Assert that ReasoningMessages are added
@@ -166,10 +176,9 @@ class TestAssistant(NonAtomicBaseTest):
 
     def _test_human_in_the_loop(self, graph: CompiledStateGraph):
         with patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as mock:
-            conversation = ConversationState(messages=[HumanMessage(content="Hello")], session_id=str(uuid4()))
             config = {
                 "configurable": {
-                    "thread_id": conversation.session_id,
+                    "thread_id": self.conversation.id,
                 }
             }
 
@@ -185,7 +194,7 @@ class TestAssistant(NonAtomicBaseTest):
             ```
             """
             mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content=message))
-            output = self._run_assistant_graph(graph, conversation)
+            output = self._run_assistant_graph(graph, conversation=self.conversation)
             expected_output = [
                 ("message", HumanMessage(content="Hello")),
                 ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -196,9 +205,6 @@ class TestAssistant(NonAtomicBaseTest):
             snapshot: StateSnapshot = graph.get_state(config)
             self.assertTrue(snapshot.next)
             self.assertIn("intermediate_steps", snapshot.values)
-
-            conversation.messages.append(RootAssistantMessage(AssistantMessage(content="Need help with this query")))
-            conversation.messages.append(RootAssistantMessage(HumanMessage(content="It's straightforward")))
 
             # Resume the graph from the interruption point.
             message = """
@@ -212,7 +218,7 @@ class TestAssistant(NonAtomicBaseTest):
             ```
             """
             mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content=message))
-            output = self._run_assistant_graph(graph, conversation)
+            output = self._run_assistant_graph(graph, conversation=self.conversation, message="It's straightforward")
             expected_output = [
                 ("message", HumanMessage(content="It's straightforward")),
                 ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -250,10 +256,9 @@ class TestAssistant(NonAtomicBaseTest):
                 .add_trends_planner(AssistantNodeName.END)
                 .compile()
             )
-            conversation = ConversationState(messages=[HumanMessage(content="Hello")], session_id=str(uuid4()))
             config = {
                 "configurable": {
-                    "thread_id": conversation.session_id,
+                    "thread_id": self.conversation.id,
                 }
             }
 
@@ -269,7 +274,7 @@ class TestAssistant(NonAtomicBaseTest):
             ```
             """
             mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content=message))
-            self._run_assistant_graph(graph, conversation)
+            self._run_assistant_graph(graph, conversation=self.conversation)
             snapshot: StateSnapshot = graph.get_state(config)
             self.assertTrue(snapshot.next)
             self.assertIn("intermediate_steps", snapshot.values)
@@ -278,10 +283,7 @@ class TestAssistant(NonAtomicBaseTest):
             self.assertEqual(action.tool, "ask_user_for_help")
             self.assertIsNone(observation)
 
-            conversation.messages.append(RootAssistantMessage(AssistantMessage(content="Need help with this query")))
-            conversation.messages.append(RootAssistantMessage(HumanMessage(content="It's straightforward")))
-
-            self._run_assistant_graph(graph, conversation)
+            self._run_assistant_graph(graph, conversation=self.conversation, message="It's straightforward")
             snapshot: StateSnapshot = graph.get_state(config)
             self.assertTrue(snapshot.next)
             self.assertIn("intermediate_steps", snapshot.values)
@@ -292,3 +294,28 @@ class TestAssistant(NonAtomicBaseTest):
             action, observation = snapshot.values["intermediate_steps"][1]
             self.assertEqual(action.tool, "ask_user_for_help")
             self.assertIsNone(observation)
+
+    def test_new_conversation_handles_serialized_conversation(self):
+        graph = (
+            AssistantGraph(self.team)
+            .add_node(AssistantNodeName.ROUTER, lambda _: {"messages": [AssistantMessage(content="Hello")]})
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
+            .add_edge(AssistantNodeName.ROUTER, AssistantNodeName.END)
+            .compile()
+        )
+        output = self._run_assistant_graph(
+            graph,
+            conversation=self.conversation,
+            is_new_conversation=True,
+        )
+        expected_output = [
+            ("conversation", {"id": str(self.conversation.id)}),
+        ]
+        self.assertConversationEqual(output[:1], expected_output)
+
+        output = self._run_assistant_graph(
+            graph,
+            conversation=self.conversation,
+            is_new_conversation=False,
+        )
+        self.assertNotEqual(output[0][0], "conversation")
