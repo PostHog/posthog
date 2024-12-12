@@ -3606,16 +3606,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_decide_default_identified_only(self, *args):
         self.client.logout()
-        with self.settings(DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN=str(1000000)):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue("defaultIdentifiedOnly" in response.json())
-            self.assertFalse(response.json()["defaultIdentifiedOnly"])
-        team_id = self.team.id
-        with self.settings(DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN=str(team_id)):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue(response.json()["defaultIdentifiedOnly"])
+        response = self._post_decide(api_version=3)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue("defaultIdentifiedOnly" in response.json())
+        self.assertTrue(response.json()["defaultIdentifiedOnly"])
 
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
