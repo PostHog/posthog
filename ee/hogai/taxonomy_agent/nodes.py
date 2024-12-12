@@ -263,7 +263,7 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         if input.name == "final_answer":
             return PartialAssistantState(
                 plan=input.arguments,
-                intermediate_steps=None,
+                intermediate_steps=[],
             )
         if input.name == "ask_user_for_help":
             # The agent has requested help, so we interrupt the graph.

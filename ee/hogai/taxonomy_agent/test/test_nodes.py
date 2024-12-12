@@ -264,7 +264,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def _get_node(self):
         class Node(TaxonomyAgentPlannerToolsNode):
-            def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+            def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
                 toolkit = DummyToolkit(self._team)
                 return super()._run_with_toolkit(state, toolkit, config=config)
 

@@ -119,7 +119,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         )
 
     def router(self, state: AssistantState):
-        if state.intermediate_steps is not None:
+        if state.intermediate_steps:
             return "tools"
         return "next"
 
