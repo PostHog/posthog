@@ -396,30 +396,71 @@ describe('session recording process event', () => {
             },
         },
         {
-            testDescription: 'message too large warning is reported',
+            testDescription: 'urls array is deduplicated',
             snapshotData: {
                 events_summary: [
-                    { timestamp: 1682449093000, type: 3, data: { source: 2, type: 2 }, windowId: '1' },
-                    { timestamp: 1682449093000, type: 5, data: { tag: 'Message too large' }, windowId: '1' },
+                    {
+                        timestamp: 1682449093469,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // we don't read just any URL
+                                'the-page-url': 'http://127.0.0.1:8000/not/included',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                    {
+                        timestamp: 1682449093693,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // matches href nested in payload
+                                href: 'http://127.0.0.1:8000/my-spa',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                    {
+                        timestamp: 1682449093693,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // matches href nested in payload
+                                href: 'http://127.0.0.1:8000/my-spa',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                    {
+                        timestamp: 1682449093693,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // matches href nested in payload
+                                href: 'http://127.0.0.1:8000/my-spa/1',
+                            },
+                        },
+                        windowId: '1',
+                    },
                 ],
             },
-            snapshotSource: 'web',
             expected: {
-                active_milliseconds: 1,
-                click_count: 1,
-                console_error_count: 0,
+                click_count: 0,
+                keypress_count: 0,
+                mouse_activity_count: 0,
+                first_url: 'http://127.0.0.1:8000/my-spa',
+                first_timestamp: '2023-04-25 18:58:13.469',
+                last_timestamp: '2023-04-25 18:58:13.693',
+                active_milliseconds: 0, // no data.source, so no activity
                 console_log_count: 0,
                 console_warn_count: 0,
-                event_count: 2,
-                first_timestamp: '2023-04-25 18:58:13.000',
-                first_url: null,
-                keypress_count: 0,
-                last_timestamp: '2023-04-25 18:58:13.000',
+                console_error_count: 0,
+                size: 461,
+                event_count: 4,
                 message_count: 1,
-                mouse_activity_count: 1,
-                size: 169,
                 snapshot_source: 'web',
-                urls: [],
+                urls: ['http://127.0.0.1:8000/my-spa', 'http://127.0.0.1:8000/my-spa/1'],
             },
         },
         {
@@ -501,7 +542,8 @@ describe('session recording process event', () => {
                 '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
                 'abcf-efg',
                 snapshotData.events_summary,
-                snapshotSource || null
+                snapshotSource || null,
+                null
             )
 
             const expectedEvent: SummarizedSessionRecordingEvent = {
@@ -509,6 +551,7 @@ describe('session recording process event', () => {
                 session_id: 'abcf-efg',
                 team_id: 12345,
                 uuid: 'some-id',
+                snapshot_library: null,
                 ...expected,
             }
             expect(data).toEqual(expectedEvent)
@@ -523,6 +566,7 @@ describe('session recording process event', () => {
                 '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
                 'abcf-efg',
                 [],
+                null,
                 null
             )
         }).toThrowError()
@@ -552,6 +596,7 @@ describe('session recording process event', () => {
                         },
                     },
                 ] as any[],
+                null,
                 null
             )
         }).toThrowError()
