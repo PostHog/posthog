@@ -37,6 +37,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         toggleTwoFactorSetupModal: (open: boolean) => ({ open }),
         toggleDisable2FAModal: (open: boolean) => ({ open }),
         toggleBackupCodesModal: (open: boolean) => ({ open }),
+        startSetup: true,
     }),
     reducers({
         isTwoFactorSetupModalOpen: [
@@ -158,9 +159,13 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
                 actions.resetToken()
             }
         },
+        startSetup: async () => {
+            await api.get('api/users/@me/two_factor_start_setup/')
+        },
     })),
 
     afterMount(({ actions }) => {
+        actions.startSetup()
         actions.loadStatus()
     }),
 ])

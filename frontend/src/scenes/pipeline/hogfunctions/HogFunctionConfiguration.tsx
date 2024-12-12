@@ -35,6 +35,7 @@ import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
+import { HogFunctionMapping } from './mapping/HogFunctionMapping'
 
 const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 
@@ -395,7 +396,10 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
 
                             <div className="p-3 space-y-2 border rounded bg-bg-light">
                                 <div className="space-y-2">
-                                    <HogFunctionInputs />
+                                    <HogFunctionInputs
+                                        configuration={configuration}
+                                        setConfigurationValue={setConfigurationValue}
+                                    />
                                     {showSource && canEditSource ? (
                                         <LemonButton
                                             icon={<IconPlus />}
@@ -419,6 +423,8 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                     ) : null}
                                 </div>
                             </div>
+
+                            <HogFunctionMapping />
 
                             {canEditSource && (
                                 <div
