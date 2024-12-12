@@ -1,7 +1,7 @@
 @mixin secondary-variables {
-    --lemon-button-border-color: var(--border-tertiary);
-    --lemon-button-bg-color-active: transparent;
-    --lemon-button-border-color-hover: var(--border-secondary);
+    --lemon-button-outside-border-color: var(--border-tertiary);
+    --lemon-button-bg-color: transparent;
+    --lemon-button-inside-border-color: var(--border-secondary);
     --lemon-button-frame-bg-color: var(--background-tertiary);
 }
 
@@ -47,20 +47,19 @@
     --lemon-button-transition: opacity 200ms ease, transform 200ms ease;
     --lemon-button-border-width: 0;
     --lemon-button-bg-color: transparent;
-    --lemon-button-border-color: none;
-    --lemon-button-border-color-hover: none;
+    --lemon-button-bg-color-disabled: transparent;
+    --lemon-button-color-disabled: var(--content-disabled);
+    --lemon-button-outside-border-color: none;
+    --lemon-button-inside-border-color: none;
     --lemon-button-frame-bg-color: none;
     --lemon-button-font-size: 0.875rem;
     --lemon-button-icon-size: 1.5rem;
     --lemon-button-height: 2.3125rem;
     --lemon-button-gap: 0.5rem;
     --lemon-button-icon-opacity: 0.8;
-    --lemon-button-color: var(--content-primary);
+    --lemon-button-color: var(--content-button-primary);
     --lemon-button-spacer-color: var(--content-tertiary);
 
-    // column-gap: 4px;
-    // flex-direction: row;
-    // justify-content: flex-start;
     position: relative;
 
     // Make sure we override .Link's styles where needed, e.g. padding
@@ -127,7 +126,9 @@
     }
 
     &[aria-disabled='true']:not(.LemonButton--loading) {
+        color: var(--lemon-button-color-disabled);
         cursor: not-allowed;
+        background: var(--lemon-button-bg-color-disabled);
         opacity: var(--opacity-disabled);
     }
 
@@ -188,79 +189,14 @@
         }
     }
 
-    &.LemonButton--primary {
-        --lemon-button-bg-color: var(--background-primary);
-        --lemon-button-bg-color-active: var(--background-primary);
-        --lemon-button-border-color: var(--border-button);
-        --lemon-button-border-color-hover: var(--border-button-hover);
-        --lemon-button-frame-bg-color: var(--background-button-subtle);
-        --lemon-button-color: var(--content-primary);
-
-        [theme='dark'] & {
-            --lemon-button-color: var(--content-primary-inverse);
-            --lemon-button-bg-color: var(--background-button);
-            --lemon-button-frame-bg-color: var(--border-button);
-            --lemon-button-border-color-hover: var(--border-button-bold-hover);
-        }
-
-        &.LemonButton--status-alt {
-            --lemon-button-bg-color: var(--background-button-subtle);
-            --lemon-button-bg-color-active: var(--background-button-subtle);
-            --lemon-button-border-color-hover: var(--border-button-hover);
-            --lemon-button-frame-bg-color: var(--background-button-subtle);
-            --lemon-button-color: var(--content-primary);
-
-            [theme='dark'] & {
-                --lemon-button-border-color: var(--border-button);
-                --lemon-button-bg-color: var(--background-button-subtle);
-                --lemon-button-border-color-hover: var(--background-button-subtle-hover);
-            }
-        }
-    }
-
-    &.LemonButton--secondary.LemonButton--status-alt:hover,
-    &.LemonButton--secondary.LemonButton--status-alt.LemonButton--active,
-    &.LemonButton--secondary:not(.LemonButton--status-alt, .LemonButton--status-danger) {
-        @include secondary-variables;
-    }
-
-    &.LemonButton--status-danger,
-    &.LemonButton--primary.LemonButton--status-danger,
-    &.LemonButton--secondary.LemonButton--status-danger {
-        --lemon-button-bg-color: var(--background-danger-subtle);
-        --lemon-button-color: var(--content-danger-bold);
-        --lemon-button-border-color: var(--border-danger);
-        --lemon-button-border-color-hover: var(--border-danger-bold);
-        --lemon-button-frame-bg-color: var(--background-danger-bold);
-        --lemon-button-icon-opacity: 1;
-
-        [theme='dark'] & {
-            --lemon-button-border-color: var(--border-danger);
-            --lemon-button-bg-color: var(--background-button-subtle);
-            --lemon-button-border-color-hover: var(--border-danger-hover);
-        }
-
-        &[aria-disabled='true']:not(.LemonButton--loading) {
-            --lemon-button-color: var(--content-danger-bold-disabled);
-        }
-    }
-
-    &.LemonButton--secondary.LemonButton--status-alt {
-        --lemon-button-color: var(--content-tertiary);
-
-        &.LemonButton--active,
-        &:hover:not([aria-disabled='true']) {
-            --lemon-button-color: var(--content-tertiary);
-        }
-    }
-
     &.LemonButton--primary,
     &.LemonButton--secondary {
         --lemon-button-border-width: 1px;
+        --lemon-button-spacer-color: var(--content-tertiary-inverse);
 
         &:not([aria-disabled='true']):hover .LemonButton__chrome {
             &::after {
-                border-color: var(--lemon-button-border-color-hover);
+                border-color: var(--lemon-button-inside-border-color);
             }
         }
 
@@ -288,7 +224,7 @@
                 inset: -1px;
                 z-index: 0;
                 content: '';
-                border: 1px solid var(--lemon-button-border-color);
+                border: 1px solid var(--lemon-button-outside-border-color);
                 border-radius: var(--radius);
             }
 
@@ -298,7 +234,7 @@
                 z-index: 0;
                 content: '';
                 background: var(--lemon-button-bg-color);
-                border: 1px solid var(--lemon-button-border-color);
+                border: 1px solid var(--lemon-button-outside-border-color);
                 border-radius: var(--radius);
                 box-shadow: 0 var(--lemon-button-chrome-depth) 0 -1px var(--lemon-button-frame-bg-color);
                 transition: opacity 200ms ease;
@@ -309,7 +245,7 @@
         &:not([aria-disabled='true']):active {
             .LemonButton__chrome {
                 &::after {
-                    border: 1px solid var(--lemon-button-border-color-hover);
+                    border: 1px solid var(--lemon-button-inside-border-color);
                 }
             }
         }
@@ -340,22 +276,122 @@
         &.LemonButton--active {
             .LemonButton__chrome {
                 &::after {
-                    background: var(--lemon-button-bg-color-active);
+                    background: var(--lemon-button-bg-color);
                 }
             }
         }
     }
 
-    &.LemonButton--tertiary {
+    &.LemonButton--primary {
+        --lemon-button-bg-color: var(--background-button-primary);
+        --lemon-button-outside-border-color: var(--border-button-primary);
+        --lemon-button-inside-border-color: var(--border-button-primary-hover);
+        --lemon-button-frame-bg-color: var(--background-button-primary-subtle);
+        --lemon-button-color: var(--content-button-primary);
+
+        // Hover & active states
         &:not([aria-disabled='true']):hover,
         &.LemonButton--active {
-            background-color: var(--background-tertiary);
+            --lemon-button-color: var(--content-button-primary-hover);
         }
 
+        // Alt status
+        &.LemonButton--status-alt {
+            --lemon-button-bg-color: var(--background-button-primary-subtle);
+            --lemon-button-color: var(--content-button-primary-hover);
+            --lemon-button-spacer-color: var(--content-button-primary-hover);
+
+            &:not([aria-disabled='true']):hover,
+            &.LemonButton--active {
+                --lemon-button-bg-color: var(--background-button-primary-subtle-hover);
+            }
+        }
+
+        // Danger status
+        &.LemonButton--status-danger {
+            --lemon-button-bg-color: var(--background-danger-subtle);
+            --lemon-button-color: var(--content-danger-bold);
+            --lemon-button-outside-border-color: var(--border-danger-subtle);
+            --lemon-button-inside-border-color: var(--border-danger-subtle);
+            --lemon-button-frame-bg-color: var(--background-danger-bold);
+            --lemon-button-icon-opacity: 1;
+            --lemon-button-spacer-color: var(--content-danger-bold-inverse);
+
+            &:not([aria-disabled='true']):hover,
+            &.LemonButton--active {
+                --lemon-button-color: var(--content-danger-bold);
+            }
+        }
+    }
+
+    &.LemonButton--secondary {
+        --lemon-button-bg-color: transparent;
+        --lemon-button-inside-border-color: var(--border-tertiary);
+        --lemon-button-outside-border-color: var(--border-tertiary);
+        --lemon-button-frame-bg-color: var(--background-tertiary);
+        --lemon-button-color: var(--content-primary);
+
+        // Hover & active states
+        &:not([aria-disabled='true']):hover,
+        &.LemonButton--active {
+            --lemon-button-bg-color: transparent;
+            --lemon-button-inside-border-color: var(--border-secondary);
+            --lemon-button-outside-border-color: var(--border-secondary);
+        }
+
+        // Alt status
+        &.LemonButton--status-alt {
+            --lemon-button-color: var(--content-tertiary);
+            --lemon-button-outside-border-color: transparent;
+            --lemon-button-frame-bg-color: transparent;
+
+            &:not([aria-disabled='true']):hover,
+            &.LemonButton--active {
+                --lemon-button-color: var(--content-secondary);
+                --lemon-button-bg-color: transparent;
+                --lemon-button-inside-border-color: var(--border-secondary);
+                --lemon-button-outside-border-color: var(--border-secondary);
+            }
+        }
+
+        // Danger status
+        &.LemonButton--status-danger {
+            --lemon-button-bg-color: transparent;
+
+            &:not([aria-disabled='true']):hover,
+            &.LemonButton--active {
+                --lemon-button-bg-color: var(--background-danger-subtle);
+                --lemon-button-color: var(--content-danger-bold);
+                --lemon-button-outside-border-color: var(--border-danger-subtle);
+                --lemon-button-inside-border-color: var(--border-danger-subtle);
+                --lemon-button-frame-bg-color: var(--background-danger-bold);
+                --lemon-button-icon-opacity: 1;
+                --lemon-button-spacer-color: var(--content-danger-bold-inverse);
+            }
+        }
+    }
+
+    &.LemonButton--tertiary {
+        --lemon-button-outside-border-color: transparent;
+        --lemon-button-inside-border-color: transparent;
+        --lemon-button-frame-bg-color: transparent;
+        --lemon-button-color: var(--content-primary);
+
+        // Hover & active states
+        &:not([aria-disabled='true']):hover,
+        &.LemonButton--active {
+            --lemon-button-bg-color: var(--background-tertiary);
+
+            background: var(--lemon-button-bg-color);
+        }
+
+        // Alt status (not supported)
+
+        // Danger status
         &.LemonButton--status-danger {
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
-                background-color: var(--background-danger-subtle);
+                --lemon-button-bg-color: var(--background-danger-subtle);
             }
         }
     }
