@@ -51,7 +51,7 @@ export function FeatureFlagPermissions({ featureFlag }: { featureFlag: FeatureFl
     const newAccessControls = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
     if (newAccessControls) {
         if (!featureFlag.id) {
-            return <p>Not supported</p>
+            return <p>Please save the feature flag before changing the access controls.</p>
         }
         return (
             <div>
