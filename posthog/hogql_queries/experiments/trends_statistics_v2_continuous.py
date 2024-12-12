@@ -56,10 +56,10 @@ def calculate_probabilities_v2_continuous(
     log_variance = 0.25  # Assumed variance in log-space
 
     # Update parameters for control
-    kappa_n_control = KAPPA_0 + control_variant.exposure
-    mu_n_control = (KAPPA_0 * MU_0 + control_variant.exposure * log_control_mean) / kappa_n_control
-    alpha_n_control = ALPHA_0 + control_variant.exposure / 2
-    beta_n_control = BETA_0 + 0.5 * control_variant.exposure * log_variance
+    kappa_n_control = KAPPA_0 + control_variant.absolute_exposure
+    mu_n_control = (KAPPA_0 * MU_0 + control_variant.absolute_exposure * log_control_mean) / kappa_n_control
+    alpha_n_control = ALPHA_0 + control_variant.absolute_exposure / 2
+    beta_n_control = BETA_0 + 0.5 * control_variant.absolute_exposure * log_variance
 
     # Draw samples from control posterior
     control_posterior = t(
@@ -72,10 +72,10 @@ def calculate_probabilities_v2_continuous(
     for test in test_variants:
         log_test_mean = np.log(test.count + EPSILON)  # Using count field to store mean value
 
-        kappa_n_test = KAPPA_0 + test.exposure
-        mu_n_test = (KAPPA_0 * MU_0 + test.exposure * log_test_mean) / kappa_n_test
-        alpha_n_test = ALPHA_0 + test.exposure / 2
-        beta_n_test = BETA_0 + 0.5 * test.exposure * log_variance
+        kappa_n_test = KAPPA_0 + test.absolute_exposure
+        mu_n_test = (KAPPA_0 * MU_0 + test.absolute_exposure * log_test_mean) / kappa_n_test
+        alpha_n_test = ALPHA_0 + test.absolute_exposure / 2
+        beta_n_test = BETA_0 + 0.5 * test.absolute_exposure * log_variance
 
         test_posterior = t(
             df=2 * alpha_n_test, loc=mu_n_test, scale=np.sqrt(beta_n_test / (kappa_n_test * alpha_n_test))
