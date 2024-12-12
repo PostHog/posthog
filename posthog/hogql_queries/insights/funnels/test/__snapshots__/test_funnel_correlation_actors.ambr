@@ -32,7 +32,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -106,8 +106,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-08 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-08 23:59:59', 6, 'UTC')))), notIn(event.event, ['$pageview', 'insight analyzed']), equals(event.event, 'insight loaded'), ifNull(equals(funnel_actors.steps, 2), 0))
@@ -174,8 +174,8 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_2, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
-                  avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
                   median(step_2_conversion_time) AS step_2_median_conversion_time_inner
            FROM
@@ -313,8 +313,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2, 3]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-08 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2021-01-08 23:59:59', 6, 'UTC')))), notIn(event.event, ['$pageview', 'insight analyzed', 'insight updated']), equals(event.event, 'insight loaded'), ifNull(notEquals(funnel_actors.steps, 3), 1))
@@ -372,7 +372,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -447,7 +447,7 @@
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'foo'), ''), 'null'), '^"|"$', '') AS properties___foo
                           FROM person
                           WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                               (SELECT person.id AS id, max(person.version) AS version
+                                                                               (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                                 FROM person
                                                                                 WHERE equals(person.team_id, 99999)
                                                                                 GROUP BY person.id
@@ -456,8 +456,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)

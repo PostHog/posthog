@@ -1,8 +1,8 @@
 # serializer version: 1
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
          if(isNaN(avgArrayOrNull(step_1_conversion_time_array) AS inter_1_conversion), NULL, inter_1_conversion) AS step_1_average_conversion_time,
          if(isNaN(medianArrayOrNull(step_1_conversion_time_array) AS inter_1_median), NULL, inter_1_median) AS step_1_median_conversion_time,
          if(ifNull(less(row_number, 26), 0), prop, ['Other']) AS final_prop
@@ -18,7 +18,7 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               min(step_1_conversion_time) AS step_1_conversion_time
+               minOrNull(step_1_conversion_time) AS step_1_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
@@ -81,8 +81,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 26 SETTINGS readonly=2,
@@ -97,8 +97,8 @@
 # ---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
          if(isNaN(avgArrayOrNull(step_1_conversion_time_array) AS inter_1_conversion), NULL, inter_1_conversion) AS step_1_average_conversion_time,
          if(isNaN(medianArrayOrNull(step_1_conversion_time_array) AS inter_1_median), NULL, inter_1_median) AS step_1_median_conversion_time,
          if(ifNull(less(row_number, 26), 0), prop, ['Other']) AS final_prop
@@ -114,7 +114,7 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               min(step_1_conversion_time) AS step_1_conversion_time
+               minOrNull(step_1_conversion_time) AS step_1_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
@@ -184,8 +184,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 26 SETTINGS readonly=2,
@@ -200,8 +200,8 @@
 # ---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
          if(isNaN(avgArrayOrNull(step_1_conversion_time_array) AS inter_1_conversion), NULL, inter_1_conversion) AS step_1_average_conversion_time,
          if(isNaN(medianArrayOrNull(step_1_conversion_time_array) AS inter_1_median), NULL, inter_1_median) AS step_1_median_conversion_time,
          if(ifNull(less(row_number, 26), 0), prop, ['Other']) AS final_prop
@@ -217,7 +217,7 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               min(step_1_conversion_time) AS step_1_conversion_time
+               minOrNull(step_1_conversion_time) AS step_1_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
@@ -280,8 +280,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 26 SETTINGS readonly=2,
@@ -296,9 +296,9 @@
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
-         sum(step_3) AS step_3,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
+         sumOrNull(step_3) AS step_3,
          if(isNaN(avgArrayOrNull(step_1_conversion_time_array) AS inter_1_conversion), NULL, inter_1_conversion) AS step_1_average_conversion_time,
          if(isNaN(avgArrayOrNull(step_2_conversion_time_array) AS inter_2_conversion), NULL, inter_2_conversion) AS step_2_average_conversion_time,
          if(isNaN(medianArrayOrNull(step_1_conversion_time_array) AS inter_1_median), NULL, inter_1_median) AS step_1_median_conversion_time,
@@ -318,8 +318,8 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               min(step_1_conversion_time) AS step_1_conversion_time,
-               min(step_2_conversion_time) AS step_2_conversion_time
+               minOrNull(step_1_conversion_time) AS step_1_conversion_time,
+               minOrNull(step_2_conversion_time) AS step_2_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
@@ -395,8 +395,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 26 SETTINGS readonly=2,
@@ -411,9 +411,9 @@
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
-         sum(step_3) AS step_3,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
+         sumOrNull(step_3) AS step_3,
          if(isNaN(avgArrayOrNull(step_1_conversion_time_array) AS inter_1_conversion), NULL, inter_1_conversion) AS step_1_average_conversion_time,
          if(isNaN(avgArrayOrNull(step_2_conversion_time_array) AS inter_2_conversion), NULL, inter_2_conversion) AS step_2_average_conversion_time,
          if(isNaN(medianArrayOrNull(step_1_conversion_time_array) AS inter_1_median), NULL, inter_1_median) AS step_1_median_conversion_time,
@@ -433,8 +433,8 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               min(step_1_conversion_time) AS step_1_conversion_time,
-               min(step_2_conversion_time) AS step_2_conversion_time
+               minOrNull(step_1_conversion_time) AS step_1_conversion_time,
+               minOrNull(step_2_conversion_time) AS step_2_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
@@ -510,8 +510,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 26 SETTINGS readonly=2,
@@ -526,9 +526,9 @@
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group
   '''
-  SELECT sum(step_1) AS step_1,
-         sum(step_2) AS step_2,
-         sum(step_3) AS step_3,
+  SELECT sumOrNull(step_1) AS step_1,
+         sumOrNull(step_2) AS step_2,
+         sumOrNull(step_3) AS step_3,
          if(isNaN(avgArrayOrNull(step_1_conversion_time_array) AS inter_1_conversion), NULL, inter_1_conversion) AS step_1_average_conversion_time,
          if(isNaN(avgArrayOrNull(step_2_conversion_time_array) AS inter_2_conversion), NULL, inter_2_conversion) AS step_2_average_conversion_time,
          if(isNaN(medianArrayOrNull(step_1_conversion_time_array) AS inter_1_median), NULL, inter_1_median) AS step_1_median_conversion_time,
@@ -548,8 +548,8 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               min(step_1_conversion_time) AS step_1_conversion_time,
-               min(step_2_conversion_time) AS step_2_conversion_time
+               minOrNull(step_1_conversion_time) AS step_1_conversion_time,
+               minOrNull(step_2_conversion_time) AS step_2_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
@@ -632,8 +632,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 26 SETTINGS readonly=2,
@@ -658,8 +658,8 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               min(step_1_conversion_time) AS step_1_conversion_time,
-               min(step_2_conversion_time) AS step_2_conversion_time
+               minOrNull(step_1_conversion_time) AS step_1_conversion_time,
+               minOrNull(step_2_conversion_time) AS step_2_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
@@ -742,8 +742,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE and(ifNull(in(steps, [1, 2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
                                                        and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC) AS source
@@ -773,8 +773,8 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               min(step_1_conversion_time) AS step_1_conversion_time,
-               min(step_2_conversion_time) AS step_2_conversion_time
+               minOrNull(step_1_conversion_time) AS step_1_conversion_time,
+               minOrNull(step_2_conversion_time) AS step_2_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
@@ -857,8 +857,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE and(ifNull(in(steps, [2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
                                                     and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC) AS source
@@ -888,8 +888,8 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               min(step_1_conversion_time) AS step_1_conversion_time,
-               min(step_2_conversion_time) AS step_2_conversion_time
+               minOrNull(step_1_conversion_time) AS step_1_conversion_time,
+               minOrNull(step_2_conversion_time) AS step_2_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
@@ -972,8 +972,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE and(ifNull(in(steps, [1, 2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
                                                        and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC) AS source
@@ -1003,8 +1003,8 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               min(step_1_conversion_time) AS step_1_conversion_time,
-               min(step_2_conversion_time) AS step_2_conversion_time
+               minOrNull(step_1_conversion_time) AS step_1_conversion_time,
+               minOrNull(step_2_conversion_time) AS step_2_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
@@ -1087,8 +1087,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE and(ifNull(in(steps, [2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
                                                     and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC) AS source

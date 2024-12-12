@@ -180,7 +180,7 @@
                   person.properties AS properties
            FROM person
            WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                (SELECT person.id AS id, max(person.version) AS version
+                                                                (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                  FROM person
                                                                  WHERE equals(person.team_id, 99999)
                                                                  GROUP BY person.id
@@ -301,7 +301,7 @@
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                                      (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                        FROM person
                                                                        WHERE equals(person.team_id, 99999)
                                                                        GROUP BY person.id
@@ -396,7 +396,7 @@
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                                      (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                        FROM person
                                                                        WHERE equals(person.team_id, 99999)
                                                                        GROUP BY person.id
@@ -491,7 +491,7 @@
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                                      (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                        FROM person
                                                                        WHERE equals(person.team_id, 99999)
                                                                        GROUP BY person.id
@@ -586,7 +586,7 @@
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                                      (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                        FROM person
                                                                        WHERE equals(person.team_id, 99999)
                                                                        GROUP BY person.id
@@ -688,7 +688,7 @@
                   person.properties AS properties
            FROM person
            WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                (SELECT person.id AS id, max(person.version) AS version
+                                                                (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                  FROM person
                                                                  WHERE equals(person.team_id, 99999)
                                                                  GROUP BY person.id
@@ -809,7 +809,7 @@
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                                      (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                        FROM person
                                                                        WHERE equals(person.team_id, 99999)
                                                                        GROUP BY person.id
@@ -904,7 +904,7 @@
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                                      (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                        FROM person
                                                                        WHERE equals(person.team_id, 99999)
                                                                        GROUP BY person.id
@@ -999,7 +999,7 @@
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                                      (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                        FROM person
                                                                        WHERE equals(person.team_id, 99999)
                                                                        GROUP BY person.id
@@ -1094,7 +1094,7 @@
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                                      (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                        FROM person
                                                                        WHERE equals(person.team_id, 99999)
                                                                        GROUP BY person.id
