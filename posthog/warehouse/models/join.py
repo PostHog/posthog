@@ -113,6 +113,38 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if not timestamp_key:
                 raise ResolutionError("experiments_timestamp_key is not set for this join")
 
+            whereExpr = [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value="$feature_flag_called"),
+                )
+            ]
+            # :HACK: We need to pull the timestamp gt/lt values from node.where.exprs[0] because
+            # we can't reference the parent data warehouse table in the where clause.
+            if (
+                node.where.exprs[0].op == ast.CompareOperationOp.GtEq
+                and node.where.exprs[0].left.expr.to_hogql() == timestamp_key
+            ):
+                whereExpr.append(
+                    ast.CompareOperation(
+                        op=node.where.exprs[0].op,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=node.where.exprs[0].right,
+                    ),
+                )
+            if (
+                node.where.exprs[1].op == ast.CompareOperationOp.LtEq
+                and node.where.exprs[0].left.expr.to_hogql() == timestamp_key
+            ):
+                whereExpr.append(
+                    ast.CompareOperation(
+                        op=node.where.exprs[1].op,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=node.where.exprs[1].right,
+                    ),
+                )
+
             return ast.JoinExpr(
                 table=ast.SelectQuery(
                     select=[
@@ -128,11 +160,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                         }.items()
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    where=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value="$feature_flag_called"),
-                    ),
+                    where=ast.And(exprs=whereExpr),
                 ),
                 # ASOF JOIN finds the most recent matching event that occurred at or before each data warehouse timestamp.
                 #
