@@ -166,6 +166,8 @@ class RemoteConfig(UUIDModel):
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
                 "scriptConfig": rrweb_script_config,
+                # Indicates there are domain restrictions - so the SDK can make one follow up call to check
+                "domainRestrictions": len(team.recording_domains or []) > 0,
             }
 
             if isinstance(team.session_replay_config, dict):
