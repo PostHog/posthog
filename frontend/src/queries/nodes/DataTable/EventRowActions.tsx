@@ -55,6 +55,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                     )}
                     <ViewRecordingButton
                         fullWidth
+                        inModal
                         sessionId={event.properties.$session_id}
                         timestamp={event.timestamp}
                         disabledReason={

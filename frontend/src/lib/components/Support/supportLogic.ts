@@ -46,6 +46,29 @@ function getSessionReplayLink(): string {
     return `\nSession: ${replayUrl}`
 }
 
+function getErrorTrackingLink(): string {
+    const filterGroup = encodeURIComponent(
+        JSON.stringify({
+            type: 'AND',
+            values: [
+                {
+                    type: 'AND',
+                    values: [
+                        {
+                            key: '$session_id',
+                            value: [posthog.get_session_id()],
+                            operator: 'exact',
+                            type: 'event',
+                        },
+                    ],
+                },
+            ],
+        })
+    )
+
+    return `\nExceptions: https://us.posthog.com/project/2/error_tracking?filterGroup=${filterGroup}`
+}
+
 function getDjangoAdminLink(
     user: UserType | null,
     cloudRegion: Region | null | undefined,
@@ -452,6 +475,7 @@ export const supportLogic = kea<supportLogicType>([
                             `\nTarget area: ${target_area}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
                             getSessionReplayLink() +
+                            getErrorTrackingLink() +
                             getCurrentLocationLink() +
                             getDjangoAdminLink(
                                 userLogic.values.user,
