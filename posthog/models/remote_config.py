@@ -1,4 +1,3 @@
-from base64 import b64encode
 import json
 import os
 from typing import Any, Optional
@@ -259,9 +258,11 @@ class RemoteConfig(UUIDModel):
                     f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback();\n  }}\n}}"
                 )
             )
-        site_functions = HogFunction.objects.filter(
-            team=self.team, enabled=True, type__in=("site_destination", "site_app")
-        ).all()
+        site_functions = (
+            HogFunction.objects.select_related("team")
+            .filter(team=self.team, enabled=True, type__in=("site_destination", "site_app"))
+            .all()
+        )
 
         site_functions_js = []
 
@@ -300,7 +301,6 @@ class RemoteConfig(UUIDModel):
         REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
         try:
             remote_config = cls.objects.select_related("team").get(team__api_token=token)
-            print("remote_config got fresh", remote_config)
         except cls.DoesNotExist:
             cache.set(key, "404", timeout=timeout)
             REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
