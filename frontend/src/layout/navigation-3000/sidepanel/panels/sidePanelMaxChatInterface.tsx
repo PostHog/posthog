@@ -82,9 +82,12 @@ export function MaxChatInterface(): JSX.Element {
     }
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const endButtonRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+        setTimeout(() => {
+            endButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+        }, 100)
     }, [currentMessages])
 
     const displayMessages = currentMessages.filter((message) => message.content !== '__GREETING__')
@@ -379,6 +382,7 @@ export function MaxChatInterface(): JSX.Element {
                             Send
                         </LemonButton>
                     </form>
+                    <div ref={endButtonRef} />
                 </>
             )}
         </div>
