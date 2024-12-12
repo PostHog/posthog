@@ -165,7 +165,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             attrs["filters"] = attrs.get("filters") or {}
             attrs["inputs_schema"] = attrs.get("inputs_schema") or []
             attrs["inputs"] = attrs.get("inputs") or {}
-            attrs["mappings"] = attrs.get("mappings") or []
+            attrs["mappings"] = attrs.get("mappings") or None
 
         # Used for both top level input validation, and mappings input validation
         def validate_input_and_filters(attrs: dict, type: str):
@@ -194,7 +194,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         validate_input_and_filters(attrs, attrs["type"])
 
-        if "mappings" in attrs and attrs["mappings"] is not None:
+        if attrs.get("mappings", None) is not None:
+            if attrs["type"] != "site_destination":
+                raise serializers.ValidationError({"mappings": "Mappings are only allowed for site destinations."})
             for mapping in attrs["mappings"]:
                 validate_input_and_filters(mapping, attrs["type"])
 
