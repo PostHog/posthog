@@ -100,7 +100,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         anomalies_descriptions = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
         assert len(anomalies_descriptions) == 1
         assert (
-            "The insight value ($pageview) for previous interval (1) is more than upper threshold (0.0)"
+            "The insight value ($pageview) for current interval (1) is more than upper threshold (0.0)"
             in anomalies_descriptions[0]
         )
 
