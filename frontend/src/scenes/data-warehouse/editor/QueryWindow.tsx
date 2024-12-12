@@ -40,14 +40,16 @@ export function QueryWindow(): JSX.Element {
     const { selectTab, deleteTab, createTab, setQueryInput, runQuery, setError, setIsValidView } = useActions(logic)
 
     return (
-        <div className="flex flex-1 flex-col h-full">
-            <QueryTabs
-                models={allTabs}
-                onClick={selectTab}
-                onClear={deleteTab}
-                onAdd={createTab}
-                activeModelUri={activeModelUri}
-            />
+        <div className="flex flex-1 flex-col h-full overflow-hidden">
+            <div className="overflow-x-auto">
+                <QueryTabs
+                    models={allTabs}
+                    onClick={selectTab}
+                    onClear={deleteTab}
+                    onAdd={createTab}
+                    activeModelUri={activeModelUri}
+                />
+            </div>
             {editingView && (
                 <div className="h-7 bg-warning-highlight p-1">
                     <span> Editing view "{editingView.name}"</span>
