@@ -16,7 +16,7 @@ from posthog.schema import HumanMessage
 
 
 class MessageSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True)
+    content = serializers.CharField(required=True, max_length=1000)
     conversation = serializers.UUIDField(required=False)
 
     def validate(self, data):

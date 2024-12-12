@@ -74,3 +74,84 @@ class TestConversation(APIBaseTest):
     def test_invalid_message_format(self):
         response = self.client.post("/api/projects/@current/conversations/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rate_limit_burst(self):
+        # Create multiple requests to trigger burst rate limit
+        with patch.object(Assistant, "_stream", return_value=["test response"]):
+            for _ in range(11):  # Assuming burst limit is less than this
+                response = self.client.post(
+                    "/api/projects/@current/conversations/",
+                    {"content": "test query"},
+                )
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_empty_content(self):
+        response = self.client.post(
+            "/api/projects/@current/conversations/",
+            {"content": ""},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_content_too_long(self):
+        response = self.client.post(
+            "/api/projects/@current/conversations/",
+            {"content": "x" * 1001},  # Very long message
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_invalid_conversation_id(self):
+        response = self.client.post(
+            "/api/projects/@current/conversations/",
+            {
+                "conversation": "not-a-valid-uuid",
+                "content": "test query",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_nonexistent_conversation(self):
+        response = self.client.post(
+            "/api/projects/@current/conversations/",
+            {
+                "conversation": "12345678-1234-5678-1234-567812345678",
+                "content": "test query",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_deleted_conversation(self):
+        # Create and then delete a conversation
+        conversation = Conversation.objects.create(user=self.user, team=self.team)
+        conversation_id = conversation.id
+        conversation.delete()
+
+        response = self.client.post(
+            "/api/projects/@current/conversations/",
+            {
+                "conversation": str(conversation_id),
+                "content": "test query",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_unauthenticated_request(self):
+        self.client.logout()
+        response = self.client.post(
+            "/api/projects/@current/conversations/",
+            {"content": "test query"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_streaming_error_handling(self):
+        def raise_error():
+            yield "some content"
+            raise Exception("Streaming error")
+
+        with patch.object(Assistant, "_stream", side_effect=raise_error):
+            response = self.client.post(
+                "/api/projects/@current/conversations/",
+                {"content": "test query"},
+            )
+            with self.assertRaises(Exception) as context:
+                b"".join(response.streaming_content)
+            self.assertTrue("Streaming error" in str(context.exception))
