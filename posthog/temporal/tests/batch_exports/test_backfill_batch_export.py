@@ -549,7 +549,7 @@ async def failing_s3_batch_export(ateam, temporal_client):
 
 @pytest.mark.django_db(transaction=True)
 async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
-    temporal_worker, failing_s3_batch_export, temporal_client, ateam, clickhouse_client
+    temporal_worker, temporal_worker_batch_exports, failing_s3_batch_export, temporal_client, ateam, clickhouse_client
 ):
     """Test BackfillBatchExportWorkflow will be cancelled on repeated failures."""
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
