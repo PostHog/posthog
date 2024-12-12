@@ -2862,7 +2862,7 @@
                argMax(latest_0, steps) AS timestamp,
                argMax(latest_1, steps) AS final_timestamp,
                argMax(latest_0, steps) AS first_timestamp,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
@@ -2901,8 +2901,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
   WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
@@ -2924,7 +2924,7 @@
                argMax(latest_0, steps) AS timestamp,
                argMax(latest_1, steps) AS final_timestamp,
                argMax(latest_0, steps) AS first_timestamp,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
@@ -2963,8 +2963,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
@@ -3000,7 +3000,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -3067,8 +3067,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
@@ -3111,7 +3111,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -3178,8 +3178,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
@@ -3222,7 +3222,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -3289,8 +3289,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
@@ -3333,7 +3333,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -3400,8 +3400,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
@@ -3438,7 +3438,7 @@
                argMax(latest_0, steps) AS timestamp,
                argMax(latest_1, steps) AS final_timestamp,
                argMax(latest_0, steps) AS first_timestamp,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
@@ -3485,8 +3485,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
   WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
@@ -3508,7 +3508,7 @@
                argMax(latest_0, steps) AS timestamp,
                argMax(latest_1, steps) AS final_timestamp,
                argMax(latest_0, steps) AS first_timestamp,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
@@ -3555,8 +3555,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
@@ -3592,7 +3592,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -3659,8 +3659,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
@@ -3703,7 +3703,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -3770,8 +3770,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
@@ -3811,7 +3811,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT aggregation_target AS aggregation_target,
@@ -3850,8 +3850,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      LEFT JOIN
@@ -3885,7 +3885,7 @@
                argMax(latest_0, steps) AS timestamp,
                argMax(latest_1, steps) AS final_timestamp,
                argMax(latest_0, steps) AS first_timestamp,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
@@ -3924,8 +3924,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
@@ -3960,7 +3960,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -4035,8 +4035,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
@@ -4078,7 +4078,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -4153,8 +4153,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
@@ -4196,7 +4196,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -4271,8 +4271,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
@@ -4314,7 +4314,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -4389,8 +4389,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
@@ -4430,7 +4430,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT aggregation_target AS aggregation_target,
@@ -4469,8 +4469,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      LEFT JOIN
@@ -4504,7 +4504,7 @@
                argMax(latest_0, steps) AS timestamp,
                argMax(latest_1, steps) AS final_timestamp,
                argMax(latest_0, steps) AS first_timestamp,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
@@ -4543,8 +4543,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
@@ -4577,7 +4577,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT aggregation_target AS aggregation_target,
@@ -4616,8 +4616,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      LEFT JOIN
@@ -4651,7 +4651,7 @@
                argMax(latest_0, steps) AS timestamp,
                argMax(latest_1, steps) AS final_timestamp,
                argMax(latest_0, steps) AS first_timestamp,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
@@ -4690,8 +4690,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
@@ -4726,7 +4726,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -4801,8 +4801,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
@@ -4844,7 +4844,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -4919,8 +4919,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
@@ -4962,7 +4962,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -5037,8 +5037,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
@@ -5080,7 +5080,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -5155,8 +5155,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
@@ -5196,7 +5196,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT aggregation_target AS aggregation_target,
@@ -5235,8 +5235,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      LEFT JOIN
@@ -5270,7 +5270,7 @@
                argMax(latest_0, steps) AS timestamp,
                argMax(latest_1, steps) AS final_timestamp,
                argMax(latest_0, steps) AS first_timestamp,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
@@ -5309,8 +5309,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
@@ -5343,7 +5343,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT aggregation_target AS aggregation_target,
@@ -5382,8 +5382,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      LEFT JOIN
@@ -5417,7 +5417,7 @@
                argMax(latest_0, steps) AS timestamp,
                argMax(latest_1, steps) AS final_timestamp,
                argMax(latest_0, steps) AS first_timestamp,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
@@ -5456,8 +5456,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
@@ -5492,7 +5492,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -5567,8 +5567,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
@@ -5610,7 +5610,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -5685,8 +5685,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
@@ -5728,7 +5728,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -5803,8 +5803,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
@@ -5846,7 +5846,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -5921,8 +5921,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
@@ -5962,7 +5962,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT aggregation_target AS aggregation_target,
@@ -6001,8 +6001,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      LEFT JOIN
@@ -6036,7 +6036,7 @@
                argMax(latest_0, steps) AS timestamp,
                argMax(latest_1, steps) AS final_timestamp,
                argMax(latest_0, steps) AS first_timestamp,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
@@ -6075,8 +6075,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
@@ -6109,7 +6109,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT aggregation_target AS aggregation_target,
@@ -6148,8 +6148,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      LEFT JOIN
@@ -6183,7 +6183,7 @@
                argMax(latest_0, steps) AS timestamp,
                argMax(latest_1, steps) AS final_timestamp,
                argMax(latest_0, steps) AS first_timestamp,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
@@ -6222,8 +6222,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
@@ -6258,7 +6258,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -6333,8 +6333,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
@@ -6376,7 +6376,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -6451,8 +6451,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
@@ -6494,7 +6494,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -6569,8 +6569,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
@@ -6612,7 +6612,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
@@ -6687,8 +6687,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
@@ -6728,7 +6728,7 @@
                   argMax(latest_0, steps) AS timestamp,
                   argMax(latest_1, steps) AS final_timestamp,
                   argMax(latest_0, steps) AS first_timestamp,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner
            FROM
              (SELECT aggregation_target AS aggregation_target,
@@ -6767,8 +6767,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps))))
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps))))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors
      LEFT JOIN
@@ -6802,7 +6802,7 @@
                argMax(latest_0, steps) AS timestamp,
                argMax(latest_1, steps) AS final_timestamp,
                argMax(latest_0, steps) AS first_timestamp,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
@@ -6841,8 +6841,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps))))
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps))))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
