@@ -575,6 +575,7 @@
 .SidebarListItem__rename {
     flex-direction: column;
     justify-content: center;
+
     // Pseudo-elements don't work on inputs, so we use a wrapper div
     background: var(--bg-light);
 

@@ -156,4 +156,5 @@ class TableCollector(TraversingVisitor):
         self.table_names = set()
 
     def visit_join_expr(self, node: ast.JoinExpr):
-        self.table_names.add(node.table.chain[0])
+        if isinstance(node.table, ast.Field):
+            self.table_names.add(node.table.chain[0])
