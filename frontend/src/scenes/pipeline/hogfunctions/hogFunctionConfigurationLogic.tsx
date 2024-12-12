@@ -451,6 +451,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : undefined,
+                    mappings:
+                        data.type === 'site_destination' && (!data.mappings || data.mappings.length === 0)
+                            ? 'You must add at least one mapping'
+                            : '',
                     ...(values.inputFormErrors as any),
                 }
             },
@@ -809,7 +813,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return hogFunction?.template?.hog && hogFunction.template.hog !== configuration.hog
             },
         ],
-
         subTemplate: [
             (s) => [s.template, s.subTemplateId],
             (template, subTemplateId) => {

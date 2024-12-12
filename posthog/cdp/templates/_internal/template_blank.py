@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionMapping, HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplate
 
 blank_site_destination: HogFunctionTemplate = HogFunctionTemplate(
     status="client-side",
@@ -50,8 +50,10 @@ export function onEvent({ inputs, posthog }) {
             "required": True,
         },
     ],
-    mappings=[
-        HogFunctionMapping(
+    mappings=[],
+    mapping_templates=[
+        HogFunctionMappingTemplate(
+            name="Aquisition",
             filters={"events": [{"id": "$pageview", "type": "events"}]},
             inputs_schema=[
                 {
@@ -76,7 +78,8 @@ export function onEvent({ inputs, posthog }) {
                 },
             ],
         ),
-        HogFunctionMapping(
+        HogFunctionMappingTemplate(
+            name="Conversion",
             filters={"events": [{"id": "$autocapture", "type": "events"}]},
             inputs_schema=[
                 {
@@ -101,7 +104,8 @@ export function onEvent({ inputs, posthog }) {
                 },
             ],
         ),
-        HogFunctionMapping(
+        HogFunctionMappingTemplate(
+            name="Retention",
             filters={"events": [{"id": "$pageleave", "type": "events"}]},
             inputs_schema=[
                 {
