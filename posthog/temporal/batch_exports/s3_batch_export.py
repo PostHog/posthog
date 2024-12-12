@@ -685,11 +685,10 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
         )
-        records_completed = 0
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            return records_completed
+            return 0
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
