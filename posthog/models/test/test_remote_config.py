@@ -12,7 +12,7 @@ from posthog.models.remote_config import RemoteConfig, cache_key_for_team_token
 from posthog.test.base import BaseTest
 from django.core.cache import cache
 
-CONFIG_REFRESH_QUERY_COUNT = 6
+CONFIG_REFRESH_QUERY_COUNT = 5
 
 
 class _RemoteConfigBase(BaseTest):
@@ -518,7 +518,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
 
     def test_renders_js_including_site_functions(self):
         non_site_app = HogFunction.objects.create(
-            name="Test",
+            name="Non site app",
             type=HogFunctionType.DESTINATION,
             team=self.team,
             enabled=True,
@@ -529,7 +529,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         )
 
         site_destination = HogFunction.objects.create(
-            name="Test",
+            name="Site destination",
             type=HogFunctionType.SITE_DESTINATION,
             team=self.team,
             enabled=True,
@@ -540,15 +540,13 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         )
 
         site_app = HogFunction.objects.create(
-            name="Test",
+            name="Site app",
             type=HogFunctionType.SITE_APP,
             team=self.team,
             enabled=True,
         )
 
-        print("about to get")
         js = self.remote_config.get_config_js_via_token(self.team.api_token)
-        print(js)
         assert str(non_site_app.id) not in js
         assert str(site_destination.id) in js
         assert str(site_app.id) in js
@@ -561,7 +559,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true};
+  window._POSTHOG_CONFIG = {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true};
   window._POSTHOG_JS_APPS = [    
     {
       id: 'SITE_DESTINATION_ID',

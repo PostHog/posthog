@@ -265,8 +265,6 @@ class RemoteConfig(UUIDModel):
 
         site_functions_js = []
 
-        print("found", site_functions)
-
         for site_function in site_functions:
             try:
                 source = get_transpiled_function(site_function)
@@ -396,7 +394,7 @@ def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
 
 @receiver(post_save, sender=HogFunction)
 def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
-    if instance.enabled and instance.type in ("site_destination", "site_app") and instance.transpiled:
+    if instance.enabled and instance.type in ("site_destination", "site_app"):
         _update_team_remote_config(instance.team_id)
 
 
