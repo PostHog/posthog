@@ -113,6 +113,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config.config["sessionRecording"]["sampleRate"] == "0.50"
 
     def test_session_recording_domains(self):
+        self.team.session_recording_opt_in = True
         self.team.recording_domains = ["posthog.com", "posthog.com/docs"]
         self.team.save()
         self.remote_config.refresh_from_db()
