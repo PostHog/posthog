@@ -238,10 +238,10 @@ export function NetworkCaptureSettings(): JSX.Element {
                         Learn how to mask header and payload values in our docs
                     </Link>
                 </p>
-                <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
                 <LemonBanner type="info" className="mb-4">
                     <PayloadWarning />
                 </LemonBanner>
+                <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
                 <div className="flex flex-row space-x-2">
                     <LemonSwitch
                         data-attr="opt-in-capture-network-headers-switch"
@@ -315,6 +315,10 @@ export function NetworkCaptureSettings(): JSX.Element {
     )
 }
 
+/**
+ * @deprecated use ReplayTriggers instead, this is only presented to teams that have these settings set
+ * @constructor
+ */
 export function ReplayAuthorizedDomains(): JSX.Element {
     return (
         <div className="space-y-2">

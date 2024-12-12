@@ -3,6 +3,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -17,7 +18,16 @@ export const settingsLogic = kea<settingsLogicType>([
     key((props) => props.logicKey ?? 'global'),
     path((key) => ['scenes', 'settings', 'settingsLogic', key]),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature'], preflightLogic, ['preflight']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['hasAvailableFeature'],
+            preflightLogic,
+            ['preflight'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     }),
 
     actions({
@@ -135,8 +145,24 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         settings: [
-            (s) => [s.selectedLevel, s.selectedSectionId, s.sections, s.settingId, s.doesMatchFlags, s.preflight],
-            (selectedLevel, selectedSectionId, sections, settingId, doesMatchFlags, preflight): Setting[] => {
+            (s) => [
+                s.selectedLevel,
+                s.selectedSectionId,
+                s.sections,
+                s.settingId,
+                s.doesMatchFlags,
+                s.preflight,
+                s.currentTeam,
+            ],
+            (
+                selectedLevel,
+                selectedSectionId,
+                sections,
+                settingId,
+                doesMatchFlags,
+                preflight,
+                currentTeam
+            ): Setting[] => {
                 let settings: Setting[] = []
 
                 if (selectedSectionId) {
@@ -157,6 +183,9 @@ export const settingsLogic = kea<settingsLogicType>([
                     }
                     if (x.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
                         return false
+                    }
+                    if (x.allowForTeam) {
+                        return x.allowForTeam(currentTeam)
                     }
                     return true
                 })
