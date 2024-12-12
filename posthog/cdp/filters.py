@@ -59,10 +59,9 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
         all_filters_exprs.append(ast.And(exprs=exprs))
 
     if all_filters_exprs:
-        final_expr = ast.Or(exprs=all_filters_exprs)
-        return final_expr
-    else:
-        return ast.Constant(value=True)
+        return ast.Or(exprs=all_filters_exprs)
+
+    return ast.Constant(value=True)
 
 
 def filter_action_ids(filters: Optional[dict]) -> list[int]:
