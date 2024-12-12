@@ -632,6 +632,7 @@ if __name__ == "__main__":
 
     <url_validation>
     For each URL in draft:
+    0. Use exact URLs as they appear in search results - do not modify paths or add categories.
     1. Check if active, correct, and relevant.
     2. If not:
        - Find updated link with `max_search_tool` tool.

@@ -140,7 +140,7 @@ export function MaxChatInterface(): JSX.Element {
                                                   <div>Max searched</div>
                                               ) : (
                                                   <>
-                                                      <LemonMarkdown>
+                                                      <LemonMarkdown disableDocsRedirect>
                                                           {message.content
                                                               .replace(new RegExp('<thinking>.*?</thinking>', 's'), '')
                                                               .replace(
