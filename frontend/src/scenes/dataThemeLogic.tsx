@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, selectors, useValues } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
@@ -18,6 +18,7 @@ export const ThemeName = ({ id }: { id: number }): JSX.Element => {
 export const dataThemeLogic = kea<dataThemeLogicType>([
     path(['scenes', 'dataThemeLogic']),
     connect({ values: [teamLogic, ['currentTeam']] }),
+    actions({ setThemes: (themes) => ({ themes }) }),
     loaders({
         themes: [
             null as DataColorThemeModel[] | null,
@@ -25,6 +26,11 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                 loadThemes: async () => await api.dataColorThemes.list(),
             },
         ],
+    }),
+    reducers({
+        themes: {
+            setThemes: (_, { themes }) => themes,
+        },
     }),
     selectors({
         posthogTheme: [
