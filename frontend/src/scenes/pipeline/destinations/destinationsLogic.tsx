@@ -62,9 +62,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
     })),
     actions({
-        toggleNode: (destination: Destination | SiteApp, enabled: boolean) => ({ destination, enabled }),
+        toggleNode: (destination: Destination | SiteApp | Transformation, enabled: boolean) => ({
+            destination,
+            enabled,
+        }),
         toggleNodeHogFunction: (destination: FunctionDestination, enabled: boolean) => ({ destination, enabled }),
-        deleteNode: (destination: Destination | SiteApp) => ({ destination }),
+        deleteNode: (destination: Destination | SiteApp | Transformation) => ({ destination }),
         deleteNodeBatchExport: (destination: BatchExportDestination) => ({ destination }),
         deleteNodeHogFunction: (destination: FunctionDestination) => ({ destination }),
         deleteNodeWebhook: (destination: WebhookDestination) => ({ destination }),
