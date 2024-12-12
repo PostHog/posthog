@@ -9,9 +9,7 @@ from django.contrib.postgres.operations import AddIndexConcurrently, RemoveIndex
 
 class Migration(migrations.Migration):
     atomic = False  # Added to support concurrent index creation
-    dependencies = [
-        ("posthog", "0528_project_field_in_taxonomy"),
-    ]
+    dependencies = [("posthog", "0529_hog_function_mappings")]
 
     operations = [
         # First clean up rows that would fail the project-based unique constraints we're adding

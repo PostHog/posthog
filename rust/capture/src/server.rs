@@ -13,6 +13,8 @@ use crate::limiters::overflow::OverflowLimiter;
 use crate::limiters::redis::{
     QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
 };
+
+use crate::limiters::token_dropper::TokenDropper;
 use crate::redis::RedisClient;
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
@@ -54,6 +56,11 @@ where
     )
     .expect("failed to create billing limiter");
 
+    let token_dropper = config
+        .dropped_keys
+        .map(|k| TokenDropper::new(&k))
+        .unwrap_or_default();
+
     // In Recordings capture mode, we unpack a batch of events, and then pack them back up into
     // a big blob and send to kafka all at once - so we should abort unpacking a batch if the data
     // size crosses the kafka limit. In the Events mode, we can unpack the batch and send each
@@ -78,6 +85,7 @@ where
             PrintSink {},
             redis_client,
             billing_limiter,
+            token_dropper,
             config.export_prometheus,
             config.capture_mode,
             config.concurrency_limit,
@@ -126,6 +134,7 @@ where
             sink,
             redis_client,
             billing_limiter,
+            token_dropper,
             config.export_prometheus,
             config.capture_mode,
             config.concurrency_limit,

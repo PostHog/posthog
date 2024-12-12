@@ -22,3 +22,12 @@ def update_team_remote_config(team_id: int) -> None:
         remote_config = RemoteConfig(team=team)
 
     remote_config.sync()
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+def sync_all_remote_configs() -> None:
+    # Meant to ensure we have all configs in sync in case something failed
+
+    # Only select the id from the team queryset
+    for team_id in Team.objects.values_list("id", flat=True):
+        update_team_remote_config.delay(team_id)

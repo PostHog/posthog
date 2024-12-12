@@ -910,6 +910,8 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
     compareFilter?: CompareFilter
+    /**  Whether we should be comparing against a specific conversion goal */
+    conversionGoal?: WebAnalyticsConversionGoal | null
 }
 
 export type AssistantArrayPropertyFilterOperator = PropertyOperator.Exact | PropertyOperator.IsNot
@@ -1798,7 +1800,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
-    compare?: boolean
+    compareFilter?: CompareFilter | null
     includeLCPScore?: boolean
 }
 
@@ -1850,6 +1852,7 @@ export enum WebStatsBreakdown {
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
+    compareFilter?: CompareFilter | null
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     doPathCleaning?: boolean
@@ -2004,6 +2007,7 @@ export interface ExperimentTrendsQueryResponse {
     probability: Record<string, number>
     significant: boolean
     significance_code: ExperimentSignificanceCode
+    stats_version?: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
 }
@@ -2039,6 +2043,7 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     // Defaults to $feature_flag_called if not specified
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
+    stats_version?: integer
 }
 
 /**

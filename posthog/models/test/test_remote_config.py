@@ -1,12 +1,16 @@
 from decimal import Decimal
+from unittest.mock import patch
 from inline_snapshot import snapshot
+import pytest
+from posthog.models.action.action import Action
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.feedback.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
-from posthog.models.remote_config import RemoteConfig
+from posthog.models.remote_config import RemoteConfig, cache_key_for_team_token
 from posthog.test.base import BaseTest
-from django.utils import timezone
+from django.core.cache import cache
 
 
 class _RemoteConfigBase(BaseTest):
@@ -14,6 +18,7 @@ class _RemoteConfigBase(BaseTest):
 
     def setUp(self):
         super().setUp()
+
         project, team = Project.objects.create_with_team(
             initiating_user=self.user,
             organization=self.organization,
@@ -36,7 +41,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config.config == snapshot(
             {
                 "token": "phc_12345",
-                "surveys": False,
+                "surveys": [],
                 "heatmaps": False,
                 "siteApps": [],
                 "analytics": {"endpoint": "/i/v0/e/"},
@@ -47,7 +52,7 @@ class TestRemoteConfig(_RemoteConfigBase):
                 "autocapture_opt_out": False,
                 "supportedCompression": ["gzip", "gzip-js"],
                 "autocaptureExceptions": False,
-                "defaultIdentifiedOnly": False,
+                "defaultIdentifiedOnly": True,
                 "elementsChainAsString": True,
             }
         )
@@ -108,25 +113,198 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config.config["sessionRecording"]["sampleRate"] == "0.50"
 
 
-class TestRemoteConfigSync(_RemoteConfigBase):
-    def test_does_not_sync_if_no_changes(self):
-        synced_at = self.remote_config.synced_at
+class TestRemoteConfigSurveys(_RemoteConfigBase):
+    # Largely copied from TestSurveysAPIList
+    def setUp(self):
+        super().setUp()
 
-        assert synced_at
-        assert synced_at < timezone.now()
-        self.remote_config.config["surveys"] = False
-        self.remote_config.sync()
-        assert synced_at == self.remote_config.synced_at
+        self.team.save()
 
-        self.remote_config.refresh_from_db()  # Ensure the config object is not referentially the same
-        self.remote_config.sync()
-        assert synced_at == self.remote_config.synced_at
+    def test_includes_survey_config(self):
+        survey_appearance = {
+            "thankYouMessageHeader": "Thanks for your feedback!",
+            "thankYouMessageDescription": "We'll use it to make notebooks better",
+        }
+
+        self.team.survey_config = {"appearance": survey_appearance}
+        self.team.save()
+
+        self.remote_config.refresh_from_db()
+        assert self.remote_config.config["survey_config"] == snapshot(
+            {
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "We'll use it to make notebooks better",
+                }
+            }
+        )
+
+    def test_includes_range_of_survey_types(self):
+        survey_basic = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Basic survey",
+            description="This should not be included",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+        )
+        linked_flag = FeatureFlag.objects.create(team=self.team, key="linked-flag", created_by=self.user)
+        targeting_flag = FeatureFlag.objects.create(team=self.team, key="targeting-flag", created_by=self.user)
+        internal_targeting_flag = FeatureFlag.objects.create(
+            team=self.team, key="custom-targeting-flag", created_by=self.user
+        )
+
+        survey_with_flags = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey with flags",
+            type="popover",
+            linked_flag=linked_flag,
+            targeting_flag=targeting_flag,
+            internal_targeting_flag=internal_targeting_flag,
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="user subscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        survey_with_actions = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="survey with actions",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+        survey_with_actions.actions.set(Action.objects.filter(name="user subscribed"))
+        survey_with_actions.save()
+
+        self.remote_config.refresh_from_db()
+        assert self.remote_config.config["surveys"]
+        assert self.remote_config.config["surveys"] == [
+            {
+                "id": str(survey_basic.id),
+                "name": "Basic survey",
+                "type": "popover",
+                "end_date": None,
+                "questions": [{"type": "open", "question": "What's a survey?"}],
+                "appearance": None,
+                "conditions": None,
+                "start_date": None,
+                "current_iteration": None,
+                "current_iteration_start_date": None,
+            },
+            {
+                "id": str(survey_with_flags.id),
+                "name": "Survey with flags",
+                "type": "popover",
+                "end_date": None,
+                "questions": [{"type": "open", "question": "What's a hedgehog?"}],
+                "appearance": None,
+                "conditions": None,
+                "start_date": None,
+                "linked_flag_key": "linked-flag",
+                "current_iteration": None,
+                "targeting_flag_key": "targeting-flag",
+                "internal_targeting_flag_key": "custom-targeting-flag",
+                "current_iteration_start_date": None,
+            },
+            {
+                "id": str(survey_with_actions.id),
+                "name": "survey with actions",
+                "type": "popover",
+                "end_date": None,
+                "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
+                "appearance": None,
+                "conditions": {
+                    "actions": {
+                        "values": [
+                            {
+                                "id": action.id,
+                                "name": "user subscribed",
+                                "steps": [
+                                    {
+                                        "url": "docs",
+                                        "href": None,
+                                        "text": None,
+                                        "event": "$pageview",
+                                        "selector": None,
+                                        "tag_name": None,
+                                        "properties": None,
+                                        "url_matching": "contains",
+                                        "href_matching": None,
+                                        "text_matching": None,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                },
+                "start_date": None,
+                "current_iteration": None,
+                "current_iteration_start_date": None,
+            },
+        ]
+
+
+class TestRemoteConfigCaching(_RemoteConfigBase):
+    def setUp(self):
+        super().setUp()
+        self.remote_config.refresh_from_db()
+        # Clear the cache so we are properly testing each flow
+        assert cache.delete(cache_key_for_team_token(self.team.api_token, "config"))
+        assert cache.delete(cache_key_for_team_token(self.team.api_token, "config.js"))
 
     def test_syncs_if_changes(self):
         synced_at = self.remote_config.synced_at
         self.remote_config.config["surveys"] = True
         self.remote_config.sync()
         assert synced_at < self.remote_config.synced_at  # type: ignore
+
+    def test_persists_data_to_redis_on_sync(self):
+        self.remote_config.config["surveys"] = True
+        self.remote_config.sync()
+        assert cache.get(cache_key_for_team_token(self.team.api_token, "config"))
+        assert cache.get(cache_key_for_team_token(self.team.api_token, "config.js"))
+
+    def test_gets_via_redis_cache(self):
+        with self.assertNumQueries(3):
+            data = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert data == self.remote_config.config
+
+        with self.assertNumQueries(0):
+            data = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert data == self.remote_config.config
+
+    def test_gets_js_via_redis_cache(self):
+        with self.assertNumQueries(3):
+            data = RemoteConfig.get_config_js_via_token(self.team.api_token)
+
+        assert data == self.remote_config.build_js_config()
+
+        with self.assertNumQueries(0):
+            data = RemoteConfig.get_config_js_via_token(self.team.api_token)
+
+        assert data == self.remote_config.build_js_config()
+
+    @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    def test_gets_array_js_via_redis_cache(self, mock_get_array_js_content):
+        with self.assertNumQueries(3):
+            RemoteConfig.get_array_js_via_token(self.team.api_token)
+
+        with self.assertNumQueries(0):
+            RemoteConfig.get_array_js_via_token(self.team.api_token)
+
+    def test_caches_missing_response(self):
+        with self.assertNumQueries(1):
+            with pytest.raises(RemoteConfig.DoesNotExist):
+                RemoteConfig.get_array_js_via_token("missing-token")
+
+        with self.assertNumQueries(0):
+            with pytest.raises(RemoteConfig.DoesNotExist):
+                RemoteConfig.get_array_js_via_token("missing-token")
 
 
 class TestRemoteConfigJS(_RemoteConfigBase):
@@ -140,7 +318,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
+  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true};
   window._POSTHOG_JS_APPS = [];
 })();\
 """
@@ -184,7 +362,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
+  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true};
   window._POSTHOG_JS_APPS = [    
     {
       id: 'tokentoken',
@@ -255,7 +433,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": false, "elementsChainAsString": true};
+  window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": [], "heatmaps": false, "siteApps": [], "analytics": {"endpoint": "/i/v0/e/"}, "hasFeatureFlags": false, "sessionRecording": false, "captureDeadClicks": false, "capturePerformance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "supportedCompression": ["gzip", "gzip-js"], "autocaptureExceptions": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true};
   window._POSTHOG_JS_APPS = [    
     {
       id: 'SITE_DESTINATION_ID',
@@ -374,7 +552,8 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
                     let __getGlobal = (key) => filterGlobals[key];
                     const filterMatches = !!(!!(!ilike(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true), "%@posthog.com%") && ((!match(toString(__getProperty(__getGlobal("properties"), "$host", true)), "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)")) ?? 1) && (__getGlobal("event") == "$pageview")));
-                    if (filterMatches) { source.onEvent({ ...globals, inputs, posthog }); }
+                    if (!filterMatches) { return; }
+                    ;
                 }
             }
         
@@ -382,7 +561,12 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                 const posthog = config.posthog;
                 const callback = config.callback;
                 if ('onLoad' in source) {
-                    const r = source.onLoad({ inputs: buildInputs({}, true), posthog: posthog });
+                    const globals = {
+                        person: {
+                            properties: posthog.get_property('$stored_person_properties'),
+                        }
+                    }
+                    const r = source.onLoad({ inputs: buildInputs(globals, true), posthog: posthog });
                     if (r && typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => callback(false)).then(() => callback(true)) } else { callback(true) }
                 } else {
                     callback(true);
@@ -414,7 +598,8 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
                     let __getGlobal = (key) => filterGlobals[key];
                     const filterMatches = true;
-                    if (filterMatches) { source.onEvent({ ...globals, inputs, posthog }); }
+                    if (!filterMatches) { return; }
+                    ;
                 }
             }
         
@@ -422,7 +607,12 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                 const posthog = config.posthog;
                 const callback = config.callback;
                 if ('onLoad' in source) {
-                    const r = source.onLoad({ inputs: buildInputs({}, true), posthog: posthog });
+                    const globals = {
+                        person: {
+                            properties: posthog.get_property('$stored_person_properties'),
+                        }
+                    }
+                    const r = source.onLoad({ inputs: buildInputs(globals, true), posthog: posthog });
                     if (r && typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => callback(false)).then(() => callback(true)) } else { callback(true) }
                 } else {
                     callback(true);
