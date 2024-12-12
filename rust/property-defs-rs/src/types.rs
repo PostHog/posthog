@@ -175,8 +175,8 @@ impl Event {
         let updates = self.into_updates_inner();
         if updates.len() > skip_threshold {
             warn!(
-                "Event {} for team {} has more than 10,000 properties, skipping",
-                event, team_id
+                "Event {} for team {} has more than {} properties, skipping",
+                event, team_id, skip_threshold
             );
             metrics::counter!(EVENTS_SKIPPED, &[("reason", "too_many_properties")]).increment(1);
             return vec![];

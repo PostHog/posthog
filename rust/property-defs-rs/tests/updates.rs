@@ -1,7 +1,8 @@
 use chrono::{DateTime, Duration, Utc};
-use property_defs_rs::types::{Event, PropertyParentType, PropertyValueType};
+use property_defs_rs::types::{Event,PropertyParentType, PropertyValueType};
 use serde_json::json;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_updates(db: PgPool) {
@@ -15,7 +16,6 @@ async fn test_updates(db: PgPool) {
             "some_bool_as_string": "true"
         }
     "#;
-
     let event_src = json!({
         "team_id": 1,
         "project_id": 1,
@@ -40,7 +40,7 @@ async fn test_updates(db: PgPool) {
         update.issue(&db).await.unwrap();
     }
 
-    assert_eventdefinition_exists(&db, "update", 1, before, Duration::seconds(1))
+    assert_eventdefinition_exists(&db, "update", 1,before, Duration::seconds(1))
         .await
         .unwrap();
     assert_propertydefinition_exists(
@@ -103,6 +103,45 @@ async fn test_updates(db: PgPool) {
     )
     .await
     .unwrap();
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_update_on_project_id_conflict(db: PgPool) {
+    let definition_created_at: DateTime<Utc> = Utc::now() - Duration::days(1);
+
+    sqlx::query!(
+        r#"
+        INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
+        VALUES ($1, $2, NULL, NULL, $3, NULL, $4, $4) -- project_id is NULL! This definition is from before environments
+    "#,
+        Uuid::now_v7(),
+        "foo",
+        1,
+        definition_created_at
+    ).execute(&db).await.unwrap();
+
+    assert_eventdefinition_exists(&db, "foo", 1, definition_created_at, Duration::milliseconds(0))
+        .await
+        .unwrap();
+
+    let before = Utc::now();
+    let event_src = json!({
+        "team_id": 3,
+        "project_id": 1,
+        "event": "foo",
+        "properties": "{}"
+    });
+
+    let event = serde_json::from_value::<Event>(event_src.clone()).unwrap();
+    for update in event.into_updates(10000) {
+        update.issue(&db).await.unwrap();
+    }
+
+    // The event def we created earlier got updated, even though it has a different `team_id`,
+    // because `coalesce(project_id, team_id)` matches
+    assert_eventdefinition_exists(&db, "foo", 1, before, Duration::seconds(1))
+        .await
+        .unwrap();
 }
 
 async fn assert_eventdefinition_exists(
