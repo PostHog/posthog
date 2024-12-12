@@ -10,12 +10,12 @@
     padding: 0.25rem 0.5rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
-    color: var(--text-3000);
+    color: var(--content-primary);
     text-align: left;
     cursor: text;
     background: none;
-    background-color: var(--bg-light);
-    border: 1px solid var(--border);
+    background-color: var(--background-primary);
+    border: 1px solid var(--border-tertiary);
     border-radius: var(--radius);
 
     &[aria-disabled='true'] {
@@ -24,7 +24,7 @@
 
     &:hover:not([aria-disabled='true']),
     &.LemonInput--focused:not([aria-disabled='true']) {
-        border-color: var(--border-bold);
+        border-color: var(--border-secondary);
     }
 
     &.LemonInput--transparent-background {
@@ -56,7 +56,7 @@
         width: 1em;
         height: 1em;
         font-size: 1.25rem;
-        color: var(--muted-alt);
+        color: var(--content-tertiary);
         transition: color 200ms ease;
     }
 
@@ -90,7 +90,7 @@
 
     &.LemonInput--has-content {
         > .LemonIcon {
-            color: var(--primary-3000);
+            color: var(--content-link);
         }
     }
 
