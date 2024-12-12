@@ -415,6 +415,7 @@
          "posthog_hogfunction"."inputs",
          "posthog_hogfunction"."encrypted_inputs",
          "posthog_hogfunction"."filters",
+         "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id"
   FROM "posthog_hogfunction"
@@ -980,6 +981,7 @@
          "posthog_hogfunction"."inputs",
          "posthog_hogfunction"."encrypted_inputs",
          "posthog_hogfunction"."filters",
+         "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id"
   FROM "posthog_hogfunction"
@@ -1334,6 +1336,7 @@
          "posthog_hogfunction"."inputs",
          "posthog_hogfunction"."encrypted_inputs",
          "posthog_hogfunction"."filters",
+         "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id"
   FROM "posthog_hogfunction"

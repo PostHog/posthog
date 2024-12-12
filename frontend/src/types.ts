@@ -4654,6 +4654,12 @@ export interface HogFunctionFiltersType {
     bytecode_error?: string
 }
 
+export interface HogFunctionMappingType {
+    inputs_schema?: HogFunctionInputSchemaType[]
+    inputs?: Record<string, HogFunctionInputType> | null
+    filters?: HogFunctionFiltersType | null
+}
+
 export type HogFunctionTypeType =
     | 'destination'
     | 'site_destination'
@@ -4679,6 +4685,7 @@ export type HogFunctionType = {
 
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
+    mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
     filters?: HogFunctionFiltersType | null
     template?: HogFunctionTemplateType
@@ -4696,7 +4703,7 @@ export type HogFunctionConfigurationType = Omit<
     sub_template_id?: HogFunctionSubTemplateIdType
 }
 
-export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking'> & {
+export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking' | 'mappings'> & {
     id: HogFunctionSubTemplateIdType
     name: string
     description: string | null
@@ -4704,7 +4711,7 @@ export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inpu
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
+    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     sub_templates?: HogFunctionSubTemplateType[]

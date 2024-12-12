@@ -17,6 +17,7 @@ EXPECTED_FIRST_RESULT = {
     "category": template.category,
     "filters": template.filters,
     "masking": template.masking,
+    "mappings": template.mappings,
     "icon_url": template.icon_url,
 }
 

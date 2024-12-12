@@ -218,6 +218,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "icon_url": None,
             "template": None,
             "masking": None,
+            "mappings": [],
             "status": {"rating": 0, "state": 0, "tokens": 0},
         }
 
@@ -271,6 +272,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "hog": template_webhook.hog,
             "filters": None,
             "masking": None,
+            "mappings": None,
             "sub_templates": response.json()["template"]["sub_templates"],
         }
 

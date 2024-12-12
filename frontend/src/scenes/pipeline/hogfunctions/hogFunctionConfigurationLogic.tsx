@@ -29,8 +29,10 @@ import {
     EventType,
     FilterLogicalOperator,
     HogFunctionConfigurationType,
+    HogFunctionInputSchemaType,
     HogFunctionInputType,
     HogFunctionInvocationGlobals,
+    HogFunctionMappingType,
     HogFunctionSubTemplateIdType,
     HogFunctionSubTemplateType,
     HogFunctionTemplateType,
@@ -64,38 +66,46 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
 }
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
-    const sanitizedInputs: Record<string, HogFunctionInputType> = {}
+    function sanitizeInputs(
+        data: HogFunctionConfigurationType | HogFunctionMappingType
+    ): Record<string, HogFunctionInputType> {
+        const sanitizedInputs: Record<string, HogFunctionInputType> = {}
+        data.inputs_schema?.forEach((input) => {
+            const secret = data.inputs?.[input.key]?.secret
+            let value = data.inputs?.[input.key]?.value
 
-    data.inputs_schema?.forEach((input) => {
-        const secret = data.inputs?.[input.key]?.secret
-        let value = data.inputs?.[input.key]?.value
+            if (secret) {
+                // If set this means we haven't changed the value
+                sanitizedInputs[input.key] = {
+                    value: '********', // Don't send the actual value
+                    secret: true,
+                }
+                return
+            }
 
-        if (secret) {
-            // If set this means we haven't changed the value
+            if (input.type === 'json' && typeof value === 'string') {
+                try {
+                    value = JSON.parse(value)
+                } catch (e) {
+                    // Ignore
+                }
+            }
+
             sanitizedInputs[input.key] = {
-                value: '********', // Don't send the actual value
-                secret: true,
+                value: value,
             }
-            return
-        }
-
-        if (input.type === 'json' && typeof value === 'string') {
-            try {
-                value = JSON.parse(value)
-            } catch (e) {
-                // Ignore
-            }
-        }
-
-        sanitizedInputs[input.key] = {
-            value: value,
-        }
-    })
+        })
+        return sanitizedInputs
+    }
 
     const payload: HogFunctionConfigurationType = {
         ...data,
         filters: data.filters,
-        inputs: sanitizedInputs,
+        mappings: data.mappings?.map((mapping) => ({
+            ...mapping,
+            inputs: sanitizeInputs(mapping),
+        })),
+        inputs: sanitizeInputs(data),
         masking: data.masking?.hash ? data.masking : null,
         icon_url: data.icon_url,
     }
@@ -107,15 +117,32 @@ const templateToConfiguration = (
     template: HogFunctionTemplateType,
     subTemplate?: HogFunctionSubTemplateType | null
 ): HogFunctionConfigurationType => {
-    const inputs: Record<string, HogFunctionInputType> = {}
+    function getInputs(
+        inputs_schema?: HogFunctionInputSchemaType[] | null,
+        subTemplate?: HogFunctionSubTemplateType | null
+    ): Record<string, HogFunctionInputType> {
+        const inputs: Record<string, HogFunctionInputType> = {}
+        inputs_schema?.forEach((schema) => {
+            if (typeof subTemplate?.inputs?.[schema.key] !== 'undefined') {
+                inputs[schema.key] = { value: subTemplate.inputs[schema.key] }
+            } else if (schema.default !== undefined) {
+                inputs[schema.key] = { value: schema.default }
+            }
+        })
+        return inputs
+    }
 
-    template.inputs_schema?.forEach((schema) => {
-        if (typeof subTemplate?.inputs?.[schema.key] !== 'undefined') {
-            inputs[schema.key] = { value: subTemplate.inputs[schema.key] }
-        } else if (schema.default !== undefined) {
-            inputs[schema.key] = { value: schema.default }
-        }
-    })
+    function getMappingInputs(
+        inputs_schema?: HogFunctionInputSchemaType[] | null
+    ): Record<string, HogFunctionInputType> {
+        const inputs: Record<string, HogFunctionInputType> = {}
+        inputs_schema?.forEach((schema) => {
+            if (schema.default !== undefined) {
+                inputs[schema.key] = { value: schema.default }
+            }
+        })
+        return inputs
+    }
 
     return {
         type: template.type ?? 'destination',
@@ -123,9 +150,15 @@ const templateToConfiguration = (
         description: subTemplate?.name ?? template.description,
         inputs_schema: template.inputs_schema,
         filters: subTemplate?.filters ?? template.filters,
+        mappings: (subTemplate?.mappings ?? template.mappings)?.map(
+            (mapping): HogFunctionMappingType => ({
+                ...mapping,
+                inputs: getMappingInputs(mapping.inputs_schema),
+            })
+        ),
         hog: template.hog,
         icon_url: template.icon_url,
-        inputs,
+        inputs: getInputs(template.inputs_schema, subTemplate),
         enabled: template.type !== 'broadcast',
     }
 }
@@ -139,7 +172,6 @@ export function convertToHogFunctionInvocationGlobals(
     return {
         project: {
             id: team?.id ?? 0,
-
             name: team?.name ?? 'Default project',
             url: projectUrl,
         },
@@ -299,7 +331,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
-                    if (values.type !== 'destination') {
+                    if (values.type !== 'destination' && values.type !== 'site_destination') {
                         return null
                     }
                     if (values.sparkline === null) {
@@ -423,10 +455,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             },
             submit: async (data) => {
-                const payload = sanitizeConfiguration(data)
-
+                const payload: Record<string, any> = sanitizeConfiguration(data)
                 // Only sent on create
-                ;(payload as any).template_id = props.templateId || values.hogFunction?.template?.id
+                payload.template_id = props.templateId || values.hogFunction?.template?.id
 
                 if (!values.hasAddon) {
                     // Remove the source field if the user doesn't have the addon
@@ -434,7 +465,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     delete payload.inputs_schema
                 }
 
-                await asyncActions.upsertHogFunction(payload)
+                await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
             },
         },
     })),
@@ -455,6 +486,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (template, hasAddon) => {
                 return template && template.status !== 'free' && !hasAddon
             },
+        ],
+        useMapping: [
+            (s) => [s.hogFunction, s.template],
+            (hogFunction, template) => (hogFunction ?? template)?.type === 'site_destination',
         ],
         defaultFormState: [
             (s) => [s.template, s.hogFunction, s.subTemplate],
@@ -614,7 +649,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     type: FilterLogicalOperator.And,
                     values: [seriesProperties],
                 }
-                for (const event of configuration.filters?.events ?? []) {
+                const allPossibleEventFilters = configuration.filters?.events ?? []
+                const allPossibleActionFilters = configuration.filters?.actions ?? []
+
+                if (Array.isArray(configuration.mappings)) {
+                    for (const mapping of configuration.mappings) {
+                        if (mapping.filters?.events) {
+                            allPossibleEventFilters.push(...mapping.filters.events)
+                        }
+                        if (mapping.filters?.actions) {
+                            allPossibleActionFilters.push(...mapping.filters.actions)
+                        }
+                    }
+                }
+
+                for (const event of allPossibleEventFilters) {
                     const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
                     if (event.id) {
                         eventProperties.push({
@@ -633,7 +682,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         values: eventProperties,
                     })
                 }
-                for (const action of configuration.filters?.actions ?? []) {
+                for (const action of allPossibleActionFilters) {
                     const actionProperties: AnyPropertyFilter[] = [...(action.properties ?? [])]
                     if (action.id) {
                         actionProperties.push({
@@ -664,7 +713,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQuery: [
             (s) => [s.configuration, s.matchingFilters, s.type],
             (configuration, matchingFilters, type): TrendsQuery | null => {
-                if (type !== 'destination') {
+                if (type !== 'destination' && type !== 'site_destination') {
                     return null
                 }
                 return {

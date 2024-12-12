@@ -81,6 +81,7 @@ class HogFunction(UUIDModel):
     encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
 
     filters = models.JSONField(null=True, blank=True)
+    mappings = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
 
