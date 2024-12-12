@@ -239,11 +239,17 @@ def select_from_sessions_table_v2(
         args=[aggregate_fields["$end_current_url"]],
     )
     aggregate_fields["$session_duration"] = ast.Call(
-        name="dateDiff",
+        name="ifNull",
         args=[
-            ast.Constant(value="second"),
-            aggregate_fields["$start_timestamp"],
-            aggregate_fields["$end_timestamp"],
+            ast.Call(
+                name="dateDiff",
+                args=[
+                    ast.Constant(value="second"),
+                    aggregate_fields["$start_timestamp"],
+                    aggregate_fields["$end_timestamp"],
+                ],
+            ),
+            ast.Constant(value=0),
         ],
     )
     aggregate_fields["duration"] = aggregate_fields["$session_duration"]

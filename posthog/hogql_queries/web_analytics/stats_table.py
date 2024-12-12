@@ -69,8 +69,8 @@ SELECT
         uniqIf(filtered_person_id, previous_period_segment)
     ) AS "context.columns.visitors",
     tuple(
-        sumIf(filtered_pageview_count, current_period_segment),
-        sumIf(filtered_pageview_count, previous_period_segment)
+        ifNull(sumIf(filtered_pageview_count, current_period_segment), 0),
+        ifNull(sumIf(filtered_pageview_count, previous_period_segment), 0)
     ) AS "context.columns.views"
 FROM (
     SELECT
@@ -126,8 +126,8 @@ SELECT
         uniqIf(filtered_person_id, previous_period_segment)
     ) AS "context.columns.visitors",
     tuple(
-        sumIf(filtered_pageview_count, current_period_segment),
-        sumIf(filtered_pageview_count, previous_period_segment)
+        ifNull(sumIf(filtered_pageview_count, current_period_segment), 0),
+        ifNull(sumIf(filtered_pageview_count, previous_period_segment), 0)
     )  AS "context.columns.views"
 FROM (
     SELECT
@@ -185,8 +185,8 @@ SELECT
         uniqIf(filtered_person_id, previous_period_segment)
     ) AS "context.columns.visitors",
     tuple(
-        sumIf(filtered_pageview_count, current_period_segment),
-        sumIf(filtered_pageview_count, previous_period_segment)
+        ifNull(sumIf(filtered_pageview_count, current_period_segment), 0),
+        ifNull(sumIf(filtered_pageview_count, previous_period_segment), 0)
     ) AS "context.columns.views",
     tuple(
         avgIf(is_bounce, current_period_segment),
@@ -252,8 +252,8 @@ FROM (
         breakdown_value,
         uniqIf(filtered_person_id, current_period_segment) AS visitors,
         uniqIf(filtered_person_id, previous_period_segment) AS previous_visitors,
-        sumIf(filtered_pageview_count, current_period_segment) AS views,
-        sumIf(filtered_pageview_count, previous_period_segment) AS previous_views
+        ifNull(sumIf(filtered_pageview_count, current_period_segment) AS views, 0),
+        ifNull(sumIf(filtered_pageview_count, previous_period_segment) AS previous_views, 0)
     FROM (
         SELECT
             any(person_id) AS filtered_person_id,
@@ -372,8 +372,8 @@ FROM (
         breakdown_value,
         uniqIf(filtered_person_id, current_period_segment) AS visitors,
         uniqIf(filtered_person_id, previous_period_segment) AS previous_visitors,
-        sumIf(filtered_pageview_count, current_period_segment) AS views,
-        sumIf(filtered_pageview_count, previous_period_segment) AS previous_views
+        ifNull(sumIf(filtered_pageview_count, current_period_segment) AS views, 0),
+        ifNull(sumIf(filtered_pageview_count, previous_period_segment) AS previous_views, 0)
     FROM (
         SELECT
             any(person_id) AS filtered_person_id,
