@@ -1,3 +1,4 @@
+from base64 import b64encode
 import json
 import os
 from typing import Any, Optional
@@ -63,6 +64,25 @@ def indent_js(js_content: str, indent: int = 4) -> str:
 
 def cache_key_for_team_token(team_token: str, suffix: str) -> str:
     return f"remote_config/{team_token}/{suffix}"
+
+
+def sanitize_config_for_public_cdn(config: dict, domain: Optional[str] = None) -> dict:
+    from posthog.api.utils import hostname_in_allowed_url_list
+
+    # Remove domains from session recording
+    if config.get("sessionRecording"):
+        if "domains" in config["sessionRecording"]:
+            domains = config["sessionRecording"].pop("domains")
+
+            if domain:
+                is_recording_allowed = hostname_in_allowed_url_list(domains, domain)
+
+                if not is_recording_allowed:
+                    config["sessionRecording"] = False
+
+    # Remove site apps JS
+    config.pop("siteAppsJS", None)
+    return config
 
 
 class RemoteConfig(UUIDModel):
@@ -166,8 +186,8 @@ class RemoteConfig(UUIDModel):
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
                 "scriptConfig": rrweb_script_config,
-                # Indicates there are domain restrictions - so the SDK can make one follow up call to check
-                "domainRestrictions": len(team.recording_domains or []) > 0,
+                # NOTE: This is cached but stripped out at the api level depending on the caller
+                "domains": team.recording_domains or [],
             }
 
             if isinstance(team.session_replay_config, dict):
@@ -218,9 +238,12 @@ class RemoteConfig(UUIDModel):
 
         config["siteApps"] = site_apps
 
+        # Array of JS objects to be included when building the final JS
+        config["siteAppsJS"] = self._build_site_apps_js()
+
         return config
 
-    def build_js_config(self):
+    def _build_site_apps_js(self):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
@@ -236,12 +259,13 @@ class RemoteConfig(UUIDModel):
                     f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback();\n  }}\n}}"
                 )
             )
-
         site_functions = HogFunction.objects.filter(
             team=self.team, enabled=True, type__in=("site_destination", "site_app")
         ).all()
 
         site_functions_js = []
+
+        print("found", site_functions)
 
         for site_function in site_functions:
             try:
@@ -258,16 +282,12 @@ class RemoteConfig(UUIDModel):
                 logger.exception(f"Failed to build JS for site function {site_function.id}")
                 pass
 
-        js_content = f"""(function() {{
-  window._POSTHOG_CONFIG = {json.dumps(self.config)};
-  window._POSTHOG_JS_APPS = [{','.join(site_apps_js + site_functions_js)}];
-}})();
-        """.strip()
-
-        return js_content
+        return site_apps_js + site_functions_js
 
     @classmethod
-    def _get_via_cache(cls, token: str, suffix: str, fn: Callable[["RemoteConfig"], dict | str]) -> Any:
+    def _get_via_cache(
+        cls, token: str, suffix: str, fn: Callable[["RemoteConfig"], dict | str], timeout: int = CACHE_TIMEOUT
+    ) -> Any:
         key = cache_key_for_team_token(token, suffix)
 
         data = cache.get(key)
@@ -282,35 +302,47 @@ class RemoteConfig(UUIDModel):
         REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
         try:
             remote_config = cls.objects.select_related("team").get(team__api_token=token)
+            print("remote_config got fresh", remote_config)
         except cls.DoesNotExist:
-            cache.set(key, "404", timeout=CACHE_TIMEOUT)
+            cache.set(key, "404", timeout=timeout)
             REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
             raise
 
         data = fn(remote_config)
-        cache.set(key, data, timeout=CACHE_TIMEOUT)
+        cache.set(key, data, timeout=timeout)
 
         return data
 
     @classmethod
-    def get_config_via_token(cls, token: str) -> dict:
-        return cls._get_via_cache(token, "config", lambda remote_config: remote_config.build_config())
+    def get_config_via_token(cls, token: str, domain: Optional[str] = None) -> dict:
+        config = cls._get_via_cache(token, "config", lambda remote_config: remote_config.build_config())
+        config = sanitize_config_for_public_cdn(config, domain)
+
+        return config
 
     @classmethod
-    def get_config_js_via_token(cls, token: str) -> str:
-        return cls._get_via_cache(token, "config.js", lambda remote_config: remote_config.build_js_config())
+    def get_config_js_via_token(cls, token: str, domain: Optional[str] = None) -> str:
+        config = cls._get_via_cache(token, "config", lambda remote_config: remote_config.build_config())
+        # Get the site apps JS so we can render it in the JS
+        site_apps_js = config.pop("siteAppsJS", None)
+        # We don't want to include the minimal site apps content as we have the JS now
+        config.pop("siteApps", None)
+        config = sanitize_config_for_public_cdn(config, domain)
+
+        js_content = f"""(function() {{
+  window._POSTHOG_CONFIG = {json.dumps(config)};
+  window._POSTHOG_JS_APPS = [{','.join(site_apps_js)}];
+}})();
+        """.strip()
+
+        return js_content
 
     @classmethod
-    @classmethod
-    def get_array_js_via_token(cls, token: str) -> str:
+    def get_array_js_via_token(cls, token: str, domain: Optional[str] = None) -> str:
         # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
-        data = cls.get_config_js_via_token(token)
+        js_content = cls.get_config_js_via_token(token, domain)
 
-        return f"""
-        {get_array_js_content()}
-
-        {data}
-        """
+        return f"""{get_array_js_content()}\n\n{js_content}"""
 
     def sync(self):
         """
@@ -324,11 +356,6 @@ class RemoteConfig(UUIDModel):
             self.config = config
 
             cache.set(cache_key_for_team_token(self.team.api_token, "config"), config, timeout=CACHE_TIMEOUT)
-            cache.set(
-                cache_key_for_team_token(self.team.api_token, "config.js"),
-                self.build_js_config(),
-                timeout=CACHE_TIMEOUT,
-            )
 
             # TODO: Invalidate caches - in particular this will be the Cloudflare CDN cache
             self.synced_at = timezone.now()

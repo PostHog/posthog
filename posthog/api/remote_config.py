@@ -19,11 +19,21 @@ class BaseRemoteConfigAPIView(APIView):
             raise ValidationError("Invalid token")
         return token
 
+    def get_domain_param(self):
+        domain = self.request.GET.get("domain")
+        if not domain:
+            return None
+
+        # Simple check that the domain is simple like a.b.com
+        if not re.match(r"^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$", domain):
+            raise ValidationError("Invalid domain")
+        return domain
+
 
 class RemoteConfigAPIView(BaseRemoteConfigAPIView):
     def get(self, request, token: str, *args, **kwargs):
         try:
-            resource = RemoteConfig.get_config_via_token(self.check_token(token))
+            resource = RemoteConfig.get_config_via_token(self.check_token(token), domain=self.get_domain_param())
         except RemoteConfig.DoesNotExist:
             raise Http404()
 
@@ -33,7 +43,9 @@ class RemoteConfigAPIView(BaseRemoteConfigAPIView):
 class RemoteConfigJSAPIView(BaseRemoteConfigAPIView):
     def get(self, request, token: str, *args, **kwargs):
         try:
-            script_content = RemoteConfig.get_config_js_via_token(self.check_token(token))
+            script_content = RemoteConfig.get_config_js_via_token(
+                self.check_token(token), domain=self.get_domain_param()
+            )
         except RemoteConfig.DoesNotExist:
             raise Http404()
 
@@ -43,7 +55,9 @@ class RemoteConfigJSAPIView(BaseRemoteConfigAPIView):
 class RemoteConfigArrayJSAPIView(BaseRemoteConfigAPIView):
     def get(self, request, token: str, *args, **kwargs):
         try:
-            script_content = RemoteConfig.get_array_js_via_token(self.check_token(token))
+            script_content = RemoteConfig.get_array_js_via_token(
+                self.check_token(token), domain=self.get_domain_param()
+            )
         except RemoteConfig.DoesNotExist:
             raise Http404()
 
