@@ -269,6 +269,9 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (s) => [s.resultCustomizationBy, s.resultCustomizations, s.theme],
             (resultCustomizationBy, resultCustomizations, theme) => {
                 return (dataset) => {
+                    if (theme == null) {
+                        return '#000000' // fallback while loading
+                    }
                     const colorToken = getTrendResultCustomizationColorToken(
                         resultCustomizationBy,
                         resultCustomizations,

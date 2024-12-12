@@ -414,6 +414,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (s) => [s.resultCustomizations, s.theme],
             (resultCustomizations, theme) => {
                 return (dataset) => {
+                    if (theme == null) {
+                        return '#000000' // fallback while loading
+                    }
                     const colorToken = getFunnelResultCustomizationColorToken(
                         resultCustomizations,
                         theme,
