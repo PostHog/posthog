@@ -125,6 +125,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.last_notified_at == FROZEN_TIME
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -173,6 +174,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -255,6 +257,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -270,6 +273,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -343,6 +347,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -363,6 +368,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -441,6 +447,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -456,6 +463,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -534,6 +542,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -553,6 +562,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -630,6 +640,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -649,6 +660,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -732,6 +744,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.NOT_FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -746,6 +759,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.NOT_FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -823,6 +837,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.NOT_FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -837,6 +852,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.NOT_FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -928,6 +944,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -943,6 +960,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1052,6 +1070,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1067,6 +1086,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1176,6 +1196,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1191,6 +1212,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1301,6 +1323,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1316,6 +1339,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1414,6 +1438,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.NOT_FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1429,6 +1454,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.NOT_FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1512,6 +1538,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.NOT_FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1527,6 +1554,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.NOT_FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1618,6 +1646,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1637,6 +1666,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1731,6 +1761,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1752,6 +1783,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1819,6 +1851,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1840,6 +1873,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1907,6 +1941,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.NOT_FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
@@ -1922,6 +1957,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
         assert updated_alert.next_check_at.hour == next_check.hour
         assert updated_alert.next_check_at.date() == next_check.date()
 
