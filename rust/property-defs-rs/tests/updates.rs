@@ -1,5 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
-use property_defs_rs::types::{Event,PropertyParentType, PropertyValueType};
+use property_defs_rs::types::{Event, PropertyParentType, PropertyValueType};
 use serde_json::json;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -40,7 +40,7 @@ async fn test_updates(db: PgPool) {
         update.issue(&db).await.unwrap();
     }
 
-    assert_eventdefinition_exists(&db, "update", 1,before, Duration::seconds(1))
+    assert_eventdefinition_exists(&db, "update", 1, before, Duration::seconds(1))
         .await
         .unwrap();
     assert_propertydefinition_exists(
@@ -120,9 +120,15 @@ async fn test_update_on_project_id_conflict(db: PgPool) {
         definition_created_at
     ).execute(&db).await.unwrap();
 
-    assert_eventdefinition_exists(&db, "foo", 1, definition_created_at, Duration::milliseconds(0))
-        .await
-        .unwrap();
+    assert_eventdefinition_exists(
+        &db,
+        "foo",
+        1,
+        definition_created_at,
+        Duration::milliseconds(0),
+    )
+    .await
+    .unwrap();
 
     let before = Utc::now();
     let event_src = json!({
