@@ -14,6 +14,7 @@ import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookLogic } from './Notebook/notebookLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
+import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
 import { notebookSceneLogic, NotebookSceneLogicProps } from './notebookSceneLogic'
@@ -128,6 +129,7 @@ export function NotebookScene(): JSX.Element {
             </div>
 
             <Notebook key={notebookId} shortId={notebookId} editable={!isTemplate} />
+            <NotebookShareModal shortId={notebookId} />
         </div>
     )
 }
