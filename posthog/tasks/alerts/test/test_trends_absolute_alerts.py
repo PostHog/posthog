@@ -4,6 +4,7 @@ from freezegun import freeze_time
 
 import dateutil
 import pytz
+import datetime
 
 from posthog.models.alert import AlertCheck
 from posthog.models.instance_setting import set_instance_setting
@@ -213,7 +214,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
 
-        next_check = pytz.datetime.datetime(2024, 7, 1, 4, 0, tzinfo=pytz.UTC)
+        next_check = datetime.datetime(2024, 7, 1, 4, 0, tzinfo=pytz.UTC)
         # first day of next month at around 4 AM
         assert updated_alert.next_check_at is not None
         assert updated_alert.next_check_at.hour == next_check.hour
