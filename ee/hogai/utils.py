@@ -127,7 +127,7 @@ def find_last_message_of_type(messages: Sequence[AssistantMessageUnion], message
 
 
 def slice_messages_to_conversation_start(
-    messages: Sequence[AssistantMessageUnion], start_id: str
+    messages: Sequence[AssistantMessageUnion], start_id: Optional[str] = None
 ) -> Sequence[AssistantMessageUnion]:
     result = []
     for msg in messages:
