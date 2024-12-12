@@ -152,8 +152,8 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
     from posthog.batch_exports.sql import (
         CREATE_EVENTS_BATCH_EXPORT_VIEW,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
-        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_RECENT,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
         CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
     )
@@ -211,8 +211,12 @@ def data_interval_start(request, data_interval_end, interval):
 
 
 @pytest.fixture
-def data_interval_end(interval):
+def data_interval_end(request, interval):
     """Set a test data interval end."""
+    try:
+        return request.param
+    except AttributeError:
+        pass
     return dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
 
 
