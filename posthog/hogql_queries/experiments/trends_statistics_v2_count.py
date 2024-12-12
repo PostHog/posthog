@@ -13,7 +13,7 @@ PRIOR_BETA = 1
 SAMPLE_SIZE = 10000
 
 
-def calculate_probabilities_v2(
+def calculate_probabilities_v2_count(
     control_variant: ExperimentVariantTrendsBaseStats, test_variants: list[ExperimentVariantTrendsBaseStats]
 ) -> list[float]:
     """
@@ -87,7 +87,7 @@ def calculate_probabilities_v2(
     return probabilities
 
 
-def are_results_significant_v2(
+def are_results_significant_v2_count(
     control_variant: ExperimentVariantTrendsBaseStats,
     test_variants: list[ExperimentVariantTrendsBaseStats],
     probabilities: list[Probability],
@@ -142,7 +142,7 @@ def are_results_significant_v2(
     return ExperimentSignificanceCode.SIGNIFICANT, 0.0
 
 
-def calculate_credible_intervals_v2(variants, lower_bound=0.025, upper_bound=0.975):
+def calculate_credible_intervals_v2_count(variants, lower_bound=0.025, upper_bound=0.975):
     """
     Calculate Bayesian credible intervals for each variant's conversion rate.
 
