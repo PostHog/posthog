@@ -290,7 +290,7 @@ export const personsLogic = kea<personsLogicType>([
             (s) => [s.person],
             (person): string | null => {
                 // We do not track which distinct ID was created through identify, but we can try to guess
-                const nonUuidDistinctIds = person?.distinct_ids.filter((id) => !id.match(/^[0-9a-f-]{36}$/))
+                const nonUuidDistinctIds = person?.distinct_ids.filter((id) => id?.split('-').length !== 5)
 
                 if (nonUuidDistinctIds?.length === 1) {
                     // If only one of the distinct IDs is not a UUID, that one is most likely the identified ID
