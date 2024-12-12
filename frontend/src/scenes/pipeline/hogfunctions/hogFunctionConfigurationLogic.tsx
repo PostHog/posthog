@@ -871,6 +871,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 ...(cache.configFromUrl ?? {}),
             }
 
+            if (values.template?.mapping_templates) {
+                config.mappings = [
+                    ...(config.mappings ?? []),
+                    ...values.template.mapping_templates
+                        .filter((t) => t.include_by_default)
+                        .map((template) => ({
+                            ...template,
+                            inputs: template.inputs_schema?.reduce((acc, input) => {
+                                acc[input.key] = { value: input.default }
+                                return acc
+                            }, {} as Record<string, HogFunctionInputType>),
+                        })),
+                ]
+            }
             const paramsFromUrl = cache.paramsFromUrl ?? {}
             const unsavedConfigurationToApply =
                 (values.unsavedConfiguration?.timestamp ?? 0) > Date.now() - UNSAVED_CONFIGURATION_TTL

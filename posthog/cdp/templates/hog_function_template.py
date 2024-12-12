@@ -33,6 +33,7 @@ class HogFunctionMapping:
 @dataclasses.dataclass(frozen=True)
 class HogFunctionMappingTemplate:
     name: str
+    include_by_default: Optional[bool] = None
     filters: Optional[dict] = None
     inputs: Optional[dict] = None
     inputs_schema: Optional[list[dict]] = None
