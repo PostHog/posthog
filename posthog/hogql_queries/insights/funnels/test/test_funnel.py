@@ -4613,7 +4613,7 @@ FROM
         step_0,
         latest_0,
         step_1,
-        min(latest_1) OVER (PARTITION BY aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS latest_1
+        minOrNull(latest_1) OVER (PARTITION BY aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS latest_1
     FROM
         (SELECT
             e.timestamp AS timestamp,
@@ -4648,13 +4648,13 @@ class TestFunnelStepCountsQuery(BaseTest):
             """SELECT
     aggregation_target,
     steps,
-    avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+    avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
     median(step_1_conversion_time) AS step_1_median_conversion_time_inner
 FROM
     (SELECT
         aggregation_target,
         steps,
-        max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+        maxOrNull(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
         step_1_conversion_time
     FROM
         (SELECT
@@ -4673,7 +4673,7 @@ FROM
                 step_0,
                 latest_0,
                 step_1,
-                min(latest_1) OVER (PARTITION BY aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS latest_1
+                minOrNull(latest_1) OVER (PARTITION BY aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS latest_1
             FROM
                 (SELECT
                     e.timestamp AS timestamp,
@@ -4692,7 +4692,7 @@ GROUP BY
     aggregation_target,
     steps
 HAVING
-    equals(steps, max(max_steps))
+    equals(steps, maxOrNull(max_steps))
 LIMIT 100""",
         )
 
@@ -4713,19 +4713,19 @@ class TestFunnelQuery(BaseTest):
             """SELECT
     countIf(equals(steps, 1)) AS step_1,
     countIf(equals(steps, 2)) AS step_2,
-    avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+    avgOrNull(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
     median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
 FROM
     (SELECT
         aggregation_target,
         steps,
-        avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+        avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
         median(step_1_conversion_time) AS step_1_median_conversion_time_inner
     FROM
         (SELECT
             aggregation_target,
             steps,
-            max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+            maxOrNull(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
             step_1_conversion_time
         FROM
             (SELECT
@@ -4744,7 +4744,7 @@ FROM
                     step_0,
                     latest_0,
                     step_1,
-                    min(latest_1) OVER (PARTITION BY aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS latest_1
+                    minOrNull(latest_1) OVER (PARTITION BY aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS latest_1
                 FROM
                     (SELECT
                         e.timestamp AS timestamp,
@@ -4763,6 +4763,6 @@ FROM
         aggregation_target,
         steps
     HAVING
-        equals(steps, max(max_steps)))
+        equals(steps, maxOrNull(max_steps)))
 LIMIT 100""",
         )

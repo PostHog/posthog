@@ -834,7 +834,7 @@ class TestPrinter(BaseTest):
             self._expr("countIf(distinct event, 1 == 2)"),
             "countIf(DISTINCT events.event, 0)",
         )
-        self.assertEqual(self._expr("sumIf(1, 1 == 2)"), "sumIf(1, 0)")
+        self.assertEqual(self._expr("sumIf(1, 1 == 2)"), "sumIfOrNull(1, 0)")
 
     def test_functions(self):
         context = HogQLContext(team_id=self.team.pk)  # inline values
@@ -1282,7 +1282,7 @@ class TestPrinter(BaseTest):
                 "HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
                 f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
-                "ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
+                "ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, maxOrNull(person.version) AS version "
                 f"FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 "HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), "
                 "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
@@ -1308,7 +1308,7 @@ class TestPrinter(BaseTest):
                 "HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
                 f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
-                "ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
+                "ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, maxOrNull(person.version) AS version "
                 f"FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 "HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), "
                 "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
@@ -1331,7 +1331,7 @@ class TestPrinter(BaseTest):
                 expected,
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, "
-                f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
+                f"maxOrNull(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
                 f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
@@ -1558,7 +1558,7 @@ class TestPrinter(BaseTest):
             # null = click_count
             f"isNull(session_replay_events.click_count) "
             # ...
-            f"FROM (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT {MAX_SELECT_RETURNED_ROWS}"
+            f"FROM (SELECT minOrNull(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) AS start_time, sumOrNull(session_replay_events.click_count) AS click_count, sumOrNull(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_field_nullable_not_equals(self):
@@ -1592,7 +1592,7 @@ class TestPrinter(BaseTest):
             # null = click_count
             f"isNotNull(session_replay_events.click_count) "
             # ...
-            f"FROM (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT {MAX_SELECT_RETURNED_ROWS}"
+            f"FROM (SELECT minOrNull(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) AS start_time, sumOrNull(session_replay_events.click_count) AS click_count, sumOrNull(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_field_nullable_boolean(self):
@@ -2095,7 +2095,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._expr("SuM(1)", context),
-            "sum(1)",
+            "sumOrNull(1)",
         )
 
     def test_inline_persons(self):
