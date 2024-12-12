@@ -3,6 +3,7 @@ import { connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconCalculate, IconClipboardEdit } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -170,6 +171,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         key: savedQuery.id,
                         name: savedQuery.name,
                         url: '',
+                        icon: savedQuery.status ? <IconCalculate /> : <IconClipboardEdit />,
                         searchMatch: matches
                             ? {
                                   matchingFields: matches.map((match) => match.key),
@@ -224,6 +226,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                               items: relevantMaterializedViews.map(([materializedView, matches]) => ({
                                   key: materializedView.id,
                                   name: materializedView.name,
+                                  icon: <IconCalculate />,
                                   url: '',
                                   searchMatch: matches
                                       ? {

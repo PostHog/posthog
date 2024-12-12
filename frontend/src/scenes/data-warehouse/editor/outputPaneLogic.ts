@@ -5,6 +5,7 @@ import type { outputPaneLogicType } from './outputPaneLogicType'
 export enum OutputTab {
     Results = 'results',
     Visualization = 'visualization',
+    Info = 'info',
 }
 
 export const outputPaneLogic = kea<outputPaneLogicType>([
