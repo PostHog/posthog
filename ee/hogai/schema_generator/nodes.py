@@ -106,15 +106,18 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 ],
             )
 
+        final_message = VisualizationMessage(
+            plan=generated_plan,
+            answer=message.query,
+            initiator=start_id,
+            id=str(uuid4()),
+        )
+        if final_message.answer.breakdownFilter:
+            # Increase breakdown limit, since the "Other" series is pretty low-value for the assistant
+            final_message.answer.breakdownFilter.breakdown_limit = 100
+
         return PartialAssistantState(
-            messages=[
-                VisualizationMessage(
-                    plan=generated_plan,
-                    answer=message.query,
-                    initiator=start_id,
-                    id=str(uuid4()),
-                )
-            ],
+            messages=[final_message],
             intermediate_steps=None,
         )
 
