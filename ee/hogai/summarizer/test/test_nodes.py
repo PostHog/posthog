@@ -9,6 +9,7 @@ from rest_framework.exceptions import ValidationError
 
 from ee.hogai.summarizer.nodes import SummarizerNode
 from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
+from ee.hogai.utils import AssistantState
 from posthog.api.services.query import process_query_dict
 from posthog.schema import (
     AssistantTrendsEventsNode,
@@ -31,8 +32,8 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                 lambda _: LangchainHumanMessage(content="The results indicate foobar.")
             )
             new_state = node.run(
-                {
-                    "messages": [
+                AssistantState(
+                    messages=[
                         HumanMessage(content="Text", id="test"),
                         VisualizationMessage(
                             answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
@@ -41,13 +42,13 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                             initiator="test",
                         ),
                     ],
-                    "plan": "Plan",
-                    "start_id": "test",
-                },
+                    plan="Plan",
+                    start_id="test",
+                ),
                 {},
             )
             mock_process_query_dict.assert_called_once()  # Query processing started
-            msg = new_state["messages"][0]
+            msg = new_state.messages[0]
             self.assertEqual(msg.content, "The results indicate foobar.")
             self.assertEqual(msg.type, "ai")
             self.assertIsNotNone(msg.id)
@@ -63,8 +64,8 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                 lambda _: LangchainHumanMessage(content="The results indicate foobar.")
             )
             new_state = node.run(
-                {
-                    "messages": [
+                AssistantState(
+                    messages=[
                         HumanMessage(content="Text", id="test"),
                         VisualizationMessage(
                             answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
@@ -73,13 +74,13 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                             initiator="test",
                         ),
                     ],
-                    "plan": "Plan",
-                    "start_id": "test",
-                },
+                    plan="Plan",
+                    start_id="test",
+                ),
                 {},
             )
             mock_process_query_dict.assert_called_once()  # Query processing started
-            msg = new_state["messages"][0]
+            msg = new_state.messages[0]
             self.assertEqual(msg.content, "There was an unknown error running this query.")
             self.assertEqual(msg.type, "ai/failure")
             self.assertIsNotNone(msg.id)
@@ -97,8 +98,8 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                 lambda _: LangchainHumanMessage(content="The results indicate foobar.")
             )
             new_state = node.run(
-                {
-                    "messages": [
+                AssistantState(
+                    messages=[
                         HumanMessage(content="Text", id="test"),
                         VisualizationMessage(
                             answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
@@ -107,13 +108,13 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                             initiator="test",
                         ),
                     ],
-                    "plan": "Plan",
-                    "start_id": "test",
-                },
+                    plan="Plan",
+                    start_id="test",
+                ),
                 {},
             )
             mock_process_query_dict.assert_called_once()  # Query processing started
-            msg = new_state["messages"][0]
+            msg = new_state.messages[0]
             self.assertEqual(
                 msg.content,
                 "There was an error running this query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam.",
@@ -128,13 +129,13 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
             ValueError, "Can only run summarization with a visualization message as the last one in the state"
         ):
             node.run(
-                {
-                    "messages": [
+                AssistantState(
+                    messages=[
                         HumanMessage(content="Text"),
                     ],
-                    "plan": "Plan",
-                    "start_id": "test",
-                },
+                    plan="Plan",
+                    start_id="test",
+                ),
                 {},
             )
 
@@ -143,13 +144,13 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaisesMessage(ValueError, "Did not found query in the visualization message"):
             node.run(
-                {
-                    "messages": [
+                AssistantState(
+                    messages=[
                         VisualizationMessage(answer=None, plan="Plan", id="test"),
                     ],
-                    "plan": "Plan",
-                    "start_id": "test",
-                },
+                    plan="Plan",
+                    start_id="test",
+                ),
                 {},
             )
 
@@ -159,8 +160,8 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
         node = SummarizerNode(self.team)
 
         history = node._construct_messages(
-            {
-                "messages": [
+            AssistantState(
+                messages=[
                     HumanMessage(content="What's the trends in signups?", id="test"),
                     VisualizationMessage(
                         answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
@@ -169,8 +170,8 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                         initiator="test",
                     ),
                 ],
-                "start_id": "test",
-            }
+                start_id="test",
+            )
         )
         self.assertEqual(
             history,

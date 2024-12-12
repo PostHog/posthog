@@ -357,10 +357,12 @@ class TestSchemaGeneratorNode(BaseTest):
         node = DummyGeneratorNode(self.team)
         history = node._construct_messages(
             AssistantState(
-                messages=[HumanMessage(content="Text")],
+                messages=[HumanMessage(content="Text", id="0")],
                 plan="randomplan",
                 intermediate_steps=[(action, "uniqexception")],
+                start_id="0",
             ),
+            validation_error_message="uniqexception",
         )
         self.assertEqual(len(history), 4)
         self.assertEqual(history[0].type, "human")

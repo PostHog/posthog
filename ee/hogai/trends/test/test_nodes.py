@@ -4,6 +4,7 @@ from django.test import override_settings
 from langchain_core.runnables import RunnableLambda
 
 from ee.hogai.trends.nodes import TrendsGeneratorNode, TrendsSchemaGeneratorOutput
+from ee.hogai.utils import AssistantState, PartialAssistantState
 from posthog.schema import (
     AssistantTrendsQuery,
     HumanMessage,
@@ -27,16 +28,16 @@ class TestTrendsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
                 lambda _: TrendsSchemaGeneratorOutput(query=self.schema).model_dump()
             )
             new_state = node.run(
-                {
-                    "messages": [HumanMessage(content="Text")],
-                    "plan": "Plan",
-                },
+                AssistantState(
+                    messages=[HumanMessage(content="Text")],
+                    plan="Plan",
+                ),
                 {},
             )
             self.assertEqual(
                 new_state,
-                {
-                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", id=new_state["messages"][0].id)],
-                    "intermediate_steps": None,
-                },
+                PartialAssistantState(
+                    messages=[VisualizationMessage(answer=self.schema, plan="Plan", id=new_state.messages[0].id)],
+                    intermediate_steps=None,
+                ),
             )
