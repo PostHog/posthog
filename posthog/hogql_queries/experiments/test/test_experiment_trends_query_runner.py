@@ -596,7 +596,11 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     event="$feature_flag_called",
                     distinct_id=f"user_{variant}_{i}",
-                    properties={feature_flag_property: variant},
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
                     timestamp=datetime(2023, 1, i + 1),
                 )
 
@@ -610,7 +614,11 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="$feature_flag_called",
             distinct_id="user_test_3",
-            properties={feature_flag_property: "control"},
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
             timestamp=datetime(2023, 1, 3),
         )
         _create_event(
@@ -624,7 +632,11 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="$feature_flag_called",
             distinct_id="user_test_3",
-            properties={feature_flag_property: "control"},
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
             timestamp=datetime(2023, 1, 9),
         )
 
