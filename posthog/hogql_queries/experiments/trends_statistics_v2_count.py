@@ -57,7 +57,7 @@ def calculate_probabilities_v2_count(
 
     # Calculate posterior parameters for control
     alpha_control = PRIOR_ALPHA + control_variant.count
-    beta_control = PRIOR_BETA + control_variant.exposure
+    beta_control = PRIOR_BETA + control_variant.absolute_exposure
 
     # Draw samples from control posterior
     samples_control = gamma.rvs(alpha_control, scale=1 / beta_control, size=SAMPLE_SIZE)
@@ -66,7 +66,7 @@ def calculate_probabilities_v2_count(
     test_samples = []
     for test in test_variants:
         alpha_test = PRIOR_ALPHA + test.count
-        beta_test = PRIOR_BETA + test.exposure
+        beta_test = PRIOR_BETA + test.absolute_exposure
         test_samples.append(gamma.rvs(alpha_test, scale=1 / beta_test, size=SAMPLE_SIZE))
 
     # Calculate probabilities

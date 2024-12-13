@@ -279,16 +279,10 @@ class TestExperimentTrendsStatistics(APIBaseTest):
             intervals = calculate_credible_intervals([control, test])
 
             self.assertEqual(len(probabilities), 2)
-            if stats_version == 2:
-                self.assertTrue(probabilities[0] < 0.1)
-                self.assertTrue(0.9 < probabilities[1])
-                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
-                self.assertEqual(p_value, 0)
-            else:
-                self.assertTrue(0.4 < probabilities[0] < 0.6)  # Close to 50/50
-                self.assertTrue(0.4 < probabilities[1] < 0.6)  # Close to 50/50
-                self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
-                self.assertEqual(p_value, 1)
+            self.assertTrue(0.4 < probabilities[0] < 0.6)  # Close to 50/50
+            self.assertTrue(0.4 < probabilities[1] < 0.6)  # Close to 50/50
+            self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
+            self.assertEqual(p_value, 1)
 
             # Control at ~10% conversion rate
             self.assertAlmostEqual(intervals["control"][0], 0.094, places=2)
