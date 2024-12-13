@@ -17,7 +17,7 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
     XDIST_SUFFIX,
 )
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from freezegun import freeze_time
 from typing import cast
 from django.utils import timezone
@@ -198,10 +198,12 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
 
-        id = pa.array(["1", "2", "3", "4", "5"])
-        date = pa.array(["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-06", "2023-01-07"])
-        user_id = pa.array(["user_control_0", "user_test_1", "user_test_2", "user_test_3", "user_extra"])
-        usage = pa.array([1000, 500, 750, 800, 900])
+        id = pa.array(["1", "2", "3", "4", "5", "6"])
+        date = pa.array(["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04", "2023-01-06", "2023-01-07"])
+        user_id = pa.array(
+            ["user_control_0", "user_test_1", "user_test_2", "internal_test_1", "user_test_3", "user_extra"]
+        )
+        usage = pa.array([1000, 500, 750, 100000, 800, 900])
         names = ["id", "ds", "userid", "usage"]
 
         pq.write_to_dataset(
@@ -243,6 +245,15 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             joining_table_key="properties.$user_id",
             field_name="events",
             configuration={"experiments_optimized": True, "experiments_timestamp_key": "ds"},
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=table_name,
+            source_table_key="userid",
+            joining_table_name="persons",
+            joining_table_key="properties.$user_id",
+            field_name="person",
         )
         return table_name
 
@@ -816,7 +827,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     math_property="usage",
                     math_property_type="data_warehouse_properties",
                 )
-            ]
+            ],
+            filterTestAccounts=True,
         )
         exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
 
@@ -845,6 +857,24 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     },
                     timestamp=datetime(2023, 1, i + 1),
                 )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["internal_test_1"],
+            properties={"$email": "internal_test_1@posthog.com"},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="internal_test_1",
+            properties={
+                feature_flag_property: "test",
+                "$feature_flag_response": "test",
+                "$feature_flag": feature_flag.key,
+            },
+            timestamp=datetime(2023, 1, 3),
+        )
 
         # "user_test_3" first exposure (feature_flag_property="control") is on 2023-01-03
         # "user_test_3" relevant exposure (feature_flag_property="test") is on 2023-01-04
@@ -906,7 +936,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
             # Assert the expected join condition in the clickhouse SQL
-            expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_8)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_9)s, 6, %(hogql_val_10)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_11)s, 6, %(hogql_val_12)s))))) AS e__events ON"
+            expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_12)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_13)s, 6, %(hogql_val_14)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_15)s, 6, %(hogql_val_16)s))))) AS e__events ON"
             self.assertIn(expected_join_condition, str(response.clickhouse))
 
             result = query_runner.calculate()
