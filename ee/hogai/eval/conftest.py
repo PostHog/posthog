@@ -22,7 +22,7 @@ def pytest_collection_modifyitems(items):
         item.add_marker(pytest.mark.flaky(max_runs=3, min_passes=1))
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="package")
 def team(django_db_blocker) -> Generator[Team, None, None]:
     with django_db_blocker.unblock():
         organization = Organization.objects.create(name=BaseTest.CONFIG_ORGANIZATION_NAME)
@@ -45,7 +45,7 @@ def team(django_db_blocker) -> Generator[Team, None, None]:
         organization.delete()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="package")
 def user(team, django_db_blocker) -> Generator[User, None, None]:
     with django_db_blocker.unblock():
         user = User.objects.create_and_join(team.organization, "eval@posthog.com", "password1234")
@@ -65,14 +65,14 @@ def runnable_config(team, user) -> Generator[RunnableConfig, None, None]:
     conversation.delete()
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="package", autouse=True)
 def setup_kafka_tables(django_db_setup):
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.schema import (
         CREATE_KAFKA_TABLE_QUERIES,
         build_query,
     )
-    from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+    from posthog.settings import CLICKHOUSE_DATABASE
 
     kafka_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
     run_clickhouse_statement_in_parallel(kafka_queries)
@@ -90,11 +90,12 @@ def setup_kafka_tables(django_db_setup):
         WHERE database = '{CLICKHOUSE_DATABASE}' AND name LIKE 'kafka_%'
         """,
     )
-    kafka_truncate_queries = [f"DROP TABLE {table[0]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'" for table in kafka_tables]
+    # Using `ON CLUSTER` takes x20 more time to drop the tables: https://github.com/ClickHouse/ClickHouse/issues/15473.
+    kafka_truncate_queries = [f"DROP TABLE {table[0]}" for table in kafka_tables]
     run_clickhouse_statement_in_parallel(kafka_truncate_queries)
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="package", autouse=True)
 def setup_test_data(setup_kafka_tables, team, user, django_db_blocker):
     with django_db_blocker.unblock():
         matrix = HedgeboxMatrix(
