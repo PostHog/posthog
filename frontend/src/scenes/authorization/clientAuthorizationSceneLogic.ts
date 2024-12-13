@@ -12,6 +12,7 @@ export type AuthenticationFlowInformation = {
     scopes?: string[]
     redirect_url?: string
     verification?: string
+    mode?: 'popup' | 'redirect'
 }
 
 export type AuthenticationFlowResponse = {
@@ -41,6 +42,7 @@ export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicTy
                     const clientId = router.values.searchParams['client_id']
                     const redirectUrl = router.values.searchParams['redirect_url']
                     const scopes = router.values.searchParams['scopes']
+                    const mode = router.values.searchParams['mode']
 
                     if (!clientId) {
                         throw new Error('Missing client_id')
@@ -64,6 +66,7 @@ export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicTy
                         verification: res.verification,
                         redirect_url: redirectUrl,
                         scopes: scopes.split(' '),
+                        mode: mode ?? 'redirect',
                     }
                 },
 
@@ -71,7 +74,7 @@ export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicTy
                     if (!values.authentication) {
                         return null
                     }
-                    const { redirect_url, verification, code, scopes } = values.authentication
+                    const { redirect_url, verification, code, scopes, mode } = values.authentication
 
                     // TODO: Validate redirectUrl is in list of approved if toolbar
 
@@ -81,7 +84,9 @@ export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicTy
                         scopes,
                     })
 
-                    if (redirect_url) {
+                    if (mode === 'popup') {
+                        window.close()
+                    } else if (redirect_url) {
                         window.location.href = redirect_url
                     }
 

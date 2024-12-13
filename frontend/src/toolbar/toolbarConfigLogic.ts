@@ -79,6 +79,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                     }
                 },
                 checkAuthorization: async () => {
+                    console.log('checkAuthorization', values.authorization)
                     const { authorizationCode } = values.authorization
 
                     if (!authorizationCode) {
@@ -135,7 +136,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         projectId: [(s) => [s.tokenInfo], (tokenInfo): string | number => tokenInfo?.id ?? '@current'],
     }),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         authorizeSuccess: async () => {
             // TRICKY: Need to do on the next tick to ensure the loader values are ready
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
@@ -151,13 +152,22 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
             // open the url in a little popup window
             const popup = window.open(
-                url,
+                url + '&mode=popup',
                 'authPopup',
                 `width=${popupWidth},height=${popupHeight},top=${top},left=${left},resizable=yes,scrollbars=yes`
             )
-            popup?.focus()
 
-            // TODO: Start timer checking for the authorization to complete
+            if (!popup) {
+                window.location.href = url + '&mode=redirect'
+                return
+            }
+
+            popup.focus()
+
+            // TODO: Move this into proper logic
+            cache.poller = setInterval(() => {
+                actions.checkAuthorization()
+            }, 2000)
         },
 
         checkAuthorizationSuccess: () => {
