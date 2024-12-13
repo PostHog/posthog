@@ -69,12 +69,12 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 1)
 
                 # Control: ~$100 mean with wide interval due to small sample
-                self.assertRange(intervals["control"][0], (80, 90))  # Lower bound
-                self.assertRange(intervals["control"][1], (100, 120))  # Upper bound
+                self.assertAlmostEqual(intervals["control"][0], 85, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["control"][1], 110, delta=5)  # Upper bound
 
                 # Test: ~$105 mean with wide interval due to small sample
-                self.assertRange(intervals["test"][0], (85, 95))  # Lower bound
-                self.assertRange(intervals["test"][1], (105, 125))  # Upper bound
+                self.assertAlmostEqual(intervals["test"][0], 90, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["test"][1], 115, delta=5)  # Upper bound
             else:
                 # Original implementation behavior for small sample
                 self.assertRange(probabilities[0], (0.3, 0.7))
@@ -83,10 +83,10 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 1)
 
                 # Original implementation returns intervals as ratios/multipliers of the mean
-                self.assertRange(intervals["control"][0], (0.8, 1.2))  # Lower bound is less than mean
-                self.assertRange(intervals["control"][1], (1.1, 1.3))  # Upper bound is greater than mean
-                self.assertRange(intervals["test"][0], (0.8, 1.2))
-                self.assertRange(intervals["test"][1], (1.1, 1.3))
+                self.assertAlmostEqual(intervals["control"][0], 1.0, delta=0.2)  # Lower bound is less than mean
+                self.assertAlmostEqual(intervals["control"][1], 1.2, delta=0.1)  # Upper bound is greater than mean
+                self.assertAlmostEqual(intervals["test"][0], 1.0, delta=0.2)
+                self.assertAlmostEqual(intervals["test"][1], 1.2, delta=0.1)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -116,12 +116,12 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 0)
 
                 # Control: $100 mean with narrow interval due to large sample
-                self.assertRange(intervals["control"][0], (98, 102))  # Lower bound
-                self.assertRange(intervals["control"][1], (98, 102))  # Upper bound
+                self.assertAlmostEqual(intervals["control"][0], 100, delta=2)  # Lower bound
+                self.assertAlmostEqual(intervals["control"][1], 100, delta=2)  # Upper bound
 
                 # Test: $120 mean with narrow interval due to large sample
-                self.assertRange(intervals["test"][0], (118, 122))  # Lower bound
-                self.assertRange(intervals["test"][1], (118, 122))  # Upper bound
+                self.assertAlmostEqual(intervals["test"][0], 120, delta=2)  # Lower bound
+                self.assertAlmostEqual(intervals["test"][1], 120, delta=2)  # Upper bound
             else:
                 # Original implementation behavior for large sample
                 self.assertRange(probabilities[1], (0.5, 1.0))  # Test variant winning
@@ -132,10 +132,10 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertRange(p_value, (0, 0.3))
 
                 # Original implementation returns intervals as ratios/multipliers of the mean
-                self.assertRange(intervals["control"][0], (0, 0.1))  # Lower bound less than mean
-                self.assertRange(intervals["control"][1], (0.01, 0.02))  # Upper bound greater than mean
-                self.assertRange(intervals["test"][0], (0, 0.1))  # Lower bound less than mean
-                self.assertRange(intervals["test"][1], (0.01, 0.02))  # Upper bound greater than mean
+                self.assertAlmostEqual(intervals["control"][0], 0.05, delta=0.05)  # Lower bound less than mean
+                self.assertAlmostEqual(intervals["control"][1], 0.015, delta=0.005)  # Upper bound greater than mean
+                self.assertAlmostEqual(intervals["test"][0], 0.05, delta=0.05)  # Lower bound less than mean
+                self.assertAlmostEqual(intervals["test"][1], 0.015, delta=0.005)  # Upper bound greater than mean
 
         self.run_test_for_both_implementations(run_test)
 
@@ -165,12 +165,12 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 0)
 
                 # Control: $100 mean
-                self.assertRange(intervals["control"][0], (98, 102))  # Lower bound
-                self.assertRange(intervals["control"][1], (98, 102))  # Upper bound
+                self.assertAlmostEqual(intervals["control"][0], 100, delta=2)  # Lower bound
+                self.assertAlmostEqual(intervals["control"][1], 100, delta=2)  # Upper bound
 
                 # Test: $150 mean, clearly higher than control
-                self.assertRange(intervals["test"][0], (147, 153))  # Lower bound
-                self.assertRange(intervals["test"][1], (147, 153))  # Upper bound
+                self.assertAlmostEqual(intervals["test"][0], 150, delta=3)  # Lower bound
+                self.assertAlmostEqual(intervals["test"][1], 150, delta=3)  # Upper bound
             else:
                 # Original implementation behavior for strongly significant case
                 self.assertTrue(probabilities[1] > 0.5)  # Test variant winning
@@ -223,23 +223,21 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 1)
 
                 # All variants around $100 with overlapping intervals
-                lower_bound = (90, 100)
-                upper_bound = (100, 110)
                 # Control variant
-                self.assertRange(intervals["control"][0], lower_bound)  # Lower bound
-                self.assertRange(intervals["control"][1], upper_bound)  # Upper bound
+                self.assertAlmostEqual(intervals["control"][0], 95, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["control"][1], 105, delta=5)  # Upper bound
 
                 # Test A variant
-                self.assertRange(intervals["test_a"][0], lower_bound)  # Lower bound
-                self.assertRange(intervals["test_a"][1], upper_bound)  # Upper bound
+                self.assertAlmostEqual(intervals["test_a"][0], 95, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["test_a"][1], 105, delta=5)  # Upper bound
 
                 # Test B variant
-                self.assertRange(intervals["test_b"][0], lower_bound)  # Lower bound
-                self.assertRange(intervals["test_b"][1], upper_bound)  # Upper bound
+                self.assertAlmostEqual(intervals["test_b"][0], 95, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["test_b"][1], 105, delta=5)  # Upper bound
 
                 # Test C variant
-                self.assertRange(intervals["test_c"][0], lower_bound)  # Lower bound
-                self.assertRange(intervals["test_c"][1], upper_bound)  # Upper bound
+                self.assertAlmostEqual(intervals["test_c"][0], 95, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["test_c"][1], 105, delta=5)  # Upper bound
             else:
                 # Original implementation behavior for multiple variants with no clear winner
                 self.assertTrue(all(0.1 < p < 0.9 for p in probabilities))
@@ -247,23 +245,21 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 1)
 
                 # Original implementation returns intervals as ratios/multipliers of the mean
-                lower_bound = (0.075, 0.095)
-                upper_bound = (0.11, 0.13)
                 # Control variant
-                self.assertRange(intervals["control"][0], lower_bound)
-                self.assertRange(intervals["control"][1], upper_bound)
+                self.assertAlmostEqual(intervals["control"][0], 0.085, delta=0.01)  # ~8.5%
+                self.assertAlmostEqual(intervals["control"][1], 0.12, delta=0.01)  # ~12%
 
                 # Test A variant
-                self.assertRange(intervals["test_a"][0], lower_bound)
-                self.assertRange(intervals["test_a"][1], upper_bound)
+                self.assertAlmostEqual(intervals["test_a"][0], 0.085, delta=0.01)  # ~8.5%
+                self.assertAlmostEqual(intervals["test_a"][1], 0.12, delta=0.01)  # ~12%
 
                 # Test B variant
-                self.assertRange(intervals["test_b"][0], lower_bound)
-                self.assertRange(intervals["test_b"][1], upper_bound)
+                self.assertAlmostEqual(intervals["test_b"][0], 0.085, delta=0.01)  # ~8.5%
+                self.assertAlmostEqual(intervals["test_b"][1], 0.12, delta=0.01)  # ~12%
 
                 # Test C variant
-                self.assertRange(intervals["test_c"][0], lower_bound)
-                self.assertRange(intervals["test_c"][1], upper_bound)
+                self.assertAlmostEqual(intervals["test_c"][0], 0.085, delta=0.01)  # ~8.5%
+                self.assertAlmostEqual(intervals["test_c"][1], 0.12, delta=0.01)  # ~12%
 
         self.run_test_for_both_implementations(run_test)
 
@@ -362,11 +358,11 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 1.0)
 
                 # Both variants should have wide intervals due to small sample size
-                self.assertRange(intervals["control"][0], (70, 90))
-                self.assertRange(intervals["control"][1], (100, 120))
+                self.assertAlmostEqual(intervals["control"][0], 80, delta=10)
+                self.assertAlmostEqual(intervals["control"][1], 110, delta=10)
 
-                self.assertRange(intervals["test"][0], (85, 105))
-                self.assertRange(intervals["test"][1], (115, 135))
+                self.assertAlmostEqual(intervals["test"][0], 95, delta=10)
+                self.assertAlmostEqual(intervals["test"][1], 125, delta=10)
             else:
                 # Original implementation behavior for insufficient sample size
                 self.assertRange(probabilities[0], (0.05, 0.1))
@@ -375,10 +371,10 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 1.0)
 
                 # Original implementation returns intervals as ratios/multipliers of the mean
-                self.assertRange(intervals["control"][0], (1.5, 1.8))
-                self.assertRange(intervals["control"][1], (2.3, 2.6))
-                self.assertRange(intervals["test"][0], (1.8, 2.1))
-                self.assertRange(intervals["test"][1], (2.6, 2.9))
+                self.assertAlmostEqual(intervals["control"][0], 1.65, delta=0.15)
+                self.assertAlmostEqual(intervals["control"][1], 2.45, delta=0.15)
+                self.assertAlmostEqual(intervals["test"][0], 1.95, delta=0.15)
+                self.assertAlmostEqual(intervals["test"][1], 2.75, delta=0.15)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -408,11 +404,11 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 1)
 
                 # Both variants should have very small intervals near zero
-                self.assertRange(intervals["control"][0], (0, 0.1))
-                self.assertRange(intervals["control"][1], (0, 0.1))
+                self.assertAlmostEqual(intervals["control"][0], 0, delta=0.05)
+                self.assertAlmostEqual(intervals["control"][1], 0, delta=0.05)
 
-                self.assertRange(intervals["test"][0], (0, 0.1))
-                self.assertRange(intervals["test"][1], (0, 0.1))
+                self.assertAlmostEqual(intervals["test"][0], 0, delta=0.05)
+                self.assertAlmostEqual(intervals["test"][1], 0, delta=0.05)
             else:
                 # Original implementation behavior for zero means
                 self.assertRange(probabilities[0], (0.4, 0.6))
@@ -422,10 +418,10 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
                 # Original implementation returns intervals as ratios/multipliers of the mean
                 # For zero means, the intervals should still be valid ratios
-                self.assertTrue(intervals["control"][0] >= 0)
-                self.assertTrue(intervals["control"][1] >= 0)
-                self.assertTrue(intervals["test"][0] >= 0)
-                self.assertTrue(intervals["test"][1] >= 0)
+                self.assertAlmostEqual(intervals["control"][0], 0, delta=0.1)
+                self.assertAlmostEqual(intervals["control"][1], 0, delta=0.1)
+                self.assertAlmostEqual(intervals["test"][0], 0, delta=0.1)
+                self.assertAlmostEqual(intervals["test"][1], 0, delta=0.1)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -462,11 +458,11 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
                 # Both variants should have intervals appropriate for their small means
                 # For a mean of 0.0001, expect intervals to be within an order of magnitude
-                self.assertRange(intervals["control"][0], (0.00005, 0.0002))  # Lower bound
-                self.assertRange(intervals["control"][1], (0.00005, 0.0002))  # Upper bound
+                self.assertAlmostEqual(intervals["control"][0], 0.0001, delta=0.00015)  # Lower bound
+                self.assertAlmostEqual(intervals["control"][1], 0.0001, delta=0.00015)  # Upper bound
 
-                self.assertRange(intervals["test"][0], (0.00005, 0.0002))  # Lower bound
-                self.assertRange(intervals["test"][1], (0.00005, 0.0002))  # Upper bound
+                self.assertAlmostEqual(intervals["test"][0], 0.0001, delta=0.00015)  # Lower bound
+                self.assertAlmostEqual(intervals["test"][1], 0.0001, delta=0.00015)  # Upper bound
             else:
                 # Original implementation behavior for near-zero means
                 self.assertRange(probabilities[0], (0.4, 0.6))
@@ -477,10 +473,10 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 # Original implementation returns intervals as ratios/multipliers of the mean
                 # For near-zero means, the intervals become very small ratios
                 # This is expected behavior when dealing with values close to zero
-                self.assertRange(intervals["control"][0], (0, 0.0001))  # Lower bound ratio
-                self.assertRange(intervals["control"][1], (0, 0.005))  # Upper bound ratio
-                self.assertRange(intervals["test"][0], (0, 0.0001))  # Lower bound ratio
-                self.assertRange(intervals["test"][1], (0, 0.005))  # Upper bound ratio
+                self.assertAlmostEqual(intervals["control"][0], 0.00005, delta=0.00005)  # Lower bound ratio
+                self.assertAlmostEqual(intervals["control"][1], 0.0025, delta=0.0025)  # Upper bound ratio
+                self.assertAlmostEqual(intervals["test"][0], 0.00005, delta=0.00005)  # Lower bound ratio
+                self.assertAlmostEqual(intervals["test"][1], 0.0025, delta=0.0025)  # Upper bound ratio
 
         self.run_test_for_both_implementations(run_test)
 
@@ -510,12 +506,12 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 0)
 
                 # Control at $100 mean
-                self.assertRange(intervals["control"][0], (98, 102))
-                self.assertRange(intervals["control"][1], (98, 102))
+                self.assertAlmostEqual(intervals["control"][0], 100, delta=2)
+                self.assertAlmostEqual(intervals["control"][1], 100, delta=2)
 
                 # Test at $120 mean
-                self.assertRange(intervals["test"][0], (118, 122))
-                self.assertRange(intervals["test"][1], (118, 122))
+                self.assertAlmostEqual(intervals["test"][0], 120, delta=2)
+                self.assertAlmostEqual(intervals["test"][1], 120, delta=2)
             else:
                 # Original implementation behavior for different exposures
                 self.assertRange(probabilities[1], (0.4, 0.6))  # Close to 50/50
@@ -527,9 +523,9 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 1)
 
                 # Original implementation returns intervals as ratios/multipliers of the mean
-                self.assertRange(intervals["control"][0], (0.007, 0.009))
-                self.assertRange(intervals["control"][1], (0.01, 0.02))
-                self.assertRange(intervals["test"][0], (0.007, 0.009))
-                self.assertRange(intervals["test"][1], (0.01, 0.02))
+                self.assertAlmostEqual(intervals["control"][0], 0.008, delta=0.001)
+                self.assertAlmostEqual(intervals["control"][1], 0.015, delta=0.005)
+                self.assertAlmostEqual(intervals["test"][0], 0.008, delta=0.001)
+                self.assertAlmostEqual(intervals["test"][1], 0.015, delta=0.005)
 
         self.run_test_for_both_implementations(run_test)
