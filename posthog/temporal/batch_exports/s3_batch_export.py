@@ -51,9 +51,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
     WriterFormat,
 )
-from posthog.temporal.batch_exports.utils import (
-    set_status_to_running_task,
-)
+from posthog.temporal.batch_exports.utils import set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -73,6 +71,8 @@ NON_RETRYABLE_ERROR_TYPES = [
     "InvalidS3Key",
     # All consumers failed with non-retryable errors.
     "RecordBatchConsumerNonRetryableExceptionGroup",
+    # Invalid S3 endpoint URL
+    "InvalidS3EndpointError",
 ]
 
 FILE_FORMAT_EXTENSIONS = {
@@ -166,6 +166,13 @@ class EmptyS3EndpointURLError(Exception):
         super().__init__("Endpoint URL cannot be empty.")
 
 
+class InvalidS3EndpointError(Exception):
+    """Exception raised when an S3 endpoint is invalid."""
+
+    def __init__(self, message: str = "Endpoint URL is invalid."):
+        super().__init__(message)
+
+
 Part = dict[str, str | int]
 
 
@@ -240,14 +247,19 @@ class S3MultiPartUpload:
     async def s3_client(self):
         """Asynchronously yield an S3 client."""
 
-        async with self._session.client(
-            "s3",
-            region_name=self.region_name,
-            aws_access_key_id=self.aws_access_key_id,
-            aws_secret_access_key=self.aws_secret_access_key,
-            endpoint_url=self.endpoint_url,
-        ) as client:
-            yield client
+        try:
+            async with self._session.client(
+                "s3",
+                region_name=self.region_name,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+                endpoint_url=self.endpoint_url,
+            ) as client:
+                yield client
+        except ValueError as err:
+            if "Invalid endpoint" in str(err):
+                raise InvalidS3EndpointError(str(err)) from err
+            raise
 
     async def start(self) -> str:
         """Start this S3MultiPartUpload."""
