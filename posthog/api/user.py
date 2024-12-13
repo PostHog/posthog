@@ -357,6 +357,7 @@ class UserViewSet(
     filterset_fields = ["is_staff"]
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
+    required_scopes: Optional[list[str]] = None  # NOTE: The scope_object covers this
 
     def get_object(self) -> User:
         lookup_value = self.kwargs[self.lookup_field]
@@ -457,6 +458,7 @@ class UserViewSet(
         methods=["GET", "PATCH"],
         detail=True,
         throttle_classes=[],
+        required_scopes=["user:read"],
         authentication_classes=[SessionAuthentication, JwtAuthentication, PersonalAPIKeyAuthentication],
     )
     def hedgehog_config(self, request, **kwargs):

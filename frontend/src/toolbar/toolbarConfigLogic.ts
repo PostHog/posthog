@@ -11,12 +11,20 @@ import { LOCALSTORAGE_KEY } from './utils'
 
 export type ToolbarAuthorizationState = Pick<ToolbarProps, 'authorizationCode' | 'accessToken'>
 
+export type ToolbarTokenInfo = {
+    id: number
+    aud: string
+    scopes: string[]
+    exp: number
+}
+
 export const TOOLBAR_REQUIRED_API_SCOPES = [
     'project:read',
     'action:write',
     'feature_flag:read',
     'heatmaps:read',
     'user:read',
+    'experiment:write',
 ].join(' ')
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
@@ -108,6 +116,23 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         accessToken: [(s) => [s.authorization], (authorization) => authorization?.accessToken ?? null],
         // TODO: Check for expiry
         isAuthenticated: [(s) => [s.accessToken], (accessToken) => !!accessToken],
+
+        tokenInfo: [
+            (s) => [s.accessToken],
+            (accessToken): ToolbarTokenInfo | null => {
+                // Loosely parse the jwt info
+                if (!accessToken) {
+                    return null
+                }
+
+                const [_, payload] = accessToken.split('.')
+                const decodedPayload = atob(payload)
+                const parsedPayload = JSON.parse(decodedPayload)
+                return parsedPayload
+            },
+        ],
+
+        projectId: [(s) => [s.tokenInfo], (tokenInfo): string | number => tokenInfo?.id ?? '@current'],
     }),
 
     listeners(({ values, actions }) => ({
@@ -118,8 +143,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             actions.persistConfig()
 
             // TODO: Keep this in sync with the scopes in the backend
-            const scopes = ['project:read', 'action:write', 'feature_flag:read', 'heatmaps:read', 'user:read'].join(' ')
-            window.location.href = `${values.apiURL}/client_authorization/?code=${values.authorization.authorizationCode}&redirect_url=${encodedUrl}&scopes=${scopes}&client_id=toolbar`
+            window.location.href = `${values.apiURL}/project/${values.posthog?.config.token}/client_authorization/?code=${values.authorization.authorizationCode}&redirect_url=${encodedUrl}&scopes=${TOOLBAR_REQUIRED_API_SCOPES}&client_id=toolbar`
         },
 
         checkAuthorizationSuccess: () => {
@@ -188,14 +212,19 @@ export async function toolbarFetch(
 ): Promise<Response> {
     const accessToken = toolbarConfigLogic.findMounted()?.values.accessToken
     const apiURL = toolbarConfigLogic.findMounted()?.values.apiURL
+    const projectId = toolbarConfigLogic.findMounted()?.values.projectId
 
     let fullUrl: string
     if (urlConstruction === 'use-as-provided') {
         fullUrl = url
     } else {
         const { pathname, searchParams } = combineUrl(url)
+
         const params = { ...searchParams }
-        fullUrl = `${apiURL}${pathname}${encodeParams(params, '?')}`
+        fullUrl = `${apiURL}${pathname.replace('/projects/@current', `/projects/${projectId}`)}${encodeParams(
+            params,
+            '?'
+        )}`
     }
 
     const response = await fetch(fullUrl, {
@@ -206,6 +235,7 @@ export async function toolbarFetch(
             Authorization: `Bearer ${accessToken}`,
         },
     })
+    // TODO: Change to some sort of indicator that a reauth may be required.
     if (response.status === 403) {
         toolbarConfigLogic.actions.onAuthenticationError('forbidden')
     }
