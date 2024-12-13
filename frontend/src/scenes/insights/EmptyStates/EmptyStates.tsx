@@ -85,9 +85,11 @@ function humanFileSize(size: number): string {
 export function StatelessInsightLoadingState({
     queryId,
     pollResponse,
+    suggestion,
 }: {
     queryId?: string | null
     pollResponse?: Record<string, QueryStatus | null> | null
+    suggestion?: JSX.Element
 }): JSX.Element {
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
@@ -143,10 +145,14 @@ export function StatelessInsightLoadingState({
                         </>
                     )}
                 </p>
-                <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
-                    <IconInfo className="text-xl shrink-0" />
-                    <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
-                </div>
+                {suggestion ? (
+                    suggestion
+                ) : (
+                    <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
+                        <IconInfo className="text-xl shrink-0" />
+                        <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
+                    </div>
+                )}
                 {queryId ? (
                     <div className="text-muted text-xs mx-auto text-center mt-5">
                         Query ID: <span className="font-mono">{queryId}</span>
@@ -173,38 +179,46 @@ export function InsightLoadingState({
 
     return (
         <div>
-            <StatelessInsightLoadingState queryId={queryId} pollResponse={insightPollResponse} />
-            <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
-                {personsOnEventsMode === 'person_id_override_properties_joined' ? (
-                    <>
-                        <IconWarning className="text-xl shrink-0 text-warning" />
-                        <p className="text-xs m-0">
-                            You can speed this query up by changing the{' '}
-                            <Link to="/settings/project#persons-on-events">person properties mode</Link> setting.
-                        </p>
-                    </>
-                ) : (
-                    <>
-                        <IconInfo className="text-xl shrink-0" />
-                        <p className="text-xs m-0">
-                            {suggestedSamplingPercentage && !samplingPercentage ? (
-                                <span data-attr="insight-loading-waiting-message">
-                                    Need to speed things up? Try reducing the date range, removing breakdowns, or
-                                    turning on <SamplingLink insightProps={insightProps} />.
-                                </span>
-                            ) : suggestedSamplingPercentage && samplingPercentage ? (
-                                <>
-                                    Still waiting around? You must have lots of data! Kick it up a notch with{' '}
-                                    <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
-                                    removing breakdowns.
-                                </>
-                            ) : (
-                                <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
-                            )}
-                        </p>
-                    </>
-                )}
-            </div>
+            <StatelessInsightLoadingState
+                queryId={queryId}
+                pollResponse={insightPollResponse}
+                suggestion={
+                    <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
+                        {personsOnEventsMode === 'person_id_override_properties_joined' ? (
+                            <>
+                                <IconWarning className="text-xl shrink-0 text-warning" />
+                                <p className="text-xs m-0">
+                                    You can speed this query up by changing the{' '}
+                                    <Link to="/settings/project#persons-on-events">person properties mode</Link>{' '}
+                                    setting.
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                <IconInfo className="text-xl shrink-0" />
+                                <p className="text-xs m-0">
+                                    {suggestedSamplingPercentage && !samplingPercentage ? (
+                                        <span data-attr="insight-loading-waiting-message">
+                                            Need to speed things up? Try reducing the date range, removing breakdowns,
+                                            or turning on <SamplingLink insightProps={insightProps} />.
+                                        </span>
+                                    ) : suggestedSamplingPercentage && samplingPercentage ? (
+                                        <>
+                                            Still waiting around? You must have lots of data! Kick it up a notch with{' '}
+                                            <SamplingLink insightProps={insightProps} />. Or try reducing the date range
+                                            and removing breakdowns.
+                                        </>
+                                    ) : (
+                                        <>
+                                            Need to speed things up? Try reducing the date range or removing breakdowns.
+                                        </>
+                                    )}
+                                </p>
+                            </>
+                        )}
+                    </div>
+                }
+            />
         </div>
     )
 }
