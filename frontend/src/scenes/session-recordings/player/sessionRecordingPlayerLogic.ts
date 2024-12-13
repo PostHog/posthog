@@ -528,7 +528,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
                     if (sessionPlayerData.segments.length) {
                         for (const segment of sessionPlayerData.segments) {
-                            if (segment.startTimestamp <= timestamp && segment.endTimestamp >= timestamp) {
+                            if (segment.startTimestamp <= timestamp && timestamp <= segment.endTimestamp) {
                                 return segment
                             }
                         }
@@ -864,22 +864,28 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setCurrentSegment(segment)
             }
 
-            if (!values.snapshotsLoaded) {
-                // We haven't started properly loading, or we're still polling so nothing to do
-            } else if (!values.isRealtimePolling && !values.snapshotsLoading && segment?.kind === 'buffer') {
-                // If not currently loading anything,
-                // and part of the recording hasn't loaded, set error state
-                values.player?.replayer?.pause()
-                actions.endBuffer()
-                console.error("Error: Player tried to seek to a position that hasn't loaded yet")
-                actions.setErrorPlayerState(true)
-            }
-
             // If next time is greater than last buffered time, set to buffering
             else if (segment?.kind === 'buffer') {
-                values.player?.replayer?.pause()
-                actions.startBuffer()
-                actions.setErrorPlayerState(false)
+                const isStillLoading = values.isRealtimePolling || values.snapshotsLoading
+                const isPastEnd = values.sessionPlayerData.end && timestamp > values.sessionPlayerData.end.valueOf()
+                if (isStillLoading) {
+                    values.player?.replayer?.pause()
+                    actions.startBuffer()
+                    actions.setErrorPlayerState(false)
+                } else {
+                    if (isPastEnd) {
+                        actions.setEndReached(true)
+                    } else {
+                        // If not currently loading anything,
+                        // not past the end of the recording,
+                        // and part of the recording hasn't loaded,
+                        // set error state
+                        values.player?.replayer?.pause()
+                        actions.endBuffer()
+                        console.error("Error: Player tried to seek to a position that hasn't loaded yet")
+                        actions.setErrorPlayerState(true)
+                    }
+                }
             }
 
             // If not forced to play and if last playing state was pause, pause

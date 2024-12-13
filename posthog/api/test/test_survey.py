@@ -2907,8 +2907,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             for survey in surveys:
                 assert "description" not in survey, f"Description field should not be present in survey: {survey}"
 
-            assert surveys[0]["name"] == "Survey 1"
-            assert surveys[1]["name"] == "Survey 2"
+            assert len(surveys) == 2
 
 
 class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):

@@ -24,7 +24,7 @@ def revert_queries_to_filters(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0528_project_field_in_taxonomy")]
+    dependencies = [("posthog", "0529_hog_function_mappings")]
 
     operations = [
         migrations.RunPython(update_filters_to_queries, revert_queries_to_filters),

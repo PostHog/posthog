@@ -984,6 +984,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 return itemsByType
             },
         ],
+
+        hasEventsToDisplay: [
+            (s) => [s.allItemsByItemType],
+            (allItemsByItemType): boolean => allItemsByItemType[FilterableInspectorListItemTypes.EVENTS]?.length > 0,
+        ],
     })),
     listeners(({ values, actions }) => ({
         setItemExpanded: ({ index, expanded }) => {
