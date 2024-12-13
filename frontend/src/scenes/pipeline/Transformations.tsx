@@ -238,7 +238,7 @@ const MinimalAppView = ({ transformation, order }: { transformation: Transformat
     return (
         <div
             ref={setNodeRef}
-            className="flex gap-2 cursor-move border rounded p-2 items-center bg-bg-light relative"
+            className="flex gap-2 cursor-move border rounded p-2 items-center background-primary relative"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 transform: CSS.Transform.toString(transform),

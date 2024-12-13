@@ -194,7 +194,7 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
     return (
         <div>
             <h2 className="font-semibold text-lg mb-2">Implementation</h2>
-            <div className="border rounded bg-bg-light">
+            <div className="border rounded background-primary">
                 <div className="p-6 space-y-4">
                     <div className="flex justify-between">
                         <div className="flex items-center">

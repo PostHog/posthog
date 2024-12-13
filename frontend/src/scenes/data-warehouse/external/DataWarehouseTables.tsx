@@ -294,7 +294,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
     return (
         <div
             className={clsx(
-                `bg-bg-light rounded space-y-px border p-2 overflow-y-auto`,
+                `background-primary rounded space-y-px border p-2 overflow-y-auto`,
                 !collapsed ? 'min-w-80 flex-1' : ''
             )}
         >

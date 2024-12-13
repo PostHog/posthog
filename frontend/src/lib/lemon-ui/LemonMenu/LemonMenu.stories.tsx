@@ -36,7 +36,7 @@ export default meta
 
 const Template: StoryFn<typeof LemonMenuOverlayComponent> = (props: LemonMenuOverlayProps) => {
     return (
-        <div className="rounded border p-1 bg-bg-light">
+        <div className="rounded border p-1 background-primary">
             <LemonMenuOverlayComponent {...props} />
         </div>
     )

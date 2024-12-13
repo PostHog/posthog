@@ -51,7 +51,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --neutral-950: #262626;
 
     // Neutral warm colors (light mode backgrounds)
-    --neutral-warm-50: #f3f4f0;
+    --neutral-warm-50: #f3f4ef;
     --neutral-warm-100: #e8eae0;
     --neutral-warm-150: #dde0d2;
     --neutral-warm-200: #d2d6c2;
@@ -72,25 +72,25 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --neutral-warm-950: #0e0f0b;
 
     // Neutral cool colors (dark mode backgrounds)
-    --neutral-cool-50: #f1f2f3;
-    --neutral-cool-100: #e3e5e8;
-    --neutral-cool-150: #d6d8dc;
-    --neutral-cool-200: #c8cbd0;
-    --neutral-cool-250: #babec4;
-    --neutral-cool-300: #adb2b9;
-    --neutral-cool-350: #9fa5ad;
-    --neutral-cool-400: #9197a1;
-    --neutral-cool-450: #838a95;
-    --neutral-cool-500: #767e8a;
-    --neutral-cool-550: #6a717c;
-    --neutral-cool-600: #5e646e;
-    --neutral-cool-650: #525860;
-    --neutral-cool-700: #474c53;
-    --neutral-cool-750: #3b3f45;
-    --neutral-cool-800: #2f3237;
-    --neutral-cool-850: #232529;
-    --neutral-cool-900: #1b1c18;
-    --neutral-cool-950: #0e0e0c;
+    --neutral-cool-50: #f1f1f4;
+    --neutral-cool-100: #e2e4e9;
+    --neutral-cool-150: #d3d6de;
+    --neutral-cool-200: #c5c8d3;
+    --neutral-cool-250: #b6bac8;
+    --neutral-cool-300: #a8acbd;
+    --neutral-cool-350: #999eb2;
+    --neutral-cool-400: #8b90a7;
+    --neutral-cool-450: #7d829c;
+    --neutral-cool-500: #6e7491;
+    --neutral-cool-550: #6e7491;
+    --neutral-cool-600: #636882;
+    --neutral-cool-650: #585c74;
+    --neutral-cool-700: #4d5166;
+    --neutral-cool-750: #424557;
+    --neutral-cool-800: #373a49;
+    --neutral-cool-850: #21232c;
+    --neutral-cool-900: #16171d;
+    --neutral-cool-950: #0b0c0f;
 
     // Brand colors
     --brand-100: #fddccc;
@@ -697,9 +697,10 @@ body {
         --content-secondary: var(--neutral-cool-200);
         --content-tertiary: var(--neutral-cool-300);
         --content-tertiary-inverse: var(--neutral-cool-700);
-        --background-primary: var(--neutral-cool-900);
-        --background-secondary: var(--neutral-cool-850);
-        --background-tertiary: var(--neutral-cool-800);
+        --content-link: var(--yellow-500);
+        --background-primary: var(--neutral-cool-950);
+        --background-secondary: var(--neutral-cool-900);
+        --background-tertiary: var(--neutral-cool-850);
         --border-secondary: var(--neutral-cool-650);
         --border-tertiary: var(--neutral-cool-750);
 

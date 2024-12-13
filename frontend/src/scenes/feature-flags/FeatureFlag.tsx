@@ -427,7 +427,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
                                             <FeatureFlagAutoRollback />
                                         )}
-                                        <div className="border rounded bg-bg-light">
+                                        <div className="border rounded background-primary">
                                             <h3 className="p-2 mb-0">Permissions</h3>
                                             <LemonDivider className="my-0" />
                                             <div className="p-3">
@@ -842,7 +842,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                     {featureFlag.filters.multivariate && (
                         <>
                             <h3 className="l3">Variant keys</h3>
-                            <div className="border rounded p-4 mb-4 bg-bg-light">
+                            <div className="border rounded p-4 mb-4 background-primary">
                                 <div className="grid grid-cols-10 gap-4 font-semibold">
                                     <div className="col-span-2">Key</div>
                                     <div className="col-span-2">Description</div>

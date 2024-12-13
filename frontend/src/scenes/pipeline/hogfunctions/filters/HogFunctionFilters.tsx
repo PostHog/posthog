@@ -49,7 +49,7 @@ export function HogFunctionFilters(): JSX.Element {
 
     if (type === 'broadcast') {
         return (
-            <div className="border bg-bg-light rounded p-3 space-y-2">
+            <div className="border background-primary rounded p-3 space-y-2">
                 <LemonField name="filters" label="Filters">
                     {({ value, onChange }) => (
                         <PropertyFilters
@@ -77,7 +77,7 @@ export function HogFunctionFilters(): JSX.Element {
     const showMasking = type === 'destination'
 
     return (
-        <div className="border bg-bg-light rounded p-3 space-y-2">
+        <div className="border background-primary rounded p-3 space-y-2">
             <LemonField name="filters" label="Filters">
                 {({ value, onChange }) => (
                     <>

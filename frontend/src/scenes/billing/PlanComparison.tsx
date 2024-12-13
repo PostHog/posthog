@@ -506,7 +506,7 @@ export const PlanComparisonModal = ({
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
             <div className="PlanComparisonModal flex w-full h-full justify-center p-6">
-                <div className="text-left bg-bg-light rounded relative w-full">
+                <div className="text-left background-primary rounded relative w-full">
                     {title ? <h2>{title}</h2> : <h2>{product.name} plans</h2>}
                     <PlanComparison product={product} includeAddons={includeAddons} />
                 </div>

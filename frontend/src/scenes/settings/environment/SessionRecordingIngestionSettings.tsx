@@ -138,7 +138,7 @@ function UrlConfigForm({
             logic={sessionReplayIngestionControlLogic}
             formKey={type === 'trigger' ? 'proposedUrlTrigger' : 'proposedUrlBlocklist'}
             enableFormOnSubmit
-            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-bg-light gap-2"
+            className="w-full flex flex-col border rounded items-center p-2 pl-4 background-primary gap-2"
         >
             <div className="flex flex-row gap-2 w-full">
                 <LemonField name="matching">
@@ -183,14 +183,14 @@ function UrlConfigRow({
 }): JSX.Element {
     if (editIndex === index) {
         return (
-            <div className="border rounded p-2 bg-bg-light">
+            <div className="border rounded p-2 background-primary">
                 <UrlConfigForm type={type} onCancel={() => onEdit(-1)} isSubmitting={false} />
             </div>
         )
     }
 
     return (
-        <div className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
+        <div className={clsx('border rounded flex items-center p-2 pl-4 background-primary')}>
             <span title={trigger.url} className="flex-1 truncate">
                 {trigger.matching === 'regex' ? 'Matches regex: ' : ''} {trigger.url}
             </span>

@@ -32,7 +32,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     return (
         <div
             ref={ref}
-            className={clsx('Comment border rounded-lg bg-bg-light', isHighlighted && 'border-primary-3000')}
+            className={clsx('Comment border rounded-lg background-primary', isHighlighted && 'border-primary-3000')}
             data-comment-id={comment.id}
         >
             <div className="flex-1 flex justify-start p-2 gap-2">

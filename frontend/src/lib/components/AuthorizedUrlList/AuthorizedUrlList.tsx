@@ -129,13 +129,13 @@ export function AuthorizedUrlList({
                 </LemonButton>
             </div>
             {suggestionsLoading ? (
-                <div className="border rounded p-4 bg-bg-light" key={-1}>
+                <div className="border rounded p-4 background-primary" key={-1}>
                     <Spinner className="text-xl" />
                 </div>
             ) : (
                 <div className="space-y-2">
                     {isAddUrlFormVisible && (
-                        <div className="border rounded p-2 bg-bg-light">
+                        <div className="border rounded p-2 background-primary">
                             <AuthorizedUrlForm
                                 type={type}
                                 actionId={actionId}
@@ -152,11 +152,14 @@ export function AuthorizedUrlList({
                     />
                     {urlsKeyed.map((keyedURL, index) => {
                         return editUrlIndex === index ? (
-                            <div className="border rounded p-2 bg-bg-light">
+                            <div className="border rounded p-2 background-primary">
                                 <AuthorizedUrlForm type={type} actionId={actionId} />
                             </div>
                         ) : (
-                            <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
+                            <div
+                                key={index}
+                                className={clsx('border rounded flex items-center p-2 pl-4 background-primary')}
+                            >
                                 {keyedURL.type === 'suggestion' && (
                                     <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>
                                         <LemonTag type="highlight" className="mr-4 uppercase cursor-pointer">

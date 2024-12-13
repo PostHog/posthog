@@ -32,7 +32,7 @@ function HeatmapMouseInfo({
             }}
         >
             <div
-                className="absolute border rounded bg-bg-light shadow-md p-2 mx-2 -translate-y-1/2"
+                className="absolute border rounded background-primary shadow-md p-2 mx-2 -translate-y-1/2"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     left: leftPosition ? undefined : 0,

@@ -277,7 +277,7 @@ export function PlayerInspectorListItem({
                 'ml-1 flex flex-col items-center',
                 isExpanded && 'border border-primary',
                 isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
-                isHovering && 'bg-bg-light'
+                isHovering && 'background-primary'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{

@@ -618,7 +618,7 @@ export function OpenTextViz({
                                             ? JSON.stringify(event.properties[surveyResponseField])
                                             : event.properties[surveyResponseField]}
                                     </div>
-                                    <div className="bg-bg-light items-center px-5 py-4 border-t rounded-b truncate w-full">
+                                    <div className="background-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
                                         <PersonDisplay
                                             person={personProp}
                                             withIcon={true}

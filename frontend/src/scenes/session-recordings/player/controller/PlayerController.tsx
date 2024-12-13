@@ -212,7 +212,7 @@ export function PlayerController(): JSX.Element {
     const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
 
     return (
-        <div className="bg-bg-light flex flex-col select-none">
+        <div className="background-primary flex flex-col select-none">
             <Seekbar />
             <div className="w-full px-2 py-1 relative flex items-center justify-center">
                 <div className="absolute left-2">

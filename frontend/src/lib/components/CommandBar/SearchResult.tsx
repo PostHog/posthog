@@ -43,7 +43,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
         <div
             className={clsx(
                 'w-full px-2 hover:bg-bg-3000 border-l-4 border-r border-b cursor-pointer',
-                focused ? 'bg-bg-3000 border-l-primary-3000' : 'bg-bg-light'
+                focused ? 'bg-bg-3000 border-l-primary-3000' : 'background-primary'
             )}
             onClick={() => {
                 openResult(resultIndex)
@@ -65,7 +65,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
 }
 
 export const SearchResultSkeleton = (): JSX.Element => (
-    <div className="px-5 py-4 w-full space-y-1.5 flex flex-col items-start bg-bg-light border-b">
+    <div className="px-5 py-4 w-full space-y-1.5 flex flex-col items-start background-primary border-b">
         <LemonSkeleton className="w-16 opacity-75 h-3" />
         <LemonSkeleton className="w-40 h-3.5" />
     </div>

@@ -24,7 +24,7 @@ export function TableData(): JSX.Element {
     const isManuallyLinkedTable = isExternalTable && !table.source
 
     return (
-        <div className="border rounded p-3 bg-bg-light">
+        <div className="border rounded p-3 background-primary">
             {table ? (
                 <>
                     <div className="flex flex-row justify-between items-center gap-2">

@@ -71,7 +71,7 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
     return (
         <>
             <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}>
-                <div className="rounded border bg-bg-light m-2 px-2 py-1">
+                <div className="rounded border background-primary m-2 px-2 py-1">
                     <h2>AI Session Summary</h2>
                     {sessionSummaryLoading ? (
                         <>

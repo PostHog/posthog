@@ -217,7 +217,7 @@ function InternalDataTableVisualization(
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
     if (!showEditingUI && (!response || responseLoading)) {
         component = (
-            <div className="flex flex-col flex-1 justify-center items-center border rounded bg-bg-light">
+            <div className="flex flex-col flex-1 justify-center items-center border rounded background-primary">
                 <Animation type={AnimationType.LaptopHog} />
             </div>
         )
@@ -253,7 +253,7 @@ function InternalDataTableVisualization(
                     <div className={clsx('w-full h-full flex-1 overflow-auto')}>
                         {visualizationType !== ChartDisplayType.ActionsTable && responseError ? (
                             <div
-                                className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
+                                className={clsx('rounded background-primary relative flex flex-1 flex-col p-2', {
                                     border: showEditingUI,
                                 })}
                             >

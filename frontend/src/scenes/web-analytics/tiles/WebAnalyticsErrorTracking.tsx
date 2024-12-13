@@ -66,7 +66,7 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
             )}
         >
             <h2 className="m-0 mb-3">Error tracking</h2>
-            <div className="border rounded bg-bg-light flex-1 flex flex-col py-2 px-1">
+            <div className="border rounded background-primary flex-1 flex flex-col py-2 px-1">
                 <Query query={query} embedded={true} context={context} />
             </div>
             <div className="flex flex-row-reverse my-2">

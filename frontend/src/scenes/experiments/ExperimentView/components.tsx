@@ -340,7 +340,7 @@ export function NoResultsEmptyState(): JSX.Element {
             parsedDetail = JSON.parse(experimentResultCalculationError.detail)
         } catch (error) {
             return (
-                <div className="border rounded bg-bg-light p-4">
+                <div className="border rounded background-primary p-4">
                     <div className="font-semibold leading-tight text-base text-current">
                         Experiment results could not be calculated
                     </div>
@@ -356,7 +356,7 @@ export function NoResultsEmptyState(): JSX.Element {
 
         return (
             <div>
-                <div className="border rounded bg-bg-light py-2">
+                <div className="border rounded background-primary py-2">
                     <div className="flex space-x-2">
                         <div className="w-1/2 my-auto px-6 space-y-4 items-center">
                             <div className="flex items-center">
@@ -382,7 +382,7 @@ export function NoResultsEmptyState(): JSX.Element {
     if (experimentResultCalculationError?.statusCode === 504) {
         return (
             <div>
-                <div className="border rounded bg-bg-light py-10">
+                <div className="border rounded background-primary py-10">
                     <div className="flex flex-col items-center mx-auto text-muted space-y-2">
                         <IconArchive className="text-4xl text-secondary-3000" />
                         <h2 className="text-xl font-semibold leading-tight">Experiment results timed out</h2>
@@ -402,7 +402,7 @@ export function NoResultsEmptyState(): JSX.Element {
     // Other unexpected errors
     return (
         <div>
-            <div className="border rounded bg-bg-light py-10">
+            <div className="border rounded background-primary py-10">
                 <div className="flex flex-col items-center mx-auto text-muted space-y-2">
                     <IconArchive className="text-4xl text-secondary-3000" />
                     <h2 className="text-xl font-semibold leading-tight">Experiment results could not be calculated</h2>

@@ -20,7 +20,7 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
         <div className="flex flex-col overflow-auto bg-bg-3000">
             <PlayerSidebarOverviewGrid />
             <PlayerSidebarSessionSummary />
-            <div className="font-bold bg-bg-light px-2 border-b py-3">
+            <div className="font-bold background-primary px-2 border-b py-3">
                 <Tooltip title="These are the person properties right now. They might have changed and not match the person properties at the time of recording.">
                     <h2>
                         Latest person properties <IconInfo />

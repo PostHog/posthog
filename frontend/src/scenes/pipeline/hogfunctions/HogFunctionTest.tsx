@@ -71,7 +71,10 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
     return (
         <Form logic={hogFunctionTestLogic} props={props} formKey="testInvocation" enableFormOnSubmit>
             <div
-                className={clsx('border rounded p-3 space-y-2', expanded ? 'bg-bg-light min-h-120' : 'bg-accent-3000')}
+                className={clsx(
+                    'border rounded p-3 space-y-2',
+                    expanded ? 'background-primary min-h-120' : 'bg-accent-3000'
+                )}
             >
                 <div className="flex items-center gap-2 justify-end">
                     <div className="flex-1 space-y-2">

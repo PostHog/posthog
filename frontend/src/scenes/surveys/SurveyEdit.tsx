@@ -162,7 +162,7 @@ export default function SurveyEdit(): JSX.Element {
                     onChange={(section) => {
                         setSelectedSection(section)
                     }}
-                    className="bg-bg-light"
+                    className="background-primary"
                     panels={[
                         {
                             key: SurveyEditSection.Presentation,

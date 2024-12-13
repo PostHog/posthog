@@ -47,7 +47,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
         creditOverview?.estimated_monthly_credit_amount_usd || DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
     return (
         <div
-            className="flex relative justify-between items-start rounded-lg bg-bg-light border mb-2 gap-2"
+            className="flex relative justify-between items-start rounded-lg background-primary border mb-2 gap-2"
             ref={heroRef}
         >
             <div className="absolute top-2 right-2 z-10">

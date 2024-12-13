@@ -26,7 +26,7 @@ export function InternalMetricsTab(): JSX.Element {
         <>
             <LemonCollapse
                 activeKeys={openSections}
-                className="bg-bg-light"
+                className="background-primary"
                 onChange={(keys) => setOpenSections(keys)}
                 multiple
                 panels={[

@@ -32,7 +32,7 @@ export function WebExperimentImplementationDetails({ experiment }: WebExperiment
         <>
             <div>
                 <h2 className="font-semibold text-lg mb-2">Implementation</h2>
-                <div className="border p-6 rounded bg-bg-light space-y-2">
+                <div className="border p-6 rounded background-primary space-y-2">
                     <div className="font-semibold leading-tight text-base text-current">
                         Define variant changes directly on your website
                     </div>

@@ -36,7 +36,7 @@ export const EventsFree: StoryFn<typeof TaxonomicFilter> = (args) => {
         setIndex(1)
     }, [])
     return (
-        <div className="w-fit border rounded p-2 bg-bg-light">
+        <div className="w-fit border rounded p-2 background-primary">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -82,7 +82,7 @@ Actions.args = {
 
 export const Properties: StoryFn<typeof TaxonomicFilter> = (args) => {
     return (
-        <div className="w-fit border rounded p-2 bg-bg-light">
+        <div className="w-fit border rounded p-2 background-primary">
             <TaxonomicFilter {...args} />
         </div>
     )
