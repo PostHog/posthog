@@ -928,7 +928,7 @@ class TestFilterToQuery(BaseTest):
 
         self.assertEqual(
             query.model_dump(exclude_defaults=True),
-            {"breakdownFilter": {}, "dateRange": {}, "series": [], "trendsFilter": {}},
+            {"breakdownFilter": {}, "dateRange": {}, "compareFilter": {}, "series": [], "trendsFilter": {}},
         )
 
     def test_base_funnel(self):
