@@ -3,7 +3,7 @@ import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { WebExperiment } from '~/toolbar/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
@@ -21,11 +21,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 getExperiments: async (_ = null, breakpoint: () => void) => {
                     const response = await toolbarFetch('/api/projects/@current/web_experiments/')
                     const results = await response.json()
-
-                    if (response.status === 403) {
-                        toolbarConfigLogic.actions.authenticate()
-                        return []
-                    }
 
                     breakpoint()
 

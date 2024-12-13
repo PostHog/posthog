@@ -573,7 +573,7 @@ def redirect_to_site(request):
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
     code, verification = start_client_auth_flow()
-    confirm_client_auth_flow(code, verification, request.user)
+    confirm_client_auth_flow(code, verification, request.user, ["*"])
 
     params = {
         "action": "ph_authorize",

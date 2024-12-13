@@ -3888,6 +3888,7 @@ export type APIScopeObject =
     | 'export'
     | 'feature_flag'
     | 'group'
+    | 'heatmaps'
     | 'insight'
     | 'query'
     | 'notebook'
