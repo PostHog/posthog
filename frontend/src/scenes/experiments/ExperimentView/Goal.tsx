@@ -253,7 +253,8 @@ export function Goal(): JSX.Element {
     // :FLAG: CLEAN UP AFTER MIGRATION
     const isDataWarehouseMetric =
         featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] &&
-        (experiment.metrics[0] as ExperimentTrendsQuery).count_query.series[0].kind === NodeKind.DataWarehouseNode
+        metricType === InsightType.TRENDS &&
+        (experiment.metrics[0] as ExperimentTrendsQuery).count_query?.series[0].kind === NodeKind.DataWarehouseNode
 
     return (
         <div>
