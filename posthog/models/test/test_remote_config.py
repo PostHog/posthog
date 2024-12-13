@@ -1,5 +1,6 @@
 from decimal import Decimal
 from unittest.mock import patch
+from django.test import RequestFactory
 from inline_snapshot import snapshot
 import pytest
 from posthog.models.action.action import Action
@@ -427,12 +428,16 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
 
     def test_only_includes_recording_for_approved_domains(self):
         with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
-            config = self.remote_config.get_config_via_token(self.team.api_token, domain="my.example.com")
+            mock_request = RequestFactory().get("/")
+            mock_request.META["HTTP_ORIGIN"] = "https://my.example.com"
+            config = self.remote_config.get_config_via_token(self.team.api_token, request=mock_request)
             assert config["sessionRecording"]
 
         # No additional queries should be needed to check the other domain
         with self.assertNumQueries(0):
-            config = self.remote_config.get_config_via_token(self.team.api_token, domain="other.com")
+            mock_request = RequestFactory().get("/")
+            mock_request.META["HTTP_ORIGIN"] = "https://other.com"
+            config = self.remote_config.get_config_via_token(self.team.api_token, request=mock_request)
             assert not config["sessionRecording"]
 
 

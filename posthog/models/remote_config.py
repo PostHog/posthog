@@ -4,6 +4,7 @@ from typing import Any, Optional
 from collections.abc import Callable
 from django.conf import settings
 from django.db import models
+from django.http import HttpRequest
 from django.utils import timezone
 from prometheus_client import Counter
 from sentry_sdk import capture_exception
@@ -65,18 +66,16 @@ def cache_key_for_team_token(team_token: str, suffix: str) -> str:
     return f"remote_config/{team_token}/{suffix}"
 
 
-def sanitize_config_for_public_cdn(config: dict, domain: Optional[str] = None) -> dict:
-    from posthog.api.utils import hostname_in_allowed_url_list
+def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] = None) -> dict:
+    from posthog.api.utils import on_permitted_recording_domain
 
     # Remove domains from session recording
     if config.get("sessionRecording"):
         if "domains" in config["sessionRecording"]:
             domains = config["sessionRecording"].pop("domains")
 
-            if domain:
-                is_recording_allowed = hostname_in_allowed_url_list(domains, domain)
-
-                if not is_recording_allowed:
+            if request:
+                if not on_permitted_recording_domain(domains, request=request):
                     config["sessionRecording"] = False
 
     # Remove site apps JS
@@ -312,20 +311,20 @@ class RemoteConfig(UUIDModel):
         return data
 
     @classmethod
-    def get_config_via_token(cls, token: str, domain: Optional[str] = None) -> dict:
+    def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
         config = cls._get_via_cache(token, "config", lambda remote_config: remote_config.build_config())
-        config = sanitize_config_for_public_cdn(config, domain)
+        config = sanitize_config_for_public_cdn(config, request=request)
 
         return config
 
     @classmethod
-    def get_config_js_via_token(cls, token: str, domain: Optional[str] = None) -> str:
+    def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
         config = cls._get_via_cache(token, "config", lambda remote_config: remote_config.build_config())
         # Get the site apps JS so we can render it in the JS
         site_apps_js = config.pop("siteAppsJS", None)
         # We don't want to include the minimal site apps content as we have the JS now
         config.pop("siteApps", None)
-        config = sanitize_config_for_public_cdn(config, domain)
+        config = sanitize_config_for_public_cdn(config, request=request)
 
         js_content = f"""(function() {{
   window._POSTHOG_CONFIG = {json.dumps(config)};
@@ -336,9 +335,9 @@ class RemoteConfig(UUIDModel):
         return js_content
 
     @classmethod
-    def get_array_js_via_token(cls, token: str, domain: Optional[str] = None) -> str:
+    def get_array_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
         # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
-        js_content = cls.get_config_js_via_token(token, domain)
+        js_content = cls.get_config_js_via_token(token, request=request)
 
         return f"""{get_array_js_content()}\n\n{js_content}"""
 
