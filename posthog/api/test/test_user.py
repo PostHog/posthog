@@ -1054,7 +1054,9 @@ class TestEmailVerificationAPI(APIBaseTest):
         # prevent throttling of user requests to pass on from one test
         # to the next
         cache.clear()
-        return super().setUp()
+        super().setUp()
+
+        self.other_user = self._create_user("otheruser@posthog.com", password="12345678")
 
     # Email verification request
 
@@ -1196,6 +1198,66 @@ class TestEmailVerificationAPI(APIBaseTest):
                     "attr": "token",
                 },
             )
+
+    def test_can_only_validate_email_token_one_time(self):
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_token",
+                "detail": "This verification token is invalid or has expired.",
+                "attr": "token",
+            },
+        )
+
+    def test_email_verification_logs_in_user(self):
+        token = email_verification_token_generator.make_token(self.user)
+
+        self.client.logout()
+        assert self.client.get("/api/users/@me/").status_code == 401
+        session_user_id = self.client.session.get("_auth_user_id")
+        assert session_user_id is None
+
+        # NOTE: Posting sets the session user id but doesn't log in the test client hence we just check the session id
+        self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        session_user_id = self.client.session.get("_auth_user_id")
+        assert session_user_id == str(self.user.id)
+
+    def test_email_verification_logs_in_correctuser(self):
+        other_token = email_verification_token_generator.make_token(self.other_user)
+        self.client.logout()
+        assert self.client.session.get("_auth_user_id") is None
+
+        # NOTE: The user id in path should basically be ignored
+        self.client.post(
+            f"/api/users/{self.user.uuid}/verify_email/", {"uuid": self.other_user.uuid, "token": other_token}
+        )
+        session_user_id = self.client.session.get("_auth_user_id")
+        assert session_user_id == str(self.other_user.id)
+
+    def test_email_verification_fails_if_using_other_accounts_token(self):
+        token = email_verification_token_generator.make_token(self.user)
+        other_token = email_verification_token_generator.make_token(self.other_user)
+        self.client.logout()
+
+        options_to_test = [
+            [self.user.uuid, self.user.uuid, other_token],
+            [self.other_user.uuid, self.user.uuid, other_token],
+            [self.user.uuid, self.other_user.uuid, token],
+            [self.other_user.uuid, self.other_user.uuid, other_token],
+        ]
+
+        for user_uuid, path_user_uuid, token in options_to_test:
+            response = self.client.post(
+                f"/api/users/{path_user_uuid}/verify_email/", {"uuid": user_uuid, "token": token}
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 class TestUserTwoFactor(APIBaseTest):
