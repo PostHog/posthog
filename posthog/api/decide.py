@@ -342,7 +342,7 @@ def get_decide(request: HttpRequest):
 
 
 def _session_recording_domain_not_allowed(team: Team, request: HttpRequest) -> bool:
-    return team.recording_domains and not on_permitted_recording_domain(team, request)
+    return team.recording_domains and not on_permitted_recording_domain(team.recording_domains, request)
 
 
 def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:
