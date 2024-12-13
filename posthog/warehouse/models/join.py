@@ -126,7 +126,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 for expr in node.where.exprs:
                     if isinstance(expr, ast.CompareOperation):
                         if expr.op == ast.CompareOperationOp.GtEq or expr.op == ast.CompareOperationOp.LtEq:
-                            if isinstance(expr.left, ast.Alias) and expr.left.expr.to_hogql() == timestamp_key:
+                            # Match within hogql string because it could be 'toDateTime(timestamp)'
+                            if isinstance(expr.left, ast.Alias) and timestamp_key in expr.left.expr.to_hogql():
                                 whereExpr.append(
                                     ast.CompareOperation(
                                         op=expr.op, left=ast.Field(chain=["timestamp"]), right=expr.right
@@ -183,7 +184,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                                     ]
                                 ),
                                 op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
+                                right=ast.Field(chain=[join_to_add.to_table, *self.joining_table_key.split(".")]),
                             ),
                             ast.CompareOperation(
                                 left=ast.Field(
