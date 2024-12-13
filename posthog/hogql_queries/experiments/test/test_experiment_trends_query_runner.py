@@ -861,7 +861,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _create_person(
             team=self.team,
             distinct_ids=["internal_test_1"],
-            properties={"$email": "internal_test_1@posthog.com"},
+            properties={"$email": "internal_test_1@posthog.com", "$user_id": "internal_test_1"},
         )
 
         _create_event(
