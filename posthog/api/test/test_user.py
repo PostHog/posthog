@@ -1261,22 +1261,15 @@ class TestEmailVerificationAPI(APIBaseTest):
         other_token = email_verification_token_generator.make_token(self.other_user)
         self.client.logout()
 
-        options_to_test = [
-            # Same user IDs with the wrong token
-            [self.user.uuid, self.user.uuid, other_token],
-            [self.other_user.uuid, self.other_user.uuid, token],
-            # Check we use it from the path
-            [self.other_user.uuid, self.user.uuid, token],
-            [self.user.uuid, self.other_user.uuid, other_token],
-            ["@me", self.other_user.uuid, other_token],
-        ]
+        assert (
+            self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": token}).status_code
+            == status.HTTP_400_BAD_REQUEST
+        )
 
-        for user_uuid, path_user_uuid, token in options_to_test:
-            print("Testing", user_uuid, path_user_uuid, token)  # noqa
-            response = self.client.post(
-                f"/api/users/{path_user_uuid}/verify_email/", {"uuid": user_uuid, "token": token}
-            )
-            assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": other_token}).status_code
+            == status.HTTP_400_BAD_REQUEST
+        )
 
     def test_does_not_apply_pending_email_for_old_tokens(self):
         self.client.logout()
