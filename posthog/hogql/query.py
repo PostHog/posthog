@@ -198,6 +198,10 @@ def execute_hogql_query(
                 modifiers={k: v for k, v in modifiers.model_dump().items() if v is not None} if modifiers else {},
             )
 
+            # Helpful to print the full clickhouse SQL for debugging
+            # from posthog.clickhouse.client.escape import substitute_params
+            # print(substitute_params(clickhouse_sql, clickhouse_context.values))
+
             try:
                 results, types = sync_execute(
                     clickhouse_sql,

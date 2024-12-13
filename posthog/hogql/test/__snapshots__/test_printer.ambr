@@ -7,7 +7,7 @@
       status
   FROM
       (SELECT
-          if(equals(status, 'dormant'), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
+          if(equals(status, 'dormant'), negate(sumOrNull(counts)), negate(negate(sumOrNull(counts)))) AS counts,
           start_of_period,
           status
       FROM
@@ -37,7 +37,7 @@
           FROM
               (SELECT
                   events.person.id AS person_id,
-                  min(events.person.created_at) AS created_at,
+                  minOrNull(events.person.created_at) AS created_at,
                   arraySort(groupUniqArray(dateTrunc('day', events.timestamp))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', created_at))) AS previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01 00:00:00')))) AS following_activity,

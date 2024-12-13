@@ -43,7 +43,7 @@ class TestMappings(BaseTest):
     def test_find_case_insensitive_function(self):
         self.assertEqual(self._get_hogql_function("CoAlesce").clickhouse_name, "coalesce")
 
-        self.assertEqual(self._get_hogql_aggregation("SuM").clickhouse_name, "sum")
+        self.assertEqual(self._get_hogql_aggregation("CouNt").clickhouse_name, "count")
 
     def test_find_non_existent_function(self):
         self.assertEqual(find_hogql_function("functionThatDoesntExist"), None)

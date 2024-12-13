@@ -6,9 +6,9 @@
   
     (SELECT histogram_params.average_conversion_time AS average_conversion_time
      FROM
-       (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds,
-               ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds,
-               round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time,
+       (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds,
+               ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds,
+               round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time,
                count() AS sample_count,
                least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count,
                ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw,
@@ -16,8 +16,8 @@
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
-                  avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
                   median(step_2_conversion_time) AS step_2_median_conversion_time_inner
            FROM
@@ -89,16 +89,16 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps)))) AS step_runs
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps)))) AS step_runs
         WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params) AS average_conversion_time
   FROM
     (SELECT plus(
                    (SELECT histogram_params.from_seconds AS from_seconds
                     FROM
-                      (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                      (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                        FROM
-                         (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                         (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                           FROM
                             (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                              FROM
@@ -124,14 +124,14 @@
                                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                 WHERE ifNull(equals(step_0, 1), 0)))
                           GROUP BY aggregation_target, steps
-                          HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                        and isNull(max(max_steps)))) AS step_runs
+                          HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                        and isNull(maxOrNull(max_steps)))) AS step_runs
                        WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), multiply(floor(divide(minus(step_runs.step_1_average_conversion_time_inner,
                                                                                                                                             (SELECT histogram_params.from_seconds AS from_seconds
                                                                                                                                              FROM
-                                                                                                                                               (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                                                                                                                               (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                                                                                                                                 FROM
-                                                                                                                                                  (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                                                                                                                                  (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                                                                                                                                    FROM
                                                                                                                                                      (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                                                                                                                                       FROM
@@ -157,14 +157,14 @@
                                                                                                                                                                      WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                                                                                                                                          WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                                    GROUP BY aggregation_target, steps
-                                                                                                                                                   HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                                                                                                                                 and isNull(max(max_steps)))) AS step_runs
+                                                                                                                                                   HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                                                                                                                                 and isNull(maxOrNull(max_steps)))) AS step_runs
                                                                                                                                                 WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params)),
                                                                                                                                       (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                                        FROM
-                                                                                                                                         (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                                                                                                                         (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                                                                                                                           FROM
-                                                                                                                                            (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                                                                                                                            (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                                                                                                                              FROM
                                                                                                                                                (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                                                                                                                                 FROM
@@ -190,14 +190,14 @@
                                                                                                                                                                WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                                                                                                                                    WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                              GROUP BY aggregation_target, steps
-                                                                                                                                             HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                                                                                                                           and isNull(max(max_steps)))) AS step_runs
+                                                                                                                                             HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                                                                                                                           and isNull(maxOrNull(max_steps)))) AS step_runs
                                                                                                                                           WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))),
                                                                                                                          (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                           FROM
-                                                                                                                            (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                                                                                                            (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                                                                                                              FROM
-                                                                                                                               (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                                                                                                               (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                                                                                                                 FROM
                                                                                                                                   (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                                                                                                                    FROM
@@ -223,15 +223,15 @@
                                                                                                                                                   WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                                                                                                                       WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                 GROUP BY aggregation_target, steps
-                                                                                                                                HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                                                                                                              and isNull(max(max_steps)))) AS step_runs
+                                                                                                                                HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                                                                                                              and isNull(maxOrNull(max_steps)))) AS step_runs
                                                                                                                              WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))) AS bin_from_seconds,
             count() AS person_count
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
-               avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
                median(step_2_conversion_time) AS step_2_median_conversion_time_inner
         FROM
@@ -303,16 +303,16 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps)))) AS step_runs
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps)))) AS step_runs
      GROUP BY bin_from_seconds) AS results
   RIGHT OUTER JOIN
     (SELECT plus(
                    (SELECT histogram_params.from_seconds AS from_seconds
                     FROM
-                      (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                      (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                        FROM
-                         (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                         (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                           FROM
                             (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                              FROM
@@ -338,14 +338,14 @@
                                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                 WHERE ifNull(equals(step_0, 1), 0)))
                           GROUP BY aggregation_target, steps
-                          HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                        and isNull(max(max_steps)))) AS step_runs
+                          HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                        and isNull(maxOrNull(max_steps)))) AS step_runs
                        WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), multiply(numbers.number,
                                                                                                                          (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                           FROM
-                                                                                                                            (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                                                                                                            (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                                                                                                              FROM
-                                                                                                                               (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                                                                                                               (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                                                                                                                 FROM
                                                                                                                                   (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                                                                                                                    FROM
@@ -371,15 +371,15 @@
                                                                                                                                                   WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                                                                                                                       WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                 GROUP BY aggregation_target, steps
-                                                                                                                                HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                                                                                                              and isNull(max(max_steps)))) AS step_runs
+                                                                                                                                HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                                                                                                              and isNull(maxOrNull(max_steps)))) AS step_runs
                                                                                                                              WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))) AS bin_from_seconds
      FROM numbers(plus(ifNull(
                                 (SELECT histogram_params.bin_count AS bin_count
                                  FROM
-                                   (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                   (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                     FROM
-                                      (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                      (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                        FROM
                                          (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                           FROM
@@ -405,8 +405,8 @@
                                                          WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                              WHERE ifNull(equals(step_0, 1), 0)))
                                        GROUP BY aggregation_target, steps
-                                       HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                     and isNull(max(max_steps)))) AS step_runs
+                                       HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                     and isNull(maxOrNull(max_steps)))) AS step_runs
                                     WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), 0), 1)) AS numbers) AS fill ON equals(results.bin_from_seconds, fill.bin_from_seconds)
   ORDER BY fill.bin_from_seconds ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -426,9 +426,9 @@
   
     (SELECT histogram_params.average_conversion_time AS average_conversion_time
      FROM
-       (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds,
-               ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds,
-               round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time,
+       (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds,
+               ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds,
+               round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time,
                count() AS sample_count,
                least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count,
                ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw,
@@ -436,8 +436,8 @@
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
-                  avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
                   median(step_2_conversion_time) AS step_2_median_conversion_time_inner
            FROM
@@ -490,16 +490,16 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps)))) AS step_runs
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps)))) AS step_runs
         WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params) AS average_conversion_time
   FROM
     (SELECT plus(
                    (SELECT histogram_params.from_seconds AS from_seconds
                     FROM
-                      (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                      (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                        FROM
-                         (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                         (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                           FROM
                             (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                              FROM
@@ -520,14 +520,14 @@
                                       WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                 WHERE ifNull(equals(step_0, 1), 0)))
                           GROUP BY aggregation_target, steps
-                          HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                        and isNull(max(max_steps)))) AS step_runs
+                          HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                        and isNull(maxOrNull(max_steps)))) AS step_runs
                        WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), multiply(floor(divide(minus(step_runs.step_1_average_conversion_time_inner,
                                                                                                                                             (SELECT histogram_params.from_seconds AS from_seconds
                                                                                                                                              FROM
-                                                                                                                                               (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                                                                                                                               (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                                                                                                                                 FROM
-                                                                                                                                                  (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                                                                                                                                  (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                                                                                                                                    FROM
                                                                                                                                                      (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                                                                                                                                       FROM
@@ -548,14 +548,14 @@
                                                                                                                                                                WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                                                                                                                                          WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                                    GROUP BY aggregation_target, steps
-                                                                                                                                                   HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                                                                                                                                 and isNull(max(max_steps)))) AS step_runs
+                                                                                                                                                   HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                                                                                                                                 and isNull(maxOrNull(max_steps)))) AS step_runs
                                                                                                                                                 WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params)),
                                                                                                                                       (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                                        FROM
-                                                                                                                                         (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                                                                                                                         (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                                                                                                                           FROM
-                                                                                                                                            (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                                                                                                                            (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                                                                                                                              FROM
                                                                                                                                                (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                                                                                                                                 FROM
@@ -576,14 +576,14 @@
                                                                                                                                                          WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                                                                                                                                    WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                              GROUP BY aggregation_target, steps
-                                                                                                                                             HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                                                                                                                           and isNull(max(max_steps)))) AS step_runs
+                                                                                                                                             HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                                                                                                                           and isNull(maxOrNull(max_steps)))) AS step_runs
                                                                                                                                           WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))),
                                                                                                                          (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                           FROM
-                                                                                                                            (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                                                                                                            (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                                                                                                              FROM
-                                                                                                                               (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                                                                                                               (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                                                                                                                 FROM
                                                                                                                                   (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                                                                                                                    FROM
@@ -604,15 +604,15 @@
                                                                                                                                             WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                                                                                                                       WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                 GROUP BY aggregation_target, steps
-                                                                                                                                HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                                                                                                              and isNull(max(max_steps)))) AS step_runs
+                                                                                                                                HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                                                                                                              and isNull(maxOrNull(max_steps)))) AS step_runs
                                                                                                                              WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))) AS bin_from_seconds,
             count() AS person_count
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
-               avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
                median(step_2_conversion_time) AS step_2_median_conversion_time_inner
         FROM
@@ -665,16 +665,16 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps)))) AS step_runs
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps)))) AS step_runs
      GROUP BY bin_from_seconds) AS results
   RIGHT OUTER JOIN
     (SELECT plus(
                    (SELECT histogram_params.from_seconds AS from_seconds
                     FROM
-                      (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                      (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                        FROM
-                         (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                         (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                           FROM
                             (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                              FROM
@@ -695,14 +695,14 @@
                                       WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                 WHERE ifNull(equals(step_0, 1), 0)))
                           GROUP BY aggregation_target, steps
-                          HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                        and isNull(max(max_steps)))) AS step_runs
+                          HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                        and isNull(maxOrNull(max_steps)))) AS step_runs
                        WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), multiply(numbers.number,
                                                                                                                          (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                           FROM
-                                                                                                                            (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                                                                                                            (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                                                                                                              FROM
-                                                                                                                               (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                                                                                                               (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                                                                                                                 FROM
                                                                                                                                   (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                                                                                                                    FROM
@@ -723,15 +723,15 @@
                                                                                                                                             WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                                                                                                                       WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                 GROUP BY aggregation_target, steps
-                                                                                                                                HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                                                                                                              and isNull(max(max_steps)))) AS step_runs
+                                                                                                                                HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                                                                                                              and isNull(maxOrNull(max_steps)))) AS step_runs
                                                                                                                              WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))) AS bin_from_seconds
      FROM numbers(plus(ifNull(
                                 (SELECT histogram_params.bin_count AS bin_count
                                  FROM
-                                   (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                   (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                     FROM
-                                      (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                      (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                        FROM
                                          (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                           FROM
@@ -752,8 +752,8 @@
                                                    WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                              WHERE ifNull(equals(step_0, 1), 0)))
                                        GROUP BY aggregation_target, steps
-                                       HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                     and isNull(max(max_steps)))) AS step_runs
+                                       HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                     and isNull(maxOrNull(max_steps)))) AS step_runs
                                     WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), 0), 1)) AS numbers) AS fill ON equals(results.bin_from_seconds, fill.bin_from_seconds)
   ORDER BY fill.bin_from_seconds ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -773,9 +773,9 @@
   
     (SELECT histogram_params.average_conversion_time AS average_conversion_time
      FROM
-       (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds,
-               ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds,
-               round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time,
+       (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds,
+               ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds,
+               round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time,
                count() AS sample_count,
                least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count,
                ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw,
@@ -783,8 +783,8 @@
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
-                  avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
-                  avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+                  avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+                  avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner,
                   median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
                   median(step_2_conversion_time) AS step_2_median_conversion_time_inner
            FROM
@@ -925,16 +925,16 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                         and isNull(max(max_steps)))) AS step_runs
+           HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                         and isNull(maxOrNull(max_steps)))) AS step_runs
         WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params) AS average_conversion_time
   FROM
     (SELECT plus(
                    (SELECT histogram_params.from_seconds AS from_seconds
                     FROM
-                      (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                      (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                        FROM
-                         (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                         (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                           FROM
                             (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                              FROM
@@ -987,14 +987,14 @@
                                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                 WHERE ifNull(equals(step_0, 1), 0)))
                           GROUP BY aggregation_target, steps
-                          HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                        and isNull(max(max_steps)))) AS step_runs
+                          HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                        and isNull(maxOrNull(max_steps)))) AS step_runs
                        WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), multiply(floor(divide(minus(step_runs.step_1_average_conversion_time_inner,
                                                                                                                                             (SELECT histogram_params.from_seconds AS from_seconds
                                                                                                                                              FROM
-                                                                                                                                               (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                                                                                                                               (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                                                                                                                                 FROM
-                                                                                                                                                  (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                                                                                                                                  (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                                                                                                                                    FROM
                                                                                                                                                      (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                                                                                                                                       FROM
@@ -1047,14 +1047,14 @@
                                                                                                                                                                WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                                                                                                                                          WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                                    GROUP BY aggregation_target, steps
-                                                                                                                                                   HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                                                                                                                                 and isNull(max(max_steps)))) AS step_runs
+                                                                                                                                                   HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                                                                                                                                 and isNull(maxOrNull(max_steps)))) AS step_runs
                                                                                                                                                 WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params)),
                                                                                                                                       (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                                        FROM
-                                                                                                                                         (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                                                                                                                         (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                                                                                                                           FROM
-                                                                                                                                            (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                                                                                                                            (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                                                                                                                              FROM
                                                                                                                                                (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                                                                                                                                 FROM
@@ -1107,14 +1107,14 @@
                                                                                                                                                          WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                                                                                                                                    WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                              GROUP BY aggregation_target, steps
-                                                                                                                                             HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                                                                                                                           and isNull(max(max_steps)))) AS step_runs
+                                                                                                                                             HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                                                                                                                           and isNull(maxOrNull(max_steps)))) AS step_runs
                                                                                                                                           WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))),
                                                                                                                          (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                           FROM
-                                                                                                                            (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                                                                                                            (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                                                                                                              FROM
-                                                                                                                               (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                                                                                                               (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                                                                                                                 FROM
                                                                                                                                   (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                                                                                                                    FROM
@@ -1167,15 +1167,15 @@
                                                                                                                                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                                                                                                                       WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                 GROUP BY aggregation_target, steps
-                                                                                                                                HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                                                                                                              and isNull(max(max_steps)))) AS step_runs
+                                                                                                                                HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                                                                                                              and isNull(maxOrNull(max_steps)))) AS step_runs
                                                                                                                              WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))) AS bin_from_seconds,
             count() AS person_count
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
-               avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+               avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
                median(step_2_conversion_time) AS step_2_median_conversion_time_inner
         FROM
@@ -1316,16 +1316,16 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                      and isNull(max(max_steps)))) AS step_runs
+        HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                      and isNull(maxOrNull(max_steps)))) AS step_runs
      GROUP BY bin_from_seconds) AS results
   RIGHT OUTER JOIN
     (SELECT plus(
                    (SELECT histogram_params.from_seconds AS from_seconds
                     FROM
-                      (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                      (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                        FROM
-                         (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                         (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                           FROM
                             (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                              FROM
@@ -1378,14 +1378,14 @@
                                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                 WHERE ifNull(equals(step_0, 1), 0)))
                           GROUP BY aggregation_target, steps
-                          HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                        and isNull(max(max_steps)))) AS step_runs
+                          HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                        and isNull(maxOrNull(max_steps)))) AS step_runs
                        WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), multiply(numbers.number,
                                                                                                                          (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                           FROM
-                                                                                                                            (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                                                                                                            (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                                                                                                              FROM
-                                                                                                                               (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                                                                                                               (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                                                                                                                 FROM
                                                                                                                                   (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                                                                                                                    FROM
@@ -1438,15 +1438,15 @@
                                                                                                                                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                                                                                                                       WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                 GROUP BY aggregation_target, steps
-                                                                                                                                HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                                                                                                              and isNull(max(max_steps)))) AS step_runs
+                                                                                                                                HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                                                                                                              and isNull(maxOrNull(max_steps)))) AS step_runs
                                                                                                                              WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))) AS bin_from_seconds
      FROM numbers(plus(ifNull(
                                 (SELECT histogram_params.bin_count AS bin_count
                                  FROM
-                                   (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
+                                   (SELECT ifNull(floor(minOrNull(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds, ifNull(ceil(maxOrNull(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds, round(avgOrNull(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time, count() AS sample_count, least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count, ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw, if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
                                     FROM
-                                      (SELECT aggregation_target AS aggregation_target, steps AS steps, avg(step_1_conversion_time) AS step_1_average_conversion_time_inner, avg(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+                                      (SELECT aggregation_target AS aggregation_target, steps AS steps, avgOrNull(step_1_conversion_time) AS step_1_average_conversion_time_inner, avgOrNull(step_2_conversion_time) AS step_2_average_conversion_time_inner, median(step_1_conversion_time) AS step_1_median_conversion_time_inner, median(step_2_conversion_time) AS step_2_median_conversion_time_inner
                                        FROM
                                          (SELECT aggregation_target AS aggregation_target, steps AS steps, max(steps) OVER (PARTITION BY aggregation_target) AS max_steps, step_1_conversion_time AS step_1_conversion_time, step_2_conversion_time AS step_2_conversion_time
                                           FROM
@@ -1499,8 +1499,8 @@
                                                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                              WHERE ifNull(equals(step_0, 1), 0)))
                                        GROUP BY aggregation_target, steps
-                                       HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                                                     and isNull(max(max_steps)))) AS step_runs
+                                       HAVING ifNull(equals(steps, maxOrNull(max_steps)), isNull(steps)
+                                                     and isNull(maxOrNull(max_steps)))) AS step_runs
                                     WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), 0), 1)) AS numbers) AS fill ON equals(results.bin_from_seconds, fill.bin_from_seconds)
   ORDER BY fill.bin_from_seconds ASC
   LIMIT 100 SETTINGS readonly=2,

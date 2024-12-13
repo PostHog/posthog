@@ -42,7 +42,7 @@ class SessionQuery:
             f"""
                 SELECT
                     "$session_id"{f" AS {self._session_id_alias}" if self._session_id_alias else ""},
-                    dateDiff('second',min(timestamp), max(timestamp)) as session_duration
+                    ifNull(dateDiff('second',min(timestamp), max(timestamp)), 0) as session_duration
                 FROM
                     events
                 WHERE

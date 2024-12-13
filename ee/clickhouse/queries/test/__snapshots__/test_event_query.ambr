@@ -195,7 +195,7 @@
   FROM events e
   INNER JOIN
     (SELECT "$session_id",
-            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+            ifNull(dateDiff('second', min(timestamp), max(timestamp)), 0) as session_duration
      FROM events
      WHERE "$session_id" != ''
        AND team_id = 99999
@@ -218,7 +218,7 @@
   FROM events e
   INNER JOIN
     (SELECT "$session_id",
-            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+            ifNull(dateDiff('second', min(timestamp), max(timestamp)), 0) as session_duration
      FROM events
      WHERE "$session_id" != ''
        AND team_id = 99999
@@ -370,7 +370,7 @@
   FROM events e
   INNER JOIN
     (SELECT "$session_id",
-            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+            ifNull(dateDiff('second', min(timestamp), max(timestamp)), 0) as session_duration
      FROM events
      WHERE "$session_id" != ''
        AND team_id = 99999

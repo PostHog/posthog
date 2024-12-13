@@ -25,7 +25,7 @@
          groupArray(counts) AS total,
          status AS status
   FROM
-    (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
+    (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sumOrNull(counts)), negate(negate(sumOrNull(counts)))) AS counts,
             start_of_period AS start_of_period,
             status AS status
      FROM
@@ -45,7 +45,7 @@
                          count(DISTINCT actor_id) AS counts,
                          status AS status
         FROM
-          (SELECT min(events__person.created_at) AS created_at,
+          (SELECT minOrNull(events__person.created_at) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'UTC')))) AS following_activity,
@@ -103,7 +103,7 @@
          groupArray(round(multiply(counts, divide(1, 0.1)))) AS total,
          status AS status
   FROM
-    (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
+    (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sumOrNull(counts)), negate(negate(sumOrNull(counts)))) AS counts,
             start_of_period AS start_of_period,
             status AS status
      FROM
@@ -123,7 +123,7 @@
                          count(DISTINCT actor_id) AS counts,
                          status AS status
         FROM
-          (SELECT min(events__person.created_at) AS created_at,
+          (SELECT minOrNull(events__person.created_at) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'UTC')))) AS following_activity,
@@ -178,7 +178,7 @@
          groupArray(counts) AS total,
          status AS status
   FROM
-    (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
+    (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sumOrNull(counts)), negate(negate(sumOrNull(counts)))) AS counts,
             start_of_period AS start_of_period,
             status AS status
      FROM
@@ -198,7 +198,7 @@
                          count(DISTINCT actor_id) AS counts,
                          status AS status
         FROM
-          (SELECT min(events__person.created_at) AS created_at,
+          (SELECT minOrNull(events__person.created_at) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'UTC')))) AS following_activity,
@@ -253,7 +253,7 @@
          groupArray(counts) AS total,
          status AS status
   FROM
-    (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
+    (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sumOrNull(counts)), negate(negate(sumOrNull(counts)))) AS counts,
             start_of_period AS start_of_period,
             status AS status
      FROM
@@ -273,7 +273,7 @@
                          count(DISTINCT actor_id) AS counts,
                          status AS status
         FROM
-          (SELECT min(events__person.created_at) AS created_at,
+          (SELECT minOrNull(events__person.created_at) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'US/Pacific')))) AS following_activity,

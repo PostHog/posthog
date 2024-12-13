@@ -58,7 +58,7 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
        (SELECT count() AS total,
@@ -76,7 +76,7 @@
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$bool_prop'), ''), 'null'), '^"|"$', '') AS `properties___$bool_prop`
            FROM person
            WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                (SELECT person.id AS id, max(person.version) AS version
+                                                                (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                  FROM person
                                                                  WHERE equals(person.team_id, 99999)
                                                                  GROUP BY person.id
@@ -157,7 +157,7 @@
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
-    (SELECT sum(total) AS count,
+    (SELECT sumOrNull(total) AS count,
             day_start AS day_start
      FROM
        (SELECT count() AS total,
@@ -199,7 +199,7 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
@@ -321,7 +321,7 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
@@ -369,7 +369,7 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
@@ -409,7 +409,7 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
@@ -449,7 +449,7 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
         FROM
@@ -489,7 +489,7 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
         FROM
@@ -519,7 +519,7 @@
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated
   '''
-  SELECT sum(total) AS total,
+  SELECT sumOrNull(total) AS total,
          if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
@@ -527,7 +527,7 @@
                      row_number() OVER (
                                         ORDER BY total DESC) AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                breakdown_value AS breakdown_value
         FROM
           (SELECT count(DISTINCT actor_id) AS total,
@@ -579,7 +579,7 @@
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized
   '''
-  SELECT sum(total) AS total,
+  SELECT sumOrNull(total) AS total,
          if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
@@ -587,7 +587,7 @@
                      row_number() OVER (
                                         ORDER BY total DESC) AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                breakdown_value AS breakdown_value
         FROM
           (SELECT count(DISTINCT actor_id) AS total,
@@ -669,7 +669,7 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
@@ -700,7 +700,7 @@
                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
                     FROM person
                     WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                                         (SELECT person.id AS id, maxOrNull(person.version) AS version
                                                                           FROM person
                                                                           WHERE equals(person.team_id, 99999)
                                                                           GROUP BY person.id
@@ -745,7 +745,7 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
@@ -802,7 +802,7 @@
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
-       (SELECT sum(total) AS count,
+       (SELECT sumOrNull(total) AS count,
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM

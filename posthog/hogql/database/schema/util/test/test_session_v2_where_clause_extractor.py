@@ -270,7 +270,7 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
         actual = f(
             self.inliner.get_inner_where(
                 parse(
-                    "SELECT * FROM sessions WHERE timestamp = (SELECT max(timestamp) FROM events WHERE event = '$pageview')"
+                    "SELECT * FROM sessions WHERE timestamp = (SELECT maxOrNull(timestamp) FROM events WHERE event = '$pageview')"
                 )
             )
         )
@@ -370,7 +370,7 @@ SELECT
 FROM
     (SELECT
         toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-        min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`,
+        minOrNull(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`,
         raw_sessions.session_id_v7 AS session_id_v7
     FROM
         raw_sessions
@@ -444,7 +444,7 @@ SELECT
 FROM
     events
     LEFT JOIN (SELECT
-        dateDiff(%(hogql_val_0)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
+        dateDiff(%(hogql_val_0)s, minOrNull(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_1)s)), maxOrNull(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
         raw_sessions.session_id_v7 AS session_id_v7
     FROM
         raw_sessions
@@ -522,7 +522,7 @@ FROM
         ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
     SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
     LEFT JOIN (SELECT
-        dateDiff(%(hogql_val_0)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
+        dateDiff(%(hogql_val_0)s, minOrNull(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_1)s)), maxOrNull(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
         raw_sessions.session_id_v7 AS session_id_v7
     FROM
         raw_sessions
@@ -560,7 +560,7 @@ GROUP BY session_id
             """\
 SELECT
     s.session_id AS session_id,
-    min(toTimeZone(s.min_first_timestamp, %(hogql_val_5)s)) AS start_time
+    minOrNull(toTimeZone(s.min_first_timestamp, %(hogql_val_5)s)) AS start_time
 FROM
     session_replay_events AS s
     LEFT JOIN (SELECT
@@ -602,7 +602,7 @@ FROM
     (SELECT
         toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
         arrayDistinct(arrayFlatten(groupArray(raw_sessions.urls))) AS `$urls`,
-        min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`,
+        minOrNull(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`,
         raw_sessions.session_id_v7 AS session_id_v7
     FROM
         raw_sessions
