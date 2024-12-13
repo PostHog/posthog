@@ -220,6 +220,8 @@ export class UUID7 extends UUID {
 
         if (!rand) {
             rand = randomBytes(10)
+        } else if (rand.length !== 10) {
+            throw new Error(`UUID7 requires 10 bytes of random data, got ${rand.length}`)
         }
 
         // see https://www.rfc-editor.org/rfc/rfc9562#name-uuid-version-7

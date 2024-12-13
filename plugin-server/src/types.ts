@@ -641,6 +641,7 @@ export interface Team {
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null
     cookieless_server_hash_opt_in: boolean
+    timezone: string
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

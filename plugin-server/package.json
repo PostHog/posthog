@@ -90,12 +90,12 @@
         "prom-client": "^14.2.0",
         "re2": "^1.20.3",
         "safe-stable-stringify": "^2.4.0",
+        "siphash": "git://github.com/robbie-c/siphash-js.git#34055d9",
         "tail": "^2.2.6",
         "tldts": "^6.1.57",
         "uuid": "^9.0.1",
         "v8-profiler-next": "^1.9.0",
-        "vm2": "3.9.18",
-        "siphash": "git://github.com/robbie-c/siphash-js.git#34055d9"
+        "vm2": "3.9.18"
     },
     "devDependencies": {
         "0x": "^5.5.0",
