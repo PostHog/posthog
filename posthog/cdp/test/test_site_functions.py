@@ -77,7 +77,8 @@ function onLoad() {
             const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
             let __getGlobal = (key) => filterGlobals[key];
             const filterMatches = true;
-            if (filterMatches) { source.onEvent({ ...globals, inputs, posthog }); }
+            if (!filterMatches) { return; }
+            ;
         }
     }
 
@@ -85,7 +86,12 @@ function onLoad() {
         const posthog = config.posthog;
         const callback = config.callback;
         if ('onLoad' in source) {
-            const r = source.onLoad({ inputs: buildInputs({}, true), posthog: posthog });
+            const globals = {
+                person: {
+                    properties: posthog.get_property('$stored_person_properties'),
+                }
+            }
+            const r = source.onLoad({ inputs: buildInputs(globals, true), posthog: posthog });
             if (r && typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => callback(false)).then(() => callback(true)) } else { callback(true) }
         } else {
             callback(true);
@@ -131,7 +137,8 @@ function onLoad() {
         assert "console.log(event.event);" in result
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
-        assert "if (filterMatches) { source.onEvent({" in result
+        assert "const filterMatches = !!(!!((__getGlobal" in result
+        assert "if (!filterMatches) { return; }" in result
 
     def test_get_transpiled_function_with_invalid_template_input(self):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.greeting); }"
@@ -255,3 +262,24 @@ function onLoad() {
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
         assert "https://example.com" in result
+
+    def test_get_transpiled_function_with_mappings(self):
+        self.hog_function.hog = "export function onLoad({ inputs, posthog }) { console.log(inputs); }"
+        self.hog_function.inputs = {"greeting": {"value": "Hello, {person.properties.nonexistent_property}!"}}
+        self.hog_function.filters = {
+            "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
+        }
+        self.hog_function.mappings = [
+            {
+                "inputs": {"greeting": {"value": "Hallo, {person.properties.nonexistent_property}!"}},
+                "filters": {"events": [{"id": "$autocapture", "name": "$autocapture", "type": "events"}]},
+            }
+        ]
+
+        result = self.compile_and_run()
+
+        assert "console.log(inputs);" in result
+        assert 'const filterMatches = !!(!!((__getGlobal("event") == "$pageview")));' in result
+        assert 'if (!!(!!((__getGlobal("event") == "$autocapture")))) {' in result
+        assert "const newInputs = structuredClone(inputs);" in result
+        assert 'newInputs["greeting"] = concat("Hallo, ", __getProperty' in result

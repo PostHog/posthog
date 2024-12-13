@@ -29,6 +29,7 @@ from posthog.temporal.batch_exports.batch_exports import (
 from posthog.temporal.batch_exports.s3_batch_export import (
     FILE_FORMAT_EXTENSIONS,
     IntermittentUploadPartTimeoutError,
+    InvalidS3EndpointError,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
     S3HeartbeatDetails,
@@ -40,9 +41,7 @@ from posthog.temporal.batch_exports.s3_batch_export import (
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
-from posthog.temporal.tests.utils.events import (
-    generate_test_events_in_clickhouse,
-)
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
@@ -1574,6 +1573,23 @@ async def test_s3_multi_part_upload_raises_retryable_exception(bucket_name, s3_k
 
     with pytest.raises(IntermittentUploadPartTimeoutError):
         await s3_upload.upload_part(io.BytesIO(b"1010"), rewind=False)  # type: ignore
+
+
+async def test_s3_multi_part_upload_raises_exception_if_invalid_endpoint(bucket_name, s3_key_prefix):
+    """Test a InvalidS3EndpointError is raised if the endpoint is invalid."""
+    s3_upload = S3MultiPartUpload(
+        bucket_name=bucket_name,
+        key=s3_key_prefix,
+        encryption=None,
+        kms_key_id=None,
+        region_name="us-east-1",
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+        endpoint_url="some-invalid-endpoint",
+    )
+
+    with pytest.raises(InvalidS3EndpointError):
+        await s3_upload.start()
 
 
 @pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[2], None])
