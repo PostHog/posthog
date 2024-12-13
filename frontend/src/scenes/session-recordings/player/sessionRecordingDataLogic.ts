@@ -664,11 +664,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 actions.stopRealtimePolling()
             }
         },
-        loadEventsSuccess: () => {
+        [sessionRecordingEventDataLogic(props).actionTypes.loadEventsSuccess]: () => {
             cache.eventsLoadDuration = Math.round(performance.now() - cache.eventsStartTime)
             actions.reportUsageIfFullyLoaded()
         },
-        loadEventsFailure: () => {
+        [sessionRecordingEventDataLogic(props).actionTypes.loadEventsFailure]: () => {
             cache.eventsLoadDuration = Math.round(performance.now() - cache.eventsStartTime)
         },
         reportUsageIfFullyLoaded: (_, breakpoint) => {
