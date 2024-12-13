@@ -8,6 +8,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema'
 
+import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
@@ -40,47 +41,52 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     }, [])
 
     return (
-        <>
-            <PageHeader
-                buttons={
-                    issue && hasGroupActions ? (
-                        issue.status === 'active' ? (
-                            <div className="flex divide-x gap-x-2">
-                                <AssigneeSelect
-                                    assignee={issue.assignee}
-                                    onChange={(assignee) => updateIssue({ assignee })}
-                                    type="secondary"
-                                    showName
-                                />
-                                <div className="flex pl-2 gap-x-2">
-                                    <LemonButton type="secondary" onClick={() => updateIssue({ status: 'archived' })}>
-                                        Archive
-                                    </LemonButton>
-                                    <LemonButton type="primary" onClick={() => updateIssue({ status: 'resolved' })}>
-                                        Resolve
-                                    </LemonButton>
+        <AlphaAccessScenePrompt>
+            <>
+                <PageHeader
+                    buttons={
+                        issue && hasGroupActions ? (
+                            issue.status === 'active' ? (
+                                <div className="flex divide-x gap-x-2">
+                                    <AssigneeSelect
+                                        assignee={issue.assignee}
+                                        onChange={(assignee) => updateIssue({ assignee })}
+                                        type="secondary"
+                                        showName
+                                    />
+                                    <div className="flex pl-2 gap-x-2">
+                                        <LemonButton
+                                            type="secondary"
+                                            onClick={() => updateIssue({ status: 'archived' })}
+                                        >
+                                            Archive
+                                        </LemonButton>
+                                        <LemonButton type="primary" onClick={() => updateIssue({ status: 'resolved' })}>
+                                            Resolve
+                                        </LemonButton>
+                                    </div>
                                 </div>
-                            </div>
+                            ) : (
+                                <LemonButton
+                                    type="secondary"
+                                    className="upcasefirst-letter:uppercase"
+                                    onClick={() => updateIssue({ status: 'active' })}
+                                    tooltip="Mark as active"
+                                >
+                                    {STATUS_LABEL[issue.status]}
+                                </LemonButton>
+                            )
                         ) : (
-                            <LemonButton
-                                type="secondary"
-                                className="upcasefirst-letter:uppercase"
-                                onClick={() => updateIssue({ status: 'active' })}
-                                tooltip="Mark as active"
-                            >
-                                {STATUS_LABEL[issue.status]}
-                            </LemonButton>
+                            false
                         )
-                    ) : (
-                        false
-                    )
-                }
-            />
-            <ErrorTrackingFilters.FilterGroup />
-            <LemonDivider className="mt-2" />
-            <ErrorTrackingFilters.Options isGroup />
-            <OverviewTab />
-            <SymbolSetUploadModal />
-        </>
+                    }
+                />
+                <ErrorTrackingFilters.FilterGroup />
+                <LemonDivider className="mt-2" />
+                <ErrorTrackingFilters.Options isGroup />
+                <OverviewTab />
+                <SymbolSetUploadModal />
+            </>
+        </AlphaAccessScenePrompt>
     )
 }

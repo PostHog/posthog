@@ -5,20 +5,17 @@ from django.utils.timezone import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr, get_property_type, action_to_expr
+from posthog.hogql.property import property_to_expr, get_property_type
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
-from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     CachedWebOverviewQueryResponse,
     WebOverviewQueryResponse,
     WebOverviewQuery,
-    ActionConversionGoal,
-    CustomEventConversionGoal,
     SessionTableVersion,
 )
 
@@ -98,39 +95,6 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
         return property_to_expr(properties, team=self.team, scope="event")
 
     @cached_property
-    def conversion_goal_expr(self) -> Optional[ast.Expr]:
-        if isinstance(self.query.conversionGoal, ActionConversionGoal):
-            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
-            return action_to_expr(action)
-        elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
-            return ast.CompareOperation(
-                left=ast.Field(chain=["events", "event"]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=self.query.conversionGoal.customEventName),
-            )
-        else:
-            return None
-
-    @cached_property
-    def conversion_person_id_expr(self) -> Optional[ast.Expr]:
-        if self.conversion_goal_expr:
-            return ast.Call(
-                name="any",
-                args=[
-                    ast.Call(
-                        name="if",
-                        args=[
-                            self.conversion_goal_expr,
-                            ast.Field(chain=["events", "person_id"]),
-                            ast.Constant(value=None),
-                        ],
-                    )
-                ],
-            )
-        else:
-            return None
-
-    @cached_property
     def pageview_count_expression(self) -> ast.Expr:
         if self.conversion_goal_expr:
             return ast.Call(
@@ -145,24 +109,6 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             )
         else:
             return ast.Call(name="count", args=[])
-
-    @cached_property
-    def conversion_count_expr(self) -> Optional[ast.Expr]:
-        if self.conversion_goal_expr:
-            return ast.Call(name="countIf", args=[self.conversion_goal_expr])
-        else:
-            return None
-
-    @cached_property
-    def event_type_expr(self) -> ast.Expr:
-        pageview_expr = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
-        )
-
-        if self.conversion_goal_expr and self.conversion_goal_expr != ast.Constant(value=None):
-            return ast.Call(name="or", args=[pageview_expr, self.conversion_goal_expr])
-        else:
-            return pageview_expr
 
     @cached_property
     def inner_select(self) -> ast.SelectQuery:
