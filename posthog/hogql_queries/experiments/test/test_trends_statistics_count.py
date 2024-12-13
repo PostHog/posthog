@@ -268,6 +268,41 @@ class TestExperimentTrendsStatistics(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
+    def test_real_world_data_1(self):
+        """Test with multiple variants, one clear winner"""
+
+        def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
+            control_absolute_exposure = 2608
+            control = create_variant("control", count=269, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 2615
+            test = create_variant(
+                "test",
+                count=314,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
+
+            probabilities = calculate_probabilities(control, [test])
+            significance, p_value = are_results_significant(control, [test], probabilities)
+            intervals = calculate_credible_intervals([control, test])
+            self.assertEqual(len(probabilities), 2)
+            self.assertAlmostEqual(probabilities[1], 0.966, places=2)  # test should be winning
+            self.assertAlmostEqual(probabilities[0], 0.034, places=2)  # control should be losing
+            if stats_version == 2:
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
+                self.assertEqual(p_value, 0)
+            else:
+                self.assertEqual(significance, ExperimentSignificanceCode.HIGH_P_VALUE)
+                self.assertAlmostEqual(p_value, 0.07, delta=0.01)
+
+            self.assertAlmostEqual(intervals["control"][0], 0.094, delta=0.01)
+            self.assertAlmostEqual(intervals["control"][1], 0.116, delta=0.01)
+
+            self.assertAlmostEqual(intervals["test"][0], 0.107, delta=0.01)
+            self.assertAlmostEqual(intervals["test"][1], 0.129, delta=0.01)
+
+        self.run_test_for_both_implementations(run_test)
+
     def test_insufficient_sample_size(self):
         """Test with sample size below threshold"""
 
