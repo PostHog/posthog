@@ -47,6 +47,7 @@ from ._siteapps.template_pineapple_mode import template as pineapple_mode
 from ._siteapps.template_debug_posthog import template as debug_posthog
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
 from ._internal.template_blank import blank_site_destination, blank_site_app
+from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pixel
 
 HOG_FUNCTION_TEMPLATES = [
     _broadcast,
@@ -98,6 +99,7 @@ HOG_FUNCTION_TEMPLATES = [
     notification_bar,
     pineapple_mode,
     debug_posthog,
+    snapchat_pixel,
 ]
 
 
