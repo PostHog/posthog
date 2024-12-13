@@ -265,6 +265,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setTabKey: (tabKey: string) => ({ tabKey }),
         openPrimaryMetricModal: (index: number) => ({ index }),
         closePrimaryMetricModal: true,
+        setPrimaryMetricsResultErrors: (errors: any[]) => ({ errors }),
     }),
     reducers({
         experiment: [
@@ -425,6 +426,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 setExperimentResultCalculationError: (_, { error }) => error,
             },
         ],
+        // here
         flagImplementationWarning: [
             false as boolean,
             {
@@ -485,6 +487,16 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openPrimaryMetricModal: (_, { index }) => index,
                 closePrimaryMetricModal: () => null,
+            },
+        ],
+        primaryMetricsResultErrors: [
+            [] as any[],
+            {
+                setPrimaryMetricsResultErrors: (_, { errors }) => errors,
+                // Reset errors when loading new results
+                loadMetricResults: () => [],
+                // Reset errors when loading a new experiment
+                loadExperiment: () => [],
             },
         ],
     }),
@@ -889,15 +901,14 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         metricResults: [
-            null as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[] | null,
+            null as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[] | null,
             {
                 loadMetricResults: async (
                     refresh?: boolean
-                ): Promise<(CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[] | null> => {
+                ): Promise<(CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]> => {
                     return (await Promise.all(
-                        values.experiment?.metrics.map(async (metric) => {
+                        values.experiment?.metrics.map(async (metric, index) => {
                             try {
-                                // Queries are shareable, so we need to set the experiment_id for the backend to correctly associate the query with the experiment
                                 const queryWithExperimentId = {
                                     ...metric,
                                     experiment_id: values.experimentId,
@@ -908,11 +919,18 @@ export const experimentLogic = kea<experimentLogicType>([
                                     ...response,
                                     fakeInsightId: Math.random().toString(36).substring(2, 15),
                                 }
-                            } catch (error) {
-                                return {}
+                            } catch (error: any) {
+                                const errorDetailMatch = error.detail.match(/\{.*\}/)
+                                const errorDetail = errorDetailMatch[0]
+
+                                // Store the error in primaryMetricsResultErrors
+                                const currentErrors = [...(values.primaryMetricsResultErrors || [])]
+                                currentErrors[index] = { detail: errorDetail, statusCode: error.status }
+                                actions.setPrimaryMetricsResultErrors(currentErrors)
+                                return null
                             }
                         })
-                    )) as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
+                    )) as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]
                 },
             },
         ],

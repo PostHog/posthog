@@ -266,7 +266,7 @@ export function PrimaryGoalFunnels(): JSX.Element {
                     checked={(() => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            const val = (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query
+                            const val = (experiment.metrics[metricIdx] as ExperimentFunnelsQuery).funnels_query
                                 ?.filterTestAccounts
                             return hasFilters ? !!val : false
                         }
