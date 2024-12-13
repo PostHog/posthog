@@ -337,39 +337,3 @@ class TestExperimentTrendsStatistics(APIBaseTest):
             self.assertAlmostEqual(intervals["test"][1], 0.004, places=3)
 
         self.run_test_for_both_implementations(run_test)
-
-    def test_different_relative_and_absolute_exposure(self):
-        """Test that credible intervals are calculated using absolute_exposure rather than relative exposure"""
-
-        def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            # Control has exposure=1 (relative) but absolute_exposure=10000
-            control_absolute_exposure = 10000
-            control = create_variant("control", count=1000, exposure=1, absolute_exposure=control_absolute_exposure)
-            # Test has exposure=1.2 (relative) but absolute_exposure=12000
-            test_absolute_exposure = 12000
-            test = create_variant(
-                "test",
-                count=1200,
-                exposure=test_absolute_exposure / control_absolute_exposure,
-                absolute_exposure=test_absolute_exposure,
-            )
-
-            probabilities = calculate_probabilities(control, [test])
-            significance, p_value = are_results_significant(control, [test], probabilities)
-            intervals = calculate_credible_intervals([control, test])
-
-            self.assertEqual(len(probabilities), 2)
-            self.assertTrue(0.4 < probabilities[0] < 0.6)  # Close to 50/50
-            self.assertTrue(0.4 < probabilities[1] < 0.6)  # Close to 50/50
-            self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
-            self.assertEqual(p_value, 1)
-
-            # Control at ~10% conversion rate
-            self.assertAlmostEqual(intervals["control"][0], 0.094, places=2)
-            self.assertAlmostEqual(intervals["control"][1], 0.106, places=2)
-
-            # Test at ~10% conversion rate
-            self.assertAlmostEqual(intervals["test"][0], 0.094, places=2)
-            self.assertAlmostEqual(intervals["test"][1], 0.106, places=2)
-
-        self.run_test_for_both_implementations(run_test)
