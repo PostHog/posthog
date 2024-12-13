@@ -47,8 +47,15 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
         """Test with small sample size, two variants, no clear winner"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", mean=100.0, exposure=100)
-            test = create_variant("test", mean=105.0, exposure=100)
+            control_absolute_exposure = 100
+            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 100
+            test = create_variant(
+                "test",
+                mean=105.0,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test])
             significance, p_value = are_results_significant(control, [test], probabilities)
@@ -87,8 +94,15 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
         """Test with large sample size, two variants, clear winner"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", mean=100.0, exposure=10000)
-            test = create_variant("test", mean=120.0, exposure=10000)
+            control_absolute_exposure = 10000
+            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 10000
+            test = create_variant(
+                "test",
+                mean=120.0,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test])
             significance, p_value = are_results_significant(control, [test], probabilities)
@@ -127,8 +141,15 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
         """Test with large sample size, two variants, very clear winner"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", mean=100.0, exposure=10000)
-            test = create_variant("test", mean=150.0, exposure=10000)
+            control_absolute_exposure = 10000
+            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 10000
+            test = create_variant(
+                "test",
+                mean=150.0,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test])
             significance, p_value = are_results_significant(control, [test], probabilities)
