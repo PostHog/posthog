@@ -77,6 +77,12 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
             }
         )
 
+    def test_vary_header_response(self):
+        response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://foo.example.com")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert "Origin" in response.headers["Vary"]
+        assert "Referer" in response.headers["Vary"]
+
     def test_different_response_for_other_domains(self):
         # Not sure why but there is sometimes one extra query here
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 1)):
