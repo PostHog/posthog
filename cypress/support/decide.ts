@@ -14,8 +14,6 @@ export const setupFeatureFlags = (overrides: Record<string, any> = {}): void => 
 
     cy.intercept('**/array/*/config.js', (req) =>
         req.continue((res) => {
-            // eslint-disable-next-line no-console
-            console.log('CONFIGJS BODY', res.body)
             res.send(res.body)
         })
     )
