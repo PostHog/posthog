@@ -63,7 +63,10 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
         mapping_inputs_schema = mapping.get("inputs_schema", [])
         mapping_filters_expr = hog_function_filters_to_expr(mapping.get("filters", {}) or {}, hog_function.team, {})
         mapping_filters_code = compiler.visit(mapping_filters_expr)
-        mapping_code += f"if ({mapping_filters_code}) {{ const newInputs = structuredClone(inputs); \n"
+
+        mapping_code += f"if ({mapping_filters_code}) {{"
+        mapping_code += "(function (){"  # IIFE so that the code below has different globals than the filters above
+        mapping_code += "const newInputs = structuredClone(inputs); const __getGlobal = (key) => key === 'inputs' ? newInputs : globals[key];\n"
 
         for schema in mapping_inputs_schema:
             if "key" in schema and schema["key"] not in mapping_inputs:
@@ -80,6 +83,7 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
             else:
                 mapping_code += f"newInputs[{json.dumps(key)}] = {json.dumps(value)};\n"
         mapping_code += "source.onEvent({ inputs: newInputs, posthog });"
+        mapping_code += "})();"
         mapping_code += "}\n"
 
     # We are exposing an init function which is what the client will use to actually run this setup code.
