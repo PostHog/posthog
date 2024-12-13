@@ -281,7 +281,7 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     /**  store the insight specific filter in commonFilter */
     const filterKey = filterKeyForQuery(query)
     // exclude properties that shouldn't be shared
-    const { resultCustomizations, ...commonProperties } = query[filterKey]
+    const { resultCustomizations, ...commonProperties } = query[filterKey] || {}
     newCache.commonFilter = { ...cache?.commonFilter, ...commonProperties }
 
     return newCache
