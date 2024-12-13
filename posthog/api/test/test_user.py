@@ -419,7 +419,7 @@ class TestUserAPI(APIBaseTest):
             token = email_verification_token_generator.make_token(self.user)
             with freeze_time("2020-01-01T21:37:00+00:00"):
                 response = self.client.post(
-                    f"/api/users/@me/verify_email/",
+                    f"/api/users/verify_email/",
                     {"uuid": self.user.uuid, "token": token},
                 )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1068,7 +1068,7 @@ class TestEmailVerificationAPI(APIBaseTest):
     def test_user_can_request_verification_email(self, mock_capture):
         set_instance_setting("EMAIL_HOST", "localhost")
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
-            response = self.client.post(f"/api/users/@me/request_email_verification/", {"uuid": self.user.uuid})
+            response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.content.decode(), '{"success":true}')
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
@@ -1086,7 +1086,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         reset_link = html_message[link_index : html_message.find('"', link_index)]
         token = reset_link.replace("https://my.posthog.net/verify_email/", "").replace(f"{self.user.uuid}/", "")
 
-        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # check is_email_verified is changed to True
@@ -1120,8 +1120,9 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(mock_capture.call_count, 3)
 
     def test_cant_verify_if_email_is_not_configured(self):
+        set_instance_setting("EMAIL_HOST", "")
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
-            response = self.client.post(f"/api/users/@me/request_email_verification/", {"uuid": self.user.uuid})
+            response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -1139,7 +1140,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         for i in range(7):
             with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
                 response = self.client.post(
-                    f"/api/users/@me/request_email_verification/",
+                    f"/api/users/request_email_verification/",
                     {"uuid": self.user.uuid},
                 )
             if i < 6:
@@ -1159,11 +1160,11 @@ class TestEmailVerificationAPI(APIBaseTest):
 
     def test_can_validate_email_verification_token(self):
         token = email_verification_token_generator.make_token(self.user)
-        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_cant_validate_email_verification_token_without_a_token(self):
-        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid})
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -1189,7 +1190,7 @@ class TestEmailVerificationAPI(APIBaseTest):
             expired_token,
         ]:
             response = self.client.post(
-                f"/api/users/@me/verify_email/",
+                f"/api/users/verify_email/",
                 {"uuid": self.user.uuid, "token": token},
             )
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -1205,10 +1206,10 @@ class TestEmailVerificationAPI(APIBaseTest):
 
     def test_can_only_validate_email_token_one_time(self):
         token = email_verification_token_generator.make_token(self.user)
-        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -1229,7 +1230,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         assert session_user_id is None
 
         # NOTE: Posting sets the session user id but doesn't log in the test client hence we just check the session id
-        self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         session_user_id = self.client.session.get("_auth_user_id")
         assert session_user_id == str(self.user.id)
 
@@ -1239,16 +1240,14 @@ class TestEmailVerificationAPI(APIBaseTest):
         assert self.client.session.get("_auth_user_id") is None
 
         # NOTE: The user id in path should basically be ignored
-        self.client.post(
-            f"/api/users/{self.user.uuid}/verify_email/", {"uuid": self.other_user.uuid, "token": other_token}
-        )
+        self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": other_token})
         session_user_id = self.client.session.get("_auth_user_id")
         assert session_user_id == str(self.other_user.id)
 
     def test_email_verification_does_not_apply_to_current_logged_in_user(self):
         other_token = email_verification_token_generator.make_token(self.other_user)
 
-        res = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.other_user.uuid, "token": other_token})
+        res = self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": other_token})
         assert res.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
         self.other_user.refresh_from_db()
@@ -1263,10 +1262,13 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.client.logout()
 
         options_to_test = [
+            # Same user IDs with the wrong token
             [self.user.uuid, self.user.uuid, other_token],
-            [self.other_user.uuid, self.user.uuid, other_token],
-            [self.user.uuid, self.other_user.uuid, token],
             [self.other_user.uuid, self.other_user.uuid, token],
+            # Check we use it from the path
+            [self.other_user.uuid, self.user.uuid, token],
+            [self.user.uuid, self.other_user.uuid, other_token],
+            ["@me", self.other_user.uuid, other_token],
         ]
 
         for user_uuid, path_user_uuid, token in options_to_test:
@@ -1274,7 +1276,6 @@ class TestEmailVerificationAPI(APIBaseTest):
             response = self.client.post(
                 f"/api/users/{path_user_uuid}/verify_email/", {"uuid": user_uuid, "token": token}
             )
-            print(self.other_user.id, self.user.id, self.client.session.get("_auth_user_id"))
             assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_does_not_apply_pending_email_for_old_tokens(self):
@@ -1284,13 +1285,13 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.user.pending_email = "new@posthog.com"
         self.user.save()
 
-        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert self.user.email != "new@posthog.com"
         assert self.user.pending_email == "new@posthog.com"
 
         token = email_verification_token_generator.make_token(self.user)
-        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
         assert self.user.email == "new@posthog.com"
