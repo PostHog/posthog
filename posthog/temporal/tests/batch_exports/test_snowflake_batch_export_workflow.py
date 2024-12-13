@@ -612,7 +612,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
                 assert hasattr(err, "__cause__"), "Workflow failure missing cause"
                 assert isinstance(err.__cause__, ActivityError)
                 assert isinstance(err.__cause__.__cause__, ApplicationError)
-                assert err.__cause__.__cause__.type == "RecordBatchConsumerRetryableExceptionGroup"
+                assert err.__cause__.__cause__.type == "SnowflakeFileNotUploadedError"
 
 
 async def test_snowflake_export_workflow_raises_error_on_copy_fail(
