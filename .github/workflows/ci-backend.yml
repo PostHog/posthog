@@ -259,6 +259,12 @@ jobs:
                       python-version: '3.11.9'
                       concurrency: 3
                       group: 3
+                    - segment: 'Snapshot'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 1
+                      group: 1
 
         steps:
             # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
@@ -286,7 +292,7 @@ jobs:
             - uses: EndBug/add-and-commit@v9
               # Skip on forks
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
-              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.segment == 'Snapshot' }}
               with:
                   add: '["ee", "./**/*.ambr", "posthog/queries/", "posthog/migrations", "posthog/tasks", "posthog/hogql/"]'
                   message: 'Update query snapshots'
