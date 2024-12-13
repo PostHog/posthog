@@ -28,10 +28,10 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             [
                 'resultCustomizationBy as resultCustomizationByRaw',
                 'resultCustomizations as trendsResultCustomizations',
-                'getTrendsColor',
+                'getTrendsColorToken',
             ],
             funnelDataLogic(props),
-            ['resultCustomizations as funnelsResultCustomizations', 'getFunnelsColor'],
+            ['resultCustomizations as funnelsResultCustomizations', 'getFunnelsColorToken'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -75,16 +75,16 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             (localColorToken, colorTokenFromQuery): DataColorToken | null => localColorToken || colorTokenFromQuery,
         ],
         colorTokenFromQuery: [
-            (s) => [s.isTrends, s.isFunnels, s.getTrendsColor, s.getFunnelsColor, s.dataset],
-            (isTrends, isFunnels, getTrendsColor, getFunnelsColor, dataset): DataColorToken | null => {
+            (s) => [s.isTrends, s.isFunnels, s.getTrendsColorToken, s.getFunnelsColorToken, s.dataset],
+            (isTrends, isFunnels, getTrendsColorToken, getFunnelsColorToken, dataset): DataColorToken | null => {
                 if (!dataset) {
                     return null
                 }
 
                 if (isTrends) {
-                    return getTrendsColor(dataset as IndexedTrendResult)
+                    return getTrendsColorToken(dataset as IndexedTrendResult)
                 } else if (isFunnels) {
-                    return getFunnelsColor(dataset as FlattenedFunnelStepByBreakdown)
+                    return getFunnelsColorToken(dataset as FlattenedFunnelStepByBreakdown)
                 }
 
                 return null

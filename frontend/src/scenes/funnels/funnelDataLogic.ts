@@ -409,21 +409,30 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (steps) =>
                 Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
         ],
-
-        getFunnelsColor: [
+        getFunnelsColorToken: [
             (s) => [s.resultCustomizations, s.theme],
             (resultCustomizations, theme) => {
                 return (dataset) => {
                     if (theme == null) {
-                        return '#000000' // fallback while loading
+                        return null
                     }
-                    const colorToken = getFunnelResultCustomizationColorToken(
+                    return getFunnelResultCustomizationColorToken(
                         resultCustomizations,
                         theme,
                         dataset,
                         props?.cachedInsight?.disable_baseline
                     )
-                    return theme[colorToken]
+                }
+            },
+        ],
+        getFunnelsColor: [
+            (s) => [s.theme, s.getFunnelsColorToken],
+            (theme, getFunnelsColorToken) => {
+                return (dataset) => {
+                    if (theme == null) {
+                        return '#000000' // fallback while loading
+                    }
+                    return theme[getFunnelsColorToken(dataset)!]
                 }
             },
         ],

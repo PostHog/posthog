@@ -264,21 +264,31 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
         resultCustomizations: [(s) => [s.trendsFilter], (trendsFilter) => trendsFilter?.resultCustomizations],
-
-        getTrendsColor: [
+        getTrendsColorToken: [
             (s) => [s.resultCustomizationBy, s.resultCustomizations, s.theme],
             (resultCustomizationBy, resultCustomizations, theme) => {
                 return (dataset) => {
                     if (theme == null) {
-                        return '#000000' // fallback while loading
+                        return null
                     }
-                    const colorToken = getTrendResultCustomizationColorToken(
+                    return getTrendResultCustomizationColorToken(
                         resultCustomizationBy,
                         resultCustomizations,
                         theme,
                         dataset
                     )
-                    return theme[colorToken]
+                }
+            },
+        ],
+        getTrendsColor: [
+            (s) => [s.theme, s.getTrendsColorToken],
+            (theme, getTrendsColorToken) => {
+                return (dataset) => {
+                    if (theme == null) {
+                        return '#000000' // fallback while loading
+                    }
+
+                    return theme[getTrendsColorToken(dataset)!]
                 }
             },
         ],

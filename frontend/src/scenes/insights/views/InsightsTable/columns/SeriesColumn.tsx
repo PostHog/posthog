@@ -57,7 +57,7 @@ export function SeriesColumnItem({
                     onClick={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
-                        console.debug('opening', item)
+
                         openModal(item)
                     }}
                 >
