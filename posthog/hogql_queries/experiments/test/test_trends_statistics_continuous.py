@@ -13,17 +13,8 @@ from posthog.hogql_queries.experiments.trends_statistics import (
 from posthog.test.base import APIBaseTest
 
 
-def create_variant(key: str, mean: float, exposure: int) -> ExperimentVariantTrendsBaseStats:
+def create_variant(key: str, mean: float, exposure: float, absolute_exposure: int) -> ExperimentVariantTrendsBaseStats:
     # Note: We use the count field to store the mean value for continuous metrics
-    return ExperimentVariantTrendsBaseStats(key=key, count=mean, exposure=exposure, absolute_exposure=exposure)
-
-
-def create_variant_with_different_exposures(
-    key: str,
-    mean: float,
-    exposure: float,  # relative exposure
-    absolute_exposure: int,  # absolute exposure
-) -> ExperimentVariantTrendsBaseStats:
     return ExperimentVariantTrendsBaseStats(key=key, count=mean, exposure=exposure, absolute_exposure=absolute_exposure)
 
 
@@ -382,10 +373,15 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
         """Test that credible intervals are calculated using absolute_exposure rather than relative exposure"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant_with_different_exposures(
-                "control", mean=100.0, exposure=1, absolute_exposure=10000
+            control_absolute_exposure = 10000
+            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 12000
+            test = create_variant(
+                "test",
+                mean=120.0,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
             )
-            test = create_variant_with_different_exposures("test", mean=120.0, exposure=1.2, absolute_exposure=12000)
 
             probabilities = calculate_probabilities(control, [test])
             significance, p_value = are_results_significant(control, [test], probabilities)
