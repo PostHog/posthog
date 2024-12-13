@@ -325,7 +325,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if response_sampling_start_date < today_utc:
                 raise serializers.ValidationError(
                     {
-                        "response_sampling_start_date": "Response sampling start date must be today or a future date in UTC."
+                        "response_sampling_start_date": f"Response sampling start date must be today or a future date in UTC. Got {response_sampling_start_date} when current time is {today_utc}"
                     }
                 )
 
