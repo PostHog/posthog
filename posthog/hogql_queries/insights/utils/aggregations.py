@@ -68,20 +68,26 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         filters: ast.Expr | None = None,
         event_or_action_filter: ast.Expr | None = None,
         ratio: ast.RatioExpr | None = None,
+        is_first_matching_event: bool = False,
     ):
-        query.select = self._select_expr(date_from, filters)
+        query.select = self._select_expr(date_from, filters, is_first_matching_event)
         query.select_from = self._select_from_expr(ratio)
         query.where = self._where_expr(date_to, event_or_action_filter)
         query.group_by = self._group_by_expr()
         query.having = self._having_expr()
         super().__init__(query)
 
-    def _select_expr(self, date_from: ast.Expr, filters: ast.Expr | None = None):
+    def _select_expr(self, date_from: ast.Expr, filters: ast.Expr | None = None, is_first_matching_event: bool = False):
         aggregation_filters = date_from if filters is None else ast.And(exprs=[date_from, filters])
+        min_timestamp_expr = (
+            ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])
+            if not is_first_matching_event or filters is None
+            else ast.Call(name="minIf", args=[ast.Field(chain=["timestamp"]), filters])
+        )
         return [
             ast.Alias(
                 alias="min_timestamp",
-                expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]),
+                expr=min_timestamp_expr,
             ),
             ast.Alias(
                 alias="min_timestamp_with_condition",

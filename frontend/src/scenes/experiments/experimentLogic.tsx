@@ -848,6 +848,12 @@ export const experimentLogic = kea<experimentLogicType>([
                                 ...values.experiment.metrics[0],
                                 experiment_id: values.experimentId,
                             }
+                            if (
+                                queryWithExperimentId.kind === NodeKind.ExperimentTrendsQuery &&
+                                values.featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2]
+                            ) {
+                                queryWithExperimentId.stats_version = 2
+                            }
 
                             const response = await performQuery(queryWithExperimentId, undefined, refresh)
 
