@@ -303,7 +303,7 @@ class SessionRecordingListFromQuery:
         if events_sub_query:
             optional_exprs.append(
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
+                    op=ast.CompareOperationOp.GlobalIn,
                     left=ast.Field(chain=["s", "session_id"]),
                     right=events_sub_query,
                 )
