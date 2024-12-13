@@ -221,9 +221,23 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 1)
 
                 # All variants around $100 with overlapping intervals
-                for variant_key in ["control", "test_a", "test_b", "test_c"]:
-                    self.assertRange(intervals[variant_key][0], (90, 95))  # Lower bounds
-                    self.assertRange(intervals[variant_key][1], (105, 110))  # Upper bounds
+                lower_bound = (90, 100)
+                upper_bound = (100, 110)
+                # Control variant
+                self.assertRange(intervals["control"][0], lower_bound)  # Lower bound
+                self.assertRange(intervals["control"][1], upper_bound)  # Upper bound
+
+                # Test A variant
+                self.assertRange(intervals["test_a"][0], lower_bound)  # Lower bound
+                self.assertRange(intervals["test_a"][1], upper_bound)  # Upper bound
+
+                # Test B variant
+                self.assertRange(intervals["test_b"][0], lower_bound)  # Lower bound
+                self.assertRange(intervals["test_b"][1], upper_bound)  # Upper bound
+
+                # Test C variant
+                self.assertRange(intervals["test_c"][0], lower_bound)  # Lower bound
+                self.assertRange(intervals["test_c"][1], upper_bound)  # Upper bound
             else:
                 # Original implementation behavior for multiple variants with no clear winner
                 self.assertTrue(all(0.1 < p < 0.9 for p in probabilities))
@@ -231,9 +245,23 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 1)
 
                 # Original implementation returns intervals as ratios/multipliers of the mean
-                for variant_key in ["control", "test_a", "test_b", "test_c"]:
-                    self.assertTrue(intervals[variant_key][0] < 1)
-                    self.assertTrue(intervals[variant_key][1] > 1)
+                lower_bound = (0.075, 0.095)
+                upper_bound = (0.11, 0.13)
+                # Control variant
+                self.assertRange(intervals["control"][0], lower_bound)
+                self.assertRange(intervals["control"][1], upper_bound)
+
+                # Test A variant
+                self.assertRange(intervals["test_a"][0], lower_bound)
+                self.assertRange(intervals["test_a"][1], upper_bound)
+
+                # Test B variant
+                self.assertRange(intervals["test_b"][0], lower_bound)
+                self.assertRange(intervals["test_b"][1], upper_bound)
+
+                # Test C variant
+                self.assertRange(intervals["test_c"][0], lower_bound)
+                self.assertRange(intervals["test_c"][1], upper_bound)
 
         self.run_test_for_both_implementations(run_test)
 
