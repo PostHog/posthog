@@ -8,6 +8,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.queries.util import PersonPropertiesMode
 from posthog.clickhouse.client.connection import Workload
@@ -404,20 +405,25 @@ def format_person_query_hogql(cohort: Cohort, index: int, hogql_context: HogQLCo
 def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
 ) -> Optional[int]:
-    hogql_context = HogQLContext(within_non_hogql_query=True, team_id=team.id)
-    cohort_query, cohort_params = format_person_query_hogql(cohort, 0, hogql_context)
+    
+    # No need to do anything here, as we're only testing hogql
+    if cohort.is_static or not cohort.properties.values:
+        return None
 
-    before_count = get_cohort_size(cohort, team_id=team.id)
+    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
-    if before_count is not None:
-        logger.warn(
-            "Recalculating cohortpeople starting",
-            team_id=team.id,
-            cohort_id=cohort.pk,
-            size_before=before_count,
-        )
+    hogql_cohort_query = HogQLCohortQuery(cohort=cohort)
+    hogql_cohort_query.get_query()
 
-    # Want to store amount of time it takes
+    HogQLQueryExecutor(
+        query_type="HogQLCohortQuery",
+        query=hogql_cohort_query.get_query(),
+        team=team,
+        timings=self.timings,
+        modifiers=self.modifiers,
+        limit_context=self.limit_context,
+        settings=settings,
+    )
 
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
