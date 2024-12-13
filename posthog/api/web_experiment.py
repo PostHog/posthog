@@ -11,9 +11,6 @@ from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from django.views.decorators.csrf import csrf_exempt
-from posthog.auth import (
-    TemporaryTokenAuthentication,
-)
 from posthog.exceptions import generate_exception_response
 from posthog.models import Team, WebExperiment
 from posthog.utils_cors import cors_response
@@ -150,7 +147,6 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
 class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = WebExperimentsAPISerializer
-    authentication_classes = [TemporaryTokenAuthentication]
     queryset = WebExperiment.objects.select_related("feature_flag").all()
 
 
