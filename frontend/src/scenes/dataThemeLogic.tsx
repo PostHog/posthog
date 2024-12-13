@@ -15,7 +15,7 @@ export const ThemeName = ({ id }: { id: number }): JSX.Element => {
     return theme ? <span>{theme.name}</span> : <span className="italic">No theme found for id: {id}</span>
 }
 
-type DataThemeLogicProps = {
+export type DataThemeLogicProps = {
     themes?: DataColorThemeModel[]
 }
 
@@ -26,7 +26,7 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
     actions({ setThemes: (themes) => ({ themes }) }),
     loaders(({ props }) => ({
         themes: [
-            (props.themes || null) as DataColorThemeModel[] | null,
+            props.themes || null,
             {
                 loadThemes: async () => await api.dataColorThemes.list(),
             },
