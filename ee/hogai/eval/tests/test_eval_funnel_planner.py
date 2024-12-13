@@ -40,7 +40,10 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             .add_funnel_planner(AssistantNodeName.END)
             .compile()
         )
-        state = graph.invoke(AssistantState(messages=[HumanMessage(content=query)]))
+        state = graph.invoke(
+            AssistantState(messages=[HumanMessage(content=query)]),
+            self._get_config(),
+        )
         return AssistantState.model_validate(state).plan or ""
 
     def test_basic_funnel(self):

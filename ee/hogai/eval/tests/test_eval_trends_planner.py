@@ -40,7 +40,10 @@ class TestEvalTrendsPlanner(EvalBaseTest):
             .add_trends_planner(AssistantNodeName.END)
             .compile()
         )
-        state = graph.invoke(AssistantState(messages=[HumanMessage(content=query)]))
+        state = graph.invoke(
+            AssistantState(messages=[HumanMessage(content=query)]),
+            self._get_config(),
+        )
         return AssistantState.model_validate(state).plan or ""
 
     def test_no_excessive_property_filters(self):
