@@ -872,6 +872,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 feature_flag_property: "test",
                 "$feature_flag_response": "test",
                 "$feature_flag": feature_flag.key,
+                "$user_id": "internal_test_1",
             },
             timestamp=datetime(2023, 1, 3),
         )
