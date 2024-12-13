@@ -1056,7 +1056,11 @@ class TestEmailVerificationAPI(APIBaseTest):
         cache.clear()
         super().setUp()
 
+        set_instance_setting("EMAIL_HOST", "localhost")
+
         self.other_user = self._create_user("otheruser@posthog.com", password="12345678")
+        assert not self.other_user.is_email_verified
+        assert not self.other_user.is_email_verified
 
     # Email verification request
 
@@ -1241,6 +1245,18 @@ class TestEmailVerificationAPI(APIBaseTest):
         session_user_id = self.client.session.get("_auth_user_id")
         assert session_user_id == str(self.other_user.id)
 
+    def test_email_verification_does_not_apply_to_current_logged_in_user(self):
+        other_token = email_verification_token_generator.make_token(self.other_user)
+
+        res = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.other_user.uuid, "token": other_token})
+        assert res.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        self.other_user.refresh_from_db()
+        # Should now be logged in as other user
+        assert self.client.session.get("_auth_user_id") == str(self.other_user.id)
+        assert not self.user.is_email_verified
+        assert self.other_user.is_email_verified
+
     def test_email_verification_fails_if_using_other_accounts_token(self):
         token = email_verification_token_generator.make_token(self.user)
         other_token = email_verification_token_generator.make_token(self.other_user)
@@ -1250,14 +1266,35 @@ class TestEmailVerificationAPI(APIBaseTest):
             [self.user.uuid, self.user.uuid, other_token],
             [self.other_user.uuid, self.user.uuid, other_token],
             [self.user.uuid, self.other_user.uuid, token],
-            [self.other_user.uuid, self.other_user.uuid, other_token],
+            [self.other_user.uuid, self.other_user.uuid, token],
         ]
 
         for user_uuid, path_user_uuid, token in options_to_test:
+            print("Testing", user_uuid, path_user_uuid, token)  # noqa
             response = self.client.post(
                 f"/api/users/{path_user_uuid}/verify_email/", {"uuid": user_uuid, "token": token}
             )
+            print(self.other_user.id, self.user.id, self.client.session.get("_auth_user_id"))
             assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_does_not_apply_pending_email_for_old_tokens(self):
+        self.client.logout()
+
+        token = email_verification_token_generator.make_token(self.user)
+        self.user.pending_email = "new@posthog.com"
+        self.user.save()
+
+        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert self.user.email != "new@posthog.com"
+        assert self.user.pending_email == "new@posthog.com"
+
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.email == "new@posthog.com"
+        assert self.user.pending_email is None
 
 
 class TestUserTwoFactor(APIBaseTest):

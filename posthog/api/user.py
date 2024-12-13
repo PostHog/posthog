@@ -386,6 +386,7 @@ class UserViewSet(
     def verify_email(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
         user_uuid = request.data["uuid"]
+
         if not token:
             raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
 
