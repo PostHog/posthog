@@ -644,7 +644,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
         full_range = (data_interval_start, data_interval_end)
 
-        queue = RecordBatchQueue()
+        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer(clickhouse_client=client)
         producer_task = producer.start(
             queue=queue,
@@ -724,8 +724,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     data_interval_start=data_interval_start,
                     schema=record_batch_schema,
                     writer_format=WriterFormat.JSONL,
-                    max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                    non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
+                    max_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
                     snowflake_client=snow_client,
                     snowflake_table=snow_stage_table if requires_merge else snow_table,
