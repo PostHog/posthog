@@ -1,8 +1,8 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -27,40 +27,68 @@ export interface OnboardingLogicProps {
 export enum OnboardingStepKey {
     PRODUCT_INTRO = 'product_intro',
     INSTALL = 'install',
+    LINK_DATA = 'link_data',
     PLANS = 'plans',
     VERIFY = 'verify',
     PRODUCT_CONFIGURATION = 'configure',
     REVERSE_PROXY = 'proxy',
     INVITE_TEAMMATES = 'invite_teammates',
+    DASHBOARD_TEMPLATE = 'dashboard_template',
+    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
 }
+
+export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
 
 export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.PRODUCT_ANALYTICS]: {
         name: 'Product Analytics',
         icon: 'IconGraph',
-        iconColor: 'blue',
+        iconColor: 'rgb(47 128 250)',
         url: urls.insights(),
         scene: Scene.SavedInsights,
+    },
+    [ProductKey.WEB_ANALYTICS]: {
+        name: 'Web Analytics',
+        icon: 'IconPieChart',
+        iconColor: 'rgb(54 196 111)',
+        url: urls.webAnalytics(),
+        scene: Scene.WebAnalytics,
+    },
+    [ProductKey.DATA_WAREHOUSE]: {
+        name: 'Data Warehouse',
+        icon: 'IconDatabase',
+        iconColor: 'rgb(133 103 255)',
+        breadcrumbsName: 'Data Warehouse',
+        url: urls.dataWarehouse(),
+        scene: Scene.DataWarehouse,
     },
     [ProductKey.SESSION_REPLAY]: {
         name: 'Session Replay',
         icon: 'IconRewindPlay',
-        iconColor: 'var(--warning)',
+        iconColor: 'rgb(247 165 1)',
         url: urls.replay(),
         scene: Scene.Replay,
     },
     [ProductKey.FEATURE_FLAGS]: {
-        name: 'Feature Flags & A/B Testing',
+        name: 'Feature Flags',
         breadcrumbsName: 'Feature Flags',
         icon: 'IconToggle',
-        iconColor: 'seagreen',
+        iconColor: 'rgb(48 171 198)',
         url: urls.featureFlags(),
         scene: Scene.FeatureFlags,
+    },
+    [ProductKey.EXPERIMENTS]: {
+        name: 'Experiments',
+        breadcrumbsName: 'Experiments',
+        icon: 'IconTestTube',
+        iconColor: 'rgb(182 42 217)',
+        url: urls.experiments(),
+        scene: Scene.Experiments,
     },
     [ProductKey.SURVEYS]: {
         name: 'Surveys',
         icon: 'IconMessage',
-        iconColor: 'salmon',
+        iconColor: 'rgb(243 84 84)',
         url: urls.surveys(),
         scene: Scene.Surveys,
     },
@@ -98,6 +126,8 @@ export const getProductUri = (productKey: ProductKey): string => {
 export const onboardingLogic = kea<onboardingLogicType>([
     props({} as OnboardingLogicProps),
     path(['scenes', 'onboarding', 'onboardingLogic']),
+    // connect this so we start collecting live events the whole time during onboarding
+    connect(liveEventsTableLogic({ showLiveStreamErrorToast: false })),
     connect({
         values: [
             billingLogic,
@@ -111,21 +141,30 @@ export const onboardingLogic = kea<onboardingLogicType>([
             preflightLogic,
             ['isCloudOrDev'],
         ],
-        actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
+        actions: [
+            billingLogic,
+            ['loadBillingSuccess'],
+            teamLogic,
+            ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'recordProductIntentOnboardingComplete'],
+        ],
     }),
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
-        completeOnboarding: (nextProductKey?: string) => ({ nextProductKey }),
+        completeOnboarding: (nextProductKey?: string, redirectUrlOverride?: string) => ({
+            nextProductKey,
+            redirectUrlOverride,
+        }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setIncludeIntro: (includeIntro: boolean) => ({ includeIntro }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
-        goToNextStep: true,
+        goToNextStep: (numStepsToAdvance?: number) => ({ numStepsToAdvance }),
         goToPreviousStep: true,
         resetStepKey: true,
+        setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
     }),
     reducers(() => ({
         productKey: [
@@ -170,6 +209,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setWaitForBilling: (_, { waitForBilling }) => waitForBilling,
             },
         ],
+        onCompleteOnboardingRedirectUrlOverride: [
+            null as string | null,
+            {
+                setOnCompleteOnboardingRedirectUrl: (_, { url }) => url,
+            },
+        ],
     })),
     selectors({
         breadcrumbs: [
@@ -192,8 +237,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey],
-            (productKey: string | null) => {
+            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
+            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride) => {
+                if (onCompleteOnboardingRedirectUrlOverride) {
+                    return onCompleteOnboardingRedirectUrlOverride
+                }
                 return productKey ? getProductUri(productKey as ProductKey) : urls.default()
             },
         ],
@@ -239,13 +287,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         shouldShowReverseProxyStep: [
-            (s) => [s.product, s.featureFlags, s.productKey],
-            (_product, featureFlags: FeatureFlagsSet, productKey) => {
-                const productsWithReverseProxy = []
-                if (featureFlags[FEATURE_FLAGS.REVERSE_PROXY_ONBOARDING] === 'test') {
-                    productsWithReverseProxy.push(ProductKey.FEATURE_FLAGS)
-                }
-                return productsWithReverseProxy.includes(productKey as ProductKey)
+            (s) => [s.productKey],
+            (productKey) => {
+                return (
+                    productKey && [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS].includes(productKey as ProductKey)
+                )
             },
         ],
         isStepKeyInvalid: [
@@ -310,20 +356,23 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
 
-        completeOnboarding: ({ nextProductKey }) => {
+        completeOnboarding: ({ nextProductKey, redirectUrlOverride }) => {
+            if (redirectUrlOverride) {
+                actions.setOnCompleteOnboardingRedirectUrl(redirectUrlOverride)
+            }
             if (values.productKey) {
-                const product = values.productKey
-                eventUsageLogic.actions.reportOnboardingCompleted(product)
+                const productKey = values.productKey
+                actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
+                teamLogic.actions.updateCurrentTeam({
+                    has_completed_onboarding_for: {
+                        ...values.currentTeam?.has_completed_onboarding_for,
+                        [productKey]: true,
+                    },
+                })
                 if (nextProductKey) {
                     actions.setProductKey(nextProductKey)
                     router.actions.push(urls.onboarding(nextProductKey))
                 }
-                teamLogic.actions.updateCurrentTeam({
-                    has_completed_onboarding_for: {
-                        ...values.currentTeam?.has_completed_onboarding_for,
-                        [product]: true,
-                    },
-                })
             }
         },
         setAllOnboardingSteps: () => {
@@ -347,11 +396,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             return [`/onboarding/${values.productKey}`, router.values.searchParams]
         },
-        goToNextStep: () => {
+        goToNextStep: ({ numStepsToAdvance }) => {
             const currentStepIndex = values.allOnboardingSteps.findIndex(
                 (step) => step.props.stepKey === values.stepKey
             )
-            const nextStep = values.allOnboardingSteps[currentStepIndex + 1]
+            const nextStep = values.allOnboardingSteps[currentStepIndex + (numStepsToAdvance || 1)]
             if (nextStep) {
                 return [
                     `/onboarding/${values.productKey}`,

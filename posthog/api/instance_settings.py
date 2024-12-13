@@ -21,10 +21,10 @@ from posthog.utils import str_to_bool
 
 
 def cast_str_to_desired_type(str_value: str, target_type: type) -> Any:
-    if target_type == int:
+    if target_type is int:
         return int(str_value)
 
-    if target_type == bool:
+    if target_type is bool:
         return str_to_bool(str_value)
 
     return str_value
@@ -81,7 +81,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
             raise serializers.ValidationError({"value": "This field is required."}, code="required")
 
         target_type: type = CONSTANCE_CONFIG[instance.key][2]
-        if target_type == bool and isinstance(validated_data["value"], bool):
+        if target_type is bool and isinstance(validated_data["value"], bool):
             new_value_parsed = validated_data["value"]
         else:
             new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)

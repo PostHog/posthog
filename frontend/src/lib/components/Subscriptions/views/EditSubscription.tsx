@@ -1,23 +1,23 @@
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { dayjs } from 'lib/dayjs'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useEffect, useMemo } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { integrationsLogic } from 'scenes/settings/project/integrationsLogic'
-import { urls } from 'scenes/urls'
 
 import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
@@ -25,7 +25,6 @@ import {
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
-    getSlackChannelOptions,
     intervalOptions,
     monthlyWeekdayOptions,
     SubscriptionBaseProps,
@@ -59,15 +58,14 @@ export function EditSubscription({
     })
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
-    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, isMemberOfSlackChannel } =
-        useValues(logic)
+    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
-    const { slackChannels, slackChannelsLoading, slackIntegration, addToSlackButtonUrl } = useValues(integrationsLogic)
-    const { loadSlackChannels } = useActions(integrationsLogic)
+    const { slackIntegrations } = useValues(integrationsLogic)
+    // TODO: Fix this so that we use the appropriate config...
+    const firstSlackIntegration = slackIntegrations?.[0]
 
     const emailDisabled = !preflight?.email_service_available
-    const slackDisabled = !slackIntegration
 
     const _onDelete = (): void => {
         if (id !== 'new') {
@@ -76,22 +74,9 @@ export function EditSubscription({
         }
     }
 
-    useEffect(() => {
-        if (subscription?.target_type === 'slack' && slackIntegration) {
-            loadSlackChannels()
-        }
-    }, [subscription?.target_type, slackIntegration])
-
-    // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
-    const slackChannelOptions: LemonInputSelectOption[] = useMemo(
-        () => getSlackChannelOptions(subscription?.target_value, slackChannels),
-        [slackChannels, subscription?.target_value]
-    )
-
-    const showSlackMembershipWarning =
-        subscription.target_value &&
-        subscription.target_type === 'slack' &&
-        !isMemberOfSlackChannel(subscription.target_value)
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZoneName: 'shortGeneric' })
+    const parts = formatter.formatToParts(new Date())
+    const currentTimezone = parts?.find((part) => part.type === 'timeZoneName')?.value
 
     return (
         <Form
@@ -218,45 +203,31 @@ export function EditSubscription({
 
                         {subscription.target_type === 'slack' ? (
                             <>
-                                {slackDisabled ? (
+                                {!firstSlackIntegration ? (
                                     <>
-                                        {addToSlackButtonUrl() ? (
-                                            <LemonBanner type="info">
-                                                <div className="flex justify-between gap-2">
-                                                    <span>
-                                                        Slack is not yet configured for this project. Add PostHog to
-                                                        your Slack workspace to continue.
-                                                    </span>
-                                                    <Link
-                                                        to={
-                                                            addToSlackButtonUrl(
-                                                                window.location.pathname + '?target_type=slack'
-                                                            ) || ''
-                                                        }
-                                                    >
-                                                        <img
-                                                            alt="Add to Slack"
-                                                            height="40"
-                                                            width="139"
-                                                            src="https://platform.slack-edge.com/img/add_to_slack.png"
-                                                            srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
-                                                        />
-                                                    </Link>
-                                                </div>
-                                            </LemonBanner>
-                                        ) : (
-                                            <LemonBanner type="error">
-                                                <>
-                                                    Slack is not yet configured for this project. You can configure it
-                                                    at{' '}
-                                                    <Link to={`${urls.settings('project')}#slack`}>
-                                                        {' '}
-                                                        Slack Integration settings
-                                                    </Link>
-                                                    .
-                                                </>
-                                            </LemonBanner>
-                                        )}
+                                        <LemonBanner type="info">
+                                            <div className="flex justify-between gap-2">
+                                                <span>
+                                                    Slack is not yet configured for this project. Add PostHog to your
+                                                    Slack workspace to continue.
+                                                </span>
+                                                <Link
+                                                    to={api.integrations.authorizeUrl({
+                                                        kind: 'slack',
+                                                        next: window.location.pathname + '?target_type=slack',
+                                                    })}
+                                                    disableClientSideRouting
+                                                >
+                                                    <img
+                                                        alt="Add to Slack"
+                                                        height="40"
+                                                        width="139"
+                                                        src="https://platform.slack-edge.com/img/add_to_slack.png"
+                                                        srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
+                                                    />
+                                                </Link>
+                                            </div>
+                                        </LemonBanner>
                                     </>
                                 ) : (
                                     <>
@@ -274,45 +245,13 @@ export function EditSubscription({
                                             }
                                         >
                                             {({ value, onChange }) => (
-                                                <LemonInputSelect
-                                                    onChange={(val) => onChange(val[0] ?? null)}
-                                                    value={value ? [value] : []}
-                                                    disabled={slackDisabled}
-                                                    mode="single"
-                                                    data-attr="select-slack-channel"
-                                                    placeholder="Select a channel..."
-                                                    options={slackChannelOptions}
-                                                    loading={slackChannelsLoading}
+                                                <SlackChannelPicker
+                                                    value={value}
+                                                    onChange={onChange}
+                                                    integration={firstSlackIntegration}
                                                 />
                                             )}
                                         </LemonField>
-
-                                        {showSlackMembershipWarning ? (
-                                            <LemonField name="memberOfSlackChannel">
-                                                <LemonBanner type="info">
-                                                    <div className="flex gap-2 items-center">
-                                                        <span>
-                                                            The PostHog Slack App is not in this channel. Please add it
-                                                            to the channel otherwise Subscriptions will fail to be
-                                                            delivered.{' '}
-                                                            <Link
-                                                                to="https://posthog.com/docs/webhooks/slack"
-                                                                target="_blank"
-                                                            >
-                                                                See the Docs for more information
-                                                            </Link>
-                                                        </span>
-                                                        <LemonButton
-                                                            type="secondary"
-                                                            onClick={loadSlackChannels}
-                                                            loading={slackChannelsLoading}
-                                                        >
-                                                            Check again
-                                                        </LemonButton>
-                                                    </div>
-                                                </LemonBanner>
-                                            </LemonField>
-                                        ) : null}
                                     </>
                                 )}
                             </>
@@ -331,7 +270,10 @@ export function EditSubscription({
                         ) : null}
 
                         <div>
-                            <LemonLabel className="mb-2">Recurrence</LemonLabel>
+                            <div className="flex items-baseline justify-between w-full">
+                                <LemonLabel className="mb-2">Recurrence</LemonLabel>
+                                <div className="text-xs text-muted text-right">{currentTimezone}</div>
+                            </div>
                             <div className="flex gap-2 items-center rounded border p-2 flex-wrap">
                                 <span>Send every</span>
                                 <LemonField name="interval">

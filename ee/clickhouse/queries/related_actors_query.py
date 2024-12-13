@@ -14,7 +14,7 @@ from posthog.queries.actor_base_query import (
     SerializedGroup,
     SerializedPerson,
     get_groups,
-    get_people,
+    get_serialized_people,
 )
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
@@ -41,7 +41,7 @@ class RelatedActorsQuery:
     def run(self) -> list[SerializedActor]:
         results: list[SerializedActor] = []
         results.extend(self._query_related_people())
-        for group_type_mapping in GroupTypeMapping.objects.filter(team_id=self.team.pk):
+        for group_type_mapping in GroupTypeMapping.objects.filter(project_id=self.team.project_id):
             results.extend(self._query_related_groups(group_type_mapping.group_type_index))
         return results
 
@@ -69,7 +69,7 @@ class RelatedActorsQuery:
             )
         )
 
-        _, serialized_people = get_people(self.team, person_ids)
+        serialized_people = get_serialized_people(self.team, person_ids)
         return serialized_people
 
     def _query_related_groups(self, group_type_index: GroupTypeIndex) -> list[SerializedGroup]:

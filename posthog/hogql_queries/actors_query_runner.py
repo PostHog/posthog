@@ -1,15 +1,25 @@
 import itertools
-from datetime import timedelta
 from typing import Optional
 from collections.abc import Sequence, Iterator
+
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_order_expr
+from posthog.hogql.printer import print_ast
 from posthog.hogql.property import has_aggregation
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse, DashboardFilter
+from posthog.schema import (
+    ActorsQuery,
+    ActorsQueryResponse,
+    CachedActorsQueryResponse,
+    DashboardFilter,
+)
 
 
 class ActorsQueryRunner(QueryRunner):
@@ -84,12 +94,21 @@ class ActorsQueryRunner(QueryRunner):
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def calculate(self) -> ActorsQueryResponse:
+        # Funnel queries require the experimental analyzer to run correctly
+        # Can remove once clickhouse moves to version 24.3 or above
+        settings = None
+        if isinstance(self.source_query_runner, InsightActorsQueryRunner) and isinstance(
+            self.source_query_runner.source_runner, FunnelsQueryRunner
+        ):
+            settings = HogQLGlobalSettings(allow_experimental_analyzer=True)
+
         response = self.paginator.execute_hogql_query(
             query_type="ActorsQuery",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            settings=settings,
         )
         input_columns = self.input_columns()
         missing_actors_count = None
@@ -126,12 +145,12 @@ class ActorsQueryRunner(QueryRunner):
         return self.strategy.input_columns()
 
     # TODO: Figure out a more sure way of getting the actor id than using the alias or chain name
-    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectUnionQuery) -> list[str]:
+    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectSetQuery) -> list[int | str]:
         # Figure out the id column of the source query, first column that has id in the name
         if isinstance(source_query, ast.SelectQuery):
             select = source_query.select
         else:
-            select = source_query.select_queries[0].select
+            select = next(extract_select_queries(source_query)).select
 
         for column in select:
             if isinstance(column, ast.Alias) and (column.alias in ("group_key", "actor_id", "person_id")):
@@ -231,21 +250,98 @@ class ActorsQueryRunner(QueryRunner):
                 order_by = []
 
         with self.timings.measure("select"):
-            if self.query.source:
-                join_expr = self.source_table_join()
-            else:
-                join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
-
-            stmt = ast.SelectQuery(
+            select_query = ast.SelectQuery(
                 select=columns,
-                select_from=join_expr,
                 where=where,
                 having=having,
                 group_by=group_by if has_any_aggregation else None,
                 order_by=order_by,
+                settings=HogQLQuerySettings(join_algorithm="auto", optimize_aggregation_in_order=True),
             )
+            if not self.query.source:
+                select_query.select_from = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+            else:
+                assert self.source_query_runner is not None  # For type checking
+                source_query = self.source_query_runner.to_actors_query()
+                source_id_chain = self.source_id_column(source_query)
+                source_alias = "source"
 
-        return stmt
+                # If we aren't joining with the origin, give the source the origin_id
+                for source in (
+                    [source_query] if isinstance(source_query, ast.SelectQuery) else source_query.select_queries()
+                ):
+                    source.select.append(
+                        ast.Alias(alias=self.strategy.origin_id, expr=ast.Field(chain=source_id_chain))
+                    )
+                select_query.select_from = ast.JoinExpr(
+                    table=source_query,
+                    alias=source_alias,
+                )
+
+                try:
+                    print_ast(
+                        select_query,
+                        context=HogQLContext(
+                            team=self.team,
+                            enable_select_queries=True,
+                            timings=self.timings,
+                            modifiers=self.modifiers,
+                        ),
+                        dialect="clickhouse",
+                    )
+                    return select_query
+                except Exception:
+                    pass
+
+                origin = self.strategy.origin
+
+                join_on: ast.Expr = ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[origin, self.strategy.origin_id]),
+                    right=ast.Field(chain=[source_alias, *source_id_chain]),
+                )
+
+                # For some of our users, the persons table is large. If we're looking for person,
+                # help make the join smarter by limiting the people it has to look up
+                # The persons table inlines `in` conditions on the join (see `persons.py`)
+                # Funnels queries are very big. Don't do this for funnels as it blows up the query size.
+                if isinstance(self.strategy, PersonStrategy) and not (
+                    isinstance(self.source_query_runner, InsightActorsQueryRunner)
+                    and isinstance(self.source_query_runner.source_runner, FunnelsQueryRunner)
+                ):
+                    join_on = ast.And(
+                        exprs=[
+                            join_on,
+                            ast.CompareOperation(
+                                left=ast.Field(chain=[origin, self.strategy.origin_id]),
+                                right=ast.SelectQuery(
+                                    select=[ast.Field(chain=[source_alias, *self.source_id_column(source_query)])],
+                                    select_from=ast.JoinExpr(table=source_query, alias=source_alias),
+                                ),
+                                op=ast.CompareOperationOp.In,
+                            ),
+                        ]
+                    )
+
+                # remove id, which now comes from the origin
+                for source in (
+                    [source_query] if isinstance(source_query, ast.SelectQuery) else source_query.select_queries()
+                ):
+                    source.select.pop()
+                select_query.select_from = ast.JoinExpr(
+                    table=source_query,
+                    alias=source_alias,
+                    next_join=ast.JoinExpr(
+                        table=ast.Field(chain=[origin]),
+                        join_type="INNER JOIN",
+                        constraint=ast.JoinConstraint(
+                            expr=join_on,
+                            constraint_type="ON",
+                        ),
+                    ),
+                )
+
+        return select_query
 
     def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()
@@ -253,12 +349,6 @@ class ActorsQueryRunner(QueryRunner):
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         if self.source_query_runner:
             self.source_query_runner.apply_dashboard_filters(dashboard_filter)
-
-    def _is_stale(self, cached_result_package):
-        return True
-
-    def _refresh_frequency(self):
-        return timedelta(minutes=1)
 
     def _remove_aliases(self, node: ast.Expr) -> ast.Expr:
         if isinstance(node, ast.Alias):

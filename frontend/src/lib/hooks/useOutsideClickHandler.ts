@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 
 export const CLICK_OUTSIDE_BLOCK_CLASS = 'click-outside-block'
 
-const exceptions = ['.ant-select-dropdown *', `.${CLICK_OUTSIDE_BLOCK_CLASS}`, `.${CLICK_OUTSIDE_BLOCK_CLASS} *`]
+const exceptions = [`.${CLICK_OUTSIDE_BLOCK_CLASS}`, `.${CLICK_OUTSIDE_BLOCK_CLASS} *`]
 
 export function useOutsideClickHandler(
     refs: React.MutableRefObject<HTMLElement | ReferenceType | null>[],

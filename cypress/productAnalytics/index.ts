@@ -23,7 +23,16 @@ export const insight = {
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
+        cy.get('body').then(($body) => {
+            if ($body.find('[data-attr=prop-val-0]').length === 0) {
+                cy.get('[data-attr=taxonomic-value-select]').click()
+            }
+        })
+    },
+    applyBreakdown: (): void => {
+        cy.contains('Add breakdown').click()
+        cy.contains('Browser').click()
+        cy.wait(1000)
     },
     editName: (insightName: string): void => {
         if (insightName) {
@@ -38,7 +47,7 @@ export const insight = {
         cy.url().should('not.include', '/new')
     },
     clickTab: (tabName: string): void => {
-        cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
+        cy.intercept('POST', /api\/environments\/\d+\/query\//).as('loadNewQueryInsight')
 
         cy.get(`[data-attr="insight-${(tabName === 'PATHS' ? 'PATH' : tabName).toLowerCase()}-tab"]`).click()
         if (tabName !== 'FUNNELS') {
@@ -47,7 +56,7 @@ export const insight = {
         }
     },
     newInsight: (insightType: string = 'TRENDS'): void => {
-        cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
+        cy.intercept('POST', /api\/environments\/\d+\/query\//).as('loadNewQueryInsight')
 
         if (insightType === 'JSON') {
             cy.clickNavMenu('savedinsights')
@@ -82,7 +91,7 @@ export const insight = {
         cy.url().should('not.include', '/new') // wait for insight to complete and update URL
     },
     addInsightToDashboard: (dashboardName: string, options: { visitAfterAdding: boolean }): void => {
-        cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+        cy.intercept('PATCH', /api\/environments\/\d+\/insights\/\d+\/.*/).as('patchInsight')
 
         cy.get('[data-attr="save-to-dashboard-button"]').click()
         cy.get('[data-attr="dashboard-searchfield"]').type(dashboardName)
@@ -154,7 +163,7 @@ export const dashboards = {
 
 export const dashboard = {
     addInsightToEmptyDashboard: (insightName: string): void => {
-        cy.intercept('POST', /api\/projects\/\d+\/insights\//).as('postInsight')
+        cy.intercept('POST', /api\/environments\/\d+\/insights\//).as('postInsight')
 
         cy.get('[data-attr=dashboard-add-graph-header]').contains('Add insight').click()
         cy.get('[data-attr=toast-close-button]').click({ multiple: true })
@@ -172,11 +181,11 @@ export const dashboard = {
     addPropertyFilter(type: string = 'Browser', value: string = 'Chrome'): void {
         cy.get('.PropertyFilterButton').should('have.length', 0)
         cy.get('[data-attr="property-filter-0"]').click()
-        cy.get('[data-attr="taxonomic-filter-searchfield"]').click().type('Browser').wait(1000)
-        cy.get('[data-attr="prop-filter-event_properties-0"]').click({ force: true })
+        cy.get('[data-attr="taxonomic-filter-searchfield"]').click().type(type).wait(1000)
+        cy.get('[data-attr="prop-filter-event_properties-0"]').click({ force: true }).wait(1000)
         cy.get('.LemonInput').type(value)
         cy.contains('.LemonButton__content', value).click({ force: true })
-        cy.get('button').contains('Apply and save dashboard').click()
+        cy.get('button').contains('Save').click()
     },
     addAnyFilter(): void {
         cy.get('.PropertyFilterButton').should('have.length', 0)
@@ -188,15 +197,30 @@ export const dashboard = {
         // click .dashboard to blur
         cy.get('.dashboard').click({ force: true })
         cy.get('.PropertyFilterButton').should('have.length', 1)
-        cy.get('button').contains('Apply and save dashboard').click()
+        cy.get('button').contains('Save').click()
     },
 }
 
-export function createInsight(insightName: string): void {
+export function createInsight(insightName: string): Cypress.Chainable<string> {
     savedInsights.createNewInsightOfType('TRENDS')
     insight.applyFilter()
     insight.editName(insightName)
     insight.save()
+    // return insight id from the url
+    return cy.url().then((url) => {
+        return url.split('/').at(-1)
+    })
+}
+
+export function createInsightWithBreakdown(insightName: string): Cypress.Chainable<string> {
+    savedInsights.createNewInsightOfType('TRENDS')
+    insight.applyBreakdown()
+    insight.editName(insightName)
+    insight.save()
+    // return insight id from the url
+    return cy.url().then((url) => {
+        return url.split('/').at(-1)
+    })
 }
 
 export function duplicateDashboardFromMenu(duplicateTiles = false): void {

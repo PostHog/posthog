@@ -13,6 +13,9 @@ export const UNUSED_ICONS = [
     'IconThumbsDown',
     'IconThumbsDownFilled',
     'IconShieldLock',
+    'IconHandwave',
+    'IconMapPin',
+    'IconWrench',
 ]
 
 export const OBJECTS = {
@@ -32,6 +35,7 @@ export const OBJECTS = {
         'IconConfetti',
         'IconPresent',
         'IconMagicWand',
+        'IconAI',
         'IconMagic',
         'IconHelmet',
         'IconSpotlight',
@@ -47,12 +51,24 @@ export const OBJECTS = {
         'IconGear',
         'IconGearFilled',
         'IconStack',
+        'IconSparkles',
+        'IconPlug',
+        'IconPuzzle',
+        'IconActivity',
     ],
-    People: ['IconPeople', 'IconPeopleFilled', 'IconPerson', 'IconProfile', 'IconUser', 'IconGroups'],
+    People: [
+        'IconPeople',
+        'IconPeopleFilled',
+        'IconPerson',
+        'IconProfile',
+        'IconUser',
+        'IconGroups',
+        'IconShieldPeople',
+    ],
     'Business & Finance': ['IconStore', 'IconCart', 'IconReceipt', 'IconPiggyBank', 'IconHandMoney'],
     Time: ['IconHourglass', 'IconCalendar', 'IconClock'],
     Nature: ['IconDay', 'IconNight', 'IconGlobe', 'IconCloud', 'IconBug'],
-    Text: ['IconDocument', 'IconBrackets', 'IconTextWidth', 'IconQuote', 'IconLetter', 'IconNewspaper'],
+    Text: ['IconDocument', 'IconBrackets', 'IconTextWidth', 'IconQuote', 'IconLetter', 'IconNewspaper', 'IconAIText'],
 }
 
 export const TECHNOLOGY = {
@@ -67,6 +83,7 @@ export const TECHNOLOGY = {
         'IconDatabase',
         'IconHardDrive',
         'IconMouse',
+        'IconCdCase',
     ],
     Software: ['IconBrowser', 'IconCode', 'IconCodeInsert', 'IconTerminal', 'IconApp'],
     UI: [
@@ -86,6 +103,7 @@ export const TECHNOLOGY = {
         'IconBottomPanel',
         'IconSidePanel',
         'IconMouseScrollDown',
+        'IconDrag',
     ],
 }
 
@@ -176,12 +194,14 @@ export const TEAMS_AND_COMPANIES = {
         'IconPageChart',
         'IconSampling',
         'IconLive',
+        'IconRefresh',
         'IconBadge',
     ],
     Replay: [
         'IconPlay',
         'IconPlayFilled',
         'IconPlaylist',
+        'IconShuffle',
         'IconPause',
         'IconFastForward',
         'IconPauseFilled',
@@ -190,7 +210,7 @@ export const TEAMS_AND_COMPANIES = {
         'IconRewindPlay',
         'IconVideoCamera',
     ],
-    'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting'],
+    'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting', 'IconBalance'],
     Pipeline: ['IconWebhooks', 'IconDecisionTree'],
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
     Logos: ['IconLogomark', 'IconGithub'],

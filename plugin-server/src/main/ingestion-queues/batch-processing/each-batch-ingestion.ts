@@ -14,6 +14,7 @@ import { IngestionConsumer } from '../kafka-queue'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import {
     ingestEventBatchingBatchCountSummary,
+    ingestEventBatchingDistinctIdBatchLengthSummary,
     ingestEventBatchingInputLengthSummary,
     ingestEventEachBatchKafkaAckWait,
     ingestionOverflowingMessagesTotal,
@@ -32,6 +33,7 @@ export enum IngestionOverflowMode {
     RerouteRandomly, // discards partition locality
     ConsumeSplitByDistinctId,
     ConsumeSplitEvenly,
+    ConsumeSplitEventlyWithoutIngestionWarning,
 }
 
 type IngestionSplitBatch = {
@@ -123,6 +125,10 @@ export async function eachBatchParallelIngestion(
 
         ingestEventBatchingInputLengthSummary.observe(messages.length)
         ingestEventBatchingBatchCountSummary.observe(splitBatch.toProcess.length)
+        splitBatch.toProcess.forEach((b) => {
+            ingestEventBatchingDistinctIdBatchLengthSummary.observe(b.length)
+        })
+
         prepareSpan.finish()
 
         const processingPromises: Array<Promise<void>> = []
@@ -164,7 +170,11 @@ export async function eachBatchParallelIngestion(
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
                         const result = (await retryIfRetriable(async () => {
-                            const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent)
+                            const runner = new EventPipelineRunner(
+                                queue.pluginsServer,
+                                pluginEvent,
+                                queue.eventsProcessor
+                            )
                             return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 
@@ -295,10 +305,12 @@ export function splitIngestionBatch(
         overflowMode
     )
 
-    if (overflowMode === IngestionOverflowMode.ConsumeSplitEvenly) {
+    if (
+        overflowMode === IngestionOverflowMode.ConsumeSplitEvenly ||
+        overflowMode === IngestionOverflowMode.ConsumeSplitEventlyWithoutIngestionWarning
+    ) {
         /**
-         * Grouping by distinct_id is inefficient here, because only a few ones are overflowing
-         * at a time. When messages are sent to overflow, we already give away the ordering guarantee,
+         * Grouping by distinct_id is not necessary here, we already give away the ordering guarantee,
          * so we just return batches of one to increase concurrency.
          * TODO: add a PipelineEvent[] field to IngestionSplitBatch for batches of 1
          */

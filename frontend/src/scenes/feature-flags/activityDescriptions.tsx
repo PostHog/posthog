@@ -18,8 +18,6 @@ import { urls } from 'scenes/urls'
 import { AnyPropertyFilter, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 
 const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefined): string | JSX.Element => {
-    // detail.name
-    // item_id
     const displayName = name || '(empty string)'
     return id ? <Link to={urls.featureFlag(id)}>{displayName}</Link> : displayName
 }
@@ -254,12 +252,29 @@ const featureFlagActionsMapping: Record<
     analytics_dashboards: () => null,
     has_enriched_analytics: () => null,
     surveys: () => null,
+    user_access_level: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'FeatureFlag') {
         console.error('feature flag describer received a non-feature flag activity')
         return { description: null }
+    }
+
+    if (logItem.activity === 'created') {
+        return {
+            description: (
+                <SentenceList
+                    listParts={[<>created a new feature flag:</>]}
+                    prefix={
+                        <>
+                            <strong>{userNameForLogItem(logItem)}</strong>
+                        </>
+                    }
+                    suffix={<> {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>}
+                />
+            ),
+        }
     }
 
     if (logItem.activity == 'updated') {

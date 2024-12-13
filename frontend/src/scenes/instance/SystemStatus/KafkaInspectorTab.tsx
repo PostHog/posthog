@@ -16,12 +16,7 @@ export function KafkaInspectorTab(): JSX.Element {
             <LemonDivider className="my-4" />
             <section>
                 <div className="flex mb-3">
-                    <Form
-                        logic={kafkaInspectorLogic}
-                        formKey="fetchKafkaMessage"
-                        className="ant-form-horizontal ant-form-hide-required-mark"
-                        enableFormOnSubmit
-                    >
+                    <Form logic={kafkaInspectorLogic} formKey="fetchKafkaMessage" enableFormOnSubmit>
                         <div className="grid grid-cols-12 gap-4">
                             <div className="col-span-4">
                                 <Field name="topic">

@@ -134,9 +134,11 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         }
 
                         if (!('distinct_id_field' in item)) {
-                            const idField = Object.values(warehouseItem.fields).find((n) => n.name === 'id')
-                            if (idField) {
-                                warehouseItem['distinct_id_field'] = idField.name
+                            const distinctIdField =
+                                Object.values(warehouseItem.fields).find((n) => n.name === 'distinct_id') ??
+                                Object.values(warehouseItem.fields).find((n) => n.name === 'id')
+                            if (distinctIdField) {
+                                warehouseItem['distinct_id_field'] = distinctIdField.name
                             }
                         }
 
@@ -224,6 +226,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.NumericalEventProperties,
                     TaxonomicFilterGroupType.Metadata,
+                    TaxonomicFilterGroupType.DataWarehousePersonProperties,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],
         hasSentAs: [
@@ -233,6 +236,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         ],
         isCohort: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Cohorts],
         isDataWarehouse: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.DataWarehouse],
+        isDataWarehousePersonProperty: [
+            (s) => [s.type],
+            (type) => type === TaxonomicFilterGroupType.DataWarehousePersonProperties,
+        ],
         viewFullDetailUrl: [
             (s) => [s.definition, s.isAction, s.isEvent, s.isProperty, s.isCohort],
             (definition, isAction, isEvent, isProperty, isCohort) => {

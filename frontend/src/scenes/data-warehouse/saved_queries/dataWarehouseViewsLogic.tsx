@@ -1,4 +1,5 @@
-import { connect, kea, listeners, path, selectors } from 'kea'
+import { lemonToast } from '@posthog/lemon-ui'
+import { actions, connect, events, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -7,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { DatabaseSchemaViewTable } from '~/queries/schema'
-import { ProductKey } from '~/types'
+import { DataWarehouseSavedQuery } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
 
@@ -17,32 +18,60 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         values: [userLogic, ['user'], databaseTableListLogic, ['views', 'databaseLoading']],
         actions: [databaseTableListLogic, ['loadDatabase']],
     })),
-
-    loaders({
+    actions({
+        runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
+    }),
+    loaders(({ values, cache, actions }) => ({
         dataWarehouseSavedQueries: [
-            null,
+            [] as DataWarehouseSavedQuery[],
             {
-                createDataWarehouseSavedQuery: async (view: Partial<DatabaseSchemaViewTable>) => {
-                    await api.dataWarehouseSavedQueries.create(view)
-                    return null
+                loadDataWarehouseSavedQueries: async () => {
+                    const savedQueries = await api.dataWarehouseSavedQueries.list()
+
+                    if (router.values.location.pathname.includes(urls.dataModel()) && !cache.pollingInterval) {
+                        cache.pollingInterval = setInterval(actions.loadDataWarehouseSavedQueries, 5000)
+                    } else {
+                        clearInterval(cache.pollingInterval)
+                    }
+                    return savedQueries.results
+                },
+                createDataWarehouseSavedQuery: async (
+                    view: Partial<DatabaseSchemaViewTable> & { types: string[][] }
+                ) => {
+                    const newView = await api.dataWarehouseSavedQueries.create(view)
+
+                    lemonToast.success(`${newView.name ?? 'View'} successfully created`)
+
+                    return [...values.dataWarehouseSavedQueries, newView]
                 },
                 deleteDataWarehouseSavedQuery: async (viewId: string) => {
                     await api.dataWarehouseSavedQueries.delete(viewId)
-                    return null
+                    return values.dataWarehouseSavedQueries.filter((view) => view.id !== viewId)
                 },
-                updateDataWarehouseSavedQuery: async (view: DatabaseSchemaViewTable) => {
-                    await api.dataWarehouseSavedQueries.update(view.id, view)
-                    return null
+                updateDataWarehouseSavedQuery: async (
+                    view: Partial<DatabaseSchemaViewTable> & { id: string; types: string[][] }
+                ) => {
+                    const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
+                    return values.dataWarehouseSavedQueries.map((savedQuery) => {
+                        if (savedQuery.id === view.id) {
+                            return newView
+                        }
+                        return savedQuery
+                    })
                 },
             },
         ],
-    }),
+    })),
     listeners(({ actions }) => ({
         createDataWarehouseSavedQuerySuccess: () => {
-            router.actions.push(urls.dataWarehouse())
+            actions.loadDatabase()
         },
         updateDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
+        },
+        runDataWarehouseSavedQuery: async ({ viewId }) => {
+            await api.dataWarehouseSavedQueries.run(viewId)
+            actions.loadDataWarehouseSavedQueries()
         },
     })),
     selectors({
@@ -52,11 +81,24 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 return views?.length == 0 && !databaseLoading
             },
         ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user],
-            (user): boolean => {
-                return !user?.has_seen_product_intro_for?.[ProductKey.DATA_WAREHOUSE_SAVED_QUERY]
+        dataWarehouseSavedQueryMapById: [
+            (s) => [s.dataWarehouseSavedQueries],
+            (dataWarehouseSavedQueries) => {
+                return (
+                    dataWarehouseSavedQueries?.reduce((acc, cur) => {
+                        acc[cur.id] = cur
+                        return acc
+                    }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                )
             },
         ],
     }),
+    events(({ actions, cache }) => ({
+        afterMount: () => {
+            actions.loadDataWarehouseSavedQueries()
+        },
+        beforeUnmount: () => {
+            clearInterval(cache.pollingInterval)
+        },
+    })),
 ])

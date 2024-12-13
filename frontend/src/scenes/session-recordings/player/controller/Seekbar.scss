@@ -47,7 +47,7 @@
 
         .PlayerSeekbar__currentbar {
             z-index: 3;
-            background-color: var(--recording-seekbar-red);
+            background-color: var(--primary-3000);
             border-radius: var(--bar-height) 0 0 var(--bar-height);
         }
 
@@ -76,7 +76,7 @@
             width: var(--thumb-size);
             height: var(--thumb-size);
             margin-top: calc(var(--thumb-size) / 2 * -1);
-            background-color: var(--recording-seekbar-red);
+            background-color: var(--primary-3000);
             border: 2px solid var(--bg-light);
             border-radius: 50%;
             transition: top 150ms ease-in-out;
@@ -103,7 +103,7 @@
                 font-size: 0.8rem;
                 font-weight: 600;
                 color: #fff;
-                background-color: var(--muted-dark);
+                background-color: var(--tooltip-bg);
                 border-radius: var(--radius);
                 transform: translateX(-50%);
             }

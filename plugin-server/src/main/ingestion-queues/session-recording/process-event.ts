@@ -32,6 +32,7 @@ export interface SummarizedSessionRecordingEvent {
     distinct_id: string
     session_id: string
     first_url: string | null
+    urls: string[]
     click_count: number
     keypress_count: number
     mouse_activity_count: number
@@ -255,7 +256,7 @@ export const createSessionReplayEvent = (
     session_id: string,
     events: RRWebEvent[],
     snapshot_source: string | null
-) => {
+): { event: SummarizedSessionRecordingEvent } => {
     const timestamps = getTimestampsFrom(events)
 
     // but every event where chunk index = 0 must have an eventsSummary
@@ -274,7 +275,8 @@ export const createSessionReplayEvent = (
     let consoleLogCount = 0
     let consoleWarnCount = 0
     let consoleErrorCount = 0
-    let url: string | null = null
+    const urls: Set<string> = new Set()
+
     events.forEach((event) => {
         if (event.type === RRWebEventType.IncrementalSnapshot) {
             if (isClick(event)) {
@@ -289,8 +291,8 @@ export const createSessionReplayEvent = (
         }
 
         const eventUrl: string | undefined = hrefFrom(event)
-        if (url === null && eventUrl) {
-            url = eventUrl
+        if (eventUrl) {
+            urls.add(eventUrl)
         }
 
         if (event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
@@ -306,6 +308,7 @@ export const createSessionReplayEvent = (
     })
 
     const activeTime = activeMilliseconds(events)
+    const urlArray = Array.from(urls)
 
     // NB forces types to be correct e.g. by truncating or rounding
     // to ensure we don't send floats when we should send an integer
@@ -319,7 +322,8 @@ export const createSessionReplayEvent = (
         click_count: Math.trunc(clickCount),
         keypress_count: Math.trunc(keypressCount),
         mouse_activity_count: Math.trunc(mouseActivity),
-        first_url: url,
+        first_url: urlArray.length ? urlArray[0] : null,
+        urls: urlArray,
         active_milliseconds: Math.round(activeTime),
         console_log_count: Math.trunc(consoleLogCount),
         console_warn_count: Math.trunc(consoleWarnCount),
@@ -330,5 +334,5 @@ export const createSessionReplayEvent = (
         snapshot_source: snapshot_source || 'web',
     }
 
-    return data
+    return { event: data }
 }

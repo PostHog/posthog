@@ -68,6 +68,7 @@ string parse_string_text_ctx(antlr4::tree::TerminalNode* node, bool escape_quote
       boost::replace_all(text, "''", "'");
       boost::replace_all(text, "\\'", "'");
     }
+    boost::replace_all(text, "\\{", "{");
     return replace_common_escape_characters(text);
   } catch (SyntaxError& e) {
     throw SyntaxError(e.what(), node->getSymbol()->getStartIndex(), node->getSymbol()->getStopIndex() + 1);

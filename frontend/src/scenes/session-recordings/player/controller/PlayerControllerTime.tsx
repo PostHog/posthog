@@ -1,12 +1,14 @@
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, colonDelimitedDuration, shortTimeZone } from 'lib/utils'
-import { useCallback } from 'react'
+import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
+import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { HotKeyOrModifier } from '~/types'
 
 import { playerSettingsLogic, TimestampFormat } from '../playerSettingsLogic'
 import { seekbarLogic } from './seekbarLogic'
@@ -16,45 +18,26 @@ export function Timestamp(): JSX.Element {
         useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
     const { timestampFormat } = useValues(playerSettingsLogic)
-    const { setTimestampFormat } = useActions(playerSettingsLogic)
 
     const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
     const endTimeSeconds = Math.floor(sessionPlayerData.durationMs / 1000)
 
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
 
-    const rotateTimestampFormat = useCallback(() => {
-        setTimestampFormat(
-            timestampFormat === 'relative'
-                ? TimestampFormat.UTC
-                : timestampFormat === TimestampFormat.UTC
-                ? TimestampFormat.Device
-                : TimestampFormat.Relative
-        )
-    }, [timestampFormat])
-
     return (
-        <LemonButton data-attr="recording-timestamp" onClick={rotateTimestampFormat} active>
-            <span className="text-center whitespace-nowrap font-mono">
-                {timestampFormat === TimestampFormat.Relative ? (
-                    <>
-                        {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
-                        {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
-                    </>
-                ) : currentTimestamp ? (
-                    `${(timestampFormat === TimestampFormat.UTC
-                        ? dayjs(currentTimestamp).tz('UTC')
-                        : dayjs(currentTimestamp)
-                    ).format('DD/MM/YYYY, HH:mm:ss')} ${
-                        timestampFormat === TimestampFormat.UTC
-                            ? 'UTC'
-                            : shortTimeZone(undefined, dayjs(currentTimestamp).toDate())
-                    }`
-                ) : (
-                    '--/--/----, 00:00:00'
-                )}
-            </span>
-        </LemonButton>
+        <div data-attr="recording-timestamp" className="text-center whitespace-nowrap font-mono text-xs">
+            {timestampFormat === TimestampFormat.Relative ? (
+                <div className="flex gap-0.5">
+                    <span>{colonDelimitedDuration(startTimeSeconds, fixedUnits)}</span>
+                    <span>/</span>
+                    <span>{colonDelimitedDuration(endTimeSeconds, fixedUnits)}</span>
+                </div>
+            ) : currentTimestamp ? (
+                <SimpleTimeLabel startTime={currentTimestamp} isUTC={timestampFormat === TimestampFormat.UTC} />
+            ) : (
+                '--/--/----, 00:00:00'
+            )}
+        </div>
     )
 }
 
@@ -64,10 +47,14 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
 
     const altKeyHeld = useKeyHeld('Alt')
     const jumpTimeSeconds = altKeyHeld ? 1 : jumpTimeMs / 1000
-    const altKeyName = navigator.platform.includes('Mac') ? '⌥' : 'Alt'
 
-    const arrowSymbol = direction === 'forward' ? '→' : '←'
-    const arrowName = direction === 'forward' ? 'right' : 'left'
+    const arrowKey: Partial<Record<HotKeyOrModifier, true>> = {}
+    if (direction === 'forward') {
+        arrowKey.arrowright = true
+    }
+    if (direction === 'backward') {
+        arrowKey.arrowleft = true
+    }
 
     return (
         <Tooltip
@@ -76,25 +63,20 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                 <div className="text-center">
                     {!altKeyHeld ? (
                         <>
-                            {capitalizeFirstLetter(direction)} {jumpTimeSeconds}s (
-                            <kbd>
-                                {arrowSymbol} {arrowName} arrow
-                            </kbd>
-                            ) <br />
+                            {capitalizeFirstLetter(direction)} {jumpTimeSeconds}s <KeyboardShortcut {...arrowKey} />
+                            <br />
                         </>
                     ) : null}
-                    {capitalizeFirstLetter(direction)} 1 frame ({ONE_FRAME_MS}ms) (
-                    <kbd>
-                        {altKeyName} + {arrowSymbol}
-                    </kbd>
-                    )
+                    {capitalizeFirstLetter(direction)} 1 frame ({ONE_FRAME_MS}ms){' '}
+                    <KeyboardShortcut option {...arrowKey} />
                 </div>
             }
         >
             <LemonButton
                 data-attr={`seek-skip-${direction}`}
-                size="small"
-                onClick={() => (direction === 'forward' ? seekForward : seekBackward())}
+                size="xsmall"
+                noPadding={true}
+                onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}
             >
                 <div className="PlayerControlSeekIcon">
                     <span className="PlayerControlSeekIcon__seconds">{jumpTimeSeconds}</span>

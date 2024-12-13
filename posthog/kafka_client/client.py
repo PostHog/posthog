@@ -1,5 +1,5 @@
 import json
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Optional
 from collections.abc import Callable
 
@@ -83,7 +83,7 @@ class KafkaConsumerForTests:
         return
 
 
-class _KafkaSecurityProtocol(str, Enum):
+class _KafkaSecurityProtocol(StrEnum):
     PLAINTEXT = "PLAINTEXT"
     SSL = "SSL"
     SASL_PLAINTEXT = "SASL_PLAINTEXT"
@@ -106,7 +106,7 @@ def _sasl_params():
 class _KafkaProducer:
     def __init__(
         self,
-        test=settings.TEST,
+        test=False,
         # the default producer uses these defaulted environment variables,
         # but the session recording producer needs to override them
         kafka_base64_keys=None,
@@ -115,6 +115,8 @@ class _KafkaProducer:
         max_request_size=None,
         compression_type=None,
     ):
+        if settings.TEST:
+            test = True  # Set at runtime so that overriden settings.TEST is supported
         if kafka_security_protocol is None:
             kafka_security_protocol = settings.KAFKA_SECURITY_PROTOCOL
         if kafka_hosts is None:
@@ -136,6 +138,7 @@ class _KafkaProducer:
                 **{"api_version_auto_timeout_ms": 30000}
                 if settings.DEBUG
                 else {},  # Local development connections could be really slow
+                **settings.KAFKA_PRODUCER_SETTINGS,
                 **_sasl_params(),
             )
 
@@ -205,12 +208,12 @@ KafkaProducer = SingletonDecorator(_KafkaProducer)
 SessionRecordingKafkaProducer = SingletonDecorator(_KafkaProducer)
 
 
-def sessionRecordingKafkaProducer() -> _KafkaProducer:
+def session_recording_kafka_producer() -> _KafkaProducer:
     return SessionRecordingKafkaProducer(
         kafka_hosts=settings.SESSION_RECORDING_KAFKA_HOSTS,
         kafka_security_protocol=settings.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL,
         max_request_size=settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES,
-        compression_type=settings.SESSION_RECORDING_KAFKA_COMPRESSION,
+        compression_type="gzip",
     )
 
 
@@ -218,10 +221,12 @@ def build_kafka_consumer(
     topic: Optional[str],
     value_deserializer=lambda v: json.loads(v.decode("utf-8")),
     auto_offset_reset="latest",
-    test=settings.TEST,
+    test=False,
     group_id=None,
     consumer_timeout_ms=float("inf"),
 ):
+    if settings.TEST:
+        test = True  # Set at runtime so that overriden settings.TEST is supported
     if test:
         consumer = KafkaConsumerForTests(
             topic=topic,

@@ -4,9 +4,10 @@ import gzip
 import json
 import operator
 import os
-import random
 import re
+import tempfile
 import unittest.mock
+import uuid
 from collections import deque
 from uuid import uuid4
 
@@ -24,10 +25,10 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.service import BatchExportSchema
+from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
-    iter_records,
+    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.snowflake_batch_export import (
@@ -45,6 +46,10 @@ from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
     afetch_batch_export_runs,
+)
+from posthog.temporal.tests.utils.persons import (
+    generate_test_person_distinct_id2_in_clickhouse,
+    generate_test_persons_in_clickhouse,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -72,6 +77,12 @@ class FakeSnowflakeCursor:
         self._execute_async_calls.append({"query": query, "params": params, "file_stream": file_stream})
 
     def get_results_from_sfqid(self, query_id):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
         pass
 
     def fetchone(self):
@@ -128,6 +139,9 @@ class FakeSnowflakeConnection:
         current_status = self._is_running
         self._is_running = not current_status
         return current_status
+
+    def close(self, *args, **kwargs):
+        pass
 
     def __enter__(self):
         return self
@@ -275,7 +289,7 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
                         "rowset": rowset,
                         "total": 1,
                         "returned": 1,
-                        "queryId": "query-id",
+                        "queryId": str(uuid4()),
                         "queryResultFormat": "json",
                     },
                 }
@@ -329,18 +343,21 @@ def snowflake_config(database, schema) -> dict[str, str]:
     and tests that mock it.
     """
     password = os.getenv("SNOWFLAKE_PASSWORD", "password")
-    warehouse = os.getenv("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH")
+    warehouse = os.getenv("SNOWFLAKE_WAREHOUSE", "warehouse")
     account = os.getenv("SNOWFLAKE_ACCOUNT", "account")
-    username = os.getenv("SNOWFLAKE_USERNAME", "hazzadous")
+    username = os.getenv("SNOWFLAKE_USERNAME", "username")
+    role = os.getenv("SNOWFLAKE_ROLE", "role")
 
-    return {
+    config = {
         "password": password,
         "user": username,
         "warehouse": warehouse,
         "account": account,
         "database": database,
         "schema": schema,
+        "role": role,
     }
+    return config
 
 
 @pytest_asyncio.fixture
@@ -378,6 +395,7 @@ async def test_snowflake_export_workflow_exports_events(
     count.
     """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end_str = data_interval_end.strftime("%Y-%m-%d_%H-%M-%S")
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
     await generate_test_events_in_clickhouse(
@@ -435,24 +453,25 @@ async def test_snowflake_export_workflow_exports_events(
                 execute_calls = []
                 for cursor in fake_conn._cursors:
                     for call in cursor._execute_calls:
-                        execute_calls.append(call["query"])
+                        execute_calls.append(call["query"].strip())
 
                 execute_async_calls = []
                 for cursor in fake_conn._cursors:
                     for call in cursor._execute_async_calls:
-                        execute_async_calls.append(call["query"])
+                        execute_async_calls.append(call["query"].strip())
 
-                assert execute_calls[0:3] == [
+                assert execute_async_calls[0:3] == [
                     f'USE DATABASE "{database}"',
                     f'USE SCHEMA "{schema}"',
                     "SET ABORT_DETACHED_QUERY = FALSE",
                 ]
 
-                assert all(query.startswith("PUT") for query in execute_calls[3:12])
-                assert all(f"_{n}.jsonl" in query for n, query in enumerate(execute_calls[3:12]))
+                assert all(query.startswith("PUT") for query in execute_calls[0:9])
+                assert all(f"_{n}.jsonl" in query for n, query in enumerate(execute_calls[0:9]))
 
-                assert execute_async_calls[0].strip().startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
-                assert execute_async_calls[1].strip().startswith(f'COPY INTO "{table_name}"')
+                assert execute_async_calls[3].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
+                assert execute_async_calls[4].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
+                assert execute_async_calls[5].startswith(f'COPY INTO "{table_name}"')
 
     runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
     assert len(runs) == 1
@@ -463,7 +482,7 @@ async def test_snowflake_export_workflow_exports_events(
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
-async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_export, interval):
+async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_export, interval, truncate_events):
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
         team_id=ateam.pk,
@@ -704,7 +723,6 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1
 
 
 async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_errors(ateam, snowflake_batch_export):
@@ -752,7 +770,6 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
     assert run.status == "Failed"
     assert run.latest_error == "ForbiddenError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1
 
 
 async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snowflake_batch_export):
@@ -807,7 +824,7 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
     assert run.latest_error == "Cancelled"
 
 
-def assert_clickhouse_records_in_snowflake(
+async def assert_clickhouse_records_in_snowflake(
     snowflake_cursor: snowflake.connector.cursor.SnowflakeCursor,
     clickhouse_client: ClickHouseClient,
     table_name: str,
@@ -816,7 +833,9 @@ def assert_clickhouse_records_in_snowflake(
     data_interval_end: dt.datetime,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
+    batch_export_model: BatchExportModel | BatchExportSchema | None = None,
+    is_backfill: bool = False,
+    sort_key: str = "event",
 ):
     """Assert ClickHouse records are written to Snowflake table.
 
@@ -851,21 +870,37 @@ def assert_clickhouse_records_in_snowflake(
         for row in rows
     ]
 
-    if batch_export_schema is not None:
-        schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
-    else:
-        schema_column_names = [field["alias"] for field in snowflake_default_fields()]
+    schema_column_names = [field["alias"] for field in snowflake_default_fields()]
+    if batch_export_model is not None:
+        if isinstance(batch_export_model, BatchExportModel):
+            batch_export_schema = batch_export_model.schema
+        else:
+            batch_export_schema = batch_export_model
+
+        if batch_export_schema is not None:
+            schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
+        elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
+            schema_column_names = [
+                "team_id",
+                "distinct_id",
+                "person_id",
+                "properties",
+                "person_version",
+                "person_distinct_id_version",
+                "_inserted_at",
+            ]
 
     expected_records = []
-    for record_batch in iter_records(
+    async for record_batch in iter_model_records(
         client=clickhouse_client,
+        model=batch_export_model,
         team_id=team_id,
         interval_start=data_interval_start.isoformat(),
         interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
         include_events=include_events,
-        fields=batch_export_schema["fields"] if batch_export_schema is not None else snowflake_default_fields(),
-        extra_query_parameters=batch_export_schema["values"] if batch_export_schema is not None else None,
+        destination_default_fields=snowflake_default_fields(),
+        is_backfill=is_backfill,
     ):
         for record in record_batch.to_pylist():
             expected_record = {}
@@ -887,12 +922,14 @@ def assert_clickhouse_records_in_snowflake(
 
             expected_records.append(expected_record)
 
-    inserted_column_names = list(inserted_records[0].keys()).sort()
-    expected_column_names = list(expected_records[0].keys()).sort()
+    inserted_column_names = list(inserted_records[0].keys())
+    expected_column_names = list(expected_records[0].keys())
+    inserted_column_names.sort()
+    expected_column_names.sort()
 
     # Ordering is not guaranteed, so we sort before comparing.
-    inserted_records.sort(key=operator.itemgetter("event"))
-    expected_records.sort(key=operator.itemgetter("event"))
+    inserted_records.sort(key=operator.itemgetter(sort_key))
+    expected_records.sort(key=operator.itemgetter(sort_key))
 
     assert inserted_column_names == expected_column_names
     assert len(inserted_records) == len(expected_records)
@@ -919,6 +956,7 @@ def snowflake_cursor(snowflake_config):
     with snowflake.connector.connect(
         user=snowflake_config["user"],
         password=snowflake_config["password"],
+        role=snowflake_config["role"],
         account=snowflake_config["account"],
         warehouse=snowflake_config["warehouse"],
     ) as connection:
@@ -932,7 +970,21 @@ def snowflake_cursor(snowflake_config):
         cursor.execute(f"DROP DATABASE IF EXISTS \"{snowflake_config['database']}\" CASCADE")
 
 
-TEST_SNOWFLAKE_SCHEMAS: list[BatchExportSchema | None] = [
+TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
+    BatchExportModel(
+        name="a-custom-model",
+        schema={
+            "fields": [
+                {"expression": "event", "alias": "event"},
+                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
+                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
+                {"expression": "nullIf(properties, '')", "alias": "all_properties"},
+            ],
+            "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
+        },
+    ),
+    BatchExportModel(name="events", schema=None),
+    BatchExportModel(name="persons", schema=None),
     {
         "fields": [
             {"expression": "event", "alias": "event"},
@@ -942,28 +994,24 @@ TEST_SNOWFLAKE_SCHEMAS: list[BatchExportSchema | None] = [
         ],
         "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
     },
-    {
-        "fields": [
-            {"expression": "event", "alias": "event"},
-            {"expression": "inserted_at", "alias": "inserted_at"},
-            {"expression": "toInt32(1 + 1)", "alias": "two"},
-        ],
-        "values": {},
-    },
     None,
 ]
 
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("batch_export_schema", TEST_SNOWFLAKE_SCHEMAS)
+@pytest.mark.parametrize("model", TEST_MODELS)
 async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
     snowflake_config,
     exclude_events,
-    batch_export_schema,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
 ):
     """Test that the insert_into_snowflake_activity function inserts data into a PostgreSQL table.
 
@@ -979,65 +1027,225 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
     that they appear in the expected Snowflake table. This function runs against a real Snowflake
     instance, so the environment should be populated with the necessary credentials.
     """
-    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
-    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    team_id = random.randint(1, 1000000)
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=1000,
-        count_outside_range=10,
-        count_other_team=10,
-        duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
-    )
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
 
-    if exclude_events:
-        for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
-                client=clickhouse_client,
-                team_id=team_id,
-                start_time=data_interval_start,
-                end_time=data_interval_end,
-                count=5,
-                count_outside_range=0,
-                count_other_team=0,
-                event_name=event_name,
-            )
-
-    table_name = f"test_insert_activity_table_{team_id}"
+    table_name = f"test_insert_activity_table_{ateam.pk}"
     insert_inputs = SnowflakeInsertInputs(
-        team_id=team_id,
+        team_id=ateam.pk,
         table_name=table_name,
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
         batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
         **snowflake_config,
     )
 
     await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
 
-    assert_clickhouse_records_in_snowflake(
+    await assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
         table_name=table_name,
-        team_id=team_id,
+        team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
-        batch_export_schema=batch_export_schema,
+        batch_export_model=model,
+        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
     )
+
+
+@SKIP_IF_MISSING_REQUIRED_ENV_VARS
+async def test_insert_into_snowflake_activity_merges_data_in_follow_up_runs(
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_snowflake_activity` merges new versions of rows.
+
+    This unit tests looks at the mutability handling capabilities of the aforementioned activity.
+    We will generate a new entry in the persons table for half of the persons exported in a first
+    run of the activity. We expect the new entries to have replaced the old ones in Snowflake after
+    the second run.
+    """
+    model = BatchExportModel(name="persons", schema=None)
+
+    table_name = f"test_insert_activity_table_mutable_{ateam.pk}"
+    insert_inputs = SnowflakeInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        **snowflake_config,
+    )
+
+    await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_snowflake(
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="person_id",
+    )
+
+    _, persons_to_export_created = generate_test_data
+
+    for old_person in persons_to_export_created[: len(persons_to_export_created) // 2]:
+        new_person_id = uuid.uuid4()
+        new_person, _ = await generate_test_persons_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            person_id=new_person_id,
+            count=1,
+            properties={"utm_medium": "referral", "$initial_os": "Linux", "new_property": "Something"},
+        )
+
+        await generate_test_person_distinct_id2_in_clickhouse(
+            clickhouse_client,
+            ateam.pk,
+            person_id=uuid.UUID(new_person[0]["id"]),
+            distinct_id=old_person["distinct_id"],
+            version=old_person["version"] + 1,
+            timestamp=old_person["_timestamp"],
+        )
+
+    await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_snowflake(
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="person_id",
+    )
+
+
+@pytest.fixture
+def garbage_jsonl_file():
+    """Manage a JSON file with garbage data."""
+    with tempfile.NamedTemporaryFile("w+b", suffix=".jsonl", prefix="garbage_") as garbage_jsonl_file:
+        garbage_jsonl_file.write(b'{"team_id": totally not an integer}\n')
+        garbage_jsonl_file.seek(0)
+
+        yield garbage_jsonl_file.name
+
+
+@SKIP_IF_MISSING_REQUIRED_ENV_VARS
+async def test_insert_into_snowflake_activity_removes_internal_stage_files(
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+    garbage_jsonl_file,
+):
+    """Test that the `insert_into_snowflake_activity` removes internal stage files.
+
+    This test requires some setup steps:
+    1. We do a first run of the activity to create the export table. Since we
+        haven't added any garbage, this should work normally.
+    2. Truncate the table to avoid duplicate data once we re-run the activity.
+    3. PUT a file with garbage data into the table internal stage.
+
+    Once we run the activity a second time, it should first clear up the garbage
+    file and not fail the COPY. After this second execution is done, and besides
+    checking this second run worked and exported data, we also check that no files
+    are present in the table's internal stage.
+    """
+    model = BatchExportModel(name="events", schema=None)
+
+    table_name = f"test_insert_activity_table_remove_{ateam.pk}"
+
+    insert_inputs = SnowflakeInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        **snowflake_config,
+    )
+
+    await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_snowflake(
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="event",
+    )
+
+    snowflake_cursor.execute(f'TRUNCATE TABLE "{table_name}"')
+
+    data_interval_end_str = data_interval_end.strftime("%Y-%m-%d_%H-%M-%S")
+
+    put_query = f"""
+    PUT file://{garbage_jsonl_file} '@%"{table_name}"/{data_interval_end_str}'
+    """
+    snowflake_cursor.execute(put_query)
+
+    list_query = f"""
+    LIST '@%"{table_name}"'
+    """
+    snowflake_cursor.execute(list_query)
+    rows = snowflake_cursor.fetchall()
+    columns = {index: metadata.name for index, metadata in enumerate(snowflake_cursor.description)}
+    stage_files = [{columns[index]: row[index] for index in columns.keys()} for row in rows]
+    assert len(stage_files) == 1
+    assert stage_files[0]["name"] == f"{data_interval_end_str}/{os.path.basename(garbage_jsonl_file)}.gz"
+
+    await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_snowflake(
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="event",
+    )
+
+    snowflake_cursor.execute(list_query)
+    rows = snowflake_cursor.fetchall()
+    assert len(rows) == 0
 
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("batch_export_schema", TEST_SNOWFLAKE_SCHEMAS)
+@pytest.mark.parametrize("model", TEST_MODELS)
 async def test_snowflake_export_workflow(
     clickhouse_client,
     snowflake_cursor,
@@ -1045,41 +1253,25 @@ async def test_snowflake_export_workflow(
     snowflake_batch_export,
     ateam,
     exclude_events,
-    batch_export_schema,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
 ):
     """Test Redshift Export Workflow end-to-end.
 
     The workflow should update the batch export run status to completed and produce the expected
     records to the provided Redshift instance.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-    data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=100,
-        count_outside_range=10,
-        count_other_team=10,
-        duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
-    )
-
-    if exclude_events:
-        for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
-                client=clickhouse_client,
-                team_id=ateam.pk,
-                start_time=data_interval_start,
-                end_time=data_interval_end,
-                count=5,
-                count_outside_range=0,
-                count_other_team=0,
-                event_name=event_name,
-            )
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
 
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
@@ -1088,6 +1280,7 @@ async def test_snowflake_export_workflow(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
         **snowflake_batch_export.destination.config,
     )
 
@@ -1109,7 +1302,7 @@ async def test_snowflake_export_workflow(
                 id=workflow_id,
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=10),
+                execution_timeout=dt.timedelta(minutes=2),
             )
 
     runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
@@ -1118,22 +1311,23 @@ async def test_snowflake_export_workflow(
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_clickhouse_records_in_snowflake(
+    await assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        team_id=ateam.pk,
         table_name=snowflake_batch_export.destination.config["table_name"],
+        team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
-        batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
+        batch_export_model=model,
+        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
     )
 
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("batch_export_schema", TEST_SNOWFLAKE_SCHEMAS)
+@pytest.mark.parametrize("model", TEST_MODELS)
 async def test_snowflake_export_workflow_with_many_files(
     clickhouse_client,
     snowflake_cursor,
@@ -1141,7 +1335,10 @@ async def test_snowflake_export_workflow_with_many_files(
     snowflake_batch_export,
     ateam,
     exclude_events,
-    batch_export_schema,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
 ):
     """Test Snowflake Export Workflow end-to-end with multiple file uploads.
 
@@ -1150,21 +1347,15 @@ async def test_snowflake_export_workflow_with_many_files(
     means we are uploading one file at a time, which is very innefficient. For this reason, this test
     can take longer, so we keep the event count low and bump the Workflow timeout.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-    data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=10,
-        count_outside_range=10,
-        count_other_team=10,
-        duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
-    )
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
 
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
@@ -1173,6 +1364,7 @@ async def test_snowflake_export_workflow_with_many_files(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
         **snowflake_batch_export.destination.config,
     )
 
@@ -1195,7 +1387,7 @@ async def test_snowflake_export_workflow_with_many_files(
                     id=workflow_id,
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=20),
+                    execution_timeout=dt.timedelta(minutes=2),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
@@ -1204,15 +1396,101 @@ async def test_snowflake_export_workflow_with_many_files(
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_clickhouse_records_in_snowflake(
+    await assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        team_id=ateam.pk,
         table_name=snowflake_batch_export.destination.config["table_name"],
+        team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
-        batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
+        batch_export_model=model,
+        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+    )
+
+
+@SKIP_IF_MISSING_REQUIRED_ENV_VARS
+@pytest.mark.parametrize(
+    "data_interval_start",
+    # This is hardcoded relative to the `data_interval_end` used in all or most tests, since that's also
+    # passed to `generate_test_data` to determine the timestamp for the generated data.
+    [dt.datetime(2023, 4, 24, 15, 0, 0, tzinfo=dt.UTC)],
+    indirect=True,
+)
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+async def test_snowflake_export_workflow_backfill_earliest_persons(
+    ateam,
+    clickhouse_client,
+    data_interval_start,
+    data_interval_end,
+    generate_test_data,
+    interval,
+    model,
+    snowflake_batch_export,
+    snowflake_cursor,
+):
+    """Test a `SnowflakeBatchExportWorkflow` backfilling the persons model.
+
+    We expect persons outside the batch interval to also be backfilled (i.e. persons that were updated
+    more than an hour ago) when setting `is_earliest_backfill=True`.
+    """
+    workflow_id = str(uuid.uuid4())
+    inputs = SnowflakeBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(snowflake_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        batch_export_model=model,
+        is_backfill=True,
+        is_earliest_backfill=True,
+        **snowflake_batch_export.destination.config,
+    )
+    _, persons = generate_test_data
+
+    # Ensure some data outside batch interval has been created
+    assert any(
+        data_interval_end - person["_timestamp"].replace(tzinfo=dt.UTC) > dt.timedelta(hours=12) for person in persons
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SnowflakeBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_snowflake_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
+                await activity_environment.client.execute_workflow(
+                    SnowflakeBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(minutes=10),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Completed"
+    assert run.data_interval_start is None
+
+    await assert_clickhouse_records_in_snowflake(
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        table_name=snowflake_batch_export.destination.config["table_name"],
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="person_id",
     )
 
 
@@ -1336,28 +1614,30 @@ async def test_insert_into_snowflake_activity_heartbeats(
         **snowflake_config,
     )
 
-    with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
+    with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=0):
         await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
 
-    assert n_expected_files == len(captured_details)
+    # It's not guaranteed we will heartbeat right after every file.
+    assert len(captured_details) > 0
 
-    for index, details_captured in enumerate(captured_details):
-        assert dt.datetime.fromisoformat(
-            details_captured[0]
-        ) == data_interval_end - snowflake_batch_export.interval_time_delta / (index + 1)
-        assert details_captured[1] == index + 1
-
-    assert_clickhouse_records_in_snowflake(
+    await assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
         table_name=table_name,
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
+        sort_key="event",
     )
 
 
-@pytest.mark.parametrize("details", [(str(dt.datetime.now()), 1)])
+@pytest.mark.parametrize(
+    "details",
+    [
+        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())], 1),
+        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())],),
+    ],
+)
 def test_snowflake_heartbeat_details_parses_from_tuple(details):
     class FakeActivity:
         def info(self):
@@ -1368,6 +1648,16 @@ def test_snowflake_heartbeat_details_parses_from_tuple(details):
             self.heartbeat_details = details
 
     snowflake_details = SnowflakeHeartbeatDetails.from_activity(FakeActivity())
+    expected_done_ranges = details[0]
 
-    assert snowflake_details.last_inserted_at == dt.datetime.fromisoformat(details[0])
-    assert snowflake_details.file_no == details[1]
+    assert snowflake_details.done_ranges == [
+        (
+            dt.datetime.fromisoformat(expected_done_ranges[0][0]),
+            dt.datetime.fromisoformat(expected_done_ranges[0][1]),
+        )
+    ]
+
+    if len(details) >= 2:
+        assert snowflake_details.file_no == details[1]
+    else:
+        assert snowflake_details.file_no == 0

@@ -7,7 +7,6 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
-import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import {
     Action,
@@ -34,6 +33,7 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginLogLevel,
+    ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
@@ -64,12 +64,7 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
-import {
-    groupDataMissingCounter,
-    groupInfoCacheResultCounter,
-    personUpdateVersionMismatchCounter,
-    pluginLogEntryCounter,
-} from './metrics'
+import { personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {
     generateKafkaPersonUpdateMessage,
@@ -424,128 +419,6 @@ export class DB {
         })
     }
 
-    /** Calls Celery task. Works similarly to Task.apply_async in Python. */
-    async celeryApplyAsync(taskName: string, args: any[] = [], kwargs: Record<string, any> = {}): Promise<void> {
-        const taskId = new UUIDT().toString()
-        const deliveryTag = new UUIDT().toString()
-        const body = [args, kwargs, { callbacks: null, errbacks: null, chain: null, chord: null }]
-        /** A base64-encoded JSON representation of the body tuple. */
-        const bodySerialized = Buffer.from(JSON.stringify(body)).toString('base64')
-        await this.redisLPush(CELERY_DEFAULT_QUEUE, {
-            body: bodySerialized,
-            'content-encoding': 'utf-8',
-            'content-type': 'application/json',
-            headers: {
-                lang: 'js',
-                task: taskName,
-                id: taskId,
-                retries: 0,
-                root_id: taskId,
-                parent_id: null,
-                group: null,
-            },
-            properties: {
-                correlation_id: taskId,
-                delivery_mode: 2,
-                delivery_tag: deliveryTag,
-                delivery_info: { exchange: '', routing_key: CELERY_DEFAULT_QUEUE },
-                priority: 0,
-                body_encoding: 'base64',
-            },
-        })
-    }
-
-    REDIS_GROUP_DATA_PREFIX = 'group_data_cache_v2'
-
-    public getGroupDataCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
-        return `${this.REDIS_GROUP_DATA_PREFIX}:${teamId}:${groupTypeIndex}:${groupKey}`
-    }
-
-    public async updateGroupCache(
-        teamId: number,
-        groupTypeIndex: number,
-        groupKey: string,
-        groupData: CachedGroupData
-    ): Promise<void> {
-        const groupCacheKey = this.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey)
-        await this.redisSet(groupCacheKey, groupData, 'updateGroupCache')
-    }
-
-    public async getGroupsColumns(
-        teamId: number,
-        groupIds: GroupId[]
-    ): Promise<Record<string, string | ClickHouseTimestamp>> {
-        const groupPropertiesColumns: Record<string, string> = {}
-        const groupCreatedAtColumns: Record<string, ClickHouseTimestamp> = {}
-
-        for (const [groupTypeIndex, groupKey] of groupIds) {
-            const groupCacheKey = this.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey)
-            const propertiesColumnName = `group${groupTypeIndex}_properties`
-            const createdAtColumnName = `group${groupTypeIndex}_created_at`
-
-            // Lookup data from the cache, but don't throw errors - we'll fallback to Postgres if Redis is unavailable
-            try {
-                const cachedGroupData = await this.redisGet<CachedGroupData | null>(
-                    groupCacheKey,
-                    null,
-                    'getGroupsColumns'
-                )
-
-                if (cachedGroupData) {
-                    groupInfoCacheResultCounter.labels({ result: 'hit' }).inc()
-                    groupPropertiesColumns[propertiesColumnName] = JSON.stringify(cachedGroupData.properties)
-                    groupCreatedAtColumns[createdAtColumnName] = cachedGroupData.created_at
-
-                    continue
-                }
-            } catch (error) {
-                captureException(error, { tags: { team_id: teamId } })
-            }
-
-            groupInfoCacheResultCounter.labels({ result: 'miss' }).inc()
-
-            // If we didn't find cached data, lookup the group from Postgres
-            const storedGroupData = await this.fetchGroup(teamId, groupTypeIndex as GroupTypeIndex, groupKey)
-
-            if (storedGroupData) {
-                groupPropertiesColumns[propertiesColumnName] = JSON.stringify(storedGroupData.group_properties)
-
-                const createdAt = castTimestampOrNow(
-                    storedGroupData.created_at.toUTC(),
-                    TimestampFormat.ClickHouse
-                ) as ClickHouseTimestamp
-
-                groupCreatedAtColumns[createdAtColumnName] = createdAt
-
-                // We found data in Postgres, so update the cache
-                // We also don't want to throw here, worst case is we'll have to fetch from Postgres again next time
-                try {
-                    await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
-                        properties: storedGroupData.group_properties,
-                        created_at: createdAt,
-                    })
-                } catch (error) {
-                    captureException(error, { tags: { team_id: teamId } })
-                }
-            } else {
-                // We couldn't find the data from the cache nor Postgres, so record this in a metric and in Sentry
-                groupDataMissingCounter.inc()
-                status.debug('🔍', `Could not find group data for group ${groupCacheKey} in cache or storage`)
-
-                groupPropertiesColumns[propertiesColumnName] = '{}'
-                groupCreatedAtColumns[createdAtColumnName] = castTimestampOrNow(
-                    DateTime.fromJSDate(new Date(0)).toUTC(),
-                    TimestampFormat.ClickHouse
-                ) as ClickHouseTimestamp
-            }
-        }
-
-        return {
-            ...groupPropertiesColumns,
-            ...groupCreatedAtColumns,
-        }
-    }
-
     private toPerson(row: RawPerson): InternalPerson {
         return {
             ...row,
@@ -641,13 +514,20 @@ export class DB {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: string[],
-        version = 0
+        distinctIds?: { distinctId: string; version?: number }[],
+        tx?: TransactionClient
     ): Promise<InternalPerson> {
         distinctIds ||= []
 
+        for (const distinctId of distinctIds) {
+            distinctId.version ||= 0
+        }
+
+        // The Person is being created, and so we can hardcode version 0!
+        const personVersion = 0
+
         const { rows } = await this.postgres.query<RawPerson>(
-            PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.COMMON_WRITE,
             `WITH inserted_person AS (
                     INSERT INTO posthog_person (
                         created_at, properties, properties_last_updated_at,
@@ -662,7 +542,12 @@ export class DB {
                         // `addDistinctIdPooled`
                         (_, index) => `, distinct_id_${index} AS (
                         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
-                        VALUES ($${10 + index}, (SELECT id FROM inserted_person), $5, $9))`
+                        VALUES (
+                            $${11 + index + distinctIds!.length - 1},
+                            (SELECT id FROM inserted_person),
+                            $5,
+                            $${10 + index})
+                        )`
                     )
                     .join('') +
                 `SELECT * FROM inserted_person;`,
@@ -675,14 +560,21 @@ export class DB {
                 isUserId,
                 isIdentified,
                 uuid,
-                version,
+                personVersion,
                 // The copy and reverse here is to maintain compatability with pre-existing code
                 // and tests. Postgres appears to assign IDs in reverse order of the INSERTs in the
                 // CTEs above, so we need to reverse the distinctIds to match the old behavior where
                 // we would do a round trip for each INSERT. We shouldn't actually depend on the
                 // `id` column of distinct_ids, so this is just a simple way to keeps tests exactly
                 // the same and prove behavior is the same as before.
-                ...distinctIds.slice().reverse(),
+                ...distinctIds
+                    .slice()
+                    .reverse()
+                    .map(({ version }) => version),
+                ...distinctIds
+                    .slice()
+                    .reverse()
+                    .map(({ distinctId }) => distinctId),
             ],
             'insertPerson'
         )
@@ -698,8 +590,8 @@ export class DB {
                         value: JSON.stringify({
                             person_id: person.uuid,
                             team_id: teamId,
-                            distinct_id: distinctId,
-                            version,
+                            distinct_id: distinctId.distinctId,
+                            version: distinctId.version,
                             is_deleted: 0,
                         }),
                     },
@@ -717,6 +609,12 @@ export class DB {
         update: Partial<InternalPerson>,
         tx?: TransactionClient
     ): Promise<[InternalPerson, ProducerRecord[]]> {
+        let versionString = 'COALESCE(version, 0)::numeric + 1'
+        if (update.version) {
+            versionString = update.version.toString()
+            delete update['version']
+        }
+
         const updateValues = Object.values(unparsePersonPartial(update))
 
         // short circuit if there are no updates to be made
@@ -727,11 +625,9 @@ export class DB {
         const values = [...updateValues, person.id].map(sanitizeJsonbValue)
 
         // Potentially overriding values badly if there was an update to the person after computing updateValues above
-        const queryString = `UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1, ${Object.keys(
-            update
-        ).map((field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`)} WHERE id = $${
-            Object.values(update).length + 1
-        }
+        const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
+            (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
+        )} WHERE id = $${Object.values(update).length + 1}
         RETURNING *`
 
         const { rows } = await this.postgres.query<RawPerson>(
@@ -754,20 +650,14 @@ export class DB {
             personUpdateVersionMismatchCounter.inc()
         }
 
-        const kafkaMessages = []
-        const message = generateKafkaPersonUpdateMessage(updatedPerson)
-        if (tx) {
-            kafkaMessages.push(message)
-        } else {
-            await this.kafkaProducer.queueMessage({ kafkaMessage: message, waitForAck: true })
-        }
+        const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
 
         status.debug(
             '🧑‍🦰',
             `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
         )
 
-        return [updatedPerson, kafkaMessages]
+        return [updatedPerson, [kafkaMessage]]
     }
 
     public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<ProducerRecord[]> {
@@ -832,8 +722,66 @@ export class DB {
         return personDistinctIds.map((pdi) => pdi.distinct_id)
     }
 
-    public async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<void> {
-        const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version)
+    public async addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
+        const result = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `
+                INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
+                VALUES ($1, $2, false, now())
+                ON CONFLICT (team_id, distinct_id) DO NOTHING
+                RETURNING is_merged
+            `,
+            [teamId, distinctId],
+            'addPersonlessDistinctId'
+        )
+
+        if (result.rows.length === 1) {
+            return result.rows[0]['is_merged']
+        }
+
+        // ON CONFLICT ... DO NOTHING won't give us our RETURNING, so we have to do another SELECT
+        const existingResult = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `
+                SELECT is_merged
+                FROM posthog_personlessdistinctid
+                WHERE team_id = $1 AND distinct_id = $2
+            `,
+            [teamId, distinctId],
+            'addPersonlessDistinctId'
+        )
+
+        return existingResult.rows[0]['is_merged']
+    }
+
+    public async addPersonlessDistinctIdForMerge(
+        teamId: number,
+        distinctId: string,
+        tx?: TransactionClient
+    ): Promise<boolean> {
+        const result = await this.postgres.query(
+            tx ?? PostgresUse.COMMON_WRITE,
+            `
+                INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
+                VALUES ($1, $2, true, now())
+                ON CONFLICT (team_id, distinct_id) DO UPDATE
+                SET is_merged = true
+                RETURNING (xmax = 0) AS inserted
+            `,
+            [teamId, distinctId],
+            'addPersonlessDistinctIdForMerge'
+        )
+
+        return result.rows[0].inserted
+    }
+
+    public async addDistinctId(
+        person: InternalPerson,
+        distinctId: string,
+        version: number,
+        tx?: TransactionClient
+    ): Promise<void> {
+        const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version, tx)
         if (kafkaMessages.length) {
             await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
         }
@@ -1395,14 +1343,18 @@ export class DB {
     }
 
     public async getTeamsInOrganizationsWithRootPluginAccess(): Promise<Team[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                'SELECT * from posthog_team WHERE organization_id = (SELECT id from posthog_organization WHERE plugins_access_level = $1)',
-                [OrganizationPluginsAccessLevel.ROOT],
-                'getTeamsInOrganizationsWithRootPluginAccess'
-            )
-        ).rows as Team[]
+        const selectResult = await this.postgres.query<Team>(
+            PostgresUse.COMMON_READ,
+            'SELECT * from posthog_team WHERE organization_id = (SELECT id from posthog_organization WHERE plugins_access_level = $1)',
+            [OrganizationPluginsAccessLevel.ROOT],
+            'getTeamsInOrganizationsWithRootPluginAccess'
+        )
+        for (const row of selectResult.rows) {
+            // pg returns int8 as a string, since it can be larger than JS's max safe integer,
+            // but this is not a problem for project_id, which is a long long way from that limit.
+            row.project_id = Number(row.project_id) as ProjectId
+        }
+        return selectResult.rows
     }
 
     public async addOrUpdatePublicJob(

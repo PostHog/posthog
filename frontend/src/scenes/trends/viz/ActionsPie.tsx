@@ -2,8 +2,6 @@ import './ActionsPie.scss'
 
 import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
-import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useEffect, useState } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -15,23 +13,17 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartDisplayType, ChartParams, GraphDataset, GraphType } from '~/types'
 
-import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
-export function ActionsPie({
-    inSharedMode,
-    inCardView,
-    showPersonsModal = true,
-    context,
-}: ChartParams): JSX.Element | null {
+export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
 
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const {
         indexedResults,
         labelGroupType,
@@ -44,7 +36,8 @@ export function ActionsPie({
         pieChartVizOptions,
         isDataWarehouseSeries,
         querySource,
-        isHogQLInsight,
+        breakdownFilter,
+        hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
 
     const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
@@ -64,12 +57,10 @@ export function ActionsPie({
                 breakdownValues: indexedResults.map((item) => item.breakdown_value),
                 breakdownLabels: indexedResults.map((item) => {
                     return formatBreakdownLabel(
-                        cohorts,
-                        formatPropertyValueForDisplay,
                         item.breakdown_value,
-                        item.filter?.breakdown,
-                        item.filter?.breakdown_type,
-                        false
+                        breakdownFilter,
+                        cohorts,
+                        formatPropertyValueForDisplay
                     )
                 }),
                 compareLabels: indexedResults.map((item) => item.compare_label),
@@ -80,7 +71,10 @@ export function ActionsPie({
             },
         ])
         setTotal(
-            indexedResults.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0)
+            indexedResults.reduce(
+                (prev, item, i) => prev + (!hiddenLegendIndexes?.includes(i) ? item.aggregated_value : 0),
+                0
+            )
         )
     }
 
@@ -88,37 +82,26 @@ export function ActionsPie({
         if (indexedResults) {
             updateData()
         }
-    }, [indexedResults, hiddenLegendKeys])
+    }, [indexedResults, hiddenLegendIndexes])
 
     const onClick =
         renderingMetadata?.onSegmentClick ||
         (!showPersonsModal || formula
             ? undefined
             : (payload) => {
-                  const { points, index, crossDataset } = payload
+                  const { points, index } = payload
                   const dataset = points.referencePoint.dataset
                   const label = dataset.labels?.[index]
 
-                  const urls = urlsForDatasets(crossDataset, index, cohorts, formatPropertyValueForDisplay)
-                  const selectedUrl = urls[index]?.value
-
-                  if (isHogQLInsight) {
-                      openPersonsModal({
-                          title: label || '',
-                          query: datasetToActorsQuery({ dataset, query: querySource!, index }),
-                          additionalSelect: {
-                              value_at_data_point: 'event_count',
-                              matched_recordings: 'matched_recordings',
-                          },
-                          orderBy: ['event_count DESC, actor_id DESC'],
-                      })
-                  } else if (selectedUrl) {
-                      openPersonsModal({
-                          urls,
-                          urlsIndex: index,
-                          title: <PropertyKeyInfo value={label || ''} disablePopover />,
-                      })
-                  }
+                  openPersonsModal({
+                      title: label || '',
+                      query: datasetToActorsQuery({ dataset, query: querySource!, index }),
+                      additionalSelect: {
+                          value_at_data_point: 'event_count',
+                          matched_recordings: 'matched_recordings',
+                      },
+                      orderBy: ['event_count DESC, actor_id DESC'],
+                  })
               })
 
     return data ? (
@@ -128,7 +111,7 @@ export function ActionsPie({
                     <div className="ActionsPie__chart">
                         <PieChart
                             data-attr="trend-pie-graph"
-                            hiddenLegendKeys={hiddenLegendKeys}
+                            hiddenLegendIndexes={hiddenLegendIndexes}
                             type={GraphType.Pie}
                             datasets={data}
                             labels={data[0].labels}
@@ -151,7 +134,6 @@ export function ActionsPie({
                         </div>
                     )}
                 </div>
-                {inCardView && trendsFilter?.showLegend && <InsightLegend inCardView />}
             </div>
         ) : (
             <p className="text-center mt-16">We couldn't find any matching actions.</p>

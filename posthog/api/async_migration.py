@@ -1,6 +1,6 @@
 import structlog
 from rest_framework import response, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from semantic_version.base import Version
 
 from posthog.async_migrations.runner import (

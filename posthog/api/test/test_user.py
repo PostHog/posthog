@@ -3,7 +3,7 @@ import uuid
 from typing import cast
 from unittest import mock
 from unittest.mock import ANY, Mock, patch
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
@@ -18,6 +18,8 @@ from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.base import APIBaseTest
+from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
 
 
 def create_user(email: str, password: str, organization: Organization):
@@ -95,16 +97,35 @@ class TestUserAPI(APIBaseTest):
                     "id": str(self.organization.id),
                     "name": self.organization.name,
                     "slug": slugify(self.organization.name),
+                    "logo_media_id": None,
                     "membership_level": 1,
                 },
                 {
                     "id": str(self.new_org.id),
                     "name": "New Organization",
                     "slug": "new-organization",
+                    "logo_media_id": None,
                     "membership_level": 1,
                 },
             ],
         )
+
+    def test_hedgehog_config_is_unset(self):
+        self.user.hedgehog_config = None
+        self.user.save()
+
+        response = self.client.get(f"/api/users/@me/hedgehog_config/")
+        assert response.status_code == status.HTTP_200_OK
+        # the front end assumes it will _always_ get JSON
+        assert response.json() == {}
+
+    def test_hedgehog_config_is_set(self):
+        self.user.hedgehog_config = {"a bag": "of data"}
+        self.user.save()
+
+        response = self.client.get(f"/api/users/@me/hedgehog_config/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"a bag": "of data"}
 
     def test_can_only_list_yourself(self):
         """
@@ -845,11 +866,30 @@ class TestUserAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         locationHeader = response.headers.get("location", "not found")
-        self.assertIn("%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22", locationHeader)
+        self.assertIn("22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22", locationHeader)
         self.maxDiff = None
         self.assertEqual(
-            locationHeader,
-            "http://127.0.0.1:8000#__posthog=%7B%22action%22%3A%20%22ph_authorize%22%2C%20%22token%22%3A%20%22token123%22%2C%20%22temporaryToken%22%3A%20%22tokenvalue%22%2C%20%22actionId%22%3A%20null%2C%20%22userIntent%22%3A%20%22add-action%22%2C%20%22toolbarVersion%22%3A%20%22toolbar%22%2C%20%22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22%2C%20%22dataAttributes%22%3A%20%5B%22data-attr%22%5D%2C%20%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22%7D",
+            unquote(locationHeader),
+            'http://127.0.0.1:8000#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+        )
+
+    @patch("posthog.api.user.secrets.token_urlsafe")
+    def test_redirect_user_to_site_with_experiments_toolbar(self, patched_token):
+        patched_token.return_value = "tokenvalue"
+
+        self.team.app_urls = ["http://127.0.0.1:8000"]
+        self.team.save()
+
+        response = self.client.get(
+            "/api/user/redirect_to_site/?userIntent=edit-experiment&experimentId=12&appUrl=http%3A%2F%2F127.0.0.1%3A8000"
+        )
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        locationHeader = response.headers.get("location", "not found")
+        self.assertIn("22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22", locationHeader)
+        self.maxDiff = None
+        self.assertEqual(
+            unquote(locationHeader),
+            'http://127.0.0.1:8000#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
@@ -1002,7 +1042,7 @@ class TestStaffUserAPI(APIBaseTest):
     def test_add_2fa(self, patch_is_valid):
         patch_is_valid.return_value = Mock()
         self._create_user("newuser@posthog.com", password="12345678")
-        response = self.client.get(f"/api/users/@me/start_2fa_setup/")
+        response = self.client.get(f"/api/users/@me/two_factor_start_setup/")
         response = self.client.post(f"/api/users/@me/validate_2fa/", {"token": 123456})
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
@@ -1156,3 +1196,142 @@ class TestEmailVerificationAPI(APIBaseTest):
                     "attr": "token",
                 },
             )
+
+
+class TestUserTwoFactor(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # prevent throttling of user requests to pass on from one test
+        # to the next
+        cache.clear()
+
+    @patch("posthog.api.user.TOTPDeviceForm")
+    def test_two_factor_start_setup(self, mock_totp_form):
+        response = self.client.get(f"/api/users/@me/two_factor_start_setup/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Verify session contains required keys
+        self.assertIn("django_two_factor-hex", self.client.session)
+        self.assertIn("django_two_factor-qr_secret_key", self.client.session)
+        self.assertEqual(len(self.client.session["django_two_factor-hex"]), 40)  # 20 bytes hex = 40 chars
+
+    @patch("posthog.api.user.TOTPDeviceForm")
+    def test_two_factor_validation_with_valid_token(self, mock_totp_form):
+        # Setup form mock
+        mock_form_instance = mock_totp_form.return_value
+        mock_form_instance.is_valid.return_value = True
+
+        # Setup session state
+        session = self.client.session
+        session["django_two_factor-hex"] = "1234567890abcdef1234"
+        session.save()
+
+        response = self.client.post(f"/api/users/@me/two_factor_validate/", {"token": "123456"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Verify form was created with correct params
+        mock_totp_form.assert_called_once_with("1234567890abcdef1234", self.user, data={"token": "123456"})
+        mock_form_instance.save.assert_called_once()
+
+    @patch("posthog.api.user.TOTPDeviceForm")
+    def test_two_factor_validation_with_invalid_token(self, mock_totp_form):
+        # Setup form mock to fail validation
+        mock_form_instance = mock_totp_form.return_value
+        mock_form_instance.is_valid.return_value = False
+
+        # Setup session state
+        session = self.client.session
+        session["django_two_factor-hex"] = "1234567890abcdef1234"
+        session.save()
+
+        response = self.client.post(f"/api/users/@me/two_factor_validate/", {"token": "invalid"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "token_invalid",
+                "detail": "Token is not valid",
+                "attr": None,
+            },
+        )
+
+    def test_two_factor_status_when_disabled(self):
+        response = self.client.get(f"/api/users/@me/two_factor_status/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "is_enabled": False,
+                "backup_codes": [],
+                "method": None,
+            },
+        )
+
+    @patch("posthog.api.user.default_device")
+    def test_two_factor_status_when_enabled(self, mock_default_device):
+        # Mock TOTP device
+        totp_device = TOTPDevice.objects.create(user=self.user, name="default")
+        mock_default_device.return_value = totp_device
+
+        # Create backup codes
+        static_device = StaticDevice.objects.create(user=self.user, name="backup")
+        static_device.token_set.create(token="123456")
+        static_device.token_set.create(token="789012")
+
+        response = self.client.get(f"/api/users/@me/two_factor_status/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "is_enabled": True,
+                "backup_codes": ["123456", "789012"],
+                "method": "TOTP",
+            },
+        )
+
+    @patch("posthog.api.user.default_device")
+    def test_two_factor_backup_codes_generation(self, mock_default_device):
+        # Mock TOTP device to simulate 2FA being enabled
+        totp_device = TOTPDevice.objects.create(user=self.user, name="default")
+        mock_default_device.return_value = totp_device
+
+        response = self.client.post(f"/api/users/@me/two_factor_backup_codes/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        backup_codes = response.json()["backup_codes"]
+        self.assertEqual(len(backup_codes), 5)  # Verify 5 backup codes are generated
+
+        # Verify codes are stored in database
+        static_device = StaticDevice.objects.get(user=self.user)
+        stored_codes = [token.token for token in static_device.token_set.all()]
+        self.assertEqual(sorted(backup_codes), sorted(stored_codes))
+
+    def test_two_factor_backup_codes_requires_2fa_enabled(self):
+        response = self.client.post(f"/api/users/@me/two_factor_backup_codes/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "2fa_not_enabled",
+                "detail": "2FA must be enabled first",
+                "attr": None,
+            },
+        )
+
+    def test_two_factor_disable(self):
+        # Setup 2FA devices
+        TOTPDevice.objects.create(user=self.user, name="default")
+        static_device = StaticDevice.objects.create(user=self.user, name="backup")
+        static_device.token_set.create(token="123456")
+
+        response = self.client.post(f"/api/users/@me/two_factor_disable/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Verify all 2FA devices are removed
+        self.assertEqual(TOTPDevice.objects.filter(user=self.user).count(), 0)
+        self.assertEqual(StaticDevice.objects.filter(user=self.user).count(), 0)

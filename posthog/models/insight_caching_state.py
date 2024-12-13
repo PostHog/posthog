@@ -21,7 +21,7 @@ class InsightCachingState(UUIDModel):
             )
         ]
 
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
     insight = models.ForeignKey(
         "posthog.Insight",
@@ -35,16 +35,16 @@ class InsightCachingState(UUIDModel):
         related_name="caching_states",
         null=True,
     )
-    cache_key: models.CharField = models.CharField(max_length=400, null=False, blank=False)
+    cache_key = models.CharField(max_length=400, null=False, blank=False)
 
-    target_cache_age_seconds: models.IntegerField = models.IntegerField(null=True)
+    target_cache_age_seconds = models.IntegerField(null=True)
 
-    last_refresh: models.DateTimeField = models.DateTimeField(blank=True, null=True)
-    last_refresh_queued_at: models.DateTimeField = models.DateTimeField(blank=True, null=True)
-    refresh_attempt: models.IntegerField = models.IntegerField(null=False, default=0)
+    last_refresh = models.DateTimeField(blank=True, null=True)
+    last_refresh_queued_at = models.DateTimeField(blank=True, null=True)
+    refresh_attempt = models.IntegerField(null=False, default=0)
 
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
 
 @mutable_receiver(post_save, sender=SharingConfiguration)

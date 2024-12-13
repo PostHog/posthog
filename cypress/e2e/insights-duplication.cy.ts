@@ -1,6 +1,7 @@
 import { urls } from 'scenes/urls'
+
+import { createInsight, savedInsights } from '../productAnalytics'
 import { randomString } from '../support/random'
-import { savedInsights, createInsight } from '../productAnalytics'
 
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
@@ -35,6 +36,7 @@ describe('Insights', () => {
         })
 
         it('can duplicate from insight view', () => {
+            cy.wait(2000)
             cy.get('.TopBar3000 [data-attr="more-button"]').click()
             cy.get('[data-attr="duplicate-insight-from-insight-view"]').click()
             cy.get('[data-attr="top-bar-name"] .EditableField__display').should('contain', `${insightName} (copy)`)

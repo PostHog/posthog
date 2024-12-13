@@ -1,4 +1,4 @@
-import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -6,7 +6,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { EarlyAccessFeatureType, ProductKey } from '~/types'
 
@@ -28,31 +27,11 @@ const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
 
 export function EarlyAccessFeatures(): JSX.Element {
     const { earlyAccessFeatures, earlyAccessFeaturesLoading } = useValues(earlyAccessFeaturesLogic)
-    const { user } = useValues(userLogic)
-
     const shouldShowEmptyState = earlyAccessFeatures.length == 0 && !earlyAccessFeaturesLoading
-    const shouldShowProductIntroduction = !user?.has_seen_product_intro_for?.[ProductKey.EARLY_ACCESS_FEATURES]
 
-    const showIntro = shouldShowProductIntroduction || shouldShowEmptyState
     return (
         <>
             <PageHeader
-                caption={
-                    !showIntro && (
-                        <>
-                            Allow your users to enable or disable features that are in public beta. Check out our{' '}
-                            <Link
-                                data-attr="early-access-management-help"
-                                to="https://posthog.com/docs/feature-flags/early-access-feature-management?utm_medium=in-product&utm_campaign=learn-more"
-                                target="_blank"
-                            >
-                                {' '}
-                                documentation
-                            </Link>{' '}
-                            to learn more.
-                        </>
-                    )
-                }
                 buttons={
                     <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>
                         New feature
@@ -60,17 +39,15 @@ export function EarlyAccessFeatures(): JSX.Element {
                 }
                 delimited
             />
-            {showIntro && (
-                <ProductIntroduction
-                    productName="Early access features"
-                    productKey={ProductKey.EARLY_ACCESS_FEATURES}
-                    thingName="feature"
-                    description="Allow your users to individually enable or disable features that are in public beta."
-                    isEmpty={shouldShowEmptyState}
-                    docsURL="https://posthog.com/docs/feature-flags/early-access-feature-management"
-                    action={() => router.actions.push(urls.earlyAccessFeature('new'))}
-                />
-            )}
+            <ProductIntroduction
+                productName="Early access features"
+                productKey={ProductKey.EARLY_ACCESS_FEATURES}
+                thingName="feature"
+                description="Allow your users to individually enable or disable features that are in public beta."
+                isEmpty={shouldShowEmptyState}
+                docsURL="https://posthog.com/docs/feature-flags/early-access-feature-management"
+                action={() => router.actions.push(urls.earlyAccessFeature('new'))}
+            />
             {!shouldShowEmptyState && (
                 <LemonTable
                     loading={earlyAccessFeaturesLoading}

@@ -10,7 +10,7 @@ class TrendsEventQuery(TrendsEventQueryBase):
         person_id_field = ""
         if self._should_join_distinct_ids:
             person_id_field = f", {self._person_id_alias} as person_id"
-        elif self._person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+        elif self._person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             person_id_field = f", {self.EVENT_TABLE_ALIAS}.person_id as person_id"
 
         _fields = (
@@ -62,7 +62,7 @@ class TrendsEventQuery(TrendsEventQueryBase):
         return f"SELECT {_fields} {base_query}", params
 
     def _get_extra_person_columns(self) -> str:
-        if self._person_on_events_mode != PersonsOnEventsMode.disabled:
+        if self._person_on_events_mode != PersonsOnEventsMode.DISABLED:
             return " ".join(
                 ", {extract} as {column_name}".format(
                     extract=get_property_string_expr(

@@ -26,11 +26,13 @@ export interface TooltipProps {
     title: string | React.ReactNode | (() => string)
     children: JSX.Element
     delayMs?: number
+    closeDelayMs?: number
     offset?: number
     arrowOffset?: number
     placement?: Placement
     className?: string
     visible?: boolean
+    interactive?: boolean
 }
 
 export function Tooltip({
@@ -41,13 +43,16 @@ export function Tooltip({
     offset = 8,
     arrowOffset,
     delayMs = 500,
+    closeDelayMs = 100, // Slight delay to ensure smooth transition
+    interactive = false,
     visible: controlledOpen,
 }: TooltipProps): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+    const [isHoveringTooltip, setIsHoveringTooltip] = useState(false) // Track tooltip hover state
     const caretRef = useRef(null)
     const floatingContainer = useFloatingContainer()
 
-    const open = controlledOpen ?? uncontrolledOpen
+    const open = controlledOpen ?? (uncontrolledOpen || isHoveringTooltip)
 
     const { context, refs } = useFloating({
         placement,
@@ -66,7 +71,7 @@ export function Tooltip({
         move: false,
         delay: {
             open: delayMs,
-            close: 0,
+            close: closeDelayMs,
         },
     })
     const focus = useFocus(context)
@@ -114,11 +119,14 @@ export function Tooltip({
                         className="Tooltip max-w-sm"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ ...context.floatingStyles }}
-                        {...getFloatingProps()}
+                        {...getFloatingProps({
+                            onMouseEnter: () => interactive && setIsHoveringTooltip(true), // Keep tooltip open
+                            onMouseLeave: () => interactive && setIsHoveringTooltip(false), // Allow closing
+                        })}
                     >
                         <div
                             className={clsx(
-                                'bg-tooltip-bg py-1.5 px-2 break-words rounded text-start text-white',
+                                'bg-[var(--tooltip-bg)] py-1.5 px-2 break-words rounded text-start text-white',
                                 className
                             )}
                             // eslint-disable-next-line react/forbid-dom-props

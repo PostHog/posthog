@@ -1,5 +1,5 @@
 from rest_framework import viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.activity_logging.activity_page import activity_page_response

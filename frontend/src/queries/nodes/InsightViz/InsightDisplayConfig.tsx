@@ -13,9 +13,12 @@ import { ReactNode } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
+import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
+import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
+import { RetentionCumulativeCheckbox } from 'scenes/insights/filters/RetentionCumulativeCheckbox'
 import { RetentionMeanCheckbox } from 'scenes/insights/filters/RetentionMeanCheckbox'
 import { RetentionReferencePicker } from 'scenes/insights/filters/RetentionReferencePicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -27,10 +30,11 @@ import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { useDebouncedCallback } from 'use-debounce'
 
+import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 export function InsightDisplayConfig(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, canEditInsight } = useValues(insightLogic)
 
     const {
         isTrends,
@@ -48,10 +52,16 @@ export function InsightDisplayConfig(): JSX.Element {
         supportsValueOnSeries,
         showPercentStackView,
         supportsPercentStackView,
+        yAxisScaleType,
+        isNonTimeSeriesDisplay,
+        compareFilter,
+        supportsCompare,
     } = useValues(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
+
+    const { updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
 
     const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
     const showInterval =
@@ -59,7 +69,7 @@ export function InsightDisplayConfig(): JSX.Element {
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
-        isTrends && !breakdownFilter?.breakdown_type && (!display || display === ChartDisplayType.ActionsLineGraph)
+        isTrends && !isValidBreakdown(breakdownFilter) && (!display || display === ChartDisplayType.ActionsLineGraph)
 
     const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
@@ -72,6 +82,7 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                          { label: () => <ShowAlertThresholdLinesFilter /> },
                       ],
                   },
               ]
@@ -81,6 +92,14 @@ export function InsightDisplayConfig(): JSX.Element {
                   {
                       title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
                       items: [{ label: () => <UnitPicker /> }],
+                  },
+              ]
+            : []),
+        ...(!isNonTimeSeriesDisplay && isTrends
+            ? [
+                  {
+                      title: 'Y-axis scale',
+                      items: [{ label: () => <ScalePicker /> }],
                   },
               ]
             : []),
@@ -102,7 +121,8 @@ export function InsightDisplayConfig(): JSX.Element {
         trendsFilter.aggregationAxisFormat !== 'numeric'
             ? 1
             : 0) +
-        (hasLegend && showLegend ? 1 : 0)
+        (hasLegend && showLegend ? 1 : 0) +
+        (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0)
 
     return (
         <div
@@ -133,6 +153,7 @@ export function InsightDisplayConfig(): JSX.Element {
                         <RetentionDatePicker />
                         <RetentionReferencePicker />
                         <RetentionMeanCheckbox />
+                        <RetentionCumulativeCheckbox />
                     </ConfigFilter>
                 )}
 
@@ -144,7 +165,11 @@ export function InsightDisplayConfig(): JSX.Element {
 
                 {showCompare && (
                     <ConfigFilter>
-                        <CompareFilter />
+                        <CompareFilter
+                            compareFilter={compareFilter}
+                            updateCompareFilter={updateCompareFilter}
+                            disabled={!canEditInsight || !supportsCompare}
+                        />
                     </ConfigFilter>
                 )}
             </div>

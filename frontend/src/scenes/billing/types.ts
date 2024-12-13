@@ -8,6 +8,7 @@ export enum BillingGaugeItemKind {
 export type BillingGaugeItemType = {
     type: BillingGaugeItemKind
     text: string | JSX.Element
+    prefix?: string
     value: number
     top: boolean
 }

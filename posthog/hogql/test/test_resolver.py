@@ -1,32 +1,34 @@
-from datetime import timezone, datetime, date
-from typing import Optional, cast
-import pytest
-from django.test import override_settings
+from datetime import UTC, date, datetime
+from typing import Any, Optional, cast
 from uuid import UUID
 
+import pytest
+from django.test import override_settings
 from freezegun import freeze_time
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
+    DateTimeDatabaseField,
     ExpressionField,
     FieldTraverser,
-    StringJSONDatabaseField,
     StringDatabaseField,
-    DateTimeDatabaseField,
+    StringJSONDatabaseField,
 )
 from posthog.hogql.errors import QueryError
-from posthog.hogql.test.utils import pretty_dataclasses
-from posthog.hogql.visitor import clone_expr
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolutionError, resolve_types
+from posthog.hogql.test.utils import pretty_dataclasses
+from posthog.hogql.visitor import clone_expr
 from posthog.test.base import BaseTest
 
 
 class TestResolver(BaseTest):
     maxDiff = None
+    snapshot: Any
 
     def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.SelectQuery:
         return cast(
@@ -49,14 +51,14 @@ class TestResolver(BaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table(self):
         expr = self._select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
-        expr = resolve_types(expr, self.context, dialect="clickhouse")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
     def test_will_not_run_twice(self):
         expr = self._select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
-        expr = resolve_types(expr, self.context, dialect="clickhouse")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         with self.assertRaises(ResolutionError) as context:
-            expr = resolve_types(expr, self.context, dialect="clickhouse")
+            expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         self.assertEqual(
             str(context.exception),
             "Type already resolved for SelectQuery (SelectQueryType). Can't run again.",
@@ -65,19 +67,19 @@ class TestResolver(BaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_alias(self):
         expr = self._select("SELECT event, e.timestamp FROM events e WHERE e.event = 'test'")
-        expr = resolve_types(expr, self.context, dialect="clickhouse")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_column_alias(self):
         expr = self._select("SELECT event as ee, ee, ee as e, e.timestamp FROM events e WHERE e.event = 'test'")
-        expr = resolve_types(expr, self.context, dialect="clickhouse")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_column_alias_inside_subquery(self):
         expr = self._select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")
-        expr = resolve_types(expr, self.context, dialect="clickhouse")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
     def test_resolve_subquery_no_field_access(self):
@@ -86,7 +88,7 @@ class TestResolver(BaseTest):
             "SELECT event, (select count() from events where event = e.event) as c FROM events e where event = '$pageview'"
         )
         with self.assertRaises(QueryError) as e:
-            expr = resolve_types(expr, self.context, dialect="clickhouse")
+            expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         self.assertEqual(str(e.exception), "Unable to resolve field: e")
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -96,20 +98,20 @@ class TestResolver(BaseTest):
                 "SELECT 1, 'boo', true, 1.1232, null, {date}, {datetime}, {uuid}, {array}, {array12}, {tuple}",
                 placeholders={
                     "date": ast.Constant(value=date(2020, 1, 10)),
-                    "datetime": ast.Constant(value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=timezone.utc)),
+                    "datetime": ast.Constant(value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=UTC)),
                     "uuid": ast.Constant(value=UUID("00000000-0000-4000-8000-000000000000")),
                     "array": ast.Constant(value=[]),
                     "array12": ast.Constant(value=[1, 2]),
                     "tuple": ast.Constant(value=(1, 2, 3)),
                 },
             )
-            expr = resolve_types(expr, self.context, dialect="clickhouse")
+            expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
             assert pretty_dataclasses(expr) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_boolean_operation_types(self):
         expr = self._select("SELECT 1 and 1, 1 or 1, not true")
-        expr = resolve_types(expr, self.context, dialect="clickhouse")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
     def test_resolve_errors(self):
@@ -132,55 +134,55 @@ class TestResolver(BaseTest):
             resolve_types(self._select(query), self.context, dialect="clickhouse")
         # does not raise with HogQL
         select = self._select(query)
-        select = resolve_types(select, self.context, dialect="hogql")
+        select = cast(ast.SelectQuery, resolve_types(select, self.context, dialect="hogql"))
         assert isinstance(select.select[0].type, ast.UnresolvedFieldType)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_pdi_person_table(self):
         expr = self._select("select distinct_id, person.id from person_distinct_ids")
-        expr = resolve_types(expr, self.context, dialect="clickhouse")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_events_pdi_table(self):
         expr = self._select("select event, pdi.person_id from events")
-        expr = resolve_types(expr, self.context, dialect="clickhouse")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_events_pdi_table_aliased(self):
         expr = self._select("select event, e.pdi.person_id from events e")
-        expr = resolve_types(expr, self.context, dialect="clickhouse")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_events_pdi_person_table(self):
         expr = self._select("select event, pdi.person.id from events")
-        expr = resolve_types(expr, self.context, dialect="clickhouse")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_events_pdi_person_table_aliased(self):
         expr = self._select("select event, e.pdi.person.id from events e")
-        expr = resolve_types(expr, self.context, dialect="clickhouse")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_virtual_events_poe(self):
         expr = self._select("select event, poe.id from events")
-        expr = resolve_types(expr, self.context, dialect="clickhouse")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_union_all(self):
         node = self._select("select event, timestamp from events union all select event, timestamp from events")
-        node = resolve_types(node, self.context, dialect="clickhouse")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_call_type(self):
         node = self._select("select max(timestamp) from events")
-        node = resolve_types(node, self.context, dialect="clickhouse")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
     def test_ctes_loop(self):
@@ -252,7 +254,8 @@ class TestResolver(BaseTest):
 
     def test_ctes_with_union_all(self):
         self.assertEqual(
-            self._print_hogql("""
+            self._print_hogql(
+                """
                     WITH cte1 AS (SELECT 1 AS a)
                     SELECT 1 AS a
                     UNION ALL
@@ -260,14 +263,17 @@ class TestResolver(BaseTest):
                     SELECT * FROM cte2
                     UNION ALL
                     SELECT * FROM cte1
-                        """),
-            self._print_hogql("""
+                        """
+            ),
+            self._print_hogql(
+                """
                     SELECT 1 AS a
                     UNION ALL
                     SELECT * FROM (SELECT 2 AS a) AS cte2
                     UNION ALL
                     SELECT * FROM (SELECT 1 AS a) AS cte1
-                        """),
+                        """
+            ),
         )
 
     def test_join_using(self):
@@ -288,7 +294,7 @@ class TestResolver(BaseTest):
     def test_asterisk_expander_table(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = self._select("select * from events")
-        node = resolve_types(node, self.context, dialect="clickhouse")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -296,13 +302,13 @@ class TestResolver(BaseTest):
     def test_asterisk_expander_table_alias(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = self._select("select * from events e")
-        node = resolve_types(node, self.context, dialect="clickhouse")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_subquery(self):
         node = self._select("select * from (select 1 as a, 2 as b)")
-        node = resolve_types(node, self.context, dialect="clickhouse")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -311,13 +317,26 @@ class TestResolver(BaseTest):
             name="hidden_field", hidden=True, expr=ast.Field(chain=["event"])
         )
         node = self._select("select * from events")
-        node = resolve_types(node, self.context, dialect="clickhouse")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert pretty_dataclasses(node) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_expression_field_type_scope(self):
+        self.database.events.fields["some_expr"] = ExpressionField(
+            name="some_expr", expr=ast.Field(chain=["properties"]), isolate_scope=True
+        )
+        self.database.persons.fields["some_expr"] = ExpressionField(
+            name="some_expr", expr=ast.Field(chain=["properties"]), isolate_scope=True
+        )
+
+        node = self._select("select e.some_expr, p.some_expr from events e left join persons p on e.uuid = p.id")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_subquery_alias(self):
         node = self._select("select x.* from (select 1 as a, 2 as b) x")
-        node = resolve_types(node, self.context, dialect="clickhouse")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -325,7 +344,7 @@ class TestResolver(BaseTest):
     def test_asterisk_expander_from_subquery_table(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = self._select("select * from (select * from events)")
-        node = resolve_types(node, self.context, dialect="clickhouse")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
     def test_asterisk_expander_multiple_table_error(self):
@@ -336,6 +355,21 @@ class TestResolver(BaseTest):
             str(e.exception),
             "Cannot use '*' without table name when there are multiple tables in the query",
         )
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_asterisk_expander_multiple_table_with_scope(self):
+        node = self._select(
+            "select x.* from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a"
+        )
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert pretty_dataclasses(node) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_asterisk_expander_multiple_base_table_with_scope(self):
+        node = self._select("select e.* from session_replay_events e join sessions s on s.session_id=e.session_id")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert pretty_dataclasses(node) == self.snapshot
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -416,7 +450,247 @@ class TestResolver(BaseTest):
             "(SELECT DISTINCT person_id FROM events) "
             "AS source INNER JOIN "
             "persons ON equals(persons.id, source.person_id) ORDER BY id ASC) "
-            "LIMIT 10000"
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
         assert hogql == expected
+
+    def test_visit_hogqlx_recording_button(self):
+        node = self._select("select <RecordingButton sessionId={'12345-6789'} />")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        expected = ast.SelectQuery(
+            select=[
+                ast.Tuple(
+                    exprs=[
+                        ast.Constant(value="__hx_tag"),
+                        ast.Constant(value="RecordingButton"),
+                        ast.Constant(value="sessionId"),
+                        ast.Constant(value="12345-6789"),
+                    ]
+                )
+            ],
+        )
+        assert clone_expr(node, clear_types=True) == expected
+
+    def test_visit_hogqlx_sparkline(self):
+        node = self._select("select <Sparkline data={[1,2,3]} />")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        expected = ast.SelectQuery(
+            select=[
+                ast.Tuple(
+                    exprs=[
+                        ast.Constant(value="__hx_tag"),
+                        ast.Constant(value="Sparkline"),
+                        ast.Constant(value="data"),
+                        ast.Tuple(
+                            exprs=[
+                                ast.Constant(value=1),
+                                ast.Constant(value=2),
+                                ast.Constant(value=3),
+                            ]
+                        ),
+                    ]
+                )
+            ],
+        )
+        assert clone_expr(node, clear_types=True) == expected
+
+    def test_visit_hogqlx_object(self):
+        node = self._select("select {'key': {'key': 'value'}}")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        expected = ast.SelectQuery(
+            select=[
+                ast.Tuple(
+                    exprs=[
+                        ast.Constant(value="__hx_tag"),
+                        ast.Constant(value="__hx_obj"),
+                        ast.Constant(value="key"),
+                        ast.Tuple(
+                            exprs=[
+                                ast.Constant(value="__hx_tag"),
+                                ast.Constant(value="__hx_obj"),
+                                ast.Constant(value="key"),
+                                ast.Constant(value="value"),
+                            ]
+                        ),
+                    ]
+                )
+            ],
+        )
+        assert clone_expr(node, clear_types=True) == expected
+
+    def _assert_first_columm_is_type(self, node: ast.SelectQuery, type: ast.ConstantType):
+        column_type = node.select[0].type
+        assert column_type is not None
+        assert column_type.resolve_constant_type(self.context) == type
+
+    def test_types_pass_outside_subqueries_two_levels(self):
+        node: ast.SelectQuery = self._select("select event from (select event from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        assert node.select_from is not None
+        assert node.select_from.table is not None
+
+        self._assert_first_columm_is_type(cast(ast.SelectQuery, node.select_from.table), ast.StringType(nullable=False))
+        self._assert_first_columm_is_type(node, ast.StringType(nullable=False))
+
+    def test_types_pass_outside_subqueries_three_levels(self):
+        node: ast.SelectQuery = self._select("select event from (select event from (select event from events))")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        assert node.select_from is not None
+        assert node.select_from.table is not None
+
+        self._assert_first_columm_is_type(cast(ast.SelectQuery, node.select_from.table), ast.StringType(nullable=False))
+        self._assert_first_columm_is_type(node, ast.StringType(nullable=False))
+
+    def test_arithmetic_types(self):
+        node: ast.SelectQuery = self._select("select 1 + 2 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+        node = self._select("select key from (select 1 + 2 as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+        node = self._select("select 1.0 + 2.0 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
+        node = self._select("select 100 + 2.0 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
+        node = self._select("select 1.0 + 200 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
+    def test_boolean_types(self):
+        node: ast.SelectQuery = self._select("select true and false as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+        node = self._select("select key from (select true or false as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+    def test_compare_types(self):
+        node: ast.SelectQuery = self._select("select 1 < 2 from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+        node = self._select("select key from (select 3 = 4 as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+        node = self._select("select key from (select 3 = null as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+    def test_function_types(self):
+        node: ast.SelectQuery = self._select("select abs(3) from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+        node = self._select("select plus(1, 2) from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+    def test_assume_not_null_type(self):
+        node = self._select(f"SELECT assumeNotNull(toDateTime('2020-01-01 00:00:00'))")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type == ast.DateTimeType(nullable=False)
+
+    def test_interval_type_arithmetic(self):
+        operators = ["+", "-"]
+        granularites = ["Second", "Minute", "Hour", "Day", "Week", "Month", "Quarter", "Year"]
+        exprs = []
+        for granularity in granularites:
+            for operator in operators:
+                exprs.append(f"timestamp {operator} toInterval{granularity}(1)")
+
+        node = self._select(f"""SELECT {",".join(exprs)} FROM events""")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        assert len(node.select) == len(exprs)
+        for selected in node.select:
+            assert selected.type == ast.DateTimeType(nullable=False)
+
+    def test_recording_button_tag(self):
+        node: ast.SelectQuery = self._select("select <RecordingButton sessionId={'12345'} />")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        node2 = self._select("select recording_button('12345')")
+        node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
+        assert node == node2
+
+    def test_sparkline_tag(self):
+        node: ast.SelectQuery = self._select("select <Sparkline data={[1,2,3]} />")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        node2 = self._select("select sparkline((1,2,3))")
+        node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
+        assert node == node2
+
+    def test_globals(self):
+        context = HogQLContext(
+            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+        )
+        node: ast.SelectQuery = self._select("select globalVar from events")
+        node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+        assert isinstance(node.select[0], ast.Constant)
+        assert node.select[0].value == 1
+        query = print_prepared_ast(node, context, "hogql")
+        assert "SELECT 1 FROM events LIMIT " in query
+
+    def test_globals_nested(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            database=self.database,
+            globals={"globalVar": {"nestedVar": "banana"}},
+            enable_select_queries=True,
+        )
+        node: ast.SelectQuery = self._select("select globalVar.nestedVar from events")
+        node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.StringType(nullable=False))
+        assert isinstance(node.select[0], ast.Constant)
+        assert node.select[0].value == "banana"
+        query = print_prepared_ast(node, context, "hogql")
+        assert "SELECT 'banana' FROM events LIMIT " in query
+
+    def test_globals_nested_error(self):
+        context = HogQLContext(
+            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+        )
+        node: ast.SelectQuery = self._select("select globalVar.nested from events")
+        with self.assertRaises(QueryError) as ctx:
+            node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
+        self.assertEqual(str(ctx.exception), "Cannot resolve field: globalVar.nested")
+
+    def test_property_access_with_arrays_zero_index_error(self):
+        query = f"SELECT properties.something[0] FROM events"
+        context = HogQLContext(
+            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+        )
+        with self.assertRaisesMessage(
+            QueryError,
+            "SQL indexes start from one, not from zero. E.g: array[1]",
+        ):
+            node: ast.SelectQuery = self._select(query)
+            resolve_types(node, context, dialect="clickhouse")
+
+    def test_property_access_with_tuples_zero_index_error(self):
+        query = f"SELECT properties.something.0 FROM events"
+        context = HogQLContext(
+            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+        )
+        with self.assertRaisesMessage(
+            QueryError,
+            "SQL indexes start from one, not from zero. E.g: array.1",
+        ):
+            node: ast.SelectQuery = self._select(query)
+            resolve_types(node, context, dialect="clickhouse")

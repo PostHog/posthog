@@ -29,6 +29,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     rollback_conditions: [],
     performed_rollback: false,
     can_edit: true,
+    user_access_level: 'editor',
     tags: [],
     surveys: [],
 }

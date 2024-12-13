@@ -8,8 +8,10 @@ import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
 import { status } from '../../../utils/status'
+import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
+import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
     eventProcessedAndIngestedCounter,
@@ -24,6 +26,7 @@ import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
+import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
@@ -49,14 +52,12 @@ class StepErrorNoRetry extends Error {
 export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
+    eventsProcessor: EventsProcessor
 
-    // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
-    poEEmbraceJoin: boolean
-
-    constructor(hub: Hub, event: PipelineEvent, poEEmbraceJoin = false) {
+    constructor(hub: Hub, event: PipelineEvent, eventProcessor: EventsProcessor) {
         this.hub = hub
-        this.poEEmbraceJoin = poEEmbraceJoin
         this.originalEvent = event
+        this.eventsProcessor = eventProcessor
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -68,6 +69,37 @@ export class EventPipelineRunner {
         }
         const dropIds = this.hub.eventsToDropByToken?.get(key)
         return dropIds?.includes(event.distinct_id) || dropIds?.includes('*') || false
+    }
+
+    /**
+     * Heatmap ingestion will eventually be its own plugin server deployment
+     * in the meantime we run this set of steps instead of wrapping each step in a conditional
+     * in the main pipeline steps runner
+     * or having a conditional inside each step
+     * // TODO move this out into its own pipeline runner when splitting the deployment
+     */
+    async runHeatmapPipelineSteps(event: PluginEvent, kafkaAcks: Promise<void>[]): Promise<EventPipelineResult> {
+        const processPerson = false
+
+        const [normalizedEvent] = await this.runStep(normalizeEventStep, [event, processPerson], event.team_id)
+
+        const preparedEvent = await this.runStep(
+            prepareEventStep,
+            [this, normalizedEvent, processPerson],
+            event.team_id
+        )
+
+        const [preparedEventWithoutHeatmaps, heatmapKafkaAcks] = await this.runStep(
+            extractHeatmapDataStep,
+            [this, preparedEvent],
+            event.team_id
+        )
+
+        if (heatmapKafkaAcks.length > 0) {
+            heatmapKafkaAcks.forEach((ack) => kafkaAcks.push(ack))
+        }
+
+        return this.registerLastStep('extractHeatmapDataStep', [preparedEventWithoutHeatmaps], kafkaAcks)
     }
 
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
@@ -108,22 +140,10 @@ export class EventPipelineRunner {
     }
 
     async runEventPipelineSteps(event: PluginEvent): Promise<EventPipelineResult> {
-        if (
-            this.hub.poeEmbraceJoinForTeams?.(event.team_id) ||
-            (event.team_id <= this.hub.POE_WRITES_ENABLED_MAX_TEAM_ID && !this.hub.poeWritesExcludeTeams(event.team_id))
-        ) {
-            // https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
-            // We're not using the buffer anymore
-            // instead we'll (if within timeframe) merge into the newer personId
-
-            // TODO: remove this step and runner env once we're confident that the new
-            // ingestion pipeline is working well for all teams.
-            this.poEEmbraceJoin = true
-        }
-
         const kafkaAcks: Promise<void>[] = []
 
         let processPerson = true // The default.
+        // Set either at capture time, or in the populateTeamData step, if team-level opt-out is enabled.
         if (event.properties && '$process_person_profile' in event.properties) {
             const propValue = event.properties.$process_person_profile
             if (propValue === true) {
@@ -175,22 +195,24 @@ export class EventPipelineRunner {
         }
 
         if (event.event === '$$client_ingestion_warning') {
-            kafkaAcks.push(
-                captureIngestionWarning(
-                    this.hub.db.kafkaProducer,
-                    event.team_id,
-                    'client_ingestion_warning',
-                    {
-                        eventUuid: event.uuid,
-                        event: event.event,
-                        distinctId: event.distinct_id,
-                        message: event.properties?.$$client_ingestion_warning_message,
-                    },
-                    { alwaysSend: true }
-                )
+            await captureIngestionWarning(
+                this.hub.db.kafkaProducer,
+                event.team_id,
+                'client_ingestion_warning',
+                {
+                    eventUuid: event.uuid,
+                    event: event.event,
+                    distinctId: event.distinct_id,
+                    message: event.properties?.$$client_ingestion_warning_message,
+                },
+                { alwaysSend: true }
             )
 
             return this.registerLastStep('clientIngestionWarning', [event], kafkaAcks)
+        }
+
+        if (event.event === '$$heatmap') {
+            return this.runHeatmapPipelineSteps(event, kafkaAcks)
         }
 
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
@@ -205,11 +227,12 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        const [postPersonEvent, person] = await this.runStep(
+        const [postPersonEvent, person, personKafkaAck] = await this.runStep(
             processPersonsStep,
             [this, normalizedEvent, timestamp, processPerson],
             event.team_id
         )
+        kafkaAcks.push(personKafkaAck)
 
         const preparedEvent = await this.runStep(
             prepareEventStep,
@@ -217,6 +240,9 @@ export class EventPipelineRunner {
             event.team_id
         )
 
+        // TRICKY: old client might still be sending heatmap_data as passengers on other events
+        // so this step is here even though up-to-date clients will be sending heatmap events
+        // for separate processing
         const [preparedEventWithoutHeatmaps, heatmapKafkaAcks] = await this.runStep(
             extractHeatmapDataStep,
             [this, preparedEvent],
@@ -224,17 +250,28 @@ export class EventPipelineRunner {
         )
 
         if (heatmapKafkaAcks.length > 0) {
-            kafkaAcks.push(...heatmapKafkaAcks)
+            heatmapKafkaAcks.forEach((ack) => kafkaAcks.push(ack))
         }
 
-        const [rawClickhouseEvent, eventAck] = await this.runStep(
+        const rawEvent = await this.runStep(
             createEventStep,
             [this, preparedEventWithoutHeatmaps, person, processPerson],
             event.team_id
         )
 
-        kafkaAcks.push(eventAck)
-        return this.registerLastStep('createEventStep', [rawClickhouseEvent], kafkaAcks)
+        if (event.event === '$exception' && !event.properties?.hasOwnProperty('$sentry_event_id')) {
+            const [exceptionAck] = await this.runStep(
+                produceExceptionSymbolificationEventStep,
+                [this, rawEvent],
+                event.team_id
+            )
+            kafkaAcks.push(exceptionAck)
+            return this.registerLastStep('produceExceptionSymbolificationEventStep', [rawEvent], kafkaAcks)
+        } else {
+            const [clickhouseAck] = await this.runStep(emitEventStep, [this, rawEvent], event.team_id)
+            kafkaAcks.push(clickhouseAck)
+            return this.registerLastStep('emitEventStep', [rawEvent], kafkaAcks)
+        }
     }
 
     registerLastStep(stepName: string, args: any[], ackPromises?: Array<Promise<void>>): EventPipelineResult {
@@ -247,7 +284,7 @@ export class EventPipelineRunner {
         args: Parameters<Step>,
         teamId: number,
         sentToDql = true
-    ): ReturnType<Step> {
+    ): Promise<ReturnType<Step>> {
         const timer = new Date()
         return runInSpan(
             {

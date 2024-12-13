@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
@@ -40,7 +41,7 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                         kind: NodeKind.HogQLQuery,
                         query: hogql`SELECT properties.$session_id as session_id, any(properties) as properties
                                 FROM events
-                                WHERE event IN ['$pageview', '$autocapture']
+                                WHERE event IN ${Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP['events'])}
                                 AND session_id IN ${sessionIds}
                                 -- the timestamp range here is only to avoid querying too much of the events table
                                 -- we don't really care about the absolute value, 

@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from semantic_version import Version
@@ -9,7 +9,7 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 
 # N.B. Keep this in sync with frontend enum (types.ts)
 # AND ensure it is added to the Billing Service
-class AvailableFeature(str, Enum):
+class AvailableFeature(StrEnum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
     PROJECT_BASED_PERMISSIONING = "project_based_permissioning"
@@ -32,9 +32,12 @@ class AvailableFeature(str, Enum):
     RECORDINGS_PERFORMANCE = "recordings_performance"
     SURVEYS_STYLING = "surveys_styling"
     SURVEYS_TEXT_HTML = "surveys_text_html"
+    SURVEYS_RECURRING = "surveys_recurring"
     SURVEYS_MULTIPLE_QUESTIONS = "surveys_multiple_questions"
     AUTOMATIC_PROVISIONING = "automatic_provisioning"
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
+    DATA_PIPELINES = "data_pipelines"
+    ALERTS = "alerts"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -132,6 +135,7 @@ BREAKDOWN_TYPE = "breakdown_type"
 BREAKDOWN_VALUE = "breakdown_value"
 BREAKDOWN_GROUP_TYPE_INDEX = "breakdown_group_type_index"
 COMPARE = "compare"
+COMPARE_TO = "compare_to"
 INSIGHT = "insight"
 SESSION = "session"
 BREAKDOWN = "breakdown"
@@ -213,19 +217,19 @@ SAMPLING_FACTOR = "sampling_factor"
 BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group", "session", "hogql"]
 
 
-class FunnelOrderType(str, Enum):
+class FunnelOrderType(StrEnum):
     STRICT = "strict"
     UNORDERED = "unordered"
     ORDERED = "ordered"
 
 
-class FunnelVizType(str, Enum):
+class FunnelVizType(StrEnum):
     TRENDS = "trends"
     TIME_TO_CONVERT = "time_to_convert"
     STEPS = "steps"
 
 
-class FunnelCorrelationType(str, Enum):
+class FunnelCorrelationType(StrEnum):
     EVENTS = "events"
     PROPERTIES = "properties"
     EVENT_WITH_PROPERTIES = "event_with_properties"
@@ -238,7 +242,7 @@ DISTINCT_ID_FILTER = "distinct_id"
 PERSON_UUID_FILTER = "person_uuid"
 
 
-class AnalyticsDBMS(str, Enum):
+class AnalyticsDBMS(StrEnum):
     POSTGRES = "postgres"
     CLICKHOUSE = "clickhouse"
 
@@ -249,21 +253,13 @@ WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
 
 
-class RetentionQueryType(str, Enum):
+class RetentionQueryType(StrEnum):
     RETURNING = "returning"
     TARGET = "target"
     TARGET_FIRST_TIME = "target_first_time"
 
 
-class ExperimentSignificanceCode(str, Enum):
-    SIGNIFICANT = "significant"
-    NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
-    LOW_WIN_PROBABILITY = "low_win_probability"
-    HIGH_LOSS = "high_loss"
-    HIGH_P_VALUE = "high_p_value"
-
-
-class ExperimentNoResultsErrorKeys(str, Enum):
+class ExperimentNoResultsErrorKeys(StrEnum):
     NO_EVENTS = "no-events"
     NO_FLAG_INFO = "no-flag-info"
     NO_CONTROL_VARIANT = "no-control-variant"
@@ -271,12 +267,12 @@ class ExperimentNoResultsErrorKeys(str, Enum):
     NO_RESULTS = "no-results"
 
 
-class PropertyOperatorType(str, Enum):
+class PropertyOperatorType(StrEnum):
     AND = "AND"
     OR = "OR"
 
 
-class BreakdownAttributionType(str, Enum):
+class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     # FIRST_TOUCH attribution means the breakdown value is the first property value found within all funnel steps
     LAST_TOUCH = "last_touch"
@@ -292,7 +288,7 @@ MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
 
 
-class EventDefinitionType(str, Enum):
+class EventDefinitionType(StrEnum):
     # Mimics EventDefinitionType in frontend/src/types.ts
     ALL = "all"
     ACTION_EVENT = "action_event"
@@ -301,14 +297,18 @@ class EventDefinitionType(str, Enum):
     EVENT_CUSTOM = "event_custom"
 
 
-class FlagRequestType(str, Enum):
+class FlagRequestType(StrEnum):
     DECIDE = "decide"
     LOCAL_EVALUATION = "local-evaluation"
 
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
-BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
+BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
+SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
 
+
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
+
+INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid

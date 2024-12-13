@@ -5,6 +5,11 @@
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: var(--radius);
+
+    &--embedded {
+        border: none;
+        border-radius: 0;
+    }
 }
 
 .LemonCollapsePanel {
@@ -26,6 +31,11 @@
 
     &.LemonButton:active {
         transform: inherit;
+    }
+
+    &--disabled:hover {
+        cursor: default;
+        background-color: var(--bg-light) !important;
     }
 }
 

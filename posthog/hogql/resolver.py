@@ -1,28 +1,41 @@
 from datetime import date, datetime
-from typing import Optional, Any, cast, Literal
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from posthog.hogql import ast
-from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.functions import find_hogql_posthog_function
+from posthog.hogql.ast import ConstantType, FieldTraverserType
+from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
-    StringJSONDatabaseField,
     FunctionCallTable,
     LazyTable,
     SavedQuery,
+    StringJSONDatabaseField,
 )
+from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.mapping import validate_function_args
+from posthog.hogql.functions.mapping import (
+    HOGQL_CLICKHOUSE_FUNCTIONS,
+    compare_types,
+    validate_function_args,
+)
+from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
+from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import convert_hogqlx_tag, lookup_cte_by_name, lookup_field_by_name
-from posthog.hogql.visitor import CloningVisitor, clone_expr, TraversingVisitor
+from posthog.hogql.resolver_utils import (
+    expand_hogqlx_query,
+    extract_select_queries,
+    lookup_cte_by_name,
+    lookup_field_by_name,
+)
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 from posthog.models.utils import UUIDT
-from posthog.hogql.database.schema.events import EventsTable
-from posthog.hogql.database.s3_table import S3Table
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
@@ -31,35 +44,54 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
         return ast.UnknownType()
     if isinstance(constant, bool):
-        return ast.BooleanType()
+        return ast.BooleanType(nullable=False)
     if isinstance(constant, int):
-        return ast.IntegerType()
+        return ast.IntegerType(nullable=False)
     if isinstance(constant, float):
-        return ast.FloatType()
+        return ast.FloatType(nullable=False)
     if isinstance(constant, str):
-        return ast.StringType()
+        return ast.StringType(nullable=False)
     if isinstance(constant, list):
         unique_types = {str(resolve_constant_data_type(item)) for item in constant}
         return ast.ArrayType(
-            item_type=resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else ast.UnknownType()
+            nullable=False,
+            item_type=resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else ast.UnknownType(),
         )
     if isinstance(constant, tuple):
-        return ast.TupleType(item_types=[resolve_constant_data_type(item) for item in constant])
+        return ast.TupleType(nullable=False, item_types=[resolve_constant_data_type(item) for item in constant])
     if isinstance(constant, datetime) or type(constant).__name__ == "FakeDatetime":
-        return ast.DateTimeType()
+        return ast.DateTimeType(nullable=False)
     if isinstance(constant, date) or type(constant).__name__ == "FakeDate":
-        return ast.DateType()
+        return ast.DateType(nullable=False)
     if isinstance(constant, UUID) or isinstance(constant, UUIDT):
-        return ast.UUIDType()
+        return ast.UUIDType(nullable=False)
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
 
 
+def resolve_types_from_table(
+    expr: ast.Expr, table_name: str, context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
+) -> ast.Expr:
+    if context.database is None:
+        raise QueryError("Database needs to be defined")
+
+    if not context.database.has_table(table_name):
+        raise QueryError(f'Table "{table_name}" does not exist')
+
+    select_node = ast.SelectQuery(
+        select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]))
+    )
+    select_node_with_types = cast(ast.SelectQuery, resolve_types(select_node, context, dialect))
+    assert select_node_with_types.type is not None
+
+    return resolve_types(expr, context, dialect, [select_node_with_types.type])
+
+
 def resolve_types(
-    node: ast.Expr | ast.SelectQuery,
+    node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     scopes: Optional[list[ast.SelectQueryType]] = None,
-) -> ast.Expr:
+) -> _T_AST:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
 
 
@@ -91,7 +123,7 @@ class Resolver(CloningVisitor):
         self.database = context.database
         self.cte_counter = 0
 
-    def visit(self, node: ast.Expr) -> ast.Expr:
+    def visit(self, node: ast.AST | None):
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolutionError(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
@@ -100,15 +132,17 @@ class Resolver(CloningVisitor):
             raise QueryError("Too many CTE expansions (50+). Probably a CTE loop.")
         return super().visit(node)
 
-    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
         # all expressions combined by UNION ALL can use CTEs from the first expression
         # so we put these CTEs to the scope
-        default_ctes = node.select_queries[0].ctes if node.select_queries else None
+        default_ctes = next(extract_select_queries(node)).ctes
         if default_ctes:
             self.scopes.append(ast.SelectQueryType(ctes=default_ctes))
 
-        node = super().visit_select_union_query(node)
-        node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])
+        node = super().visit_select_set_query(node)
+        node.type = ast.SelectSetQueryType(
+            types=[node.initial_select_query.type, *(x.select_query.type for x in node.subsequent_select_queries)]  # type: ignore
+        )
 
         if default_ctes:
             self.scopes.pop()
@@ -117,7 +151,6 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
-
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
@@ -161,7 +194,7 @@ class Resolver(CloningVisitor):
         for expr in node.select or []:
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
-                columns = self._asterisk_columns(new_expr.type)
+                columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
                 select_nodes.extend([self.visit(expr) for expr in columns])
             else:
                 select_nodes.append(new_expr)
@@ -224,14 +257,17 @@ class Resolver(CloningVisitor):
 
         return new_node
 
-    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> list[ast.Expr]:
-        """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
+    def _asterisk_columns(self, asterisk: ast.AsteriskType, chain_prefix: list[str]) -> list[ast.Field]:
+        """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields.
+
+        If we have a chain prefix (for example, in the case of a table alias), we prepend it to the chain of the new fields.
+        """
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table(self.context)
             database_fields = table.get_asterisk()
-            return [ast.Field(chain=[key]) for key in database_fields.keys()]
+            return [ast.Field(chain=[*chain_prefix, key]) for key in database_fields.keys()]
         elif (
-            isinstance(asterisk.table_type, ast.SelectUnionQueryType)
+            isinstance(asterisk.table_type, ast.SelectSetQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryAliasType)
             or isinstance(asterisk.table_type, ast.SelectViewType)
@@ -239,10 +275,10 @@ class Resolver(CloningVisitor):
             select = asterisk.table_type
             while isinstance(select, ast.SelectQueryAliasType) or isinstance(select, ast.SelectViewType):
                 select = select.select_query_type
-            if isinstance(select, ast.SelectUnionQueryType):
+            if isinstance(select, ast.SelectSetQueryType):
                 select = select.types[0]
             if isinstance(select, ast.SelectQueryType):
-                return [ast.Field(chain=[key]) for key in select.columns.keys()]
+                return [ast.Field(chain=[*chain_prefix, key]) for key in select.columns.keys()]
             else:
                 raise QueryError("Can't expand asterisk (*) on subquery")
         else:
@@ -257,11 +293,11 @@ class Resolver(CloningVisitor):
         scope = self.scopes[-1]
 
         if isinstance(node.table, ast.HogQLXTag):
-            node.table = convert_hogqlx_tag(node.table, self.context.team_id)
+            node.table = expand_hogqlx_query(node.table, self.context.team_id)
 
         # If selecting from a CTE, expand and visit the new node
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
-            table_name = node.table.chain[0]
+            table_name = str(node.table.chain[0])
             cte = lookup_cte_by_name(self.scopes, table_name)
             if cte:
                 node = cast(ast.JoinExpr, clone_expr(node))
@@ -275,7 +311,7 @@ class Resolver(CloningVisitor):
                 return response
 
         if isinstance(node.table, ast.Field):
-            table_name = node.table.chain[0]
+            table_name = str(node.table.chain[0])
             table_alias = node.alias or table_name
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
@@ -284,9 +320,6 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
-
-                if self.current_view_depth > self.context.max_view_depth:
-                    raise QueryError("Nested views are not supported")
 
                 node.table = parse_select(str(database_table.query))
 
@@ -300,7 +333,11 @@ class Resolver(CloningVisitor):
                 return node
 
             if isinstance(database_table, LazyTable):
+                if isinstance(database_table, PersonsTable):
+                    # Check for inlineable exprs in the join on the persons table
+                    database_table = database_table.create_new_table_with_filter(node)
                 node_table_type = ast.LazyTableType(table=database_table)
+
             else:
                 node_table_type = ast.TableType(table=database_table)
 
@@ -345,7 +382,7 @@ class Resolver(CloningVisitor):
 
             return node
 
-        elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectUnionQuery):
+        elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectSetQuery):
             node = cast(ast.JoinExpr, clone_expr(node))
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
@@ -383,7 +420,9 @@ class Resolver(CloningVisitor):
             raise QueryError(f"A {type(node.table).__name__} cannot be used as a SELECT source")
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
-        return self.visit(convert_hogqlx_tag(node, self.context.team_id))
+        if node.kind in HOGQLX_COMPONENTS:
+            return self.visit(convert_to_hx(node))
+        return self.visit(expand_hogqlx_query(node, self.context.team_id))
 
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""
@@ -402,6 +441,33 @@ class Resolver(CloningVisitor):
             scope.aliases[node.alias] = node.type
         return node
 
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        node = super().visit_arithmetic_operation(node)
+
+        if node.left.type is None or node.right.type is None:
+            return node
+
+        left_type = node.left.type.resolve_constant_type(self.context)
+        right_type = node.right.type.resolve_constant_type(self.context)
+
+        if isinstance(left_type, ast.IntegerType) and isinstance(right_type, ast.IntegerType):
+            node.type = ast.IntegerType()
+        elif isinstance(left_type, ast.FloatType) and isinstance(right_type, ast.FloatType):
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.IntegerType) and isinstance(right_type, ast.FloatType):
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.FloatType) and isinstance(right_type, ast.IntegerType):
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
+            node.type = ast.DateTimeType()
+        elif isinstance(left_type, ast.UnknownType) or isinstance(right_type, ast.UnknownType):
+            node.type = ast.UnknownType()
+        else:
+            node.type = ast.UnknownType()
+
+        node.type.nullable = left_type.nullable or right_type.nullable
+        return node
+
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
@@ -409,6 +475,8 @@ class Resolver(CloningVisitor):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
+            if node.name == "recording_button":
+                return self.visit(recording_button(node=node, args=node.args))
             if node.name == "matchesAction":
                 return self.visit(matches_action(node=node, args=node.args, context=self.context))
 
@@ -416,24 +484,59 @@ class Resolver(CloningVisitor):
         arg_types: list[ast.ConstantType] = []
         for arg in node.args:
             if arg.type:
-                arg_types.append(arg.type.resolve_constant_type(self.context) or ast.UnknownType())
+                arg_types.append(arg.type.resolve_constant_type(self.context))
             else:
                 arg_types.append(ast.UnknownType())
         param_types: Optional[list[ast.ConstantType]] = None
         if node.params is not None:
             param_types = []
-            for param in node.params:
+            for i, param in enumerate(node.params):
                 if param.type:
-                    param_types.append(param.type.resolve_constant_type(self.context) or ast.UnknownType())
+                    param_types.append(param.type.resolve_constant_type(self.context))
                 else:
-                    param_types.append(ast.UnknownType())
+                    raise ResolutionError(f"Unknown type for function '{node.name}', parameter {i}")
+
+        return_type = None
+
+        if node.name in HOGQL_CLICKHOUSE_FUNCTIONS:
+            signatures = HOGQL_CLICKHOUSE_FUNCTIONS[node.name].signatures
+            if signatures:
+                for sig_arg_types, sig_return_type in signatures:
+                    if sig_arg_types is None:
+                        return_type = sig_return_type
+                        break
+
+                    if compare_types(arg_types, sig_arg_types):
+                        return_type = sig_return_type
+                        break
+
+        if return_type is None:
+            return_type = ast.UnknownType()
+
+            # Uncomment once all hogql mappings are complete with signatures
+            # arg_type_classes = [arg_type.__class__.__name__ for arg_type in arg_types]
+            # raise ResolutionError(
+            #     f"Can't call function '{node.name}' with arguments of type: {', '.join(arg_type_classes)}"
+            # )
+
+        if node.name == "concat":
+            return_type.nullable = False
+        elif not isinstance(return_type, ast.UnknownType):
+            return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
+
         node.type = ast.CallType(
             name=node.name,
             arg_types=arg_types,
             param_types=param_types,
-            return_type=ast.UnknownType(),
+            return_type=return_type,
         )
         return node
+
+    def visit_expr_call(self, node: ast.ExprCall):
+        raise QueryError("You can only call simple functions in HogQL, not expressions")
+
+    def visit_block(self, node: ast.Block):
+        raise QueryError("You can not use blocks in HogQL")
 
     def visit_lambda(self, node: ast.Lambda):
         """Visit each SELECT query or subquery."""
@@ -507,6 +610,29 @@ class Resolver(CloningVisitor):
                 return response
 
         if not type:
+            if self.context.globals is not None and name in self.context.globals:
+                parsed_chain: list[str] = []
+                value = self.context.globals
+                for link in node.chain:
+                    parsed_chain.append(str(link))
+                    if isinstance(value, dict):
+                        value = value.get(str(link), None)
+                    elif isinstance(value, list):
+                        try:
+                            value = value[int(link)]
+                        except (ValueError, IndexError):
+                            raise QueryError(f"Cannot resolve field: {'.'.join(parsed_chain)}")
+                    else:
+                        raise QueryError(f"Cannot resolve field: {'.'.join(parsed_chain)}")
+                global_type = resolve_constant_data_type(value)
+                if global_type:
+                    self.context.add_notice(
+                        start=node.start,
+                        end=node.end,
+                        message=f"Field '{'.'.join([str(c) for c in node.chain])}' is of type '{global_type.print_type()}'",
+                    )
+                return ast.Constant(value=value, type=global_type)
+
             if self.dialect == "clickhouse":
                 raise QueryError(f"Unable to resolve field: {name}")
             else:
@@ -547,7 +673,14 @@ class Resolver(CloningVisitor):
             if self.dialect == "clickhouse":
                 new_expr = clone_expr(node.type.expr)
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
+
+                if node.type.isolate_scope:
+                    self.scopes.append(ast.SelectQueryType(tables={node.type.name: node.type.table_type}))
+
                 new_node = self.visit(new_node)
+
+                if node.type.isolate_scope:
+                    self.scopes.pop()
                 return new_node
 
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
@@ -578,6 +711,9 @@ class Resolver(CloningVisitor):
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)
 
+        if self.dialect == "clickhouse" and isinstance(node.property, ast.Constant) and node.property.value == 0:
+            raise QueryError("SQL indexes start from one, not from zero. E.g: array[1]")
+
         array = node.array
         while isinstance(array, ast.Alias):
             array = array.expr
@@ -606,6 +742,9 @@ class Resolver(CloningVisitor):
     def visit_tuple_access(self, node: ast.TupleAccess):
         node = super().visit_tuple_access(node)
 
+        if self.dialect == "clickhouse" and node.index == 0:
+            raise QueryError("SQL indexes start from one, not from zero. E.g: array.1")
+
         tuple = node.tuple
         while isinstance(tuple, ast.Alias):
             tuple = tuple.expr
@@ -623,6 +762,9 @@ class Resolver(CloningVisitor):
 
         return node
 
+    def visit_dict(self, node: ast.Dict):
+        return self.visit(convert_to_hx(node))
+
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)
         node.type = resolve_constant_data_type(node.value)
@@ -630,17 +772,21 @@ class Resolver(CloningVisitor):
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(
+            nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
+        )
         return node
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(
+            nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
+        )
         return node
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(nullable=node.expr.type.resolve_constant_type(self.context).nullable)
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
@@ -663,7 +809,7 @@ class Resolver(CloningVisitor):
                 )
 
         node = super().visit_compare_operation(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(nullable=False)
 
         if (
             (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)

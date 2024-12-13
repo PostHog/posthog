@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
-import { DashboardMode } from '~/types'
+import { BaseMathType, DashboardMode, EntityTypes } from '~/types'
 
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
@@ -18,13 +18,13 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/dashboards/': require('./__mocks__/dashboards.json'),
-                '/api/projects/:team_id/dashboards/1/': require('./__mocks__/dashboard1.json'),
-                '/api/projects/:team_id/dashboards/1/collaborators/': [],
-                '/api/projects/:team_id/dashboards/2/': [500, { detail: 'Server error' }],
+                '/api/environments/:team_id/dashboards/': require('./__mocks__/dashboards.json'),
+                '/api/environments/:team_id/dashboards/1/': require('./__mocks__/dashboard1.json'),
+                '/api/environments/:team_id/dashboards/1/collaborators/': [],
+                '/api/environments/:team_id/dashboards/2/': [500, { detail: 'Server error' }],
                 '/api/projects/:team_id/dashboard_templates/': require('./__mocks__/dashboard_templates.json'),
                 '/api/projects/:team_id/dashboard_templates/json_schema/': require('./__mocks__/dashboard_template_schema.json'),
-                '/api/projects/:team_id/dashboards/:dash_id/sharing/': {
+                '/api/environments/:team_id/dashboards/:dash_id/sharing/': {
                     created_at: '2023-02-25T13:28:20.454940Z',
                     enabled: false,
                     access_token: 'a-secret-token',
@@ -76,8 +76,8 @@ export const NewSelectVariables = (): JSX.Element => {
                     type: 'event',
                     default: {
                         id: '$pageview',
-                        math: 'dau',
-                        type: 'events',
+                        math: BaseMathType.UniqueUsers,
+                        type: EntityTypes.EVENTS,
                     },
                     required: true,
                     description: 'Add the current_url filter that matches your sign up page',
@@ -88,8 +88,8 @@ export const NewSelectVariables = (): JSX.Element => {
                     type: 'event',
                     default: {
                         id: '$pageview',
-                        math: 'dau',
-                        type: 'events',
+                        math: BaseMathType.UniqueUsers,
+                        type: EntityTypes.EVENTS,
                     },
                     required: true,
                     description:
@@ -101,8 +101,8 @@ export const NewSelectVariables = (): JSX.Element => {
                     type: 'event',
                     default: {
                         id: '$pageview',
-                        math: 'dau',
-                        type: 'events',
+                        math: BaseMathType.UniqueUsers,
+                        type: EntityTypes.EVENTS,
                     },
                     required: false,
                     description: 'Select the event which best represents when a user is activated',

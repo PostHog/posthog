@@ -8,7 +8,11 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect } from 'react'
 
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import {
+    PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
+    PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
+    propertyDefinitionsModel,
+} from '~/models/propertyDefinitionsModel'
 import { PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {
@@ -22,6 +26,7 @@ export interface PropertyValueProps {
     autoFocus?: boolean
     eventNames?: string[]
     addRelativeDateTimeOptions?: boolean
+    forceSingleSelect?: boolean
 }
 
 export function PropertyValue({
@@ -35,11 +40,12 @@ export function PropertyValue({
     autoFocus = false,
     eventNames = [],
     addRelativeDateTimeOptions = false,
+    forceSingleSelect = false,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
 
-    const isMultiSelect = operator && isOperatorMulti(operator)
+    const isMultiSelect = operator && isOperatorMulti(operator) && !forceSingleSelect
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
 
@@ -128,10 +134,18 @@ export function PropertyValue({
             loading={options[propertyKey]?.status === 'loading'}
             value={formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
-            allowCustomValues
+            allowCustomValues={options[propertyKey]?.allowCustomValues ?? true}
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
+            title={
+                PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
+                    ? 'Suggested values (last 7 days)'
+                    : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
+                    ? 'Suggested values'
+                    : undefined
+            }
+            popoverClassName="max-w-200"
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)
                 return {

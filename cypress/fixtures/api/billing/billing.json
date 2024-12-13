@@ -5,6 +5,7 @@
     "customer_id": "cus_Pg7PIL8MsKi6bx",
     "deactivated": false,
     "has_active_subscription": true,
+    "subscription_level": "custom",
     "billing_period": {
         "current_period_start": "2024-03-07T23:21:20Z",
         "current_period_end": "2024-04-07T23:21:20Z",
@@ -3777,5 +3778,5 @@
         "session_replay": 3,
         "product_analytics": 3
     },
-    "stripe_portal_url": "https://billing.stripe.com/p/session/test_YWNjdF8xSElNRERFdUlhdFJYU2R6LF9QaEVpVHFJNXdKYk9DaG04SVhMaUV4TDlxOTR1WEZi0100SMJCDr2e"
+    "stripe_portal_url": "http://localhost:8000/api/billing/portal"
 }

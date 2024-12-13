@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 from time import perf_counter
 from contextlib import contextmanager
 
@@ -7,17 +6,26 @@ from sentry_sdk import start_span
 from posthog.schema import QueryTiming
 
 
-@dataclass
+# Not thread safe.
+# See trends_query_runner for an example of how to use for multithreaded queries
 class HogQLTimings:
-    # Completed time in seconds for different parts of the HogQL query
-    timings: dict[str, float] = field(default_factory=dict)
+    timings: dict[str, float]
+    _timing_starts: dict[str, float]
+    _timing_pointer: str
 
-    # Used for housekeeping
-    _timing_starts: dict[str, float] = field(default_factory=dict)
-    _timing_pointer: str = "."
+    def __init__(self, _timing_pointer: str = "."):
+        # Completed time in seconds for different parts of the HogQL query
+        self.timings = {}
 
-    def __post_init__(self):
-        self._timing_starts["."] = perf_counter()
+        # Used for housekeeping
+        self._timing_pointer = _timing_pointer
+        self._timing_starts = {self._timing_pointer: perf_counter()}
+
+    def clone_for_subquery(self, series_index: int):
+        return HogQLTimings(f"{self._timing_pointer}/series_{series_index}")
+
+    def clear_timings(self):
+        self.timings = {}
 
     @contextmanager
     def measure(self, key: str):
@@ -42,5 +50,7 @@ class HogQLTimings:
             timings[key] = timings.get(key, 0.0) + (perf_counter() - start)
         return timings
 
-    def to_list(self) -> list[QueryTiming]:
-        return [QueryTiming(k=key, t=time) for key, time in self.to_dict().items()]
+    def to_list(self, back_out_stack=True) -> list[QueryTiming]:
+        return [
+            QueryTiming(k=key, t=time) for key, time in (self.to_dict() if back_out_stack else self.timings).items()
+        ]

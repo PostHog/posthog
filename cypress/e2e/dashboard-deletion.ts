@@ -1,6 +1,7 @@
 import { urls } from 'scenes/urls'
-import { randomString } from '../support/random'
+
 import { dashboard, dashboards, insight, savedInsights } from '../productAnalytics'
+import { randomString } from '../support/random'
 
 describe('deleting dashboards', () => {
     it('can delete dashboard without deleting the insights', () => {

@@ -12,10 +12,10 @@ def get_default_access_token() -> str:
 
 class SharingConfiguration(models.Model):
     # Relations
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
-    recording: models.ForeignKey = models.ForeignKey(
+    recording = models.ForeignKey(
         "SessionRecording",
         related_name="sharing_configurations",
         on_delete=models.CASCADE,
@@ -24,10 +24,10 @@ class SharingConfiguration(models.Model):
         blank=True,
     )
 
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
-    enabled: models.BooleanField = models.BooleanField(default=False)
-    access_token: models.CharField = models.CharField(
+    enabled = models.BooleanField(default=False)
+    access_token = models.CharField(
         max_length=400,
         null=True,
         blank=True,

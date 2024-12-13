@@ -1,0 +1,9 @@
+fun arrayCount(func, arr) {
+  let count := 0
+  for (let i in arr) {
+    if (func(i)) {
+      count := count + 1
+    }
+  }
+  return count
+}

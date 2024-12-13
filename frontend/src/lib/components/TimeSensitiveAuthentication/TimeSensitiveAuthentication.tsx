@@ -21,6 +21,10 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
     const ssoEnforcement = precheckResponse?.sso_enforcement
     const showPassword = !ssoEnforcement && user?.has_password
 
+    const extraQueryParams = {
+        next: window.location.pathname,
+    }
+
     return (
         <LemonModal
             title="Re-authenticate account"
@@ -30,7 +34,12 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
             footer={
                 ssoEnforcement ? (
                     <span className="flex-1">
-                        <SSOEnforcedLoginButton provider={ssoEnforcement} email={user!.email} size="medium" />
+                        <SSOEnforcedLoginButton
+                            provider={ssoEnforcement}
+                            email={user!.email}
+                            size="medium"
+                            extraQueryParams={extraQueryParams}
+                        />
                     </span>
                 ) : showPassword ? (
                     <LemonButton
@@ -84,12 +93,15 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                     <SocialLoginButtons
                         className="mt-4"
                         caption={showPassword ? 'Or re-authenticate with' : undefined}
-                        redirectQueryParams={{
-                            next: window.location.pathname,
-                        }}
+                        extraQueryParams={extraQueryParams}
                     />
                     {precheckResponse?.saml_available ? (
-                        <SSOEnforcedLoginButton provider="saml" email={user!.email} size="medium" />
+                        <SSOEnforcedLoginButton
+                            provider="saml"
+                            email={user!.email}
+                            size="medium"
+                            extraQueryParams={extraQueryParams}
+                        />
                     ) : null}
                 </div>
             ) : null}
@@ -107,7 +119,7 @@ export function TimeSensitiveAuthenticationArea({ children }: { children: JSX.El
     }, [])
 
     return timeSensitiveAuthenticationRequired ? (
-        <div className="flex-1 bg-side border border-border rounded flex flex-col items-center p-6 text-center w-full">
+        <div className="flex-1 bg-bg-3000 border border-border rounded flex flex-col items-center p-6 text-center w-full">
             <h2>Re-authentication required</h2>
 
             <p>For security purposes, this area requires that you re-authenticate</p>

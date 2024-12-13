@@ -57,11 +57,7 @@ export function DebugNotice(): JSX.Element | null {
         )
     }
     return (
-        <div
-            className="border rounded bg-bg-3000 overflow-hidden mb-1.5 w-full font-mono max-w-60"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ fontSize: 13 }} // utility classes don't have a 13px variant
-        >
+        <div className="border rounded bg-bg-3000 overflow-hidden mb-1.5 w-full font-mono max-w-60 text-[13px]">
             <div className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-blue justify-between">
                 <b>DEBUG mode</b>
                 <LemonButton

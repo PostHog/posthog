@@ -1,6 +1,7 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -14,6 +15,8 @@ export enum DashboardsTab {
     Dashboards = 'dashboards',
     Templates = 'templates',
 }
+
+const DEFAULT_SORTING: Sorting = { columnKey: 'name', order: 1 }
 
 export interface DashboardsFilters {
     search: string
@@ -39,8 +42,18 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         setFilters: (filters: Partial<DashboardsFilters>) => ({
             filters,
         }),
+        tableSortingChanged: (sorting: Sorting | null) => ({
+            sorting,
+        }),
     }),
     reducers({
+        tableSorting: [
+            DEFAULT_SORTING,
+            { persist: true },
+            {
+                tableSortingChanged: (_, { sorting }) => sorting || DEFAULT_SORTING,
+            },
+        ],
         currentTab: [
             DashboardsTab.Dashboards as DashboardsTab,
             {

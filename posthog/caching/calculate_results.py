@@ -1,9 +1,11 @@
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional, Union
 
-from pydantic import BaseModel
 import structlog
+from pydantic import BaseModel
 from sentry_sdk import capture_exception
 
+from posthog.api.services.query import ExecutionMode, process_query_dict
 from posthog.caching.utils import ensure_is_date
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
@@ -16,7 +18,7 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.logging.timing import timed
 from posthog.models import (
@@ -27,10 +29,10 @@ from posthog.models import (
     Insight,
     RetentionFilter,
     Team,
+    User,
 )
 from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.filters.utils import get_filter
 from posthog.models.insight import generate_insight_filters_hash
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
@@ -40,7 +42,6 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.schema import CacheMissResponse, DashboardFilter
 from posthog.types import FilterType
-from posthog.api.services.query import process_query_dict, ExecutionMode
 
 if TYPE_CHECKING:
     from posthog.caching.fetch_from_cache import InsightResult
@@ -60,7 +61,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
 
     if insight is not None:
-        with flagged_conversion_to_query_based(insight):
+        with conversion_to_query_based(insight):
             if insight.query:
                 query_runner = get_query_runner_or_none(insight.query, insight.team)
                 if query_runner is None:
@@ -122,33 +123,54 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[dict]) -> CacheTyp
 
 
 def calculate_for_query_based_insight(
-    insight: Insight, *, dashboard: Optional[Dashboard] = None, execution_mode: ExecutionMode
+    insight: Insight,
+    *,
+    team: Team,
+    dashboard: Optional[Dashboard] = None,
+    execution_mode: ExecutionMode,
+    user: Optional[User],
+    filters_override: Optional[dict] = None,
+    variables_override: Optional[dict] = None,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
 
-    tag_queries(team_id=insight.team_id, insight_id=insight.pk)
+    tag_queries(team_id=team.id, insight_id=insight.pk)
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
-    response = process_query_dict(
-        insight.team,
+    response = process_response = process_query_dict(
+        team,
         insight.query,
-        dashboard_filters_json=dashboard.filters if dashboard is not None else None,
+        dashboard_filters_json=(
+            filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
+        ),
+        variables_override_json=(
+            variables_override
+            if variables_override is not None
+            else dashboard.variables
+            if dashboard is not None
+            else None
+        ),
         execution_mode=execution_mode,
+        user=user,
+        insight_id=insight.pk,
+        dashboard_id=dashboard.pk if dashboard else None,
     )
 
-    if isinstance(response, CacheMissResponse):
-        return NothingInCacheResult(cache_key=response.cache_key)
+    if isinstance(process_response, BaseModel):
+        response = process_response.model_dump(by_alias=True)
 
-    if isinstance(response, BaseModel):
-        response = response.model_dump(by_alias=True)
+    assert isinstance(response, dict)
+
+    if isinstance(process_response, CacheMissResponse):
+        return NothingInCacheResult(cache_key=process_response.cache_key, query_status=response.get("query_status"))
 
     cache_key = response.get("cache_key")
     last_refresh = response.get("last_refresh")
-    if isinstance(cache_key, str) and isinstance(last_refresh, str):
+    if isinstance(cache_key, str) and isinstance(last_refresh, datetime):
         update_cached_state(  # Updating the relevant InsightCachingState
-            insight.team_id,
+            team.id,
             cache_key,
             last_refresh,
             result=None,  # Not caching the result here, since in HogQL this is the query runner's responsibility
@@ -158,31 +180,19 @@ def calculate_for_query_based_insight(
         # Translating `QueryResponse` to legacy insights shape
         # The response may not be conformant with that, hence these are all `.get()`s
         result=response.get("results"),
+        has_more=response.get("hasMore"),
         columns=response.get("columns"),
         last_refresh=last_refresh,
         cache_key=cache_key,
         is_cached=response.get("is_cached", False),
         timezone=response.get("timezone"),
         next_allowed_client_refresh=response.get("next_allowed_client_refresh"),
+        cache_target_age=response.get("cache_target_age"),
         timings=response.get("timings"),
+        query_status=response.get("query_status"),
+        hogql=response.get("hogql"),
+        types=response.get("types"),
     )
-
-
-def calculate_for_filter_based_insight(
-    insight: Insight, dashboard: Optional[Dashboard]
-) -> tuple[str, str, list | dict]:
-    filter = get_filter(data=insight.dashboard_filters(dashboard), team=insight.team)
-    cache_key = generate_insight_filters_hash(insight, dashboard)
-    cache_type = get_cache_type(filter)
-
-    tag_queries(
-        team_id=insight.team_id,
-        insight_id=insight.pk,
-        cache_type=cache_type,
-        cache_key=cache_key,
-    )
-
-    return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, insight.team)
 
 
 def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: Team) -> list[dict[str, Any]]:

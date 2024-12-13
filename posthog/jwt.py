@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 from typing import Any, Optional
 
@@ -9,10 +9,11 @@ from django.conf import settings
 class PosthogJwtAudience(Enum):
     UNSUBSCRIBE = "posthog:unsubscribe"
     EXPORTED_ASSET = "posthog:exported_asset"
-    IMPERSONATED_USER = (
-        "posthog:impersonated_user"  # This is used by background jobs on behalf of the user e.g. exports
-    )
-    CLIENT = "posthog:client"  # Meant for client authentication such as the Toolbar or CLI tools
+    # This is used by background jobs on behalf of the user e.g. exports
+    IMPERSONATED_USER = "posthog:impersonated_user"
+    # Meant for client authentication such as the Toolbar or CLI tools
+    CLIENT = "posthog:client"
+    LIVESTREAM = "posthog:livestream"
 
 
 def encode_jwt(
@@ -27,7 +28,7 @@ def encode_jwt(
     encoded_jwt = jwt.encode(
         {
             **payload,
-            "exp": datetime.now(tz=timezone.utc) + expiry_delta,
+            "exp": datetime.now(tz=UTC) + expiry_delta,
             "aud": audience.value,
             "scope": ",".join(scopes) if scopes else None,
         },

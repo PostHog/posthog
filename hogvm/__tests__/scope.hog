@@ -1,0 +1,93 @@
+let dbl := x -> x * 2
+
+print(dbl)
+print(dbl(2))
+print(dbl(8))
+
+print('--------')
+
+let var := 5
+let varify := x -> x * var
+
+print(varify(2))
+var := 10
+print(varify(2))
+print(varify(8))
+
+print('--------')
+
+fun bigVar() {
+    let var := 5
+    let varify := x -> x * var
+    return varify
+}
+let bigVarify := bigVar()
+
+print(bigVarify(2))
+print(bigVarify(8))
+
+print('--------')
+
+let a := 3
+
+fun outerA() {
+  print(a)
+  a := 4
+  print(a)
+}
+
+fun innerA() {
+  print(a)
+  outerA()
+  print(a)
+}
+
+print(a)
+innerA()
+print(a)
+
+print('--------')
+
+let b := {'key': 3}
+
+fun outerB() {
+  print(b)
+  b.key := 4
+  print(b)
+}
+
+fun innerB() {
+  print(b)
+  outerB()
+  print(b)
+}
+
+print(b)
+innerB()
+print(b)
+
+print('--------')
+
+fun outerC() {
+  let x := 'outside'
+  fun innerC() {
+    print(x)
+  }
+  innerC()
+}
+outerC()
+
+print('--------')
+
+fun myFunctionOuter() {
+    let b := 3
+    fun myFunction(a) {
+      return a + b
+    }
+    print(myFunction(2))
+    print(myFunction(3))
+}
+
+myFunctionOuter()
+
+print('--------')

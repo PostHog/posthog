@@ -2,9 +2,11 @@ import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
+import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
     FeatureFlagBasicType,
@@ -42,6 +44,8 @@ const MOCK_BASIC_SURVEY: Survey = {
     end_date: null,
     archived: false,
     responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
@@ -80,6 +84,8 @@ const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
     end_date: null,
     archived: false,
     responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
@@ -97,7 +103,12 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     },
     questions: [{ question: 'question 2?', type: SurveyQuestionType.Open }],
     appearance: { backgroundColor: 'white', submitButtonColor: '#2C2C2C' },
-    conditions: { url: 'posthog', selector: '' },
+    conditions: {
+        url: 'posthog',
+        selector: '',
+        events: { values: [{ name: 'user_subscribed' }] },
+        actions: { values: [] },
+    },
     linked_flag: {
         id: 7,
         team_id: 1,
@@ -151,6 +162,8 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     end_date: null,
     archived: false,
     responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 const MOCK_SURVEY_SHOWN = {
@@ -208,7 +221,7 @@ const meta: Meta = {
                 }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag]),
             },
             post: {
-                '/api/projects/:team_id/query/': async (req, res, ctx) => {
+                '/api/environments/:team_id/query/': async (req, res, ctx) => {
                     const body = await req.json()
                     if (body.kind == 'EventsQuery') {
                         return res(ctx.json(MOCK_SURVEY_RESULTS))
@@ -228,6 +241,13 @@ export default meta
 export const SurveysList: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.surveys())
+    }, [])
+    return <App />
+}
+
+export const SurveysGlobalSettings: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.surveys(SurveysTabs.Settings))
     }, [])
     return <App />
 }
@@ -280,9 +300,9 @@ export const NewSurveyPresentationSection: StoryFn = () => {
 
 export const NewSurveyTargetingSection: StoryFn = () => {
     useEffect(() => {
-        router.actions.push(urls.survey('new'))
+        router.actions.push(urls.survey('new?edit=true'))
         surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Targeting)
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
         surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
             groups: [
@@ -297,17 +317,84 @@ export const NewSurveyTargetingSection: StoryFn = () => {
 }
 NewSurveyTargetingSection.parameters = {
     testOptions: {
-        waitForSelector: ['.LemonBanner .LemonIcon', '.TaxonomicPropertyFilter__row.width-small'],
+        waitForSelector: ['.LemonBanner .LemonIcon', '.TaxonomicPropertyFilter__row'],
     },
 }
 
 export const NewSurveyAppearanceSection: StoryFn = () => {
     useEffect(() => {
-        router.actions.push(urls.survey('new'))
+        router.actions.push(urls.survey('new?edit=true'))
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
     }, [])
     return <App />
+}
+
+export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            // TODO: setting available featues should be a decorator to make this easy
+            '/api/users/@me': () => [
+                200,
+                {
+                    email: 'test@posthog.com',
+                    first_name: 'Test Hedgehog',
+                    organization: {
+                        ...organizationCurrent,
+                        available_product_features: [
+                            {
+                                key: 'surveys_text_html',
+                                name: 'surveys_text_html',
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    })
+    useEffect(() => {
+        router.actions.push(urls.survey('new?edit=true'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What is your favorite color?',
+                description: '<strong>This description has HTML in it</strong>',
+                descriptionContentType: 'html',
+            },
+        ])
+    }, [])
+    return <App />
+}
+
+NewSurveyWithHTMLQuestionDescription.parameters = {
+    testOptions: {
+        waitForSelector: '.survey-question-description strong',
+    },
+}
+
+export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.survey('new?edit=true'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What is your favorite color?',
+                description: '<strong>This description has HTML in it</strong>',
+                descriptionContentType: 'text',
+            },
+        ])
+    }, [])
+    return <App />
+}
+
+NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML.parameters = {
+    testOptions: {
+        waitForSelector: '.survey-question-description',
+    },
 }
 
 export const SurveyView: StoryFn = () => {

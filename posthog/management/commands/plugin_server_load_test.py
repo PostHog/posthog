@@ -63,7 +63,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         seed = options.get("seed") or secrets.token_hex(16)
-        now = options.get("now") or dt.datetime.now(dt.timezone.utc)
+        now = options.get("now") or dt.datetime.now(dt.UTC)
 
         admin = KafkaAdminClient(bootstrap_servers=settings.KAFKA_HOSTS)
         consumer = KafkaConsumer(KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, bootstrap_servers=settings.KAFKA_HOSTS)

@@ -1,8 +1,8 @@
 from typing import Optional, Union
 
-from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
+from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
@@ -37,7 +37,7 @@ class EnterpriseEventQuery(EventQuery):
         extra_event_properties: Optional[list[PropertyName]] = None,
         extra_person_fields: Optional[list[ColumnName]] = None,
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
+        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.DISABLED,
         **kwargs,
     ) -> None:
         if extra_person_fields is None:

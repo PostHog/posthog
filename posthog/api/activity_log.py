@@ -3,15 +3,17 @@ from typing import Any, Optional
 
 from django.db.models import Q, QuerySet
 
-from rest_framework import serializers, status, viewsets, pagination, mixins
-from rest_framework.decorators import action
+from rest_framework import serializers, status, viewsets, mixins
+from rest_framework.pagination import PageNumberPagination, CursorPagination, BasePagination
+
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import ActivityLog, FeatureFlag, Insight, NotificationViewed, User
+from posthog.models import ActivityLog, FeatureFlag, Insight, NotificationViewed, User, Cohort, HogFunction
 from posthog.models.comment import Comment
 from posthog.models.notebook.notebook import Notebook
 
@@ -41,9 +43,28 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
 
 
-class ActivityLogPagination(pagination.CursorPagination):
-    ordering = "-created_at"
-    page_size = 100
+class ActivityLogPagination(BasePagination):
+    def __init__(self):
+        self.page_number_pagination = PageNumberPagination()
+        self.cursor_pagination = CursorPagination()
+        self.page_number_pagination.page_size = 100
+        self.page_number_pagination.page_size_query_param = "page_size"
+        self.page_number_pagination.max_page_size = 1000
+        self.cursor_pagination.page_size = 100
+        self.cursor_pagination.ordering = "-created_at"
+
+    def paginate_queryset(self, queryset, request, view=None):
+        self.request = request
+        if request.query_params.get("page"):
+            return self.page_number_pagination.paginate_queryset(queryset, request, view)
+        else:
+            return self.cursor_pagination.paginate_queryset(queryset, request, view)
+
+    def get_paginated_response(self, data):
+        if self.request and self.request.query_params.get("page"):
+            return self.page_number_pagination.get_paginated_response(data)
+        else:
+            return self.cursor_pagination.get_paginated_response(data)
 
 
 # context manager for gathering a sequence of server timings
@@ -76,6 +97,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
     queryset = ActivityLog.objects.all()
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
+    filter_rewrite_rules = {"project_id": "team_id"}
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         params = self.request.GET.dict()
@@ -84,8 +106,14 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             queryset = queryset.filter(user=params.get("user"))
         if params.get("scope"):
             queryset = queryset.filter(scope=params.get("scope"))
+        if params.get("scopes", None):
+            scopes = str(params.get("scopes", "")).split(",")
+            queryset = queryset.filter(scope__in=scopes)
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))
+
+        if params.get("page"):
+            queryset = queryset.order_by("-created_at")
 
         return queryset
 
@@ -103,16 +131,32 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         with timer("gather_query_parts"):
             # first things this user created
             my_insights = list(
-                Insight.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
+                Insight.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
+                    "id", flat=True
+                )
             )
             my_feature_flags = list(
-                FeatureFlag.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
+                FeatureFlag.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
+                    "id", flat=True
+                )
             )
             my_notebooks = list(
-                Notebook.objects.filter(created_by=user, team_id=self.team.pk).values_list("short_id", flat=True)
+                Notebook.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
+                    "short_id", flat=True
+                )
             )
             my_comments = list(
-                Comment.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
+                Comment.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
+                    "id", flat=True
+                )
+            )
+            my_cohorts = list(
+                Cohort.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
+                    "id", flat=True
+                )
+            )
+            my_hog_functions = list(
+                HogFunction.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
             )
 
             # then things they edited
@@ -168,11 +212,35 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
                 .values_list("item_id", flat=True)
             )
 
-            last_read_date = NotificationViewed.objects.filter(user=user).first()
+            my_changed_cohorts = list(
+                ActivityLog.objects.filter(
+                    team_id=self.team.id,
+                    activity__in=interesting_changes,
+                    user_id=user.pk,
+                    scope="Cohort",
+                )
+                .exclude(item_id__in=my_cohorts)
+                .values_list("item_id", flat=True)
+            )
+
+            my_changed_hog_functions = list(
+                ActivityLog.objects.filter(
+                    team_id=self.team.id,
+                    activity__in=interesting_changes,
+                    user_id=user.pk,
+                    scope="HogFunction",
+                )
+                .exclude(item_id__in=my_hog_functions)
+                .values_list("item_id", flat=True)
+            )
+
+            last_read_date = (
+                NotificationViewed.objects.filter(user=user).values_list("last_viewed_activity_date", flat=True).first()
+            )
             last_read_filter = ""
 
             if last_read_date and params.get("unread") == "true":
-                last_read_filter = f"AND created_at > '{last_read_date.last_viewed_activity_date.isoformat()}'"
+                last_read_filter = f"AND created_at > '{last_read_date.isoformat()}'"
 
         with timer("query_for_candidate_ids"):
             # before we filter to include only the important changes,
@@ -218,6 +286,8 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
                             & Q(id__in=deduplicated_notebook_activity_ids)
                         )
                         | Q(Q(scope="Comment") & Q(item_id__in=my_comments))
+                        | Q(Q(scope="Cohort") & Q(item_id__in=my_cohorts))
+                        | Q(Q(scope="HogFunction") & Q(item_id__in=my_hog_functions))
                     )
                     | Q(
                         # don't want to see creation of these things since that was before the user edited these things
@@ -231,6 +301,8 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
                                 & Q(id__in=deduplicated_notebook_activity_ids)
                             )
                             | Q(Q(scope="Comment") & Q(item_id__in=my_changed_comments))
+                            | Q(Q(scope="Cohort") & Q(item_id__in=my_changed_cohorts))
+                            | Q(Q(scope="HogFunction") & Q(item_id__in=my_changed_hog_functions))
                         )
                     )
                 )
@@ -238,9 +310,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             )
 
             if last_read_date and params.get("unread") == "true":
-                other_peoples_changes = other_peoples_changes.filter(
-                    created_at__gt=last_read_date.last_viewed_activity_date
-                )
+                other_peoples_changes = other_peoples_changes.filter(created_at__gt=last_read_date)
 
         with timer("query_for_data"):
             page_of_data = other_peoples_changes[:10]
@@ -254,7 +324,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             status=status.HTTP_200_OK,
             data={
                 "results": serialized_data,
-                "last_read": last_read_date.last_viewed_activity_date if last_read_date else None,
+                "last_read": last_read_date if last_read_date else None,
             },
         )
 

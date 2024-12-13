@@ -1,8 +1,7 @@
 from typing import cast
 
-from django.db.models import Model, Prefetch, QuerySet
+from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
-from django.views import View
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -23,7 +22,7 @@ class OrganizationMemberObjectPermissions(BasePermission):
 
     message = "Your cannot edit other organization members."
 
-    def has_object_permission(self, request: Request, view: View, membership: OrganizationMembership) -> bool:
+    def has_object_permission(self, request: Request, view, membership: OrganizationMembership) -> bool:
         if request.method in SAFE_METHODS:
             return True
         organization = extract_organization(membership, view)
@@ -42,6 +41,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
+    last_login = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = OrganizationMembership
@@ -53,6 +53,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
             "updated_at",
             "is_2fa_enabled",
             "has_social_auth",
+            "last_login",
         ]
         read_only_fields = ["id", "joined_at", "updated_at"]
 
@@ -79,7 +80,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
             setattr(updated_membership, attr, value)
         updated_membership.save()
         if level_changed:
-            self.context["request"].user.update_billing_admin_emails(updated_membership.organization)
+            self.context["request"].user.update_billing_organization_users(updated_membership.organization)
         return updated_membership
 
 
@@ -107,6 +108,7 @@ class OrganizationMemberViewSet(
             ),
             Prefetch("user__social_auth", queryset=UserSocialAuth.objects.all()),
         )
+        .annotate(last_login=F("user__last_login"))
     )
     lookup_field = "user__uuid"
 
@@ -121,14 +123,17 @@ class OrganizationMemberViewSet(
         if self.action == "list":
             params = self.request.GET.dict()
 
+            if "email" in params:
+                queryset = queryset.filter(user__email=params["email"])
+
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])
 
-        order = self.request.GET.get("order", None)
-        if order:
-            queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("-joined_at")
+            order = self.request.GET.get("order", None)
+            if order:
+                queryset = queryset.order_by(order)
+            else:
+                queryset = queryset.order_by("-joined_at")
 
         return queryset
 

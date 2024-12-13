@@ -15,9 +15,13 @@ export function HedgehogButton(): JSX.Element {
 
     useEffect(() => {
         if (heatmapEnabled) {
-            hedgehogActor?.setAnimation('heatmaps')
+            hedgehogActor?.setOnFire(1)
         }
     }, [heatmapEnabled])
+
+    useEffect(() => {
+        return hedgehogActor?.setupKeyboardListeners()
+    }, [hedgehogActor])
 
     return (
         <>

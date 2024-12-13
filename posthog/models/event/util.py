@@ -136,8 +136,12 @@ def bulk_create_events(
         timestamp = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
 
         elements_chain = ""
-        if event.get("elements") and len(event["elements"]) > 0:
-            elements_chain = elements_to_string(elements=event.get("elements"))  # type: ignore
+        if tentative_elements_chain := event.get("elements_chain"):
+            assert isinstance(tentative_elements_chain, str)
+            elements_chain = tentative_elements_chain
+        elif tentative_elements := event.get("elements"):
+            assert isinstance(tentative_elements, list)
+            elements_chain = elements_to_string(elements=tentative_elements)
 
         inserts.append(
             """(
@@ -169,7 +173,7 @@ def bulk_create_events(
         )
 
         #  use person properties mapping to populate person properties in given event
-        team_id = event["team"].pk
+        team_id = event.get("team_id") or event["team"].pk
         person_mode = event.get("person_mode", "full")
         if person_mapping and person_mapping.get(event["distinct_id"]):
             person = person_mapping[event["distinct_id"]]
@@ -224,11 +228,12 @@ def bulk_create_events(
 
                 except Group.DoesNotExist:
                     continue
+        properties = event.get("properties", {})
 
         event = {
             "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),
             "event": event["event"],
-            "properties": json.dumps(event["properties"]) if event.get("properties") else "{}",
+            "properties": json.dumps(properties),
             "timestamp": timestamp,
             "team_id": team_id,
             "distinct_id": str(event["distinct_id"]),

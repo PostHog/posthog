@@ -2,14 +2,22 @@ import { IconTrending } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { useState } from 'react'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
-import { AnyResponseType, WebOverviewItem, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
+import {
+    AnyResponseType,
+    WebOverviewItem,
+    WebOverviewItemKind,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+} from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -34,11 +42,14 @@ export function WebOverview(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
+    const { featureFlags } = useValues(featureFlagLogic)
     const { response, responseLoading } = useValues(logic)
 
     const webOverviewQueryResponse = response as WebOverviewQueryResponse | undefined
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
+
+    const numSkeletons = props.query.conversionGoal ? 4 : featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LCP_SCORE] ? 6 : 5
 
     return (
         <>
@@ -47,7 +58,7 @@ export function WebOverview(props: {
                 minWidthRems={OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS + 2}
             >
                 {responseLoading
-                    ? range(5).map((i) => <WebOverviewItemCellSkeleton key={i} />)
+                    ? range(numSkeletons).map((i) => <WebOverviewItemCellSkeleton key={i} />)
                     : webOverviewQueryResponse?.results?.map((item) => (
                           <WebOverviewItemCell key={item.key} item={item} />
                       )) || []}
@@ -130,35 +141,26 @@ const formatPercentage = (x: number, options?: { precise?: boolean }): string =>
         return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
     } else if (x >= 1000) {
         return humanFriendlyLargeNumber(x) + '%'
-    } else {
-        return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 0 })
     }
+    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
 }
-
-const formatSeconds = (x: number): string => humanFriendlyDuration(Math.round(x))
 
 const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     if (options?.precise) {
         return x.toLocaleString()
-    } else {
-        return humanFriendlyLargeNumber(x)
     }
+    return humanFriendlyLargeNumber(x)
 }
 
-const formatItem = (
-    value: number | undefined,
-    kind: WebOverviewItem['kind'],
-    options?: { precise?: boolean }
-): string => {
+const formatItem = (value: number | undefined, kind: WebOverviewItemKind, options?: { precise?: boolean }): string => {
     if (value == null) {
         return '-'
     } else if (kind === 'percentage') {
         return formatPercentage(value, options)
     } else if (kind === 'duration_s') {
-        return formatSeconds(value)
-    } else {
-        return formatUnit(value, options)
+        return humanFriendlyDuration(value, { secondsPrecision: 3 })
     }
+    return formatUnit(value, options)
 }
 
 const labelFromKey = (key: string): string => {
@@ -173,6 +175,14 @@ const labelFromKey = (key: string): string => {
             return 'Session duration'
         case 'bounce rate':
             return 'Bounce rate'
+        case 'lcp score':
+            return 'LCP Score'
+        case 'conversion rate':
+            return 'Conversion rate'
+        case 'total conversions':
+            return 'Total conversions'
+        case 'unique conversions':
+            return 'Unique conversions'
         default:
             return key
                 .split(' ')

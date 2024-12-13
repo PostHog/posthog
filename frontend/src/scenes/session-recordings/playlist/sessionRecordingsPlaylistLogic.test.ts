@@ -1,28 +1,48 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import {
+    convertLegacyFiltersToUniversalFilters,
+    convertUniversalFiltersToRecordingsQuery,
     DEFAULT_RECORDING_FILTERS,
-    DEFAULT_SIMPLE_RECORDING_FILTERS,
-    defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
 describe('sessionRecordingsPlaylistLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>
-    const aRecording = { id: 'abc', viewed: false, recording_duration: 10, console_error_count: 50 }
-    const bRecording = { id: 'def', viewed: false, recording_duration: 10, console_error_count: 100 }
+    const aRecording = {
+        id: 'abc',
+        viewed: false,
+        recording_duration: 10,
+        start_time: '2023-10-12T16:55:36.404000Z',
+        console_error_count: 50,
+    }
+    const bRecording = {
+        id: 'def',
+        viewed: false,
+        recording_duration: 10,
+        start_time: '2023-05-12T16:55:36.404000Z',
+        console_error_count: 100,
+    }
     const listOfSessionRecordings = [aRecording, bRecording]
+    const offsetRecording = {
+        id: `recording_offset_by_${listOfSessionRecordings.length}`,
+        viewed: false,
+        recording_duration: 10,
+        start_time: '2023-08-12T16:55:36.404000Z',
+        console_error_count: 75,
+    }
 
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/session_recordings/properties': {
+                '/api/environments/:team_id/session_recordings/properties': {
                     results: [
                         { id: 's1', properties: { blah: 'blah1' } },
                         { id: 's2', properties: { blah: 'blah2' } },
@@ -31,7 +51,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
                 'api/projects/:team/property_definitions/seen_together': { $pageview: true },
 
-                '/api/projects/:team/session_recordings': (req) => {
+                '/api/environments/:team_id/session_recordings': (req) => {
                     const { searchParams } = req.url
                     if (
                         (searchParams.get('events')?.length || 0) > 0 &&
@@ -54,7 +74,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         return [
                             200,
                             {
-                                results: [`List of recordings offset by ${listOfSessionRecordings.length}`],
+                                results: [offsetRecording],
                             },
                         ]
                     } else if (
@@ -67,7 +87,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 results: ['Recordings filtered by date'],
                             },
                         ]
-                    } else if (JSON.parse(searchParams.get('session_recording_duration') ?? '{}')['value'] === 600) {
+                    } else if (
+                        (searchParams.get('having_predicates')?.length || 0) > 0 &&
+                        JSON.parse(searchParams.get('having_predicates') || '[]')[0]['value'] === 600
+                    ) {
                         return [
                             200,
                             {
@@ -93,6 +116,11 @@ describe('sessionRecordingsPlaylistLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+    })
+
+    afterEach(() => {
+        localStorage.clear()
     })
 
     describe('global logic', () => {
@@ -164,33 +192,39 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
 
         describe('ordering', () => {
+            afterEach(() => {
+                logic.actions.setFilters({ order: 'start_time' })
+                logic.actions.loadSessionRecordings()
+            })
+
             it('is set by setOrderBy, loads filtered results and orders the non pinned recordings', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setOrderBy('console_error_count')
+                    logic.actions.setFilters({ order: 'console_error_count' })
                 })
-                    .toDispatchActions(['setOrderBy', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
+                    .toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({
-                        orderBy: 'console_error_count',
+                        filters: expect.objectContaining({ order: 'console_error_count' }),
                     })
 
                 expect(logic.values.otherRecordings.map((r) => r.console_error_count)).toEqual([100, 50])
             })
 
-            it('adds an offset when not using latest ordering', async () => {
+            it('adds an offset', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setOrderBy('console_error_count')
+                    logic.actions.loadSessionRecordings()
                 })
-                    .toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess'])
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         sessionRecordings: listOfSessionRecordings,
                     })
 
                 await expectLogic(logic, () => {
-                    logic.actions.maybeLoadSessionRecordings('newer')
+                    logic.actions.loadSessionRecordings('older')
                 })
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
-                        sessionRecordings: [...listOfSessionRecordings, 'List of recordings offset by 2'],
+                        // reorganises recordings based on start_time
+                        sessionRecordings: [aRecording, offsetRecording, bRecording],
                     })
             })
         })
@@ -199,61 +233,93 @@ describe('sessionRecordingsPlaylistLogic', () => {
             it('starts with default values', () => {
                 expectLogic(logic).toMatchValues({
                     filters: DEFAULT_RECORDING_FILTERS,
-                    simpleFilters: DEFAULT_SIMPLE_RECORDING_FILTERS,
                 })
             })
 
-            it('is set by setAdvancedFilters and loads filtered results and sets the url', async () => {
+            it('is set by setFilters and loads filtered results and sets the url', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setAdvancedFilters({
-                        events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                    logic.actions.setFilters({
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                                },
+                            ],
+                        },
                     })
                 })
-                    .toDispatchActions(['setAdvancedFilters', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
+                    .toDispatchActions(['setFilters', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         sessionRecordings: ['List of recordings filtered by events'],
                     })
-                expect(router.values.searchParams.advancedFilters).toHaveProperty('events', [
-                    { id: '$autocapture', type: 'events', order: 0, name: '$autocapture' },
-                ])
+                expect(router.values.searchParams.filters).toHaveProperty('filter_group', {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                        },
+                    ],
+                })
             })
 
             it('reads filters from the logic props', async () => {
                 logic = sessionRecordingsPlaylistLogic({
                     key: 'tests-with-props',
-                    advancedFilters: {
-                        events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
-                    },
-                    simpleFilters: {
-                        properties: [
-                            {
-                                key: '$geoip_country_name',
-                                value: ['Australia'],
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                        ],
+                    filters: {
+                        duration: [],
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [
+                                        { id: '$autocapture', type: 'events', order: 0, name: '$autocapture' },
+                                        {
+                                            key: '$geoip_country_name',
+                                            value: ['Australia'],
+                                            operator: PropertyOperator.Exact,
+                                            type: PropertyFilterType.Person,
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
                     },
                 })
                 logic.mount()
 
                 await expectLogic(logic).toMatchValues({
-                    advancedFilters: {
-                        events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
-                    },
-                    simpleFilters: {
-                        properties: [
-                            { key: '$geoip_country_name', value: ['Australia'], operator: 'exact', type: 'person' },
-                        ],
+                    filters: {
+                        duration: [],
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [
+                                        { id: '$autocapture', type: 'events', order: 0, name: '$autocapture' },
+                                        {
+                                            key: '$geoip_country_name',
+                                            value: ['Australia'],
+                                            operator: PropertyOperator.Exact,
+                                            type: PropertyFilterType.Person,
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
                     },
                 })
             })
         })
 
         describe('date range', () => {
-            it('is set by setAdvancedFilters and fetches results from server and sets the url', async () => {
+            it('is set by setFilters and fetches results from server and sets the url', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setAdvancedFilters({
+                    logic.actions.setFilters({
                         date_from: '2021-10-05',
                         date_to: '2021-10-20',
                     })
@@ -264,44 +330,51 @@ describe('sessionRecordingsPlaylistLogic', () => {
                             date_to: '2021-10-20',
                         }),
                     })
-                    .toDispatchActions(['setAdvancedFilters', 'loadSessionRecordingsSuccess'])
+                    .toDispatchActions(['setFilters', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by date'] })
 
-                expect(router.values.searchParams.advancedFilters).toHaveProperty('date_from', '2021-10-05')
-                expect(router.values.searchParams.advancedFilters).toHaveProperty('date_to', '2021-10-20')
+                expect(router.values.searchParams.filters).toHaveProperty('date_from', '2021-10-05')
+                expect(router.values.searchParams.filters).toHaveProperty('date_to', '2021-10-20')
             })
         })
+
         describe('duration filter', () => {
-            it('is set by setAdvancedFilters and fetches results from server and sets the url', async () => {
+            it('is set by setFilters and fetches results from server and sets the url', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setAdvancedFilters({
-                        session_recording_duration: {
-                            type: PropertyFilterType.Recording,
-                            key: 'duration',
-                            value: 600,
-                            operator: PropertyOperator.LessThan,
-                        },
-                    })
-                })
-                    .toMatchValues({
-                        filters: expect.objectContaining({
-                            session_recording_duration: {
+                    logic.actions.setFilters({
+                        duration: [
+                            {
                                 type: PropertyFilterType.Recording,
                                 key: 'duration',
                                 value: 600,
                                 operator: PropertyOperator.LessThan,
                             },
+                        ],
+                    })
+                })
+                    .toMatchValues({
+                        filters: expect.objectContaining({
+                            duration: [
+                                {
+                                    key: 'duration',
+                                    operator: PropertyOperator.LessThan,
+                                    type: PropertyFilterType.Recording,
+                                    value: 600,
+                                },
+                            ],
                         }),
                     })
-                    .toDispatchActions(['setAdvancedFilters', 'loadSessionRecordingsSuccess'])
+                    .toDispatchActions(['setFilters', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by duration'] })
 
-                expect(router.values.searchParams.advancedFilters).toHaveProperty('session_recording_duration', {
-                    type: PropertyFilterType.Recording,
-                    key: 'duration',
-                    value: 600,
-                    operator: PropertyOperator.LessThan,
-                })
+                expect(router.values.searchParams.filters).toHaveProperty('duration', [
+                    {
+                        type: PropertyFilterType.Recording,
+                        key: 'duration',
+                        value: 600,
+                        operator: PropertyOperator.LessThan,
+                    },
+                ])
             })
         })
 
@@ -329,8 +402,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toFinishAllListeners()
                     .toMatchValues({
                         sessionRecordingsResponse: {
-                            results: listOfSessionRecordings,
+                            order: 'start_time',
                             has_next: undefined,
+                            results: listOfSessionRecordings,
                         },
                         sessionRecordings: listOfSessionRecordings,
                     })
@@ -341,6 +415,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toFinishAllListeners()
                     .toMatchValues({
                         sessionRecordingsResponse: {
+                            has_next: undefined,
+                            order: 'start_time',
                             results: [
                                 {
                                     ...aRecording,
@@ -360,13 +436,21 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     })
             })
 
-            it('is set by setAdvancedFilters and loads filtered results', async () => {
+            it('is set by setFilters and loads filtered results', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setAdvancedFilters({
-                        events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                    logic.actions.setFilters({
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                                },
+                            ],
+                        },
                     })
                 })
-                    .toDispatchActions(['setAdvancedFilters', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
+                    .toDispatchActions(['setFilters', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         sessionRecordings: ['List of recordings filtered by events'],
                     })
@@ -376,64 +460,83 @@ describe('sessionRecordingsPlaylistLogic', () => {
         it('reads filters from the URL', async () => {
             router.actions.push('/replay', {
                 filters: {
-                    actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
-                    events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
                     date_from: '2021-10-01',
                     date_to: '2021-10-10',
-                    offset: 50,
-                    session_recording_duration: {
-                        type: PropertyFilterType.Recording,
-                        key: 'duration',
-                        value: 600,
-                        operator: PropertyOperator.LessThan,
+                    duration: [{ key: 'duration', operator: 'lt', type: 'recording', value: 600 }],
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    { id: '$autocapture', name: '$autocapture', order: 0, type: 'events' },
+                                    { id: '1', name: 'View Recording', order: 0, type: 'actions' },
+                                ],
+                            },
+                        ],
                     },
+                    filter_test_accounts: false,
                 },
             })
 
             await expectLogic(logic)
-                .toDispatchActions(['setAdvancedFilters'])
+                .toDispatchActions(['setFilters'])
                 .toMatchValues({
                     filters: {
-                        events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
-                        actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
                         date_from: '2021-10-01',
                         date_to: '2021-10-10',
-                        offset: 50,
-                        console_logs: [],
-                        console_search_query: '',
-                        properties: [],
-                        session_recording_duration: {
-                            type: PropertyFilterType.Recording,
-                            key: 'duration',
-                            value: 600,
-                            operator: PropertyOperator.LessThan,
+                        duration: [{ key: 'duration', operator: 'lt', type: 'recording', value: 600 }],
+                        filter_group: {
+                            type: 'AND',
+                            values: [
+                                {
+                                    type: 'AND',
+                                    values: [
+                                        { id: '$autocapture', name: '$autocapture', order: 0, type: 'events' },
+                                        { id: '1', name: 'View Recording', order: 0, type: 'actions' },
+                                    ],
+                                },
+                            ],
                         },
+                        filter_test_accounts: false,
+                        order: 'start_time',
                     },
                 })
         })
 
         it('reads filters from the URL and defaults the duration filter', async () => {
             router.actions.push('/replay', {
-                advancedFilters: {
-                    actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                filters: {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                            },
+                        ],
+                    },
                 },
             })
 
             await expectLogic(logic)
-                .toDispatchActions(['setAdvancedFilters'])
+                .toDispatchActions(['setFilters'])
                 .toMatchValues({
-                    advancedFilters: expect.objectContaining({
-                        actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
-                    }),
                     filters: {
-                        actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
-                        session_recording_duration: defaultRecordingDurationFilter,
-                        console_logs: [],
-                        console_search_query: '',
                         date_from: '-3d',
                         date_to: null,
-                        events: [],
-                        properties: [],
+                        duration: [{ key: 'active_seconds', operator: 'gt', type: 'recording', value: 5 }],
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [{ id: '1', name: 'View Recording', order: 0, type: 'actions' }],
+                                },
+                            ],
+                        },
+                        filter_test_accounts: false,
+                        order: 'start_time',
                     },
                 })
         })
@@ -446,10 +549,18 @@ describe('sessionRecordingsPlaylistLogic', () => {
             })
 
             await expectLogic(logic)
-                .toDispatchActions(['setAdvancedFilters'])
+                .toDispatchActions(['setFilters'])
                 .toMatchValues({
-                    advancedFilters: expect.objectContaining({
-                        events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                    filters: expect.objectContaining({
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                                },
+                            ],
+                        },
                     }),
                 })
         })
@@ -469,19 +580,26 @@ describe('sessionRecordingsPlaylistLogic', () => {
             })
 
             await expectLogic(logic)
-                .toDispatchActions(['setSimpleFilters'])
+                .toDispatchActions(['setFilters'])
                 .toMatchValues({
-                    simpleFilters: {
-                        events: [],
-                        properties: [
-                            {
-                                key: '$geoip_country_name',
-                                value: ['Australia'],
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                        ],
-                    },
+                    filters: expect.objectContaining({
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [
+                                        {
+                                            key: '$geoip_country_name',
+                                            value: ['Australia'],
+                                            operator: PropertyOperator.Exact,
+                                            type: PropertyFilterType.Person,
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    }),
                 })
         })
     })
@@ -525,17 +643,47 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         it('counts console log filters', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setAdvancedFilters({
-                    console_logs: ['warn', 'error'],
-                } satisfies Partial<RecordingFilters>)
-            }).toMatchValues({ totalFiltersCount: 2 })
+                logic.actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'level',
+                                        operator: PropertyOperator.IContains,
+                                        value: ['warn', 'error'],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })
+            }).toMatchValues({ totalFiltersCount: 1 })
         })
 
         it('counts console log search query', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setAdvancedFilters({
-                    console_search_query: 'this is a test',
-                } satisfies Partial<RecordingFilters>)
+                logic.actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'message',
+                                        operator: PropertyOperator.Exact,
+                                        value: 'this is a test',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })
             }).toMatchValues({ totalFiltersCount: 1 })
         })
     })
@@ -552,9 +700,24 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         it('resets console log filters', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setAdvancedFilters({
-                    console_logs: ['warn', 'error'],
-                } satisfies Partial<RecordingFilters>)
+                logic.actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'level',
+                                        operator: PropertyOperator.IContains,
+                                        value: ['warn', 'error'],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })
                 logic.actions.resetFilters()
             }).toMatchValues({ totalFiltersCount: 0 })
         })
@@ -581,6 +744,154 @@ describe('sessionRecordingsPlaylistLogic', () => {
             logic.mount()
 
             expectLogic(logic).toMatchValues({ showOtherRecordings: true })
+        })
+    })
+
+    describe('convertUniversalFiltersToRecordingsQuery', () => {
+        it('expands the visited_page filter to a pageview with $current_url property', () => {
+            const result = convertUniversalFiltersToRecordingsQuery({
+                ...DEFAULT_RECORDING_FILTERS,
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: PropertyFilterType.Recording,
+                                    key: 'visited_page',
+                                    value: ['https://example-url.com'],
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                order: 'console_error_count',
+            })
+
+            expect(result).toEqual({
+                actions: [],
+                console_log_filters: [],
+                date_from: '-3d',
+                date_to: null,
+                events: [
+                    {
+                        id: '$pageview',
+                        name: '$pageview',
+                        properties: [
+                            {
+                                key: '$current_url',
+                                operator: 'exact',
+                                type: 'event',
+                                value: ['https://example-url.com'],
+                            },
+                        ],
+                        type: 'events',
+                    },
+                ],
+                filter_test_accounts: false,
+                having_predicates: [
+                    {
+                        key: 'active_seconds',
+                        operator: 'gt',
+                        type: 'recording',
+                        value: 5,
+                    },
+                ],
+                kind: 'RecordingsQuery',
+                operand: 'AND',
+                order: 'console_error_count',
+                properties: [],
+            })
+        })
+    })
+
+    describe('convertLegacyFiltersToUniversalFilters', () => {
+        it('should return the defaults if values are missing', () => {
+            const result = convertLegacyFiltersToUniversalFilters(undefined, {})
+            expect(result).toEqual({
+                date_from: '-3d',
+                date_to: null,
+                duration: [
+                    {
+                        key: 'active_seconds',
+                        operator: 'gt',
+                        type: 'recording',
+                        value: 5,
+                    },
+                ],
+                filter_group: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [],
+                        },
+                    ],
+                },
+                filter_test_accounts: false,
+                order: 'start_time',
+            })
+        })
+        it('should parse even the most complex queries', () => {
+            const result = convertLegacyFiltersToUniversalFilters(
+                {
+                    events: [{ key: 'email', value: ['email@posthog.com'], operator: 'exact', type: 'person' }],
+                },
+                {
+                    date_from: '-7d',
+                    events: [{ key: 'email', value: ['test@posthog.com'], operator: 'exact', type: 'person' }],
+                    console_logs: ['info', 'warn'],
+                    console_search_query: 'this is a query log',
+                    filter_test_accounts: true,
+                    duration_type_filter: 'active_seconds',
+                    session_recording_duration: {
+                        type: PropertyFilterType.Recording,
+                        key: 'duration',
+                        value: 3600,
+                        operator: PropertyOperator.GreaterThan,
+                    },
+                }
+            )
+            expect(result).toEqual({
+                date_from: '-7d',
+                date_to: null,
+                duration: [
+                    {
+                        key: 'active_seconds',
+                        operator: 'gt',
+                        type: 'recording',
+                        value: 3600,
+                    },
+                ],
+                filter_group: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                { key: 'email', value: ['email@posthog.com'], operator: 'exact', type: 'person' },
+                                { key: 'email', value: ['test@posthog.com'], operator: 'exact', type: 'person' },
+                                {
+                                    key: 'level',
+                                    operator: 'exact',
+                                    type: 'log_entry',
+                                    value: ['info', 'warn'],
+                                },
+                                {
+                                    key: 'message',
+                                    operator: 'exact',
+                                    type: 'log_entry',
+                                    value: ['this is a query log'],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                filter_test_accounts: true,
+                order: 'start_time',
+            })
         })
     })
 })

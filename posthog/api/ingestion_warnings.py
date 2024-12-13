@@ -17,11 +17,30 @@ class IngestionWarningsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         start_date = now() - timedelta(days=30)
         warning_events = sync_execute(
             """
-            SELECT type, timestamp, details
-            FROM ingestion_warnings
-            WHERE team_id = %(team_id)s
-              AND timestamp > %(start_date)s
-            ORDER BY timestamp DESC
+            SELECT
+                type,
+                count(details) as total_count,
+                arraySlice(groupArray((details, timestamp)), 1, 50) as top_50_recent_examples,
+                groupUniqArray((day_count, day)) as daily_counts
+            FROM
+                (
+                    SELECT
+                        type,
+                        details,
+                        timestamp,
+                        toDate(timestamp) as day,
+                        count(details) OVER (PARTITION BY type, toDate(timestamp)) as day_count
+                    FROM
+                        ingestion_warnings
+                    WHERE
+                        team_id = %(team_id)s
+                        AND timestamp > %(start_date)s
+                    ORDER BY
+                        type,
+                        timestamp DESC
+                )
+            GROUP BY
+                type
         """,
             {
                 "team_id": self.team_id,
@@ -34,17 +53,20 @@ class IngestionWarningsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
 def _calculate_summaries(warning_events):
     summaries = {}
-    for warning_type, timestamp, details in warning_events:
-        details = json.loads(details)
-        if warning_type not in summaries:
-            summaries[warning_type] = {
-                "type": warning_type,
-                "lastSeen": timestamp,
-                "warnings": [],
-                "count": 0,
-            }
-
-        summaries[warning_type]["warnings"].append({"type": warning_type, "timestamp": timestamp, "details": details})
-        summaries[warning_type]["count"] += 1
+    for warning_type, count, examples, sparkline in warning_events:
+        summaries[warning_type] = {
+            "type": warning_type,
+            "lastSeen": examples[0][1] if examples else None,
+            "sparkline": sparkline,
+            "warnings": [
+                {
+                    "type": warning_type,
+                    "timestamp": timestamp,
+                    "details": json.loads(details),
+                }
+                for details, timestamp in examples
+            ],
+            "count": count,
+        }
 
     return sorted(summaries.values(), key=lambda summary: summary["lastSeen"], reverse=True)

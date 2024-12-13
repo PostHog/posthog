@@ -14,9 +14,8 @@ concurrency:
 
 jobs:
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
         name: Determine need to run E2E checks
         # Set job outputs to values from filter step
         outputs:
@@ -34,7 +33,6 @@ jobs:
                         # code completely
                         - 'ee/**'
                         - 'posthog/**'
-                        - 'hogvm/**'
                         - 'bin/*'
                         - frontend/**/*
                         - requirements.txt
@@ -55,7 +53,7 @@ jobs:
     chunks:
         needs: changes
         name: Cypress preparation
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         outputs:
             chunks: ${{ steps.chunk.outputs.chunks }}
@@ -69,7 +67,7 @@ jobs:
 
     container:
         name: Build and cache container image
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 60
         needs: [changes]
         permissions:
@@ -93,7 +91,7 @@ jobs:
 
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 60
         needs: [chunks, changes, container]
         permissions:
@@ -192,6 +190,8 @@ jobs:
                   OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
                   GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                   CELERY_METRICS_PORT=8999
+                  CLOUD_DEPLOYMENT=E2E
+                  ENCRYPTION_SALT_KEYS=00beef0000beef0000beef0000beef00
                   EOT
 
             - name: Start PostHog
@@ -232,6 +232,9 @@ jobs:
                   config: retries=2
                   spec: ${{ matrix.chunk }}
                   install: false
+                  # We were seeing suprising crashes in headless mode
+                  # See https://github.com/cypress-io/cypress/issues/28893#issuecomment-1956480875
+                  headed: true
               env:
                   E2E_TESTING: 1
                   OPT_OUT_CAPTURE: 0
@@ -276,9 +279,10 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         needs: [cypress]
-        if: needs.changes.outputs.shouldTriggerCypress == 'true'
+        if: needs.changes.outputs.shouldTriggerCypress == 'true' &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
         steps:
             - name: Calculate running time
               run: |
@@ -302,8 +306,9 @@ jobs:
                   echo running_time_run_attempt=${run_attempt} >> $GITHUB_ENV
                   echo running_time_run_id=${run_id} >> $GITHUB_ENV
                   echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
+
             - name: Capture running time to PostHog
-              if: github.repository == 'PostHog/posthog'
+              if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}

@@ -14,13 +14,14 @@
       <env name="REPLAY_EMBEDDINGS_ALLOWED_TEAM" value="1,2,3" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
-    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/env/bin" />
+    <option name="SDK_NAME" value="Python 3.11 (posthog)" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
     <option name="IS_MODULE_SDK" value="true" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
-    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/env/bin/celery" />
-    <option name="PARAMETERS" value="-A posthog worker --without-heartbeat --without-mingle --loglevel=DEBUG --pool=threads" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/manage.py" />
+    <option name="PARAMETERS" value="run_autoreload_celery --type=worker" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

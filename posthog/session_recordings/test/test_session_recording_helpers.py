@@ -403,6 +403,87 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
     ]
 
 
+def test_new_ingestion_many_small_non_full_snapshots_are_separated(raw_snapshot_events, mocker: MockerFixture):
+    mocker.patch(
+        "posthog.models.utils.UUIDT",
+        return_value="0178495e-8521-0000-8e1c-2652fa57099b",
+    )
+    mocker.patch("time.time", return_value=0)
+
+    # this will have to be split into multiple kafka messages
+    too_big_payload = [
+        "".join(random.choices(string.ascii_uppercase + string.digits, k=124)),
+    ] * 20
+    too_big_payload.append("".join(random.choices(string.ascii_uppercase + string.digits, k=512)))
+    too_big_payload.append("".join(random.choices(string.ascii_uppercase + string.digits, k=512)))
+    too_big_payload.append("".join(random.choices(string.ascii_uppercase + string.digits, k=1024)))
+
+    events = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {
+                    "type": 7,
+                    "timestamp": 234,
+                    "something": x,
+                },
+                "distinct_id": "abc123",
+            },
+        }
+        for x in too_big_payload
+    ]
+    capture_output = list(mock_capture_flow(events, max_size_bytes=2000))[1]
+
+    # the list was split multiple times until likely to all fit into kafka messages
+    snapshot_items_lengths = [len(x["properties"]["$snapshot_items"]) for x in capture_output]
+    assert snapshot_items_lengths == [5, 6, 6, 3, 1, 2]
+    assert sum(snapshot_items_lengths) == 23
+
+
+def test_new_ingestion_many_small_non_full_snapshots_are_separated_without_looping_forever(
+    raw_snapshot_events, mocker: MockerFixture
+):
+    mocker.patch(
+        "posthog.models.utils.UUIDT",
+        return_value="0178495e-8521-0000-8e1c-2652fa57099b",
+    )
+    mocker.patch("time.time", return_value=0)
+
+    # this will have to be split into multiple kafka messages
+    too_big_payload = [
+        "".join(random.choices(string.ascii_uppercase + string.digits, k=256)),
+    ] * 200
+    too_big_payload.append("".join(random.choices(string.ascii_uppercase + string.digits, k=1024)))
+    too_big_payload.append("".join(random.choices(string.ascii_uppercase + string.digits, k=2048)))
+    too_big_payload.append("".join(random.choices(string.ascii_uppercase + string.digits, k=4096)))
+
+    events = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {
+                    "type": 7,
+                    "timestamp": 234,
+                    "something": x,
+                },
+                "distinct_id": "abc123",
+            },
+        }
+        for x in too_big_payload
+    ]
+    capture_output = list(mock_capture_flow(events, max_size_bytes=2000))[1]
+
+    # the list was split multiple times until likely to all fit into kafka messages
+    snapshot_items_lengths = [len(x["properties"]["$snapshot_items"]) for x in capture_output]
+    # we didn't emit every item individually
+    assert len(snapshot_items_lengths) < len(too_big_payload)
+    assert sum(snapshot_items_lengths) == len(too_big_payload)
+
+
 def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_events, mocker: MockerFixture):
     mocker.patch(
         "posthog.models.utils.UUIDT",
@@ -461,7 +542,7 @@ def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_even
         159,
     ]
 
-    space_with_headroom = math.ceil((106 + 1072 + 50) * 1.05)
+    space_with_headroom = math.ceil((106 + 1072 + 50) * 1.10)
     assert list(mock_capture_flow(events, max_size_bytes=space_with_headroom)[1]) == [
         {
             "event": "$snapshot_items",

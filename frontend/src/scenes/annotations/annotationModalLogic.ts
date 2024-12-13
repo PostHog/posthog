@@ -2,7 +2,6 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
-import { AnnotationScope, AnnotationType, InsightModel, ProductKey } from '~/types'
+import { AnnotationScope, AnnotationType, DashboardBasicType, QueryBasedInsightModel } from '~/types'
 
 import type { annotationModalLogicType } from './annotationModalLogicType'
 
@@ -18,14 +17,16 @@ export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
 export const annotationScopeToName: Record<AnnotationScope, string> = {
     [AnnotationScope.Insight]: 'Insight',
+    [AnnotationScope.Dashboard]: 'Dashboard',
     [AnnotationScope.Project]: 'Project',
     [AnnotationScope.Organization]: 'Organization',
 }
 
 export const annotationScopeToLevel: Record<AnnotationScope, number> = {
     [AnnotationScope.Insight]: 0,
-    [AnnotationScope.Project]: 1,
-    [AnnotationScope.Organization]: 2,
+    [AnnotationScope.Dashboard]: 1,
+    [AnnotationScope.Project]: 2,
+    [AnnotationScope.Organization]: 3,
 }
 
 export interface AnnotationModalForm {
@@ -33,6 +34,7 @@ export interface AnnotationModalForm {
     scope: AnnotationType['scope']
     content: AnnotationType['content']
     dashboardItemId: AnnotationType['dashboard_item'] | null
+    dashboardId: AnnotationType['dashboard_id'] | null
 }
 
 export const annotationModalLogic = kea<annotationModalLogicType>([
@@ -60,13 +62,23 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         ],
     }),
     actions({
-        openModalToCreateAnnotation: (initialDate?: Dayjs | null, insightId?: InsightModel['id'] | null) => ({
+        openModalToCreateAnnotation: (
+            initialDate?: Dayjs | null,
+            insightId?: QueryBasedInsightModel['id'] | null,
+            dashboardId?: DashboardBasicType['id'] | null
+        ) => ({
             initialDate,
             insightId,
+            dashboardId,
         }),
-        openModalToEditAnnotation: (annotation: AnnotationType, insightId?: InsightModel['id'] | null) => ({
+        openModalToEditAnnotation: (
+            annotation: AnnotationType,
+            insightId?: QueryBasedInsightModel['id'] | null,
+            dashboardId?: DashboardBasicType['id'] | null
+        ) => ({
             annotation,
             insightId,
+            dashboardId,
         }),
         closeModal: true,
     }),
@@ -95,20 +107,29 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         ],
     })),
     listeners(({ cache, actions, values }) => ({
-        openModalToEditAnnotation: ({ annotation: { date_marker, scope, content } }) => {
+        openModalToEditAnnotation: ({ annotation: { date_marker, scope, content }, insightId, dashboardId }) => {
             actions.setAnnotationModalValues({
                 dateMarker: dayjs(date_marker).tz(values.timezone),
                 scope,
                 content,
             })
+            if (insightId) {
+                actions.setAnnotationModalValue('dashboardItemId', insightId)
+            }
+            if (dashboardId) {
+                actions.setAnnotationModalValue('dashboardId', dashboardId)
+            }
         },
-        openModalToCreateAnnotation: ({ initialDate, insightId }) => {
+        openModalToCreateAnnotation: ({ initialDate, insightId, dashboardId }) => {
             actions.resetAnnotationModal()
             if (initialDate) {
                 actions.setAnnotationModalValue('dateMarker', initialDate)
             }
             if (insightId) {
                 actions.setAnnotationModalValue('dashboardItemId', insightId)
+            }
+            if (dashboardId) {
+                actions.setAnnotationModalValue('dashboardId', dashboardId)
             }
         },
         loadAnnotationsSuccess: ({ rawAnnotations }) => {
@@ -129,15 +150,6 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 return annotations.length === 0 && !annotationsLoading
             },
         ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user, s.featureFlags],
-            (user, featureFlags): boolean => {
-                return (
-                    !user?.has_seen_product_intro_for?.[ProductKey.ANNOTATIONS] &&
-                    !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
-                )
-            },
-        ],
     })),
     forms(({ actions, values }) => ({
         annotationModal: {
@@ -146,19 +158,24 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 content: '',
                 scope: AnnotationScope.Project,
                 dashboardItemId: null,
+                dashboardId: null,
             } as AnnotationModalForm,
             errors: ({ content }) => ({
                 content: !content?.trim() ? 'An annotation must have text content.' : null,
             }),
             submit: async (data) => {
-                const { dateMarker, content, scope, dashboardItemId } = data
+                const { dateMarker, content, scope, dashboardItemId, dashboardId } = data
+
                 if (values.existingModalAnnotation) {
                     // annotationsModel's updateAnnotation inlined so that isAnnotationModalSubmitting works
                     const updatedAnnotation = await api.annotations.update(values.existingModalAnnotation.id, {
                         date_marker: dateMarker.toISOString(),
                         content,
                         scope,
+                        // update to new insight we're saving from
                         dashboard_item: dashboardItemId,
+                        // preserve existing dashboard id
+                        dashboard_id: values.existingModalAnnotation.dashboard_id,
                     })
                     actions.replaceAnnotation(updatedAnnotation)
                 } else {
@@ -168,6 +185,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         content,
                         scope,
                         dashboard_item: dashboardItemId,
+                        dashboard_id: dashboardId,
                     })
                     actions.appendAnnotations([createdAnnotation])
                 }

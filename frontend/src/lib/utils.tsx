@@ -21,10 +21,8 @@ import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
 import { LemonTagType } from './lemon-ui/LemonTag'
 import { getAppContext } from './utils/getAppContext'
 
-/**
- * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
- * Preferably create a dedicated file in utils/..
- */
+// WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
+// Preferably create a dedicated file in utils/..
 
 export function uuid(): string {
     return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
@@ -45,15 +43,27 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
 }
 
 // taken from https://stackoverflow.com/questions/10420352/converting-file-size-in-bytes-to-human-readable-string/10420404
-export const humanizeBytes = (fileSizeInBytes: number): string => {
+export const humanizeBytes = (fileSizeInBytes: number | null): string => {
+    if (fileSizeInBytes === null) {
+        return ''
+    }
+
     let i = -1
+    let convertedBytes = fileSizeInBytes
     const byteUnits = ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
     do {
-        fileSizeInBytes = fileSizeInBytes / 1024
+        convertedBytes = convertedBytes / 1024
         i++
-    } while (fileSizeInBytes > 1024)
+    } while (convertedBytes > 1024)
 
-    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + ' ' + byteUnits[i]
+    if (convertedBytes < 0.1) {
+        return fileSizeInBytes + ' bytes'
+    }
+    return convertedBytes.toFixed(2) + ' ' + byteUnits[i]
+}
+
+export function toSentenceCase(str: string): string {
+    return str.replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
@@ -114,6 +124,10 @@ export function percentage(
     maximumFractionDigits: number = 2,
     fixedPrecision: boolean = false
 ): string {
+    if (division === Infinity) {
+        return '∞%'
+    }
+
     return division.toLocaleString('en-US', {
         style: 'percent',
         maximumFractionDigits,
@@ -221,7 +235,19 @@ export const selectorOperatorMap: Record<string, string> = {
     is_not: "≠ doesn't equal",
 }
 
+export const cohortOperatorMap: Record<string, string> = {
+    in: 'user in',
+    not_in: 'user not in',
+}
+
+export const stickinessOperatorMap: Record<string, string> = {
+    exact: 'Exactly',
+    gte: 'At least',
+    lte: 'At most (but at least once)',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
+    ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
     ...numericOperatorMap,
@@ -229,6 +255,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...booleanOperatorMap,
     ...durationOperatorMap,
     ...selectorOperatorMap,
+    ...cohortOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -240,6 +267,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Boolean: booleanOperatorMap,
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
+    Cohort: cohortOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -256,7 +284,14 @@ export function isOperatorMulti(operator: PropertyOperator): boolean {
 
 export function isOperatorFlag(operator: PropertyOperator): boolean {
     // these filter operators can only be just set, no additional parameter
-    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(operator)
+    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet, PropertyOperator.In, PropertyOperator.NotIn].includes(
+        operator
+    )
+}
+
+export function isOperatorCohort(operator: PropertyOperator): boolean {
+    // these filter operators use value different ( to represent the number of the cohort )
+    return [PropertyOperator.In, PropertyOperator.NotIn].includes(operator)
 }
 
 export function isOperatorRegex(operator: PropertyOperator): boolean {
@@ -295,6 +330,10 @@ export function isObject(candidate: unknown): candidate is Record<string, unknow
 
 export function isEmptyObject(candidate: unknown): boolean {
     return isObject(candidate) && Object.keys(candidate).length === 0
+}
+
+export function isNonEmptyObject(candidate: unknown): candidate is Record<string, unknown> {
+    return isObject(candidate) && !isEmptyObject(candidate)
 }
 
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
@@ -411,6 +450,22 @@ export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIM
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
+/** Format currency from string with commas and a number of decimal places (defaults to 2). */
+export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
+    if (!d) {
+        d = '0.00'
+    }
+
+    let number: number
+    if (typeof d === 'string') {
+        number = parseFloat(d)
+    } else {
+        number = d
+    }
+
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
+}
+
 export function humanFriendlyLargeNumber(d: number): string {
     if (isNaN(d)) {
         return 'NaN'
@@ -457,13 +512,37 @@ export const humanFriendlyMilliseconds = (timestamp: number | undefined): string
 
     return `${(timestamp / 1000).toFixed(2)}s`
 }
-export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
+
+export function humanFriendlyDuration(
+    d: string | number | null | undefined,
+    {
+        maxUnits,
+        secondsPrecision,
+        secondsFixed,
+    }: { maxUnits?: number; secondsPrecision?: number; secondsFixed?: number } = {}
+): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
-    if (d === '' || d === null || d === undefined) {
+    if (d === '' || d === null || d === undefined || maxUnits === 0) {
         return ''
     }
     d = Number(d)
+    if (d < 0) {
+        return `-${humanFriendlyDuration(-d)}`
+    }
+    if (d === 0) {
+        return `0s`
+    }
+    if (d < 1) {
+        return `${Math.round(d * 1000)}ms`
+    }
+    if (d < 60) {
+        if (secondsPrecision != null) {
+            return `${parseFloat(d.toPrecision(secondsPrecision))}s` // round to s.f. then throw away trailing zeroes
+        }
+        return `${parseFloat(d.toFixed(secondsFixed ?? 0))}s` // round to fixed point then throw away trailing zeroes
+    }
+
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
@@ -480,7 +559,7 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
     } else {
         units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
     }
-    return units.slice(0, maxUnits).join(' ')
+    return units.slice(0, maxUnits ?? undefined).join(' ')
 }
 
 export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {
@@ -489,7 +568,7 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 }
 
 export function humanFriendlyDetailedTime(
-    date: dayjs.Dayjs | string | null,
+    date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
     formatTime = 'h:mm:ss A'
 ): string {
@@ -592,9 +671,9 @@ export function stripHTTP(url: string): string {
     return url
 }
 
-export function isDomain(url: string): boolean {
+export function isDomain(url: string | URL): boolean {
     try {
-        const parsedUrl = new URL(url)
+        const parsedUrl = typeof url === 'string' ? new URL(url) : url
         if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
             return true
         }
@@ -611,7 +690,7 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
+    const regexp = /^(http|capacitor|https):\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
     return !!input.trim().match(regexp)
 }
 
@@ -651,6 +730,23 @@ export function eventToDescription(
     return event.event
 }
 
+// $event_type to verb map
+const eventTypeToVerb: { [key: string]: string } = {
+    click: 'clicked',
+    change: 'typed something into',
+    submit: 'submitted',
+    touch: 'touched a',
+    value_changed: 'changed value in',
+    toggle: 'toggled',
+    menu_action: 'pressed menu',
+    swipe: 'swiped',
+    pinch: 'pinched',
+    pan: 'panned',
+    rotation: 'rotated',
+    long_press: 'long pressed',
+    scroll: 'scrolled in',
+}
+
 export function autoCaptureEventToDescription(
     event: Pick<EventType, 'elements' | 'event' | 'properties'>,
     shortForm: boolean = false
@@ -659,22 +755,7 @@ export function autoCaptureEventToDescription(
         return event.event
     }
 
-    const getVerb = (): string => {
-        if (event.properties.$event_type === 'click') {
-            return 'clicked'
-        }
-        if (event.properties.$event_type === 'change') {
-            return 'typed something into'
-        }
-        if (event.properties.$event_type === 'submit') {
-            return 'submitted'
-        }
-
-        if (event.properties.$event_type === 'touch') {
-            return 'pressed'
-        }
-        return 'interacted with'
-    }
+    const getVerb = (): string => eventTypeToVerb[event.properties.$event_type] || 'interacted with'
 
     const getTag = (): string => {
         if (event.elements?.[0]?.tag_name === 'a') {
@@ -722,10 +803,15 @@ export function determineDifferenceType(
 }
 
 const DATE_FORMAT = 'MMMM D, YYYY'
+const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
 const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
 
 export const formatDate = (date: dayjs.Dayjs, format?: string): string => {
     return date.format(format ?? DATE_FORMAT)
+}
+
+export const formatDateTime = (date: dayjs.Dayjs, format?: string): string => {
+    return date.format(format ?? DATE_TIME_FORMAT)
 }
 
 export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, format?: string): string => {
@@ -911,6 +997,16 @@ export function dateFilterToText(
     }
 
     return defaultValue
+}
+
+// Converts a dateFrom string ("-2w") into english: "2 weeks"
+export function dateFromToText(dateFrom: string): string | undefined {
+    const dateOption: (typeof dateOptionsMap)[keyof typeof dateOptionsMap] = dateOptionsMap[dateFrom.slice(-1)]
+    const counter = parseInt(dateFrom.slice(1, -1))
+    if (dateOption && counter) {
+        return `${counter} ${dateOption}${counter > 1 ? 's' : ''}`
+    }
+    return undefined
 }
 
 export function dateStringToComponents(date: string | null): {
@@ -1385,6 +1481,12 @@ export function hexToRGBA(hex: string, alpha = 1): string {
     return `rgba(${[r, g, b, a].join(',')})`
 }
 
+export function RGBToHex(rgb: string): string {
+    const rgbValues = rgb.replace('rgb(', '').replace(')', '').split(',').map(Number)
+
+    return `#${rgbValues.map((val) => val.toString(16).padStart(2, '0')).join('')}`
+}
+
 export function RGBToRGBA(rgb: string, a: number): string {
     const [r, g, b] = rgb.slice(4, rgb.length - 1).split(',')
     return `rgba(${[r, g, b, a].join(',')})`
@@ -1664,6 +1766,10 @@ export function inStorybookTestRunner(): boolean {
     return navigator.userAgent.includes('StorybookTestRunner')
 }
 
+export function inStorybook(): boolean {
+    return '__STORYBOOK_CLIENT_API__' in window
+}
+
 /** We issue a cancel request, when the request is aborted or times out (frontend side), since in these cases the backend query might still be running. */
 export function shouldCancelQuery(error: any): boolean {
     return isAbortedRequest(error) || isTimedOutRequest(error)
@@ -1748,4 +1854,15 @@ export function hasFormErrors(object: any): boolean {
         return Object.values(object).some(hasFormErrors)
     }
     return !!object
+}
+
+export function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
+    func: F,
+    waitFor: number
+): (...args: Parameters<F>) => void {
+    let timeout: ReturnType<typeof setTimeout>
+    return (...args: Parameters<F>): void => {
+        clearTimeout(timeout)
+        timeout = setTimeout(() => func(...args), waitFor)
+    }
 }

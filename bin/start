@@ -7,6 +7,7 @@ trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=1
 export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
+export HOG_HOOK_URL=${HOG_HOOK_URL:-http://localhost:3300/hoghook}
 
 service_warning() {
   echo -e "\033[0;31m$1 isn't ready. You can run the stack with:\ndocker compose -f docker-compose.dev.yml up\nIf you have already ran that, just make sure that services are starting properly, and sit back.\nWaiting for $1 to start...\033[0m"

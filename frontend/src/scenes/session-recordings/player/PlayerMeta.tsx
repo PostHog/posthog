@@ -1,8 +1,8 @@
 import './PlayerMeta.scss'
 
-import { Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -10,6 +10,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { percentage } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
+import { PlayerMetaLinks } from 'scenes/session-recordings/player/PlayerMetaLinks'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { urls } from 'scenes/urls'
 
@@ -58,11 +59,41 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
     )
 }
 
-export function PlayerMeta(): JSX.Element {
+function PlayerWarningsRow(): JSX.Element | null {
+    const { messageTooLargeWarnings } = useValues(sessionRecordingPlayerLogic)
+
+    return messageTooLargeWarnings.length ? (
+        <div>
+            <LemonBanner
+                type="error"
+                action={{
+                    children: 'Learn more',
+                    to: 'https://posthog.com/docs/session-replay/troubleshooting#message-too-large-warning',
+                    targetBlank: true,
+                }}
+            >
+                This session recording had recording data that was too large and could not be captured. This will mean
+                playback is not 100% accurate.{' '}
+            </LemonBanner>
+        </div>
+    ) : null
+}
+
+export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
-    const { resolution, lastPageviewEvent, lastUrl, scale, currentWindowIndex, sessionPlayerMetaDataLoading } =
-        useValues(playerMetaLogic(logicProps))
+    const {
+        windowIds,
+        trackedWindow,
+        resolution,
+        lastPageviewEvent,
+        lastUrl,
+        scale,
+        currentWindowIndex,
+        sessionPlayerMetaDataLoading,
+    } = useValues(playerMetaLogic(logicProps))
+
+    const { setTrackedWindow } = useActions(playerMetaLogic(logicProps))
 
     const { ref, size } = useResizeBreakpoints({
         0: 'compact',
@@ -120,6 +151,25 @@ export function PlayerMeta(): JSX.Element {
         )
     }
 
+    const windowOptions: LemonSelectOption<string | null>[] = [
+        {
+            label: <IconWindow value={currentWindowIndex} className="text-muted-alt" />,
+            value: null,
+            labelInMenu: <>Follow the user</>,
+        },
+    ]
+    windowIds.forEach((windowId, index) => {
+        windowOptions.push({
+            label: <IconWindow value={index + 1} className="text-muted-alt" />,
+            labelInMenu: (
+                <div className="flex flex-row gap-2 space-between items-center">
+                    Follow window: <IconWindow value={index + 1} className="text-muted-alt" />
+                </div>
+            ),
+            value: windowId,
+        })
+    })
+
     return (
         <DraggableToNotebook href={urls.replaySingle(logicProps.sessionRecordingId)} onlyWithModifierKey>
             <div
@@ -128,29 +178,18 @@ export function PlayerMeta(): JSX.Element {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                <div
-                    className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
-                        'p-2 h-10': !isFullScreen,
-                        'p-1 px-3 text-xs h-12': isFullScreen,
-                    })}
-                >
+                <div className="flex items-center justify-between gap-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
                     {sessionPlayerMetaDataLoading ? (
                         <LemonSkeleton className="w-1/3 h-4 my-1" />
                     ) : (
                         <>
-                            <Tooltip
-                                title={
-                                    <>
-                                        Window {currentWindowIndex + 1}.
-                                        <br />
-                                        Each recording window translates to a distinct browser tab or window.
-                                    </>
-                                }
-                            >
-                                <span>
-                                    <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
-                                </span>
-                            </Tooltip>
+                            <LemonSelect
+                                size="xsmall"
+                                options={windowOptions}
+                                value={trackedWindow}
+                                disabledReason={windowIds.length <= 1 ? "There's only one window" : undefined}
+                                onSelect={(value) => setTrackedWindow(value)}
+                            />
 
                             <URLOrScreen lastUrl={lastUrl} />
                             {lastPageviewEvent?.properties?.['$screen_name'] && (
@@ -164,8 +203,10 @@ export function PlayerMeta(): JSX.Element {
                         </>
                     )}
                     <div className={clsx('flex-1', isSmallPlayer ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
+                    <PlayerMetaLinks iconsOnly={iconsOnly} />
                     {resolutionView}
                 </div>
+                <PlayerWarningsRow />
             </div>
         </DraggableToNotebook>
     )

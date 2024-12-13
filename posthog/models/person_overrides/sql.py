@@ -69,7 +69,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
     ENGINE = ReplicatedReplacingMergeTree(
         -- NOTE: for testing we use a uuid to ensure that we don't get conflicts
         -- when the tests tear down and recreate the table.
-        '/clickhouse/tables/{'{uuid}' if settings.TEST else ''}noshard/{CLICKHOUSE_DATABASE}.person_overrides',
+        '/clickhouse/tables/{'{uuid}' if settings.TEST or settings.E2E_TESTING else ''}noshard/{CLICKHOUSE_DATABASE}.person_overrides',
         '{{replica}}-{{shard}}',
         version
     )

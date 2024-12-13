@@ -1,4 +1,3 @@
-import re
 from datetime import datetime, timedelta
 from functools import cached_property
 from typing import cast, Literal, Optional
@@ -10,7 +9,7 @@ from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.parser import ast
 from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
-from posthog.schema import DateRange, IntervalType
+from posthog.schema import DateRange, InsightDateRange, IntervalType
 from posthog.utils import (
     DEFAULT_DATE_FROM_DAYS,
     relative_date_parse,
@@ -25,24 +24,24 @@ class QueryDateRange:
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 
     _team: Team
-    _date_range: Optional[DateRange]
+    _date_range: Optional[InsightDateRange | DateRange]
     _interval: Optional[IntervalType]
     _now_without_timezone: datetime
 
     def __init__(
         self,
-        date_range: Optional[DateRange],
+        date_range: Optional[InsightDateRange | DateRange],
         team: Team,
         interval: Optional[IntervalType],
         now: datetime,
     ) -> None:
         self._team = team
         self._date_range = date_range
-        self._interval = interval or IntervalType.day
+        self._interval = interval or IntervalType.DAY
         self._now_without_timezone = now
 
-        if not isinstance(self._interval, IntervalType) or re.match(r"[^a-z]", self._interval.name):
-            raise ValueError(f"Invalid interval: {interval}")
+        if not isinstance(self._interval, IntervalType):
+            raise ValueError(f"Value {repr(interval)} is not an instance of IntervalType")
 
     def date_to(self) -> datetime:
         date_to = self.now_with_timezone
@@ -114,18 +113,18 @@ class QueryDateRange:
 
     @cached_property
     def interval_type(self) -> IntervalType:
-        return self._interval or IntervalType.day
+        return self._interval or IntervalType.DAY
 
     @cached_property
     def interval_name(self) -> IntervalLiteral:
-        return cast(IntervalLiteral, self.interval_type.name)
+        return cast(IntervalLiteral, self.interval_type.name.lower())
 
     @cached_property
     def is_hourly(self) -> bool:
         if self._interval is None:
             return False
 
-        return self._interval == IntervalType.hour
+        return self._interval == IntervalType.HOUR
 
     @cached_property
     def explicit(self) -> bool:
@@ -224,14 +223,17 @@ class QueryDateRange:
         is_relative = delta_mapping is not None
         interval = self._interval
 
+        if self._date_range.explicitDate:
+            return False
+
         if not is_relative or not interval:
             return True
 
         is_delta_hours = delta_mapping.get("hours", None) is not None
 
-        if interval in (IntervalType.hour, IntervalType.minute):
+        if interval in (IntervalType.HOUR, IntervalType.MINUTE):
             return False
-        elif interval == IntervalType.day:
+        elif interval == IntervalType.DAY:
             if is_delta_hours:
                 return False
         return True
@@ -283,7 +285,7 @@ class QueryDateRange:
 class QueryDateRangeWithIntervals(QueryDateRange):
     def __init__(
         self,
-        date_range: Optional[DateRange],
+        date_range: Optional[InsightDateRange],
         total_intervals: int,
         team: Team,
         interval: Optional[IntervalType],
@@ -310,15 +312,15 @@ class QueryDateRangeWithIntervals(QueryDateRange):
     def date_from(self) -> datetime:
         delta = self.determine_time_delta(self.total_intervals, self._interval.name)
 
-        if self._interval in (IntervalType.hour, IntervalType.minute):
+        if self._interval in (IntervalType.HOUR, IntervalType.MINUTE):
             return self.date_to() - delta
-        elif self._interval == IntervalType.week:
+        elif self._interval == IntervalType.WEEK:
             date_from = self.date_to() - delta
             week_start_alignment_days = date_from.isoweekday() % 7
             if self._team.week_start_day == WeekStartDay.MONDAY:
                 week_start_alignment_days = date_from.weekday()
             return date_from - timedelta(days=week_start_alignment_days)
-        elif self._interval == IntervalType.month:
+        elif self._interval == IntervalType.MONTH:
             return self.date_to().replace(day=1, hour=0, minute=0, second=0, microsecond=0) - delta
         else:
             date_to = self.date_to().replace(hour=0, minute=0, second=0, microsecond=0)

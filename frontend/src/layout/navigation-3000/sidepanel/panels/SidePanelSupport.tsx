@@ -1,14 +1,18 @@
 import {
+    IconAI,
     IconChevronDown,
+    IconDatabase,
     IconFeatures,
-    IconFlask,
+    IconGraph,
     IconHelmet,
     IconMap,
     IconMessage,
+    IconPieChart,
+    IconPlug,
     IconRewindPlay,
     IconStack,
+    IconTestTube,
     IconToggle,
-    IconTrends,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -16,9 +20,10 @@ import { SupportForm } from 'lib/components/Support/SupportForm'
 import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
 import React from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
 
@@ -37,7 +42,12 @@ const PRODUCTS = [
     {
         name: 'Product analytics',
         slug: 'product-analytics',
-        icon: <IconTrends className="text-brand-blue h-5 w-5" />,
+        icon: <IconGraph className="text-[#2F80FA] h-5 w-5" />,
+    },
+    {
+        name: 'Web analytics',
+        slug: 'web-analytics',
+        icon: <IconPieChart className="text-[#36C46F] h-5 w-5" />,
     },
     {
         name: 'Session replay',
@@ -47,17 +57,32 @@ const PRODUCTS = [
     {
         name: 'Feature flags',
         slug: 'feature-flags',
-        icon: <IconToggle className="text-success h-5 w-5" />,
+        icon: <IconToggle className="text-[#30ABC6] h-5 w-5" />,
     },
     {
-        name: 'A/B testing',
+        name: 'Experiments',
         slug: 'experiments',
-        icon: <IconFlask className="text-purple h-5 w-5" />,
+        icon: <IconTestTube className="text-[#B62AD9] h-5 w-5" />,
     },
     {
         name: 'Surveys',
         slug: 'surveys',
         icon: <IconMessage className="text-danger h-5 w-5" />,
+    },
+    {
+        name: 'Data pipelines',
+        slug: 'cdp',
+        icon: <IconPlug className="text-[#2EA2D3] h-5 w-5" />,
+    },
+    {
+        name: 'Data warehouse',
+        slug: 'data-warehouse',
+        icon: <IconDatabase className="text-[#8567FF] h-5 w-5" />,
+    },
+    {
+        name: 'AI engineering',
+        slug: 'ai-engineering',
+        icon: <IconAI className="text-[#681291] dark:text-[#C170E8] h-5 w-5" />,
     },
 ]
 
@@ -75,37 +100,6 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
 
     return (
         <Section title="Email an engineer">
-            <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light">
-                <div className="col-span-full flex justify-between border-b bg-bg-white py-1">
-                    <div>
-                        <strong>Avg support response times</strong>
-                    </div>
-                    <div>
-                        <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
-                    </div>
-                </div>
-                {supportPlans?.map((plan) => {
-                    // If they have an addon plan, only show the addon plan
-                    const currentPlan = plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
-                    return (
-                        <React.Fragment key={`support-panel-${plan.plan_key}`}>
-                            <div className={currentPlan ? 'font-bold' : undefined}>
-                                {plan.name}
-                                {currentPlan && (
-                                    <>
-                                        {' '}
-                                        <span className="font-normal opacity-60 text-sm">(your plan)</span>
-                                    </>
-                                )}
-                            </div>
-                            <div className={currentPlan ? 'font-bold' : undefined}>
-                                {/* TODO(@zach): remove fallback after updated plans w/ support levels are shipped */}
-                                {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
-                            </div>
-                        </React.Fragment>
-                    )
-                })}
-            </div>
             <SupportForm />
             <LemonButton
                 form="support-modal-form"
@@ -124,25 +118,57 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                 onClick={onCancel}
                 fullWidth
                 center
-                className="mt-2"
+                className="mt-2 mb-4"
             >
                 Cancel
             </LemonButton>
+            <br />
+            <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light pt-4">
+                <div className="col-span-full flex justify-between border-b bg-bg-white py-1">
+                    {/* If placing a support message, replace the line below with explanation */}
+                    <strong>Avg support response times</strong>
+                    <div>
+                        <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
+                    </div>
+                </div>
+                {/* If placing a support message, comment out (don't remove) the section below */}
+                {supportPlans?.map((plan) => {
+                    // If they have an addon plan, only show the addon plan
+                    const currentPlan = plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
+                    return (
+                        <React.Fragment key={`support-panel-${plan.plan_key}`}>
+                            <div className={currentPlan ? 'font-bold' : undefined}>
+                                {plan.name}
+                                {currentPlan && (
+                                    <>
+                                        {' '}
+                                        <span className="font-normal opacity-60 text-sm">(your plan)</span>
+                                    </>
+                                )}
+                            </div>
+                            <div className={currentPlan ? 'font-bold' : undefined}>
+                                {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
+                            </div>
+                        </React.Fragment>
+                    )
+                })}
+            </div>
         </Section>
     )
 }
 
 export const SidePanelSupport = (): JSX.Element => {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { openEmailForm, closeEmailForm } = useActions(supportLogic)
-    const { isEmailFormOpen } = useValues(supportLogic)
     const { preflight, isCloud } = useValues(preflightLogic)
-    const { user } = useValues(userLogic)
-    const region = preflight?.region
+    const { currentOrganization } = useValues(organizationLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { status } = useValues(sidePanelStatusLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
-    const { title } = useValues(theLogic)
+    const { openEmailForm, closeEmailForm } = useActions(theLogic)
+    const { title, isEmailFormOpen } = useValues(theLogic)
+
+    const region = preflight?.region
 
     return (
         <>
@@ -168,12 +194,12 @@ export const SidePanelSupport = (): JSX.Element => {
                                             >
                                                 <div className="flex items-center gap-1.5">
                                                     {product.icon}
-                                                    <span className="text-default opacity-75 group-hover:opacity-100">
+                                                    <span className="text-text-3000 opacity-75 group-hover:opacity-100">
                                                         {product.name}
                                                     </span>
                                                 </div>
                                                 <div>
-                                                    <IconChevronDown className="text-default h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
+                                                    <IconChevronDown className="text-text-3000 h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
                                                 </div>
                                             </Link>
                                         </li>
@@ -256,7 +282,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                             type="secondary"
                                             status="alt"
                                             to={`https://github.com/PostHog/posthog/issues/new?&labels=enhancement&template=feature_request.yml&debug-info=${encodeURIComponent(
-                                                getPublicSupportSnippet(region, user)
+                                                getPublicSupportSnippet(region, currentOrganization, currentTeam)
                                             )}`}
                                             icon={<IconFeatures />}
                                             targetBlank

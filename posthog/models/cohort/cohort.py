@@ -17,6 +17,7 @@ from posthog.models.property import BehavioralPropertyType, Property, PropertyGr
 from posthog.models.utils import sane_repr
 from posthog.settings.base_variables import TEST
 
+
 # The empty string literal helps us determine when the cohort is invalid/deleted, when
 # set in cohorts_cache
 CohortOrEmpty = Union["Cohort", Literal[""], None]
@@ -75,30 +76,34 @@ class CohortManager(models.Manager):
 
 
 class Cohort(models.Model):
-    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    description: models.CharField = models.CharField(max_length=1000, blank=True)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    deleted: models.BooleanField = models.BooleanField(default=False)
-    filters: models.JSONField = models.JSONField(null=True, blank=True)
-    query: models.JSONField = models.JSONField(null=True, blank=True)
-    people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
-    version: models.IntegerField = models.IntegerField(blank=True, null=True)
-    pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)
-    count: models.IntegerField = models.IntegerField(blank=True, null=True)
+    name = models.CharField(max_length=400, null=True, blank=True)
+    description = models.CharField(max_length=1000, blank=True)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    deleted = models.BooleanField(default=False)
+    filters = models.JSONField(null=True, blank=True)
+    query = models.JSONField(null=True, blank=True)
+    people = models.ManyToManyField("Person", through="CohortPeople")
+    version = models.IntegerField(blank=True, null=True)
+    pending_version = models.IntegerField(blank=True, null=True)
+    count = models.IntegerField(blank=True, null=True)
 
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
-    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True, null=True)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now, blank=True, null=True)
 
-    is_calculating: models.BooleanField = models.BooleanField(default=False)
-    last_calculation: models.DateTimeField = models.DateTimeField(blank=True, null=True)
-    errors_calculating: models.IntegerField = models.IntegerField(default=0)
+    is_calculating = models.BooleanField(default=False)
+    last_calculation = models.DateTimeField(blank=True, null=True)
+    errors_calculating = models.IntegerField(default=0)
+    last_error_at = models.DateTimeField(blank=True, null=True)
 
-    is_static: models.BooleanField = models.BooleanField(default=False)
+    is_static = models.BooleanField(default=False)
+
+    # deprecated in favor of filters
+    groups = models.JSONField(default=list)
 
     objects = CohortManager()
 
-    # deprecated in favor of filters
-    groups: models.JSONField = models.JSONField(default=list)
+    def __str__(self):
+        return self.name
 
     @property
     def properties(self) -> PropertyGroup:
@@ -212,8 +217,11 @@ class Cohort(models.Model):
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
+            self.last_error_at = None
         except Exception:
             self.errors_calculating = F("errors_calculating") + 1
+            self.last_error_at = timezone.now()
+
             logger.warning(
                 "cohort_calculation_failed",
                 id=self.pk,
@@ -221,6 +229,7 @@ class Cohort(models.Model):
                 new_version=pending_version,
                 exc_info=True,
             )
+
             raise
         finally:
             self.is_calculating = False
@@ -241,11 +250,16 @@ class Cohort(models.Model):
 
         clear_stale_cohort.delay(self.pk, before_version=pending_version)
 
-    def insert_users_by_list(self, items: list[str]) -> None:
+    def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
         """
-        Items is a list of distinct_ids
-        """
+        Insert a list of users identified by their distinct ID into the cohort, for the given team.
 
+        Args:
+            items: List of distinct IDs of users to be inserted into the cohort.
+            team_id: ID of the team for which to insert the users. Defaults to `self.team`, because of a lot of existing usage in tests.
+        """
+        if team_id is None:
+            team_id = self.team_id
         batchsize = 1000
         from posthog.models.cohort.util import (
             insert_static_cohort,
@@ -263,10 +277,10 @@ class Cohort(models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=self.team_id)
+                    Person.objects.filter(team_id=team_id)
                     .filter(
                         Q(
-                            persondistinctid__team_id=self.team_id,
+                            persondistinctid__team_id=team_id,
                             persondistinctid__distinct_id__in=batch,
                         )
                     )
@@ -275,7 +289,7 @@ class Cohort(models.Model):
                 insert_static_cohort(
                     list(persons_query.values_list("uuid", flat=True)),
                     self.pk,
-                    self.team,
+                    team_id=team_id,
                 )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
@@ -288,7 +302,7 @@ class Cohort(models.Model):
                 )
                 cursor.execute(query, params)
 
-            count = get_static_cohort_size(self)
+            count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id)
             self.count = count
 
             self.is_calculating = False
@@ -297,13 +311,25 @@ class Cohort(models.Model):
             self.save()
         except Exception as err:
             if settings.DEBUG:
-                raise err
+                raise
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
+            self.last_error_at = timezone.now()
             self.save()
             capture_exception(err)
 
-    def insert_users_list_by_uuid(self, items: list[str], insert_in_clickhouse: bool = False, batchsize=1000) -> None:
+    def insert_users_list_by_uuid(
+        self, items: list[str], insert_in_clickhouse: bool = False, batchsize=1000, *, team_id: int
+    ) -> None:
+        """
+        Insert a list of users identified by their UUID into the cohort, for the given team.
+
+        Args:
+            items: List of user UUIDs to be inserted into the cohort.
+            insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
+            batchsize: Number of UUIDs to process in each batch.
+            team_id: The ID of the team to which the cohort belongs.
+        """
         from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
 
         try:
@@ -311,13 +337,13 @@ class Cohort(models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=self.team_id).filter(uuid__in=batch).exclude(cohort__id=self.id)
+                    Person.objects.filter(team_id=team_id).filter(uuid__in=batch).exclude(cohort__id=self.id)
                 )
                 if insert_in_clickhouse:
                     insert_static_cohort(
                         list(persons_query.values_list("uuid", flat=True)),
                         self.pk,
-                        self.team,
+                        team_id=team_id,
                     )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
@@ -330,7 +356,7 @@ class Cohort(models.Model):
                 )
                 cursor.execute(query, params)
 
-            count = get_static_cohort_size(self)
+            count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id)
             self.count = count
 
             self.is_calculating = False
@@ -339,20 +365,13 @@ class Cohort(models.Model):
             self.save()
         except Exception as err:
             if settings.DEBUG:
-                raise err
+                raise
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
+            self.last_error_at = timezone.now()
+
             self.save()
             capture_exception(err)
-
-    def __str__(self):
-        return self.name
-
-    def _clickhouse_persons_query(self, batch_size=10000, offset=0):
-        from posthog.models.cohort.util import get_person_ids_by_cohort_id
-
-        uuids = get_person_ids_by_cohort_id(team=self.team, cohort_id=self.pk, limit=batch_size, offset=offset)
-        return Person.objects.filter(uuid__in=uuids, team=self.team)
 
     __repr__ = sane_repr("id", "name", "last_calculation")
 
@@ -365,10 +384,10 @@ def get_and_update_pending_version(cohort: Cohort):
 
 
 class CohortPeople(models.Model):
-    id: models.BigAutoField = models.BigAutoField(primary_key=True)
-    cohort: models.ForeignKey = models.ForeignKey("Cohort", on_delete=models.CASCADE)
-    person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
-    version: models.IntegerField = models.IntegerField(blank=True, null=True)
+    id = models.BigAutoField(primary_key=True)
+    cohort = models.ForeignKey("Cohort", on_delete=models.CASCADE)
+    person = models.ForeignKey("Person", on_delete=models.CASCADE)
+    version = models.IntegerField(blank=True, null=True)
 
     class Meta:
         indexes = [models.Index(fields=["cohort_id", "person_id"])]

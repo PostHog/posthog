@@ -56,11 +56,10 @@ export function FunnelTooltip({
                     <EntityFilterInfo filter={getActionFilterFromFunnelStep(series)} allowWrap />
                     <span className="mx-1">•</span>
                     {formatBreakdownLabel(
-                        cohorts,
-                        formatPropertyValueForDisplay,
                         series.breakdown_value,
-                        series.breakdown,
-                        breakdownFilter?.breakdown_type
+                        breakdownFilter,
+                        cohorts,
+                        formatPropertyValueForDisplay
                     )}
                 </strong>
             </LemonRow>
@@ -90,13 +89,13 @@ export function FunnelTooltip({
                     {stepIndex > 0 && series.median_conversion_time != null && (
                         <tr>
                             <td>Median time from previous</td>
-                            <td>{humanFriendlyDuration(series.median_conversion_time, 3)}</td>
+                            <td>{humanFriendlyDuration(series.median_conversion_time, { maxUnits: 3 })}</td>
                         </tr>
                     )}
                     {stepIndex > 0 && series.average_conversion_time != null && (
                         <tr>
                             <td>Average time from previous</td>
-                            <td>{humanFriendlyDuration(series.average_conversion_time, 3)}</td>
+                            <td>{humanFriendlyDuration(series.average_conversion_time, { maxUnits: 3 })}</td>
                         </tr>
                     )}
                 </tbody>

@@ -40,7 +40,7 @@ class TestCleanGlobalProperties(BaseTest):
                 "values": [
                     {
                         "type": "AND",
-                        "values": [{"key": "id", "type": "cohort", "value": 636}],
+                        "values": [{"key": "id", "type": "cohort", "operator": "in", "value": 636}],
                     }
                 ],
             },
@@ -61,7 +61,33 @@ class TestCleanGlobalProperties(BaseTest):
                 "values": [
                     {
                         "type": "AND",
-                        "values": [{"key": "id", "type": "cohort", "value": 850}],
+                        "values": [{"key": "id", "type": "cohort", "operator": "in", "value": 850}],
+                    }
+                ],
+            },
+        )
+
+    def test_handles_cohort_negation(self):
+        properties = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [{"key": "id", "type": "cohort", "value": 850, "operator": None, "negation": True}],
+                }
+            ],
+        }
+
+        result = clean_global_properties(properties)
+
+        self.assertEqual(
+            result,
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "id", "type": "cohort", "operator": "not_in", "value": 850}],
                     }
                 ],
             },
@@ -82,7 +108,7 @@ class TestCleanGlobalProperties(BaseTest):
                 "values": [
                     {
                         "type": "AND",
-                        "values": [{"key": "id", "type": "cohort", "value": 850}],
+                        "values": [{"key": "id", "type": "cohort", "operator": "in", "value": 850}],
                     }
                 ],
             },

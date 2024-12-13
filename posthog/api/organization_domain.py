@@ -1,8 +1,9 @@
 import re
 from typing import Any, cast
+import posthoganalytics
 
 from rest_framework import exceptions, request, response, serializers
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -11,8 +12,27 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationDomain
 from posthog.models.organization import Organization
 from posthog.permissions import OrganizationAdminWritePermissions
+from posthog.event_usage import groups
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
+
+
+def _capture_domain_event(request, domain: OrganizationDomain, event_type: str, properties: dict | None = None) -> None:
+    if not properties:
+        properties = {}
+
+    properties.update(
+        {
+            "domain": domain.domain,
+        }
+    )
+
+    posthoganalytics.capture(
+        request.user.distinct_id,
+        f"organization domain {event_type}",
+        properties=properties,
+        groups=groups(domain.organization),
+    )
 
 
 class OrganizationDomainSerializer(serializers.ModelSerializer):
@@ -96,3 +116,38 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
         serializer = self.get_serializer(instance=instance)
         return response.Response(serializer.data)
+
+    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save()
+
+        _capture_domain_event(
+            request,
+            instance,
+            "created",
+            properties={
+                "jit_provisioning_enabled": instance.jit_provisioning_enabled,
+                "sso_enforcement": instance.sso_enforcement or None,
+            },
+        )
+
+        return response.Response(serializer.data, status=201)
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        instance = self.get_object()
+
+        _capture_domain_event(
+            request,
+            instance,
+            "deleted",
+            properties={
+                "is_verified": instance.is_verified,
+                "had_saml": instance.has_saml,
+                "had_jit_provisioning": instance.jit_provisioning_enabled,
+                "had_sso_enforcement": bool(instance.sso_enforcement),
+            },
+        )
+
+        instance.delete()
+        return response.Response(status=204)

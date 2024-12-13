@@ -27,39 +27,41 @@ class SessionRecording(UUIDModel):
     # https://github.com/PostHog/posthog-js/blob/e0dc2c005cfb5dd62b7c876676bcffe1654417a7/src/utils.ts#L457-L458
     # We create recording objects with both UUIDT and a unique session_id field to remain backwards compatible.
     # All other models related to the session recording model uses this unique `session_id` to create the link.
-    session_id: models.CharField = models.CharField(unique=True, max_length=200)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)
-    deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
-    object_storage_path: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    session_id = models.CharField(unique=True, max_length=200)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    deleted = models.BooleanField(null=True, blank=True)
+    object_storage_path = models.CharField(max_length=200, null=True, blank=True)
 
-    distinct_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    distinct_id = models.CharField(max_length=400, null=True, blank=True)
 
-    duration: models.IntegerField = models.IntegerField(blank=True, null=True)
-    active_seconds: models.IntegerField = models.IntegerField(blank=True, null=True)
-    inactive_seconds: models.IntegerField = models.IntegerField(blank=True, null=True)
-    start_time: models.DateTimeField = models.DateTimeField(blank=True, null=True)
-    end_time: models.DateTimeField = models.DateTimeField(blank=True, null=True)
+    duration = models.IntegerField(blank=True, null=True)
+    active_seconds = models.IntegerField(blank=True, null=True)
+    inactive_seconds = models.IntegerField(blank=True, null=True)
+    start_time = models.DateTimeField(blank=True, null=True)
+    end_time = models.DateTimeField(blank=True, null=True)
 
-    click_count: models.IntegerField = models.IntegerField(blank=True, null=True)
-    keypress_count: models.IntegerField = models.IntegerField(blank=True, null=True)
-    mouse_activity_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+    click_count = models.IntegerField(blank=True, null=True)
+    keypress_count = models.IntegerField(blank=True, null=True)
+    mouse_activity_count = models.IntegerField(blank=True, null=True)
 
-    console_log_count: models.IntegerField = models.IntegerField(blank=True, null=True)
-    console_warn_count: models.IntegerField = models.IntegerField(blank=True, null=True)
-    console_error_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+    console_log_count = models.IntegerField(blank=True, null=True)
+    console_warn_count = models.IntegerField(blank=True, null=True)
+    console_error_count = models.IntegerField(blank=True, null=True)
 
-    start_url: models.CharField = models.CharField(blank=True, null=True, max_length=512)
+    start_url = models.CharField(blank=True, null=True, max_length=512)
 
     # we can't store storage version in the stored content
     # as we might need to know the version before knowing how to load the data
-    storage_version: models.CharField = models.CharField(blank=True, null=True, max_length=20)
+    storage_version = models.CharField(blank=True, null=True, max_length=20)
 
     # DYNAMIC FIELDS
 
     viewed: Optional[bool] = False
     _person: Optional[Person] = None
     matching_events: Optional[RecordingMatchingEvents] = None
+    ongoing: Optional[bool] = None
+    activity_score: Optional[float] = None
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
@@ -145,23 +147,14 @@ class SessionRecording(UUIDModel):
             SessionRecordingViewed.objects.get_or_create(team=self.team, user=user, session_id=self.session_id)
             self.viewed = True
 
-    def build_object_storage_path(self, version: Literal["2023-08-01", "2022-12-22"]) -> str:
-        if version == "2022-12-22":
-            path_parts: list[str] = [
-                settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER,
-                f"team-{self.team_id}",
-                f"session-{self.session_id}",
-            ]
-            return "/".join(path_parts)
-        elif version == "2023-08-01":
-            return self._build_session_blob_path(settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER)
+    def build_blob_lts_storage_path(self, version: Literal["2023-08-01"]) -> str:
+        if version == "2023-08-01":
+            return self.build_blob_ingestion_storage_path(settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER)
         else:
             raise NotImplementedError(f"Unknown session replay object storage version {version}")
 
-    def build_blob_ingestion_storage_path(self) -> str:
-        return self._build_session_blob_path(settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER)
-
-    def _build_session_blob_path(self, root_prefix: str) -> str:
+    def build_blob_ingestion_storage_path(self, root_prefix: Optional[str] = None) -> str:
+        root_prefix = root_prefix or settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
         return f"{root_prefix}/team_id/{self.team_id}/session_id/{self.session_id}/data"
 
     @staticmethod
@@ -200,6 +193,9 @@ class SessionRecording(UUIDModel):
             recording.console_warn_count = ch_recording.get("console_warn_count", None)
             recording.console_error_count = ch_recording.get("console_error_count", None)
             recording.set_start_url_from_urls(ch_recording.get("urls", None), ch_recording.get("first_url", None))
+            recording.ongoing = bool(ch_recording.get("ongoing", False))
+            recording.activity_score = ch_recording.get("activity_score", None)
+
             recordings.append(recording)
 
         return recordings

@@ -2,9 +2,9 @@ from collections import Counter
 from typing import Literal, Optional
 from collections import Counter as TCounter
 
-from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.hogql.hogql import HogQLContext
-from posthog.models import Entity, Filter
+from posthog.models import Filter
 from posthog.models.action import Action
 from posthog.models.action.action import ActionStepJSON
 from posthog.models.property import Property, PropertyIdentifier
@@ -147,35 +147,6 @@ def filter_event(
         conditions.append("44 = 44")  # Allow "All events"
 
     return conditions, params
-
-
-def format_entity_filter(
-    team_id: int,
-    entity: Entity,
-    hogql_context: HogQLContext,
-    person_id_joined_alias: str,
-    prepend: str = "action",
-    filter_by_team=True,
-) -> tuple[str, dict]:
-    if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        action = entity.get_action()
-        entity_filter, params = format_action_filter(
-            team_id=team_id,
-            action=action,
-            prepend=prepend,
-            filter_by_team=filter_by_team,
-            person_id_joined_alias=person_id_joined_alias,
-            hogql_context=hogql_context,
-        )
-    elif entity.id is None:
-        entity_filter = "1 = 1"
-        params = {}
-    else:
-        key = f"{prepend}_event"
-        entity_filter = f"event = %({key})s"
-        params = {key: entity.id}
-
-    return entity_filter, params
 
 
 def get_action_tables_and_properties(action: Action) -> TCounter[PropertyIdentifier]:

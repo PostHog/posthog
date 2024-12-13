@@ -2,12 +2,13 @@ import { Batch, EachBatchHandler, Kafka } from 'kafkajs'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_SCHEDULED_TASKS, KAFKA_SCHEDULED_TASKS_DLQ } from '../../config/kafka-topics'
-import { PluginsServerConfig } from '../../types'
+import { PluginServerService, PluginsServerConfig } from '../../types'
 import { DependencyUnavailableError } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
 import { instrumentEachBatchKafkaJS, setupEventHandlers } from './kafka-queue'
 import { latestOffsetTimestampGauge, scheduledTaskCounter } from './metrics'
+import { makeHealthCheck } from './on-event-handler-consumer'
 
 // The valid task types that can be scheduled.
 // TODO: not sure if there is another place that defines these but it would be good to unify.
@@ -25,7 +26,7 @@ export const startScheduledTasksConsumer = async ({
     piscina: Piscina
     serverConfig: PluginsServerConfig
     partitionConcurrency: number
-}) => {
+}): Promise<PluginServerService> => {
     /*
 
         Consumes from the scheduled tasks topic, and executes them within a
@@ -138,11 +139,12 @@ export const startScheduledTasksConsumer = async ({
         },
     })
 
+    const healthcheck = makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS)
+
     return {
-        ...consumer,
-        stop: async () => {
-            await consumer.stop()
-        },
+        id: 'scheduled-tasks-consumer',
+        healthcheck: async () => await healthcheck(),
+        onShutdown: async () => await consumer.stop(),
     }
 }
 

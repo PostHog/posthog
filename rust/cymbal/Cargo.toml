@@ -1,0 +1,50 @@
+[package]
+name = "cymbal"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# We use an older version of rdkafka for cymbal specifically because the newer version
+# has a bug which causes consumers to hang when offset auto-storing is disabled and the
+# program is producing and consuming at the same time. Cymbal is the only rust service
+# that does this, and 0.35 is significantly lower-performance than 0.36, so rather than
+# rolling back all other rust services (particularly capture and propdefs), we just have
+# cymbal use the older version by overriding the workspace setting. The tracking issue
+# for this is: https://github.com/fede1024/rust-rdkafka/issues/638
+rdkafka = { version = "0.35.0", features = ["cmake-build", "ssl", "tracing"] }
+# We don't rely on common-kafka due to the bug mentioned above
+# common-kafka = { path = "../common/kafka" }
+# This does force us to take a direct dependency on join_all
+futures = { workspace = true }
+tokio = { workspace = true }
+envconfig = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+health = { path = "../common/health" }
+axum = { workspace = true }
+metrics = { workspace = true }
+common-metrics = { path = "../common/metrics" }
+common-alloc = { path = "../common/alloc" }
+common-types = { path = "../common/types" }
+common-dns = { path = "../common/dns" }
+thiserror = { workspace = true }
+sqlx = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+sourcemap = "9.0.0"
+symbolic = { version = "12.12.1", features = ["sourcemapcache"] }
+reqwest = { workspace = true }
+sha2 = "0.10.8"
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+moka = { workspace = true }
+
+[dev-dependencies]
+httpmock = { workspace = true }
+mockall = { workspace = true }
+
+
+[lints]
+workspace = true

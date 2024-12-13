@@ -1,7 +1,6 @@
 import { TZLabel } from '@posthog/apps-common'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router/lib/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -13,15 +12,17 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { getFilterLabel } from 'lib/taxonomy'
+import { useMemo } from 'react'
 import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { AvailableFeature, PropertyDefinition } from '~/types'
+import { FilterLogicalOperator, PropertyDefinition, ReplayTabs } from '~/types'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -36,6 +37,20 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const { definition, definitionLoading, definitionMissing, hasTaxonomyFeatures, singular, isEvent, isProperty } =
         useValues(logic)
     const { deleteDefinition } = useActions(logic)
+
+    const memoizedQuery = useMemo(
+        () => ({
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.EventsQuery,
+                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                event: definition.name,
+            },
+            full: true,
+            showEventFilter: false,
+        }),
+        [definition.name]
+    )
 
     if (definitionLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -53,20 +68,24 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         {isEvent && (
                             <LemonButton
                                 type="secondary"
-                                to={
-                                    combineUrl(urls.replay(), {
-                                        filters: {
-                                            events: [
-                                                {
-                                                    id: definition.name,
-                                                    type: 'events',
-                                                    order: 0,
-                                                    name: definition.name,
-                                                },
-                                            ],
-                                        },
-                                    }).url
-                                }
+                                to={urls.replay(ReplayTabs.Home, {
+                                    filter_group: {
+                                        type: FilterLogicalOperator.And,
+                                        values: [
+                                            {
+                                                type: FilterLogicalOperator.And,
+                                                values: [
+                                                    {
+                                                        id: definition.name,
+                                                        type: 'events',
+                                                        order: 0,
+                                                        name: definition.name,
+                                                    },
+                                                ],
+                                            },
+                                        ],
+                                    },
+                                })}
                                 sideIcon={<IconPlayCircle />}
                                 data-attr="event-definition-view-recordings"
                             >
@@ -133,20 +152,20 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             />
 
             <div className="space-y-2">
-                <EditableField
-                    multiline
-                    name="description"
-                    markdown
-                    value={definition.description || ''}
-                    placeholder="Description (optional)"
-                    mode="view"
-                    data-attr="definition-description-view"
-                    className="definition-description"
-                    compactButtons
-                    maxLength={600}
-                    paywallFeature={AvailableFeature.INGESTION_TAXONOMY}
-                />
-
+                {definition.description || isProperty || hasTaxonomyFeatures ? (
+                    <EditableField
+                        multiline
+                        name="description"
+                        markdown
+                        value={definition.description || ''}
+                        placeholder="Description (optional)"
+                        mode="view"
+                        data-attr="definition-description-view"
+                        className="definition-description"
+                        compactButtons
+                        maxLength={600}
+                    />
+                ) : null}
                 <ObjectTags
                     tags={definition.tags ?? []}
                     data-attr="definition-tags-view"
@@ -193,21 +212,26 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             {isEvent && definition.id !== 'new' && (
                 <>
                     <EventDefinitionProperties definition={definition} />
+
+                    <LemonDivider className="my-6" />
+                    <h2 className="flex-1 subtitle">Connected destinations</h2>
+                    <p>Get notified via Slack, webhooks or more whenever this event is captured.</p>
+
+                    <LinkedHogFunctions
+                        type="destination"
+                        filters={{
+                            events: [
+                                {
+                                    id: `${definition.name}`,
+                                    type: 'events',
+                                },
+                            ],
+                        }}
+                    />
                     <LemonDivider className="my-6" />
                     <h3>Matching events</h3>
                     <p>This is the list of recent events that match this definition.</p>
-                    <Query
-                        query={{
-                            kind: NodeKind.DataTableNode,
-                            source: {
-                                kind: NodeKind.EventsQuery,
-                                select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                event: definition.name,
-                            },
-                            full: true,
-                            showEventFilter: false,
-                        }}
-                    />
+                    <Query query={memoizedQuery} />
                 </>
             )}
         </>

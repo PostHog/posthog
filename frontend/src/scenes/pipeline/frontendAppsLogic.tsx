@@ -1,10 +1,10 @@
 import { actions, afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType, ProductKey } from '~/types'
+import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
 
 import type { frontendAppsLogicType } from './frontendAppsLogicType'
 import { convertToPipelineNode, SiteApp } from './types'
@@ -13,7 +13,7 @@ import { capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './util
 export const frontendAppsLogic = kea<frontendAppsLogicType>([
     path(['scenes', 'pipeline', 'frontendAppsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
+        values: [projectLogic, ['currentProjectId'], userLogic, ['user']],
     }),
     actions({
         loadPluginConfigs: true,
@@ -33,7 +33,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
             {
                 loadPluginConfigs: async () => {
                     const res: PluginConfigTypeNew[] = await api.loadPaginatedResults(
-                        `api/projects/${values.currentTeamId}/pipeline_frontend_apps_configs`
+                        `api/projects/${values.currentProjectId}/pipeline_frontend_apps_configs`
                     )
 
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
@@ -77,12 +77,6 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
                 const convertedFrontendApps = rawFrontendApp.map((t) => convertToPipelineNode(t, PipelineStage.SiteApp))
                 const enabledFirst = convertedFrontendApps.sort((a, b) => Number(b.enabled) - Number(a.enabled))
                 return enabledFirst
-            },
-        ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user],
-            (user): boolean => {
-                return !user?.has_seen_product_intro_for?.[ProductKey.SITE_APPS]
             },
         ],
     }),

@@ -7,10 +7,11 @@ from django.conf import settings
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from rest_framework import serializers, status, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from django.contrib.auth.models import AbstractUser
 
 from ee.billing.billing_manager import BillingManager, build_billing_token
 from ee.models import License
@@ -36,14 +37,21 @@ class LicenseKeySerializer(serializers.Serializer):
 
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "team_id"
 
     scope_object = "INTERNAL"
+
+    def get_billing_manager(self) -> BillingManager:
+        license = get_cached_instance_license()
+        user = (
+            self.request.user if isinstance(self.request.user, AbstractUser) and self.request.user.distinct_id else None
+        )
+        return BillingManager(license, user)
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()
         if license and not license.is_v2_license:
-            raise NotFound("Billing V2 is not supported for this license type")
+            raise NotFound("Billing is not supported for this license type")
 
         org = self._get_org()
 
@@ -53,7 +61,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 raise NotFound("Billing V1 is active for this organization")
 
         plan_keys = request.query_params.get("plan_keys", None)
-        response = BillingManager(license).get_billing(org, plan_keys)
+        billing_manager = self.get_billing_manager()
+        query = {}
+        if "include_forecasting" in request.query_params:
+            query["include_forecasting"] = request.query_params.get("include_forecasting")
+        response = billing_manager.get_billing(org, plan_keys, query)
 
         return Response(response)
 
@@ -68,7 +80,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if license and org:  # for mypy
             custom_limits_usd = request.data.get("custom_limits_usd")
             if custom_limits_usd:
-                BillingManager(license).update_billing(org, {"custom_limits_usd": custom_limits_usd})
+                billing_manager = self.get_billing_manager()
+                billing_manager.update_billing(org, {"custom_limits_usd": custom_limits_usd})
 
                 if distinct_id:
                     posthoganalytics.capture(
@@ -87,29 +100,60 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return self.list(request, *args, **kwargs)
 
+    class ActivateSerializer(serializers.Serializer):
+        plan = serializers.CharField(required=False)
+        products = serializers.CharField(
+            required=False
+        )  # This is required but in order to support an error for the legacy 'plan' param we need to set required=False
+        redirect_path = serializers.CharField(required=False)
+        intent_product = serializers.CharField(required=False)
+
+        def validate(self, data):
+            plan = data.get("plan")
+            products = data.get("products")
+
+            if plan and not products:
+                raise ValidationError(
+                    {
+                        "plan": "The 'plan' parameter is no longer supported. Please use the 'products' parameter instead."
+                    }
+                )
+            if not products:
+                raise ValidationError({"products": "The 'products' parameter is required."})
+
+            return data
+
+    # This is deprecated and should be removed in the future in favor of 'activate'
     @action(methods=["GET"], detail=False)
     def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        return self.handle_activate(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def activate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        return self.handle_activate(request, *args, **kwargs)
+
+    # A viewset action cannot call another action directly so this is in place until
+    # the 'activation' endpoint is removed. Once removed, this method can move to the 'activate' action
+    def handle_activate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         organization = self._get_org_required()
 
-        redirect_path = request.GET.get("redirect_path") or "organization/billing"
+        serializer = self.ActivateSerializer(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+
+        redirect_path = serializer.validated_data.get("redirect_path", "organization/billing")
         if redirect_path.startswith("/"):
             redirect_path = redirect_path[1:]
 
         redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/{redirect_path}"
-        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}"
+        url = f"{BILLING_SERVICE_URL}/activate?redirect_uri={redirect_uri}&organization_name={organization.name}"
 
-        plan = request.GET.get("plan", None)
-        product_keys = request.GET.get("products", None)
-        if not plan and not product_keys:
-            # If no plan or product keys are specified, we default to the standard plan
-            # This is to support the old activation flow
-            plan = "standard"
+        products = serializer.validated_data.get("products")
+        url = f"{url}&products={products}"
 
-        if plan:
-            url = f"{url}&plan={plan}"
-        if product_keys:
-            url = f"{url}&products={product_keys}"
+        intent_product = serializer.validated_data.get("intent_product")
+        if intent_product:
+            url = f"{url}&intent_product={intent_product}"
 
         if license:
             billing_service_token = build_billing_token(license, organization)
@@ -117,16 +161,21 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return redirect(url)
 
+    class DeactivateSerializer(serializers.Serializer):
+        products = serializers.CharField()
+
     @action(methods=["GET"], detail=False)
     def deactivate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        license = get_cached_instance_license()
         organization = self._get_org_required()
 
-        product = request.GET.get("products", None)
-        if not product:
-            raise ValidationError("Products must be specified")
+        serializer = self.DeactivateSerializer(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+
+        products = serializer.validated_data.get("products")
+
         try:
-            BillingManager(license).deactivate_products(organization, product)
+            billing_manager = self.get_billing_manager()
+            billing_manager.deactivate_products(organization, products)
         except Exception as e:
             if len(e.args) > 2:
                 detail_object = e.args[2]
@@ -140,15 +189,31 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
-                raise e
+                raise
+
         return self.list(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def portal(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response(
+                {"success": True},
+                status=status.HTTP_200_OK,
+            )
+
+        organization = self._get_org_required()
+
+        billing_manager = self.get_billing_manager()
+        res = billing_manager._get_stripe_portal_url(organization)
+        return redirect(res)
 
     @action(methods=["GET"], detail=False)
     def get_invoices(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
             return Response(
-                {"sucess": True},
+                {"success": True},
                 status=status.HTTP_200_OK,
             )
 
@@ -157,12 +222,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         invoice_status = request.GET.get("status")
 
         try:
-            res = BillingManager(license).get_invoices(organization, status=invoice_status)
+            billing_manager = self.get_billing_manager()
+            res = billing_manager.get_invoices(organization, status=invoice_status)
         except Exception as e:
             if len(e.args) > 2:
                 detail_object = e.args[2]
                 if not isinstance(detail_object, dict):
-                    raise e
+                    raise
                 return Response(
                     {
                         "statusText": e.args[0],
@@ -172,7 +238,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
-                raise e
+                raise
 
         return Response(
             {
@@ -181,6 +247,78 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    @action(methods=["GET"], detail=False, url_path="credits/overview")
+    def credits_overview(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response(
+                {"success": True},
+                status=status.HTTP_200_OK,
+            )
+
+        organization = self._get_org_required()
+
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.credits_overview(organization)
+        return Response(res, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False, url_path="credits/purchase")
+    def purchase_credits(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response(
+                {"success": True},
+                status=status.HTTP_200_OK,
+            )
+
+        organization = self._get_org_required()
+
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.purchase_credits(organization, request.data)
+        return Response(res, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False, url_path="trials/activate")
+    def activate_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.activate_trial(organization, request.data)
+        return Response(res, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False, url_path="trials/cancel")
+    def cancel_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.cancel_trial(organization, request.data)
+        return Response(res, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False, url_path="activate/authorize")
+    def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response(
+                {"success": True},
+                status=status.HTTP_200_OK,
+            )
+
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.authorize(organization)
+        return Response(res, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False, url_path="activate/authorize/status")
+    def authorize_status(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response(
+                {"success": True},
+                status=status.HTTP_200_OK,
+            )
+
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.authorize_status(organization, request.data)
+        return Response(res, status=status.HTTP_200_OK)
 
     @action(methods=["PATCH"], detail=False)
     def license(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -198,7 +336,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         license = License(key=serializer.validated_data["license"])
-
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=BillingManager(license).get_auth_headers(organization),

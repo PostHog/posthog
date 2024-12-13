@@ -2,19 +2,10 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
-import {
-    ClickHouseTimestamp,
-    Hub,
-    Person,
-    PropertyOperator,
-    PropertyUpdateOperation,
-    RawAction,
-    Team,
-} from '../../src/types'
-import { DB, GroupId } from '../../src/utils/db/db'
+import { Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
+import { DB } from '../../src/utils/db/db'
 import { DependencyUnavailableError } from '../../src/utils/db/error'
-import { createHub } from '../../src/utils/db/hub'
-import * as dbMetrics from '../../src/utils/db/metrics'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
@@ -26,11 +17,10 @@ jest.mock('../../src/utils/status')
 
 describe('DB', () => {
     let hub: Hub
-    let closeServer: () => Promise<void>
     let db: DB
 
     beforeEach(async () => {
-        ;[hub, closeServer] = await createHub()
+        hub = await createHub()
         await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
         db = hub.db
 
@@ -40,16 +30,11 @@ describe('DB', () => {
     })
 
     afterEach(async () => {
-        await closeServer()
+        await closeHub(hub)
         jest.clearAllMocks()
     })
 
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-    const CLICKHOUSE_TIMESTAMP = '2000-10-14 11:42:06.502' as ClickHouseTimestamp
-
-    function fetchGroupCache(teamId: number, groupTypeIndex: number, groupKey: string) {
-        return db.redisGet(db.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey), null, 'fetchGroupCache')
-    }
 
     function runPGQuery(queryString: string, values: any[] = null) {
         return db.postgres.query(PostgresUse.COMMON_WRITE, queryString, values, 'testQuery')
@@ -204,6 +189,7 @@ describe('DB', () => {
             expect(await db.fetchAction(69)).toEqual({
                 ...result[2][69],
                 steps_json: null, // Temporary diff whilst we migrate to this new field
+                pinned_at: null,
             })
         })
 
@@ -284,6 +270,23 @@ describe('DB', () => {
         return selectResult.rows[0]
     }
 
+    test('addPersonlessDistinctId', async () => {
+        const team = await getFirstTeam(hub)
+        await db.addPersonlessDistinctId(team.id, 'addPersonlessDistinctId')
+
+        // This will conflict, but shouldn't throw an error
+        await db.addPersonlessDistinctId(team.id, 'addPersonlessDistinctId')
+
+        const result = await db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'SELECT id FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
+            [team.id, 'addPersonlessDistinctId'],
+            'addPersonlessDistinctId'
+        )
+
+        expect(result.rows.length).toEqual(1)
+    })
+
     describe('createPerson', () => {
         let team: Team
         const uuid = new UUIDT().toString()
@@ -294,7 +297,7 @@ describe('DB', () => {
         })
 
         test('without properties', async () => {
-            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [distinctId])
+            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [{ distinctId }])
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
 
             expect(fetched_person!.is_identified).toEqual(false)
@@ -306,7 +309,7 @@ describe('DB', () => {
         })
 
         test('without properties indentified true', async () => {
-            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [distinctId])
+            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [{ distinctId }])
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
             expect(fetched_person!.is_identified).toEqual(true)
             expect(fetched_person!.properties).toEqual({})
@@ -326,7 +329,7 @@ describe('DB', () => {
                 null,
                 false,
                 uuid,
-                [distinctId]
+                [{ distinctId }]
             )
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
             expect(fetched_person!.is_identified).toEqual(false)
@@ -354,13 +357,17 @@ describe('DB', () => {
             const distinctId = 'distinct_id1'
             // Note that we update the person badly in case of concurrent updates, but lets make sure we're consistent
             const personDbBefore = await db.createPerson(TIMESTAMP, { c: 'aaa' }, {}, {}, team.id, null, false, uuid, [
-                distinctId,
+                { distinctId },
             ])
             const providedPersonTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const personProvided = { ...personDbBefore, properties: { c: 'bbb' }, created_at: providedPersonTs }
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
-            const [updatedPerson] = await db.updatePersonDeprecated(personProvided, update)
+            const [updatedPerson, kafkaMessages] = await db.updatePersonDeprecated(personProvided, update)
+            await hub.db.kafkaProducer.queueMessages({
+                kafkaMessages,
+                waitForAck: true,
+            })
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
@@ -418,7 +425,13 @@ describe('DB', () => {
                 await delayUntilEventIngested(fetchPersonsRows, 1)
 
                 // We do an update to verify
-                await db.updatePersonDeprecated(person, { properties: { foo: 'bar' } })
+                const [_p, updatePersonKafkaMessages] = await db.updatePersonDeprecated(person, {
+                    properties: { foo: 'bar' },
+                })
+                await hub.db.kafkaProducer.queueMessages({
+                    kafkaMessages: updatePersonKafkaMessages,
+                    waitForAck: true,
+                })
                 await db.kafkaProducer.flush()
                 await delayUntilEventIngested(fetchPersonsRows, 2)
 
@@ -476,7 +489,7 @@ describe('DB', () => {
             const team = await getFirstTeam(hub)
             const uuid = new UUIDT().toString()
             const createdPerson = await db.createPerson(TIMESTAMP, { foo: 'bar' }, {}, {}, team.id, null, true, uuid, [
-                'some_id',
+                { distinctId: 'some_id' },
             ])
 
             const person = await db.fetchPerson(team.id, 'some_id')
@@ -604,149 +617,6 @@ describe('DB', () => {
         })
     })
 
-    describe('updateGroupCache()', () => {
-        it('updates redis', async () => {
-            await db.updateGroupCache(2, 0, 'group_key', {
-                created_at: CLICKHOUSE_TIMESTAMP,
-                properties: { prop: 'val' },
-            })
-
-            expect(await fetchGroupCache(2, 0, 'group_key')).toEqual({
-                created_at: CLICKHOUSE_TIMESTAMP,
-                properties: { prop: 'val' },
-            })
-        })
-    })
-
-    describe('getGroupsColumns()', () => {
-        beforeEach(() => {
-            jest.spyOn(db, 'fetchGroup')
-            jest.spyOn(db, 'redisGet')
-        })
-
-        describe('one group', () => {
-            it('tries to fetch data from the cache first, avoiding the database', async () => {
-                await db.updateGroupCache(2, 0, 'group_key', {
-                    properties: { foo: 'bar' },
-                    created_at: CLICKHOUSE_TIMESTAMP,
-                })
-
-                const result = await db.getGroupsColumns(2, [[0, 'group_key']])
-                expect(result).toEqual({
-                    group0_properties: JSON.stringify({ foo: 'bar' }),
-                    group0_created_at: CLICKHOUSE_TIMESTAMP,
-                })
-
-                expect(db.fetchGroup).not.toHaveBeenCalled()
-            })
-
-            it('tries to fetch data from Postgres if Redis is down', async () => {
-                await db.insertGroup(2, 0, 'group_key', { foo: 'bar' }, TIMESTAMP, {}, {}, 0, undefined, {
-                    cache: false,
-                })
-
-                jest.spyOn(db, 'redisGet').mockRejectedValue(new Error())
-
-                const result = await db.getGroupsColumns(2, [[0, 'group_key']])
-
-                expect(result).toEqual({
-                    group0_properties: JSON.stringify({ foo: 'bar' }),
-                    group0_created_at: CLICKHOUSE_TIMESTAMP,
-                })
-                expect(db.fetchGroup).toHaveBeenCalled()
-            })
-
-            it('tries to fetch data from Postgres if there is no cached data', async () => {
-                await db.insertGroup(2, 0, 'group_key', { foo: 'bar' }, TIMESTAMP, {}, {}, 0, undefined, {
-                    cache: false,
-                })
-
-                const result = await db.getGroupsColumns(2, [[0, 'group_key']])
-
-                expect(result).toEqual({
-                    group0_properties: JSON.stringify({ foo: 'bar' }),
-                    group0_created_at: CLICKHOUSE_TIMESTAMP,
-                })
-                expect(db.fetchGroup).toHaveBeenCalled()
-            })
-
-            it('triggers a metric if the data doesnt exist in Postgres or Redis', async () => {
-                const groupDataMissingCounterSpy = jest.spyOn(dbMetrics.groupDataMissingCounter, 'inc')
-                await db.getGroupsColumns(2, [[0, 'unknown_key']])
-
-                expect(groupDataMissingCounterSpy).toHaveBeenCalledTimes(1)
-            })
-        })
-
-        describe('multiple groups', () => {
-            it('fetches data from cache for some groups and postgres for others', async () => {
-                const groupIds: GroupId[] = [
-                    [0, '0'],
-                    [1, '1'],
-                    [2, '2'],
-                    [3, '3'],
-                    [4, '4'],
-                ]
-
-                for (const [groupTypeIndex, groupKey] of [groupIds[0], groupIds[3]]) {
-                    await db.updateGroupCache(2, groupTypeIndex, groupKey, {
-                        properties: { cached: true },
-                        created_at: CLICKHOUSE_TIMESTAMP,
-                    })
-                }
-
-                for (const [groupTypeIndex, groupKey] of groupIds) {
-                    await db.insertGroup(
-                        2,
-                        groupTypeIndex,
-                        groupKey,
-                        { cached: false },
-                        TIMESTAMP,
-                        {},
-                        {},
-                        0,
-                        undefined,
-                        { cache: false }
-                    )
-                }
-                const result = await db.getGroupsColumns(2, [
-                    [0, '0'],
-                    [1, '1'],
-                    [2, '2'],
-                    [3, '3'],
-                    [4, '4'],
-                ])
-
-                // verify that the first and fourth calls have cached=true and all other have cached=false
-                expect(result).toEqual({
-                    group0_created_at: CLICKHOUSE_TIMESTAMP,
-                    group0_properties: JSON.stringify({
-                        cached: true,
-                    }),
-                    group1_created_at: CLICKHOUSE_TIMESTAMP,
-                    group1_properties: JSON.stringify({
-                        cached: false,
-                    }),
-                    group2_created_at: CLICKHOUSE_TIMESTAMP,
-                    group2_properties: JSON.stringify({
-                        cached: false,
-                    }),
-                    group3_created_at: CLICKHOUSE_TIMESTAMP,
-                    group3_properties: JSON.stringify({
-                        cached: true,
-                    }),
-                    group4_created_at: CLICKHOUSE_TIMESTAMP,
-                    group4_properties: JSON.stringify({
-                        cached: false,
-                    }),
-                })
-
-                expect(db.redisGet).toHaveBeenCalledTimes(5)
-                expect(db.fetchGroup).toHaveBeenCalledTimes(3)
-            })
-        })
-    })
-
     describe('addOrUpdatePublicJob', () => {
         it('updates the column if the job name is new', async () => {
             await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88 })
@@ -842,7 +712,7 @@ describe('DB', () => {
                 null,
                 false,
                 new UUIDT().toString(),
-                ['source_person']
+                [{ distinctId: 'source_person' }]
             )
             const targetPerson = await db.createPerson(
                 TIMESTAMP,
@@ -853,7 +723,7 @@ describe('DB', () => {
                 null,
                 false,
                 new UUIDT().toString(),
-                ['target_person']
+                [{ distinctId: 'target_person' }]
             )
             sourcePersonID = sourcePerson.id
             targetPersonID = targetPerson.id
@@ -985,10 +855,13 @@ describe('DB', () => {
                 anonymize_ips: false,
                 api_token: 'token1',
                 id: teamId,
+                project_id: teamId,
                 ingested_event: true,
                 name: 'TEST PROJECT',
                 organization_id: organizationId,
                 session_recording_opt_in: true,
+                person_processing_opt_out: null,
+                heatmaps_opt_in: null,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
                 person_display_name_properties: [],
@@ -1012,10 +885,13 @@ describe('DB', () => {
                 anonymize_ips: false,
                 api_token: 'token2',
                 id: teamId,
+                project_id: teamId,
                 ingested_event: true,
                 name: 'TEST PROJECT',
                 organization_id: organizationId,
                 session_recording_opt_in: true,
+                person_processing_opt_out: null,
+                heatmaps_opt_in: null,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
                 test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly

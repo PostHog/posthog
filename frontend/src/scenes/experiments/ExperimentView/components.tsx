@@ -1,33 +1,88 @@
 import '../Experiment.scss'
 
-import { IconCheck, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
-import { Empty } from 'antd'
+import { IconArchive, IconCheck, IconFlask, IconX } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonModal,
+    LemonSelect,
+    LemonSkeleton,
+    LemonTag,
+    LemonTagType,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
+import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
-import { ExperimentResults, FilterType, InsightShortId, InsightType } from '~/types'
+import {
+    CachedExperimentFunnelsQueryResponse,
+    CachedExperimentTrendsQueryResponse,
+    ExperimentFunnelsQueryResponse,
+    ExperimentTrendsQueryResponse,
+    InsightQueryNode,
+    InsightVizNode,
+    NodeKind,
+} from '~/queries/schema'
+import {
+    Experiment,
+    Experiment as ExperimentType,
+    ExperimentIdType,
+    ExperimentResults,
+    FilterType,
+    InsightShortId,
+    InsightType,
+} from '~/types'
 
-import { ResetButton } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
+import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
 import { getExperimentInsightColour, transformResultFilters } from '../utils'
 
-export function VariantTag({ variantKey }: { variantKey: string }): JSX.Element {
-    const { experimentResults, getIndexForVariant } = useValues(experimentLogic)
+export function VariantTag({
+    experimentId,
+    variantKey,
+    muted = false,
+    fontSize,
+}: {
+    experimentId: ExperimentIdType
+    variantKey: string
+    muted?: boolean
+    fontSize?: number
+}): JSX.Element {
+    const { experiment, experimentResults, getIndexForVariant } = useValues(experimentLogic({ experimentId }))
+
+    if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
+        return (
+            <span className="flex items-center space-x-2">
+                <div
+                    className="w-2 h-2 rounded-full mr-0.5"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        backgroundColor: getExperimentInsightColour(getIndexForVariant(experimentResults, variantKey)),
+                    }}
+                />
+                <LemonTag type="option">{experiment.holdout.name}</LemonTag>
+            </span>
+        )
+    }
 
     return (
-        <span className="flex items-center space-x-1">
+        <span className="flex items-center space-x-2">
             <div
                 className="w-2 h-2 rounded-full mr-0.5"
                 // eslint-disable-next-line react/forbid-dom-props
@@ -35,7 +90,13 @@ export function VariantTag({ variantKey }: { variantKey: string }): JSX.Element 
                     backgroundColor: getExperimentInsightColour(getIndexForVariant(experimentResults, variantKey)),
                 }}
             />
-            <span className="font-semibold">{capitalizeFirstLetter(variantKey)}</span>
+            <span
+                className={`font-semibold ${muted ? 'text-[var(--text-secondary-3000)]' : ''}`}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
+            >
+                {variantKey}
+            </span>
         </span>
     )
 }
@@ -67,27 +128,76 @@ export function ResultsQuery({
     targetResults,
     showTable,
 }: {
-    targetResults: ExperimentResults['result'] | null
+    targetResults: ExperimentResults['result'] | ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
     showTable: boolean
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+        const newQueryResults = targetResults as unknown as
+            | CachedExperimentTrendsQueryResponse
+            | CachedExperimentFunnelsQueryResponse
+
+        const query =
+            newQueryResults.kind === NodeKind.ExperimentTrendsQuery
+                ? newQueryResults.count_query
+                : newQueryResults.funnels_query
+        const fakeInsightId = Math.random().toString(36).substring(2, 15)
+
+        return (
+            <Query
+                query={{
+                    kind: NodeKind.InsightVizNode,
+                    source: query,
+                    showTable,
+                    showLastComputation: true,
+                    showLastComputationRefresh: false,
+                }}
+                context={{
+                    insightProps: {
+                        dashboardItemId: fakeInsightId as InsightShortId,
+                        cachedInsight: {
+                            short_id: fakeInsightId as InsightShortId,
+                            query: {
+                                kind: NodeKind.InsightVizNode,
+                                source: query,
+                            } as InsightVizNode,
+                            result: newQueryResults?.insight,
+                            disable_baseline: true,
+                        },
+                        doNotLoad: true,
+                    },
+                }}
+                readOnly
+            />
+        )
+    }
+
+    const oldQueryResults = targetResults as ExperimentResults['result']
+
+    if (!oldQueryResults?.filters) {
+        return <></>
+    }
+
     return (
         <Query
             query={{
                 kind: NodeKind.InsightVizNode,
-                source: filtersToQueryNode(transformResultFilters(targetResults?.filters ?? {})),
+                source: filtersToQueryNode(transformResultFilters(oldQueryResults?.filters ?? {})),
                 showTable,
                 showLastComputation: true,
                 showLastComputationRefresh: false,
             }}
             context={{
                 insightProps: {
-                    dashboardItemId: targetResults?.fakeInsightId as InsightShortId,
+                    dashboardItemId: oldQueryResults?.fakeInsightId as InsightShortId,
                     cachedInsight: {
-                        short_id: targetResults?.fakeInsightId as InsightShortId,
-                        filters: transformResultFilters(targetResults?.filters ?? {}),
-                        result: targetResults?.insight,
+                        short_id: oldQueryResults?.fakeInsightId as InsightShortId,
+                        query: oldQueryResults?.filters
+                            ? queryFromFilters(transformResultFilters(oldQueryResults.filters))
+                            : null,
+                        result: oldQueryResults?.insight,
                         disable_baseline: true,
-                        last_refresh: targetResults?.last_refresh,
+                        last_refresh: oldQueryResults?.last_refresh,
                     },
                     doNotLoad: true,
                 },
@@ -98,7 +208,7 @@ export function ResultsQuery({
 }
 
 export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element }): JSX.Element {
-    const { experimentResults, experiment } = useValues(experimentLogic)
+    const { experimentResults, experiment, featureFlags } = useValues(experimentLogic)
 
     // keep in sync with https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/experiments/funnel_experiment_result.py#L71
     // :TRICKY: In the case of no results, we still want users to explore the query, so they can debug further.
@@ -113,29 +223,50 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
         properties: [],
     }
 
+    let query: InsightVizNode
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+        const newQueryResults = experimentResults as unknown as
+            | CachedExperimentTrendsQueryResponse
+            | CachedExperimentFunnelsQueryResponse
+
+        const source =
+            newQueryResults.kind === NodeKind.ExperimentTrendsQuery
+                ? newQueryResults.count_query
+                : newQueryResults.funnels_query
+
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: source as InsightQueryNode,
+        }
+    } else {
+        const oldQueryResults = experimentResults as ExperimentResults['result']
+
+        if (!oldQueryResults?.filters) {
+            return <></>
+        }
+
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: filtersToQueryNode(
+                transformResultFilters(
+                    oldQueryResults?.filters
+                        ? { ...oldQueryResults.filters, explicit_date: true }
+                        : filtersFromExperiment
+                )
+            ),
+            showTable: true,
+            showLastComputation: true,
+            showLastComputationRefresh: false,
+        }
+    }
+
     return (
         <LemonButton
             className="ml-auto -translate-y-2"
-            size="small"
+            size="xsmall"
             type="primary"
             icon={icon}
-            to={urls.insightNew(
-                undefined,
-                undefined,
-                JSON.stringify({
-                    kind: NodeKind.InsightVizNode,
-                    source: filtersToQueryNode(
-                        transformResultFilters(
-                            experimentResults?.filters
-                                ? { ...experimentResults.filters, explicit_date: true }
-                                : filtersFromExperiment
-                        )
-                    ),
-                    showTable: true,
-                    showLastComputation: true,
-                    showLastComputationRefresh: false,
-                })
-            )}
+            to={urls.insightNew(undefined, undefined, query)}
         >
             Explore results
         </LemonButton>
@@ -143,6 +274,8 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
 }
 
 export function ResultsHeader(): JSX.Element {
+    const { experimentResults } = useValues(experimentLogic)
+
     return (
         <div className="flex">
             <div className="w-1/2">
@@ -153,20 +286,27 @@ export function ResultsHeader(): JSX.Element {
             </div>
 
             <div className="w-1/2 flex flex-col justify-end">
-                <div className="ml-auto">
-                    <ExploreButton />
-                </div>
+                <div className="ml-auto">{experimentResults && <ExploreButton />}</div>
             </div>
         </div>
     )
 }
 
 export function NoResultsEmptyState(): JSX.Element {
+    type ErrorCode = 'no-events' | 'no-flag-info' | 'no-control-variant' | 'no-test-variant'
+
     const { experimentResultsLoading, experimentResultCalculationError } = useValues(experimentLogic)
 
-    function ChecklistItem({ failureReason, checked }: { failureReason: string; checked: boolean }): JSX.Element {
-        const failureReasonToText = {
-            'no-events': 'Events have been received',
+    function ChecklistItem({ errorCode, value }: { errorCode: ErrorCode; value: boolean }): JSX.Element {
+        const failureText = {
+            'no-events': 'Experiment events not received',
+            'no-flag-info': 'Feature flag information not present on the events',
+            'no-control-variant': 'Events with the control variant not received',
+            'no-test-variant': 'Events with at least one test variant not received',
+        }
+
+        const successText = {
+            'no-events': 'Experiment events have been received',
             'no-flag-info': 'Feature flag information is present on the events',
             'no-control-variant': 'Events with the control variant received',
             'no-test-variant': 'Events with at least one test variant received',
@@ -174,12 +314,17 @@ export function NoResultsEmptyState(): JSX.Element {
 
         return (
             <div className="flex items-center space-x-2">
-                {checked ? (
-                    <IconCheck className="text-success" fontSize={16} />
+                {value === false ? (
+                    <>
+                        <IconCheck className="text-success" fontSize={16} />
+                        <span className="text-muted">{successText[errorCode]}</span>
+                    </>
                 ) : (
-                    <IconX className="text-danger" fontSize={16} />
+                    <>
+                        <IconX className="text-danger" fontSize={16} />
+                        <span>{failureText[errorCode]}</span>
+                    </>
                 )}
-                <span className={checked ? 'text-muted' : ''}>{failureReasonToText[failureReason]}</span>
             </div>
         )
     }
@@ -190,9 +335,23 @@ export function NoResultsEmptyState(): JSX.Element {
 
     // Validation errors return 400 and are rendered as a checklist
     if (experimentResultCalculationError?.statusCode === 400) {
+        let parsedDetail: Record<ErrorCode, boolean>
+        try {
+            parsedDetail = JSON.parse(experimentResultCalculationError.detail)
+        } catch (error) {
+            return (
+                <div className="border rounded bg-bg-light p-4">
+                    <div className="font-semibold leading-tight text-base text-current">
+                        Experiment results could not be calculated
+                    </div>
+                    <div className="mt-2">{experimentResultCalculationError.detail}</div>
+                </div>
+            )
+        }
+
         const checklistItems = []
-        for (const [failureReason, value] of Object.entries(JSON.parse(experimentResultCalculationError.detail))) {
-            checklistItems.push(<ChecklistItem key={failureReason} failureReason={failureReason} checked={!value} />)
+        for (const [errorCode, value] of Object.entries(parsedDetail)) {
+            checklistItems.push(<ChecklistItem key={errorCode} errorCode={errorCode as ErrorCode} value={value} />)
         }
 
         return (
@@ -220,13 +379,33 @@ export function NoResultsEmptyState(): JSX.Element {
         )
     }
 
-    // Non-400 errors are rendered as plain text
+    if (experimentResultCalculationError?.statusCode === 504) {
+        return (
+            <div>
+                <div className="border rounded bg-bg-light py-10">
+                    <div className="flex flex-col items-center mx-auto text-muted space-y-2">
+                        <IconArchive className="text-4xl text-secondary-3000" />
+                        <h2 className="text-xl font-semibold leading-tight">Experiment results timed out</h2>
+                        {!!experimentResultCalculationError && (
+                            <div className="text-sm text-center text-balance">
+                                This may occur when the experiment has a large amount of data or is particularly
+                                complex. We are actively working on fixing this. In the meantime, please try refreshing
+                                the experiment to retrieve the results.
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
+    // Other unexpected errors
     return (
         <div>
-            <div className="border rounded bg-bg-light pt-6 pb-8">
-                <div className="flex flex-col items-center mx-auto text-muted">
-                    <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
-                    <h2 className="text-xl font-semibold leading-tight">There are no experiment results yet</h2>
+            <div className="border rounded bg-bg-light py-10">
+                <div className="flex flex-col items-center mx-auto text-muted space-y-2">
+                    <IconArchive className="text-4xl text-secondary-3000" />
+                    <h2 className="text-xl font-semibold leading-tight">Experiment results could not be calculated</h2>
                     {!!experimentResultCalculationError && (
                         <div className="text-sm text-center text-balance">
                             {experimentResultCalculationError.detail}
@@ -273,18 +452,25 @@ export function ExperimentLoadingAnimation(): JSX.Element {
 }
 
 export function PageHeaderCustom(): JSX.Element {
-    const { experiment, isExperimentRunning, isExperimentStopped } = useValues(experimentLogic)
+    const {
+        experimentId,
+        experiment,
+        isExperimentRunning,
+        isExperimentStopped,
+        areResultsSignificant,
+        isSingleVariantShipped,
+        featureFlags,
+        hasGoalSet,
+    } = useValues(experimentLogic)
     const {
         launchExperiment,
-        resetRunningExperiment,
         endExperiment,
         archiveExperiment,
-        setEditExperiment,
         loadExperimentResults,
         loadSecondaryMetricResults,
         createExposureCohort,
+        openShipVariantModal,
     } = useActions(experimentLogic)
-
     const exposureCohortId = experiment?.exposure_cohort
 
     return (
@@ -293,13 +479,13 @@ export function PageHeaderCustom(): JSX.Element {
                 <>
                     {experiment && !isExperimentRunning && (
                         <div className="flex items-center">
-                            <LemonButton type="secondary" className="mr-2" onClick={() => setEditExperiment(true)}>
-                                Edit
-                            </LemonButton>
                             <LemonButton
                                 type="primary"
                                 data-attr="launch-experiment"
                                 onClick={() => launchExperiment()}
+                                disabledReason={
+                                    !hasGoalSet ? 'Add the main goal before launching the experiment' : undefined
+                                }
                             >
                                 Launch
                             </LemonButton>
@@ -307,72 +493,208 @@ export function PageHeaderCustom(): JSX.Element {
                     )}
                     {experiment && isExperimentRunning && (
                         <div className="flex flex-row gap-2">
-                            {!isExperimentStopped && !experiment.archived && (
-                                <>
-                                    <More
-                                        overlay={
-                                            <>
-                                                <LemonButton
-                                                    onClick={() =>
-                                                        exposureCohortId ? undefined : createExposureCohort()
-                                                    }
-                                                    fullWidth
-                                                    data-attr={`${
-                                                        exposureCohortId ? 'view' : 'create'
-                                                    }-exposure-cohort`}
-                                                    to={exposureCohortId ? urls.cohort(exposureCohortId) : undefined}
-                                                    targetBlank={!!exposureCohortId}
-                                                >
-                                                    {exposureCohortId ? 'View' : 'Create'} exposure cohort
-                                                </LemonButton>
-                                                <LemonButton
-                                                    onClick={() => loadExperimentResults(true)}
-                                                    fullWidth
-                                                    data-attr="refresh-experiment"
-                                                >
-                                                    Refresh experiment results
-                                                </LemonButton>
-                                                <LemonButton
-                                                    onClick={() => loadSecondaryMetricResults(true)}
-                                                    fullWidth
-                                                    data-attr="refresh-secondary-metrics"
-                                                >
-                                                    Refresh secondary metrics
-                                                </LemonButton>
-                                            </>
-                                        }
-                                    />
-                                    <LemonDivider vertical />
-                                </>
-                            )}
-                            <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
+                            <>
+                                <More
+                                    overlay={
+                                        <>
+                                            <LemonButton
+                                                onClick={() => (exposureCohortId ? undefined : createExposureCohort())}
+                                                fullWidth
+                                                data-attr={`${exposureCohortId ? 'view' : 'create'}-exposure-cohort`}
+                                                to={exposureCohortId ? urls.cohort(exposureCohortId) : undefined}
+                                                targetBlank={!!exposureCohortId}
+                                            >
+                                                {exposureCohortId ? 'View' : 'Create'} exposure cohort
+                                            </LemonButton>
+                                            <LemonButton
+                                                onClick={() => loadExperimentResults(true)}
+                                                fullWidth
+                                                data-attr="refresh-experiment"
+                                            >
+                                                Refresh experiment results
+                                            </LemonButton>
+                                            <LemonButton
+                                                onClick={() => loadSecondaryMetricResults(true)}
+                                                fullWidth
+                                                data-attr="refresh-secondary-metrics"
+                                            >
+                                                Refresh secondary metrics
+                                            </LemonButton>
+                                        </>
+                                    }
+                                />
+                                <LemonDivider vertical />
+                            </>
+                            <ResetButton experimentId={experiment.id} />
                             {!experiment.end_date && (
                                 <LemonButton
                                     type="secondary"
                                     data-attr="stop-experiment"
                                     status="danger"
-                                    onClick={() => endExperiment()}
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Stop this experiment?',
+                                            content: (
+                                                <div className="text-sm text-muted">
+                                                    This action will end data collection. The experiment can be
+                                                    restarted later if needed.
+                                                </div>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Stop',
+                                                type: 'primary',
+                                                onClick: () => endExperiment(),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                    }}
                                 >
                                     Stop
                                 </LemonButton>
                             )}
                             {isExperimentStopped && (
-                                <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Archive this experiment?',
+                                            content: (
+                                                <div className="text-sm text-muted">
+                                                    This action will move the experiment to the archived tab. It can be
+                                                    restored at any time.
+                                                </div>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Archive',
+                                                type: 'primary',
+                                                onClick: () => archiveExperiment(),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                    }}
+                                >
                                     <b>Archive</b>
                                 </LemonButton>
                             )}
                         </div>
                     )}
+                    {featureFlags[FEATURE_FLAGS.EXPERIMENT_MAKE_DECISION] &&
+                        areResultsSignificant &&
+                        !isSingleVariantShipped && (
+                            <>
+                                <Tooltip title="Choose a variant and roll it out to all users">
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconFlask />}
+                                        onClick={() => openShipVariantModal()}
+                                    >
+                                        <b>Ship a variant</b>
+                                    </LemonButton>
+                                </Tooltip>
+                                <ShipVariantModal experimentId={experimentId} />
+                            </>
+                        )}
                 </>
             }
         />
     )
 }
 
+export function ShipVariantModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
+    const { experiment, sortedWinProbabilities, isShipVariantModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { closeShipVariantModal, shipVariant } = useActions(experimentLogic({ experimentId }))
+    const { aggregationLabel } = useValues(groupsModel)
+
+    const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
+    useEffect(() => setSelectedVariantKey(sortedWinProbabilities[0]?.key), [sortedWinProbabilities])
+
+    const aggregationTargetName =
+        experiment.filters.aggregation_group_type_index != null
+            ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
+            : 'users'
+
+    return (
+        <LemonModal
+            isOpen={isShipVariantModalOpen}
+            onClose={closeShipVariantModal}
+            width={600}
+            title="Ship a variant"
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton type="secondary" onClick={closeShipVariantModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        // TODO: revisit if it always makes sense to stop the experiment when shipping a variant
+                        // does it make sense to still *monitor* the experiment after shipping the variant?
+                        onClick={() => shipVariant({ selectedVariantKey, shouldStopExperiment: true })}
+                        type="primary"
+                    >
+                        Ship variant
+                    </LemonButton>
+                </div>
+            }
+        >
+            <div className="space-y-6">
+                <div className="text-sm">
+                    This will roll out the selected variant to <b>100% of {aggregationTargetName}</b> and stop the
+                    experiment.
+                </div>
+                <div className="flex items-center">
+                    <div className="w-1/2 pr-4">
+                        <LemonSelect
+                            className="w-full"
+                            data-attr="metrics-selector"
+                            value={selectedVariantKey}
+                            onChange={(variantKey) => setSelectedVariantKey(variantKey)}
+                            options={sortedWinProbabilities.map(({ key }) => ({
+                                value: key,
+                                label: (
+                                    <div className="space-x-2 inline-flex">
+                                        <VariantTag experimentId={experimentId} variantKey={key} />
+                                        {key === sortedWinProbabilities[0]?.key && (
+                                            <LemonTag type="success">
+                                                <b className="uppercase">Winning</b>
+                                            </LemonTag>
+                                        )}
+                                    </div>
+                                ),
+                            }))}
+                        />
+                    </div>
+                </div>
+                <LemonBanner type="info" className="mb-4">
+                    For more precise control over your release, adjust the rollout percentage and release conditions in
+                    the{' '}
+                    <Link
+                        target="_blank"
+                        className="font-semibold"
+                        to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
+                    >
+                        {experiment.feature_flag?.key}
+                    </Link>{' '}
+                    feature flag.
+                </LemonBanner>
+            </div>
+        </LemonModal>
+    )
+}
+
 export function ActionBanner(): JSX.Element {
     const {
         experiment,
-        experimentInsightType,
+        getMetricType,
         experimentResults,
         experimentLoading,
         experimentResultsLoading,
@@ -382,9 +704,20 @@ export function ActionBanner(): JSX.Element {
         funnelResultsPersonsTotal,
         actualRunningTime,
         getHighestProbabilityVariant,
+        isSingleVariantShipped,
+        featureFlags,
     } = useValues(experimentLogic)
 
     const { archiveExperiment } = useActions(experimentLogic)
+
+    const { aggregationLabel } = useValues(groupsModel)
+
+    const metricType = getMetricType(0)
+
+    const aggregationTargetName =
+        experiment.filters.aggregation_group_type_index != null
+            ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
+            : 'users'
 
     const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
     const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
@@ -393,11 +726,38 @@ export function ActionBanner(): JSX.Element {
         return <></>
     }
 
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENT_MAKE_DECISION]) {
+        if (isSingleVariantShipped) {
+            const shippedVariant = experiment.feature_flag?.filters.multivariate?.variants.find(
+                ({ rollout_percentage }) => rollout_percentage === 100
+            )
+            if (!shippedVariant) {
+                return <></>
+            }
+
+            return (
+                <LemonBanner type="info" className="mt-4">
+                    <span className="inline-flex items-center">
+                        <span
+                            className="border rounded px-2"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ backgroundColor: 'var(--bg-table)' }}
+                        >
+                            <VariantTag experimentId={experiment.id} variantKey={shippedVariant.key} />
+                        </span>
+                        &nbsp; has been released to 100% of {aggregationTargetName}.
+                    </span>
+                </LemonBanner>
+            )
+        }
+    }
+
     // Draft
     if (!isExperimentRunning) {
         return (
             <LemonBanner type="info" className="mt-4">
-                Your experiment is in draft mode. You can edit your variants, adjust release conditions, and{' '}
+                Your experiment is in draft mode. You can set the goal, edit the variants, adjust release conditions,
+                and{' '}
                 <Link className="font-semibold" to="https://posthog.com/docs/experiments/testing-and-launching">
                     test your feature flag
                 </Link>
@@ -412,7 +772,7 @@ export function ActionBanner(): JSX.Element {
         // Results insignificant, but a large enough sample/running time has been achieved
         // Further collection unlikely to change the result -> recommmend cutting the losses
         if (
-            experimentInsightType === InsightType.FUNNELS &&
+            metricType === InsightType.FUNNELS &&
             funnelResultsPersonsTotal > Math.max(recommendedSampleSize, 500) &&
             dayjs().diff(experiment.start_date, 'day') > 2 // at least 2 days running
         ) {
@@ -424,7 +784,7 @@ export function ActionBanner(): JSX.Element {
                 </LemonBanner>
             )
         }
-        if (experimentInsightType === InsightType.TRENDS && actualRunningTime > Math.max(recommendedRunningTime, 7)) {
+        if (metricType === InsightType.TRENDS && actualRunningTime > Math.max(recommendedRunningTime, 7)) {
             return (
                 <LemonBanner type="warning" className="mt-4">
                     Your experiment has been running long enough, but the results are still inconclusive. Continuing the
@@ -453,7 +813,7 @@ export function ActionBanner(): JSX.Element {
 
         // Win probability only slightly over 0.9 and the recommended sample/time just met -> proceed with caution
         if (
-            experimentInsightType === InsightType.FUNNELS &&
+            metricType === InsightType.FUNNELS &&
             funnelResultsPersonsTotal < recommendedSampleSize + 50 &&
             winProbability < 0.93
         ) {
@@ -467,7 +827,7 @@ export function ActionBanner(): JSX.Element {
         }
 
         if (
-            experimentInsightType === InsightType.TRENDS &&
+            metricType === InsightType.TRENDS &&
             actualRunningTime < recommendedRunningTime + 2 &&
             winProbability < 0.93
         ) {
@@ -524,4 +884,62 @@ export function ActionBanner(): JSX.Element {
     }
 
     return <></>
+}
+
+export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.Element => {
+    const { experiment } = useValues(experimentLogic({ experimentId }))
+    const { resetRunningExperiment } = useActions(experimentLogic)
+
+    const onClickReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset this experiment?',
+            content: (
+                <>
+                    <div className="text-sm text-muted">
+                        All data collected so far will be discarded and the experiment will go back to draft mode.
+                    </div>
+                    {experiment.archived && (
+                        <div className="text-sm text-muted">Resetting will also unarchive the experiment.</div>
+                    )}
+                </>
+            ),
+            primaryButton: {
+                children: 'Confirm',
+                type: 'primary',
+                onClick: resetRunningExperiment,
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    return (
+        <LemonButton type="secondary" onClick={onClickReset}>
+            Reset
+        </LemonButton>
+    )
+}
+
+export function StatusTag({ experiment }: { experiment: ExperimentType }): JSX.Element {
+    const status = getExperimentStatus(experiment)
+    return (
+        <LemonTag type={getExperimentStatusColor(status)}>
+            <b className="uppercase">{status}</b>
+        </LemonTag>
+    )
+}
+
+export function LoadingState(): JSX.Element {
+    return (
+        <div className="space-y-4">
+            <LemonSkeleton className="w-1/3 h-4" />
+            <LemonSkeleton />
+            <LemonSkeleton />
+            <LemonSkeleton className="w-2/3 h-4" />
+        </div>
+    )
 }

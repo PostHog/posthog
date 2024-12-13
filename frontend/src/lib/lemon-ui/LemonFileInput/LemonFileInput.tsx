@@ -61,9 +61,11 @@ export const LemonFileInput = ({
 
         const eventFiles = e.target.files
         const filesArr = Array.prototype.slice.call(eventFiles)
-        const localFiles = multiple ? [...files, ...filesArr] : [filesArr[0]]
-        setFiles(localFiles)
-        onChange?.(localFiles)
+        if (filesArr.length > 0) {
+            const localFiles = multiple ? [...files, ...filesArr] : filesArr.slice(0, 1)
+            setFiles(localFiles)
+            onChange?.(localFiles)
+        }
     }
 
     const handleDrag = (e: DragEvent): void => {
@@ -136,9 +138,12 @@ export const LemonFileInput = ({
         <>
             <div
                 ref={dropRef}
-                className={clsx('flex flex-col gap-1', !alternativeDropTargetRef?.current && drag && 'FileDropTarget')}
+                className={clsx(
+                    'FileDropTarget flex flex-col gap-1',
+                    !alternativeDropTargetRef?.current && drag && 'FileDropTarget--active'
+                )}
             >
-                <label className="text-muted inline-flex flex flow-row items-center gap-1 cursor-pointer">
+                <label className="text-muted inline-flex flow-row items-center gap-1 cursor-pointer">
                     <input
                         className="hidden"
                         type="file"

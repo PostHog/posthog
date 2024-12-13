@@ -12,6 +12,7 @@ from freezegun import freeze_time
 from rest_framework import status
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
+import time
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.models import User
@@ -21,7 +22,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
-
+from django_otp.plugins.otp_static.models import StaticDevice
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -117,6 +118,28 @@ class TestLoginAPI(APIBaseTest):
 
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
+
+    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.authentication.is_email_verification_disabled", return_value=True)
+    def test_email_unverified_user_can_log_in_if_email_available_but_verification_disabled_flag_is_true(
+        self, mock_is_verification_disabled, mock_send_email_verification, mock_is_email_available
+    ):
+        self.user.is_email_verified = False
+        self.user.save()
+        self.assertEqual(self.user.is_email_verified, False)
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Test that we're actually logged in
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], self.user.email)
+
+        mock_is_verification_disabled.assert_called_once()
+        mock_is_email_available.assert_called_once()
+        mock_send_email_verification.assert_not_called()
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
@@ -222,6 +245,14 @@ class TestLoginAPI(APIBaseTest):
                 },
             )
 
+
+class TestTwoFactorAPI(APIBaseTest):
+    """
+    Tests the two factor view set.
+    """
+
+    CONFIG_AUTO_LOGIN = False
+
     def test_login_2fa_enabled(self):
         device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
 
@@ -300,6 +331,76 @@ class TestLoginAPI(APIBaseTest):
             self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"],
             "2fa_too_many_attempts",
         )
+
+    def test_login_with_backup_code(self):
+        """Test that a user can log in using a backup code instead of TOTP"""
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        static_device = StaticDevice.objects.create(user=self.user, name="backup")
+        static_device.token_set.create(token="123456")
+
+        # First authenticate with username/password
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["code"], "2fa_required")
+
+        # Then authenticate with backup code
+        response = self.client.post("/api/login/token", {"token": "123456"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify we're logged in
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], self.user.email)
+
+        # Verify the backup code was consumed (can't be reused)
+        self.assertFalse(static_device.token_set.filter(token="123456").exists())
+
+    def test_backup_code_is_consumed_after_use(self):
+        """Test that backup codes are one-time use only"""
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        static_device = StaticDevice.objects.create(user=self.user, name="backup")
+        static_device.token_set.create(token="123456")
+
+        # First authenticate with username/password
+        self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        # Use backup code once
+        response = self.client.post("/api/login/token", {"token": "123456"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Log out
+        self.client.logout()
+
+        # Wait for throttling to expire
+        time.sleep(2)
+
+        # Try to authenticate again with same backup code
+        self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        response = self.client.post("/api/login/token", {"token": "123456"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "2fa_invalid")
+
+    def test_backup_codes_work_when_totp_device_is_throttled(self):
+        """Test that backup codes still work even if TOTP device is throttled"""
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        static_device = StaticDevice.objects.create(user=self.user, name="backup")
+        static_device.token_set.create(token="123456")
+
+        # First authenticate with username/password
+        self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        # Trigger TOTP throttling with invalid attempts
+        self.client.post("/api/login/token", {"token": "000000"})
+        self.client.post("/api/login/token", {"token": "000000"})
+
+        # Wait for throttling to expire
+        import time
+
+        time.sleep(2)
+
+        # Backup code should still work
+        response = self.client.post("/api/login/token", {"token": "123456"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
 class TestPasswordResetAPI(APIBaseTest):

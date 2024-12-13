@@ -91,7 +91,7 @@ export function FunnelBarHorizontal({
                             {step.average_conversion_time && step.average_conversion_time >= Number.EPSILON ? (
                                 <div className="text-muted-alt">
                                     Average time to convert:{' '}
-                                    <b>{humanFriendlyDuration(step.average_conversion_time, 2)}</b>
+                                    <b>{humanFriendlyDuration(step.average_conversion_time, { maxUnits: 2 })}</b>
                                 </div>
                             ) : null}
                         </header>

@@ -21,6 +21,13 @@ const HIGH_WATERMARK_KEY = 'session_replay_events_ingester'
 const replayEventsCounter = new Counter({
     name: 'replay_events_ingested',
     help: 'Number of Replay events successfully ingested',
+    labelNames: ['snapshot_source'],
+})
+
+const dataIngestedCounter = new Counter({
+    name: 'replay_data_ingested',
+    help: 'Amount of data being ingested',
+    labelNames: ['snapshot_source'],
 })
 
 export class ReplayEventsIngester {
@@ -35,7 +42,9 @@ export class ReplayEventsIngester {
         for (const message of messages) {
             const results = await retryOnDependencyUnavailableError(() => this.consume(message))
             if (results) {
-                pendingProduceRequests.push(...results)
+                results.forEach((result) => {
+                    pendingProduceRequests.push(result)
+                })
             }
         }
 
@@ -62,9 +71,9 @@ export class ReplayEventsIngester {
                 status.error('🔁', '[replay-events] main_loop_error', { error })
 
                 if (error?.isRetriable) {
-                    // We assume the if the error is retriable, then we
+                    // We assume that if the error is retriable, then we
                     // are probably in a state where e.g. Kafka is down
-                    // temporarily and we would rather simply throw and
+                    // temporarily, and we would rather simply throw and
                     // have the process restarted.
                     throw error
                 }
@@ -115,7 +124,7 @@ export class ReplayEventsIngester {
         try {
             const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])
 
-            const replayRecord = createSessionReplayEvent(
+            const { event: replayRecord } = createSessionReplayEvent(
                 randomUUID(),
                 event.team_id,
                 event.distinct_id,
@@ -159,7 +168,8 @@ export class ReplayEventsIngester {
                 return drop('session_replay_summarizer_error')
             }
 
-            replayEventsCounter.inc()
+            replayEventsCounter.inc({ snapshot_source: replayRecord.snapshot_source ?? undefined })
+            dataIngestedCounter.inc({ snapshot_source: replayRecord.snapshot_source ?? undefined }, replayRecord.size)
 
             return [
                 produce({

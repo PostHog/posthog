@@ -12,14 +12,17 @@ export interface LemonSwitchProps {
     labelClassName?: string
     id?: string
     fullWidth?: boolean
+    size?: 'small' | 'medium'
     bordered?: boolean
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     'data-attr'?: string
-    tooltip?: string | null
+    tooltip?: string | JSX.Element | null
     handleContent?: React.ReactElement | null
     'aria-label'?: string
+    sliderColorOverrideChecked?: string
+    sliderColorOverrideUnchecked?: string
 }
 
 /** Counter used for collision-less automatic switch IDs. */
@@ -34,6 +37,7 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
             checked,
             fullWidth,
             bordered,
+            size = 'medium',
             disabled,
             disabledReason,
             label,
@@ -42,6 +46,8 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
             'data-attr': dataAttr,
             'aria-label': ariaLabel,
             handleContent,
+            sliderColorOverrideChecked,
+            sliderColorOverrideUnchecked,
         },
         ref
     ): JSX.Element {
@@ -78,7 +84,13 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
                 disabled={disabled}
                 {...conditionalProps}
             >
-                <div className="LemonSwitch__slider" />
+                <div
+                    className={`LemonSwitch__slider ${
+                        sliderColorOverrideChecked || sliderColorOverrideUnchecked
+                            ? `bg-${checked ? sliderColorOverrideChecked : sliderColorOverrideUnchecked}`
+                            : ''
+                    }`}
+                />
                 <div className="LemonSwitch__handle">{handleContent}</div>
             </button>
         )
@@ -94,7 +106,7 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
         return (
             <div
                 ref={ref}
-                className={clsx('LemonSwitch', className, {
+                className={clsx('LemonSwitch', className, `LemonSwitch--${size}`, {
                     'LemonSwitch--checked': checked,
                     'LemonSwitch--active': isActive,
                     'LemonSwitch--bordered': bordered,

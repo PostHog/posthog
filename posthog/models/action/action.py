@@ -1,5 +1,4 @@
 from dataclasses import asdict, dataclass
-import json
 from typing import Literal, Optional, Union, get_args
 
 from django.db import models
@@ -9,7 +8,7 @@ from django.utils import timezone
 
 from posthog.hogql.errors import BaseHogQLError
 from posthog.models.signals import mutable_receiver
-from posthog.redis import get_client
+from posthog.plugins.plugin_server_api import drop_action_on_workers, reload_action_on_workers
 
 
 ActionStepMatching = Literal["contains", "regex", "exact"]
@@ -31,29 +30,34 @@ class ActionStepJSON:
 
 
 class Action(models.Model):
+    name = models.CharField(max_length=400, null=True, blank=True)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    description = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    deleted = models.BooleanField(default=False)
+    events = models.ManyToManyField("Event", blank=True)
+    post_to_slack = models.BooleanField(default=False)
+    slack_message_format = models.CharField(default="", max_length=1200, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    bytecode = models.JSONField(null=True, blank=True)
+    bytecode_error = models.TextField(blank=True, null=True)
+    steps_json = models.JSONField(null=True, blank=True)
+    pinned_at = models.DateTimeField(blank=True, null=True, default=None)
+
+    # DEPRECATED: these were used before ClickHouse was our database
+    is_calculating = models.BooleanField(default=False)
+    last_calculated_at = models.DateTimeField(default=timezone.now, blank=True)
+
     class Meta:
         indexes = [models.Index(fields=["team_id", "-updated_at"])]
 
-    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    description: models.TextField = models.TextField(blank=True, default="")
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
-    deleted: models.BooleanField = models.BooleanField(default=False)
-    events: models.ManyToManyField = models.ManyToManyField("Event", blank=True)
-    post_to_slack: models.BooleanField = models.BooleanField(default=False)
-    slack_message_format: models.CharField = models.CharField(default="", max_length=600, blank=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    bytecode: models.JSONField = models.JSONField(null=True, blank=True)
-    bytecode_error: models.TextField = models.TextField(blank=True, null=True)
-    steps_json: models.JSONField = models.JSONField(null=True, blank=True)
-
-    # DEPRECATED: these were used before ClickHouse was our database
-    is_calculating: models.BooleanField = models.BooleanField(default=False)
-    last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
-
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        self.refresh_bytecode()
+        super().save(*args, **kwargs)
 
     def get_analytics_metadata(self):
         return {
@@ -68,6 +72,8 @@ class Action(models.Model):
             "match_url_count": sum(1 if step.url else 0 for step in self.steps),
             "has_properties": any(step.properties for step in self.steps),
             "deleted": self.deleted,
+            "pinned": bool(self.pinned_at),
+            "pinned_at": self.pinned_at,
         }
 
     @property
@@ -84,10 +90,10 @@ class Action(models.Model):
 
     def refresh_bytecode(self):
         from posthog.hogql.property import action_to_expr
-        from posthog.hogql.bytecode import create_bytecode
+        from posthog.hogql.compiler.bytecode import create_bytecode
 
         try:
-            new_bytecode = create_bytecode(action_to_expr(self))
+            new_bytecode = create_bytecode(action_to_expr(self)).bytecode
             if new_bytecode != self.bytecode or self.bytecode_error is not None:
                 self.bytecode = new_bytecode
                 self.bytecode_error = None
@@ -98,19 +104,12 @@ class Action(models.Model):
                 self.bytecode = None
                 self.bytecode_error = str(e)
 
-    def save(self, *args, **kwargs):
-        self.refresh_bytecode()
-        super().save(*args, **kwargs)
-
 
 @receiver(post_save, sender=Action)
 def action_saved(sender, instance: Action, created, **kwargs):
-    get_client().publish(
-        "reload-action",
-        json.dumps({"teamId": instance.team_id, "actionId": instance.id}),
-    )
+    reload_action_on_workers(team_id=instance.team_id, action_id=instance.id)
 
 
 @mutable_receiver(post_delete, sender=Action)
 def action_deleted(sender, instance: Action, **kwargs):
-    get_client().publish("drop-action", json.dumps({"teamId": instance.team_id, "actionId": instance.id}))
+    drop_action_on_workers(team_id=instance.team_id, action_id=instance.id)

@@ -48,9 +48,27 @@
 
     &.Navigation3000__scene--raw {
         --scene-padding: 0px;
+        --scene-padding-bottom: 0px;
 
         display: flex;
         flex-direction: column;
+    }
+
+    &.Navigation3000__scene--raw-no-header {
+        --scene-padding: 0px;
+        --scene-padding-bottom: 0px;
+
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+    }
+
+    &.Navigation3000__scene--canvas {
+        --scene-padding: 0px;
+
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
     }
 }
 
@@ -140,13 +158,13 @@
             left: 0;
             font-size: 1.25rem;
             line-height: 0.5625rem;
-            color: var(--default);
+            color: var(--text-3000);
             text-align: center;
             content: '•';
         }
 
         .LemonButton__icon {
-            color: var(--default);
+            color: var(--text-3000);
             transform: translateY(-0.25rem);
         }
     }
@@ -157,7 +175,7 @@
 .Sidebar3000 {
     --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
-    --sidebar-row-height: 2rem;
+    --sidebar-row-height: 2.5rem;
     --sidebar-background: var(--bg-3000);
 
     position: relative;
@@ -183,7 +201,7 @@
         margin: 0;
         overflow: hidden;
         line-height: inherit;
-        color: var(--default);
+        color: var(--text-3000);
         text-overflow: ellipsis;
     }
 
@@ -433,7 +451,8 @@
         }
 
         // Accommodate menu button by moving stuff out of the way
-        &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__link {
+        &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__link,
+        &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__button {
             padding-right: calc(var(--sidebar-horizontal-padding) + 1.25rem);
         }
 
@@ -505,6 +524,7 @@
     }
 }
 
+.SidebarListItem__button,
 .SidebarListItem__link,
 .SidebarListItem__rename {
     --sidebar-list-item-inset: calc(
@@ -524,7 +544,7 @@
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--default);
+        border: 1px solid var(--border-3000);
     }
 }
 
@@ -537,6 +557,17 @@
     }
 }
 
+.SidebarListItem__button {
+    row-gap: 1px;
+    padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
+    color: inherit !important; // Disable link color
+    cursor: pointer;
+
+    &:hover {
+        background: var(--border-3000);
+    }
+}
+
 .SidebarListItem__rename {
     // Pseudo-elements don't work on inputs, so we use a wrapper div
     background: var(--bg-light);
@@ -546,7 +577,7 @@
         height: 100%;
         padding: 0 calc(var(--sidebar-horizontal-padding) + 2.5rem) 0 var(--sidebar-list-item-inset);
         font-size: 0.75rem;
-        color: var(--default);
+        color: var(--text-3000);
         background: none;
         outline: none;
     }
@@ -556,7 +587,7 @@
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--default);
+        border: 1px solid var(--border);
 
         .SidebarListItem[aria-invalid='true'] & {
             border-color: var(--danger);

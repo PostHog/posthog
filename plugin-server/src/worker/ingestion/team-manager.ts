@@ -3,7 +3,7 @@ import LRU from 'lru-cache'
 
 import { ONE_MINUTE } from '../../config/constants'
 import { TeamIDWithConfig } from '../../main/ingestion-queues/session-recording/session-recordings-consumer'
-import { PipelineEvent, PluginsServerConfig, Team, TeamId } from '../../types'
+import { PipelineEvent, PluginsServerConfig, ProjectId, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
@@ -41,7 +41,7 @@ export class TeamManager {
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
-        const cachedTeam = this.teamCache.get(teamId)
+        const cachedTeam = this.getCachedTeam(teamId)
         if (cachedTeam !== undefined) {
             return cachedTeam
         }
@@ -54,6 +54,10 @@ export class TeamManager {
         } finally {
             clearTimeout(timeout)
         }
+    }
+
+    public getCachedTeam(teamId: TeamId): Team | null | undefined {
+        return this.teamCache.get(teamId)
     }
 
     public async getTeamByToken(token: string): Promise<Team | null> {
@@ -113,7 +117,13 @@ export class TeamManager {
                 'setTeamIngestedEvent'
             )
 
-            // First event for the team captured
+            // So long as team id is used as the partition key, this helps avoid
+            // double-firing of the first events, but it's not perfect (pod crashes
+            // or other rebalances, for example, can still cause double-firing). Exactly
+            // once is hard.
+            this.teamCache.set(team.id, { ...team, ingested_event: true })
+
+            // First event for the team captured - we fire this because comms and others rely on this event for onboarding flows in downstream systems (e.g. customer.io)
             const organizationMembers = await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
@@ -148,6 +158,7 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
         `
             SELECT
                 id,
+                project_id,
                 uuid,
                 organization_id,
                 name,
@@ -155,6 +166,8 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
                 api_token,
                 slack_incoming_webhook,
                 session_recording_opt_in,
+                person_processing_opt_out,
+                heatmaps_opt_in,
                 ingested_event,
                 person_display_name_properties,
                 test_account_filters
@@ -164,7 +177,13 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
         [teamId],
         'fetchTeam'
     )
-    return selectResult.rows[0] ?? null
+    if (selectResult.rows.length === 0) {
+        return null
+    }
+    // pg returns int8 as a string, since it can be larger than JS's max safe integer,
+    // but this is not a problem for project_id, which is a long long way from that limit.
+    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
+    return selectResult.rows[0]
 }
 
 export async function fetchTeamByToken(client: PostgresRouter, token: string): Promise<Team | null> {
@@ -173,6 +192,7 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
         `
             SELECT
                 id,
+                project_id,
                 uuid,
                 organization_id,
                 name,
@@ -180,6 +200,8 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
                 api_token,
                 slack_incoming_webhook,
                 session_recording_opt_in,
+                person_processing_opt_out,
+                heatmaps_opt_in,
                 ingested_event,
                 test_account_filters
             FROM posthog_team
@@ -189,7 +211,13 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
         [token],
         'fetchTeamByToken'
     )
-    return selectResult.rows[0] ?? null
+    if (selectResult.rows.length === 0) {
+        return null
+    }
+    // pg returns int8 as a string, since it can be larger than JS's max safe integer,
+    // but this is not a problem for project_id, which is a long long way from that limit.
+    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
+    return selectResult.rows[0]
 }
 
 export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<Record<string, TeamIDWithConfig>> {

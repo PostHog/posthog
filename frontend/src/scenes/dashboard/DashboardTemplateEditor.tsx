@@ -1,14 +1,10 @@
-import { useMonaco } from '@monaco-editor/react'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { CodeEditor } from 'lib/components/CodeEditors'
-import { useEffect } from 'react'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }): JSX.Element {
-    const monaco = useMonaco()
-
     const {
         closeDashboardTemplateEditor,
         createDashboardTemplate,
@@ -19,26 +15,6 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
 
     const { isOpenNewDashboardTemplateModal, editorValue, validationErrors, templateSchema, id } =
         useValues(dashboardTemplateEditorLogic)
-
-    useEffect(() => {
-        if (!monaco) {
-            return
-        }
-
-        const schemas = []
-        if (templateSchema) {
-            schemas.push({
-                uri: 'http://internal/node-schema.json',
-                fileMatch: ['*'],
-                schema: templateSchema,
-            })
-        } // TODO: better error handling if it can't load the template schema
-
-        monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
-            validate: true,
-            schemas: schemas,
-        })
-    }, [monaco, templateSchema])
 
     return (
         <LemonModal
@@ -97,6 +73,8 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                 onValidate={(markers) => {
                     updateValidationErrors(markers)
                 }}
+                path={id ? `dashboard-templates/${id}.json` : 'dashboard-templates/new.json'}
+                schema={templateSchema}
                 height={600}
             />
         </LemonModal>

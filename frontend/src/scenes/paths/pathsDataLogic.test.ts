@@ -3,17 +3,17 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { examples } from '~/queries/examples'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
-import { InsightLogicProps, InsightType, PathType } from '~/types'
+import { InsightLogicProps, PathType } from '~/types'
 
 let logic: ReturnType<typeof pathsDataLogic.build>
 
 const insightProps: InsightLogicProps = {
     dashboardItemId: undefined,
     cachedInsight: {
-        filters: {
-            insight: InsightType.PATHS,
-        },
+        query: { kind: NodeKind.InsightVizNode, source: examples.InsightPathsQuery } as InsightVizNode,
     },
 }
 

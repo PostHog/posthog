@@ -1,26 +1,48 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
-import { PostHogAppToolbarEvent } from 'lib/components/heatmaps/utils'
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
+import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { inBounds, TOOLBAR_ID } from '~/toolbar/utils'
+import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { inBounds, TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
 
-export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger'
+export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger' | 'experiments'
+export type ToolbarPositionType =
+    | 'top-left'
+    | 'top-center'
+    | 'top-right'
+    | 'bottom-left'
+    | 'bottom-center'
+    | 'bottom-right'
+    | 'left-center'
+    | 'right-center'
+
+export const TOOLBAR_FIXED_POSITION_HITBOX = 100
 
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
     connect(() => ({
+        values: [toolbarConfigLogic, ['posthog']],
         actions: [
             actionsTabLogic,
-            ['showButtonActions', 'hideButtonActions', 'selectAction'],
+            [
+                'showButtonActions',
+                'hideButtonActions',
+                'selectAction',
+                'setAutomaticActionCreationEnabled',
+                'actionCreatedSuccess',
+            ],
+            experimentsTabLogic,
+            ['showButtonExperiments'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
             heatmapLogic,
@@ -31,6 +53,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 'setHeatmapFixedPositionMode',
                 'setHeatmapColorPalette',
                 'setCommonFilters',
+                'toggleClickmapsEnabled',
+                'loadHeatmap',
+                'loadHeatmapSuccess',
+                'loadHeatmapFailure',
             ],
         ],
     })),
@@ -44,12 +70,15 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setVisibleMenu: (visibleMenu: MenuState) => ({
             visibleMenu,
         }),
-        onMouseDown: (event: MouseEvent) => ({ event }),
+        onMouseOrTouchDown: (event: MouseEvent | TouchEvent) => ({ event }),
         setDragging: (dragging = true) => ({ dragging }),
         setElement: (element: HTMLElement | null) => ({ element }),
         setMenu: (element: HTMLElement | null) => ({ element }),
         setIsBlurred: (isBlurred: boolean) => ({ isBlurred }),
         setIsEmbeddedInApp: (isEmbedded: boolean) => ({ isEmbedded }),
+        setFixedPosition: (position: ToolbarPositionType) => ({ position }),
+        setCurrentPathname: (pathname: string) => ({ pathname }),
+        maybeSendNavigationMessage: true,
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -113,6 +142,14 @@ export const toolbarLogic = kea<toolbarLogicType>([
             { persist: true },
             {
                 setDragPosition: (_, { x, y }) => ({ x, y }),
+                setFixedPosition: () => null,
+            },
+        ],
+        fixedPosition: [
+            'bottom-center' as ToolbarPositionType,
+            { persist: true },
+            {
+                setFixedPosition: (_, { position }) => position,
             },
         ],
         hedgehogMode: [
@@ -134,47 +171,109 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 setIsEmbeddedInApp: (_, { isEmbedded }) => isEmbedded,
             },
         ],
+        currentPathname: [
+            '',
+            {
+                setCurrentPathname: (_, { pathname }) => pathname,
+            },
+        ],
     })),
     selectors({
-        dragPosition: [
-            (s) => [s.element, s.lastDragPosition, s.windowWidth, s.windowHeight],
-            (element, lastDragPosition, windowWidth, windowHeight) => {
-                lastDragPosition ??= { x: windowWidth * 0.5, y: windowHeight * 0.5 }
+        position: [
+            (s) => [
+                s.element,
+                s.lastDragPosition,
+                s.windowWidth,
+                s.windowHeight,
+                s.fixedPosition,
+                s.fixedPositions,
+                s.minimized,
+            ],
+            (element, lastDragPosition, windowWidth, windowHeight, fixedPosition, fixedPositions, minimized) => {
+                const position = lastDragPosition ?? fixedPositions[fixedPosition]
 
-                // If the element isn't set yet we can just guess the size
-                const elWidth = (element?.offsetWidth ?? 40) + 2 // account for border
-                const elHeight = (element?.offsetHeight ?? 40) + 2 // account for border
+                const width = element
+                    ? parseInt(
+                          getComputedStyle(element)
+                              .getPropertyValue(minimized ? '--toolbar-width-minimized' : '--toolbar-width-expanded')
+                              .replace('px', '')
+                      )
+                    : 40
+
+                const height = element?.offsetHeight ?? 40
+
+                const xPadding = width * 0.5 + 10
+                const yPadding = height * 0.5 + 10
 
                 return {
-                    x: inBounds(MARGIN, lastDragPosition.x, windowWidth - elWidth - MARGIN),
-                    y: inBounds(MARGIN, lastDragPosition.y, windowHeight - elHeight - MARGIN),
+                    x: inBounds(xPadding, position.x, windowWidth - xPadding),
+                    y: inBounds(yPadding, position.y, windowHeight - yPadding),
                 }
             },
         ],
 
+        fixedPositions: [
+            (s) => [s.windowWidth, s.windowHeight],
+            (windowWidth, windowHeight): Record<ToolbarPositionType, { x: number; y: number }> => {
+                return {
+                    'top-left': {
+                        x: 0,
+                        y: 0,
+                    },
+                    'top-center': {
+                        x: windowWidth / 2,
+                        y: 0,
+                    },
+                    'top-right': {
+                        x: windowWidth,
+                        y: 0,
+                    },
+                    'bottom-left': {
+                        x: 0,
+                        y: windowHeight,
+                    },
+                    'bottom-center': {
+                        x: windowWidth / 2,
+                        y: windowHeight,
+                    },
+                    'bottom-right': {
+                        x: windowWidth,
+                        y: windowHeight,
+                    },
+                    'left-center': {
+                        x: 0,
+                        y: windowHeight / 2,
+                    },
+                    'right-center': {
+                        x: windowWidth,
+                        y: windowHeight / 2,
+                    },
+                }
+            },
+        ],
         menuProperties: [
-            (s) => [s.element, s.menu, s.dragPosition, s.windowWidth, s.windowHeight, s.isBlurred],
-            (element, menu, dragPosition, windowWidth, windowHeight, isBlurred) => {
+            (s) => [s.element, s.menu, s.position, s.windowWidth, s.windowHeight, s.isBlurred],
+            (element, menu, position, windowWidth, windowHeight, isBlurred) => {
                 if (!element || !menu) {
                     return {}
                 }
 
-                const elWidth = element.offsetWidth + 2 // account for border
-                const elHeight = element.offsetHeight + 2 // account for border
                 const margin = 10
+                const marginFromPosition = element.offsetHeight * 0.5 + margin
 
-                const isBelow = dragPosition.y + elHeight * 0.5 < windowHeight * 0.5
+                const isBelow = position.y < windowHeight * 0.5
 
-                let maxHeight = isBelow
-                    ? windowHeight - dragPosition.y - elHeight - margin * 2
-                    : dragPosition.y - margin * 2
+                // Max space we could fill
+                const spaceAboveOrBelow = isBelow ? windowHeight - position.y : position.y
+                // Then we remove some margins and half the height of the element
+                const maxDesiredHeight = spaceAboveOrBelow - margin - marginFromPosition
+                // Finally we don't want it to end up too big
+                const finalHeight = isBlurred ? 0 : inBounds(0, maxDesiredHeight, windowHeight * 0.6)
 
-                maxHeight = isBlurred ? 0 : inBounds(0, maxHeight, windowHeight * 0.6)
+                const desiredY = isBelow ? position.y + marginFromPosition : position.y - marginFromPosition
+                const desiredX = position.x
 
-                const desiredY = isBelow ? dragPosition.y + elHeight + margin : dragPosition.y - margin
-                const desiredX = dragPosition.x + elWidth * 0.5
-
-                const top = inBounds(MARGIN, desiredY, windowHeight - elHeight)
+                const top = inBounds(MARGIN, desiredY, windowHeight)
                 const left = inBounds(
                     MARGIN + menu.clientWidth * 0.5,
                     desiredX,
@@ -183,7 +282,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
 
                 return {
                     transform: `translate(${left}px, ${top}px)`,
-                    maxHeight,
+                    maxHeight: finalHeight,
                     isBelow,
                 }
             },
@@ -193,9 +292,12 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setVisibleMenu: ({ visibleMenu }) => {
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
-                values.hedgehogActor?.setAnimation('heatmaps')
+                values.hedgehogActor?.setOnFire(1)
             } else if (visibleMenu === 'actions') {
                 actions.showButtonActions()
+                values.hedgehogActor?.setAnimation('action')
+            } else if (visibleMenu === 'experiments') {
+                actions.showButtonExperiments()
                 values.hedgehogActor?.setAnimation('action')
             } else if (visibleMenu === 'flags') {
                 values.hedgehogActor?.setAnimation('flag')
@@ -210,38 +312,74 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
         },
 
-        onMouseDown: ({ event }) => {
-            if (!values.element || event.button !== 0) {
+        onMouseOrTouchDown: ({ event }) => {
+            const isTouchEvent = 'touches' in event
+
+            if (!values.element || (!isTouchEvent && event.button !== 0)) {
                 return
             }
 
-            const originContainerBounds = values.element.getBoundingClientRect()
+            const touchX = isTouchEvent ? event.touches[0].pageX : event.pageX
+            const touchY = isTouchEvent ? event.touches[0].pageY : event.pageY
 
-            // removeAllListeners(cache)
-            const offsetX = event.pageX - originContainerBounds.left
-            const offsetY = event.pageY - originContainerBounds.top
+            const offsetX = touchX - values.position.x
+            const offsetY = touchY - values.position.y
             let movedCount = 0
             const moveThreshold = 5
 
-            const onMouseMove = (e: MouseEvent): void => {
+            const onMove = (moveEvent: MouseEvent | TouchEvent): void => {
                 movedCount += 1
+                const isMoveTouchEvent = 'touches' in moveEvent
+
+                const moveTouchX = isMoveTouchEvent ? moveEvent.touches[0].pageX : moveEvent.pageX
+                const moveTouchY = isMoveTouchEvent ? moveEvent.touches[0].pageY : moveEvent.pageY
 
                 if (movedCount > moveThreshold) {
                     actions.setDragging(true)
                     // Set drag position offset by where we clicked and where the element is
-                    actions.setDragPosition(e.pageX - offsetX, e.pageY - offsetY)
+
+                    // Check if near any of the fixed positions and set to them if so, otherwise set to mouse position
+
+                    const fixedPositions = values.fixedPositions
+
+                    let closestPosition: ToolbarPositionType | null = null
+
+                    for (const [position, { x, y }] of Object.entries(fixedPositions)) {
+                        const distance = Math.sqrt((moveTouchX - x) ** 2 + (moveTouchY - y) ** 2)
+
+                        if (distance < TOOLBAR_FIXED_POSITION_HITBOX) {
+                            closestPosition = position as ToolbarPositionType
+                            break
+                        }
+                    }
+
+                    if (closestPosition) {
+                        actions.setFixedPosition(closestPosition)
+                    } else {
+                        actions.setDragPosition(moveTouchX - offsetX, moveTouchY - offsetY)
+                    }
                 }
             }
 
-            const onMouseUp = (e: MouseEvent): void => {
-                if (e.button === 0) {
+            if (isTouchEvent) {
+                const onTouchEnd = (): void => {
                     actions.setDragging(false)
-                    document.removeEventListener('mousemove', onMouseMove)
-                    document.removeEventListener('mouseup', onMouseUp)
+                    values.element?.removeEventListener('touchmove', onMove)
+                    values.element?.removeEventListener('touchend', onTouchEnd)
                 }
+                values.element.addEventListener('touchmove', onMove)
+                values.element.addEventListener('touchend', onTouchEnd)
+            } else {
+                const onMouseUp = (e: MouseEvent): void => {
+                    if (e.button === 0) {
+                        actions.setDragging(false)
+                        document.removeEventListener('mousemove', onMove)
+                        document.removeEventListener('mouseup', onMouseUp)
+                    }
+                }
+                document.addEventListener('mousemove', onMove)
+                document.addEventListener('mouseup', onMouseUp)
             }
-            document.addEventListener('mousemove', onMouseMove)
-            document.addEventListener('mouseup', onMouseUp)
         },
 
         setDragging: ({ dragging }) => {
@@ -256,40 +394,65 @@ export const toolbarLogic = kea<toolbarLogicType>([
             if (!values.hedgehogMode || !actor) {
                 return
             }
-            const pageX = actor.x + SPRITE_SIZE * 0.5 - (values.element?.getBoundingClientRect().width ?? 0) * 0.5
-            const pageY =
-                values.windowHeight - actor.y - SPRITE_SIZE - (values.element?.getBoundingClientRect().height ?? 0)
 
-            actions.setDragPosition(pageX, pageY)
+            const newX = actor.x + SPRITE_SIZE * 0.5
+            const newY = values.windowHeight - actor.y - SPRITE_SIZE - 20
+            actions.setDragPosition(newX, newY)
         },
 
-        toggleMinimized: () => {
-            const sync = (): void => {
-                // Hack to trigger correct positioning
-                actions.syncWithHedgehog()
-                if (values.lastDragPosition) {
-                    actions.setDragPosition(values.lastDragPosition.x, values.lastDragPosition.y)
-                }
-            }
-            sync()
-            // Sync position after the animation completes
-            setTimeout(() => sync(), 150)
-            setTimeout(() => sync(), 300)
-            setTimeout(() => sync(), 550)
-        },
         createAction: () => {
             actions.setVisibleMenu('actions')
+        },
+        loadHeatmap: () => {
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADING }, '*')
+        },
+        loadHeatmapSuccess: () => {
+            // if embedded we need to signal start and finish of heatmap loading to the parent
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADED }, '*')
+        },
+        loadHeatmapFailure: () => {
+            // if embedded we need to signal start and finish of heatmap loading to the parent
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_FAILED }, '*')
+        },
+        actionCreatedSuccess: (action) => {
+            // if embedded, we need to tell the parent window that a new action was created
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED, payload: action }, '*')
+        },
+        maybeSendNavigationMessage: () => {
+            const currentPath = window.location.pathname
+            if (currentPath !== values.currentPathname) {
+                actions.setCurrentPathname(currentPath)
+                window.parent.postMessage(
+                    { type: PostHogAppToolbarEvent.PH_TOOLBAR_NAVIGATED, payload: { path: currentPath } },
+                    '*'
+                )
+            }
         },
     })),
     afterMount(({ actions, values, cache }) => {
         cache.clickListener = (e: MouseEvent): void => {
-            const shouldBeBlurred = (e.target as HTMLElement)?.id !== TOOLBAR_ID
-            if (shouldBeBlurred && !values.isBlurred) {
+            const target = e.target as HTMLElement
+            const clickIsInToolbar = target?.id === TOOLBAR_ID || !!target.closest?.('.' + TOOLBAR_CONTAINER_CLASS)
+            if (!clickIsInToolbar && !values.isBlurred) {
                 actions.setIsBlurred(true)
             }
         }
+        window.addEventListener('mousedown', cache.clickListener)
+        window.addEventListener('popstate', () => {
+            actions.maybeSendNavigationMessage()
+        })
 
-        // Post message up to parent in case we are embedded in an app
+        // Use a setInterval to periodically check for URL changes
+        // We do this because we don't want to write over the history.pushState function in case other scripts rely on it
+        // And mutation observers don't seem to work :shrug:
+        setInterval(() => {
+            actions.maybeSendNavigationMessage()
+        }, 500)
+
+        // the toolbar can be run within the posthog parent app
+        // if it is then it listens to parent messages
+        const isInIframe = window !== window.parent
+
         cache.iframeEventListener = (e: MessageEvent): void => {
             // TODO: Probably need to have strict checks here
             const type: PostHogAppToolbarEvent = e?.data?.type
@@ -305,6 +468,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     actions.setHeatmapColorPalette(e.data.payload.colorPalette)
                     actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
                     actions.setCommonFilters(e.data.payload.commonFilters)
+                    actions.toggleClickmapsEnabled(false)
                     window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                     return
                 case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
@@ -322,14 +486,29 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 case PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS:
                     actions.setCommonFilters(e.data.payload.commonFilters)
                     return
+                case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
+                    if (e.data.payload.enabled) {
+                        actions.enableInspect()
+                    } else {
+                        actions.disableInspect()
+                        actions.hideButtonActions()
+                    }
+                    return
+                case PostHogAppToolbarEvent.PH_NEW_ACTION_NAME:
+                    actions.setAutomaticActionCreationEnabled(true, e.data.payload.name)
+                    return
                 default:
                     console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
             }
         }
-        window.addEventListener('mousedown', cache.clickListener)
-        window.addEventListener('message', cache.iframeEventListener, false)
-        // Tell the parent window that we are ready
-        window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
+
+        if (isInIframe) {
+            window.addEventListener('message', cache.iframeEventListener, false)
+            // Post message up to parent in case we are embedded in an app
+            // Tell the parent window that we are ready
+            // we check if we're in an iframe before this setup to avoid logging warnings to the console
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
+        }
     }),
     beforeUnmount(({ cache }) => {
         window.removeEventListener('mousedown', cache.clickListener)

@@ -1,6 +1,6 @@
 import hashlib
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 import time
 import structlog
 from typing import Literal, Optional, Union, cast
@@ -67,8 +67,9 @@ ENTITY_EXISTS_PREFIX = "flag_entity_exists_"
 PERSON_KEY = "person"
 
 
-class FeatureFlagMatchReason(str, Enum):
+class FeatureFlagMatchReason(StrEnum):
     SUPER_CONDITION_VALUE = "super_condition_value"
+    HOLDOUT_CONDITION_VALUE = "holdout_condition_value"
     CONDITION_MATCH = "condition_match"
     NO_CONDITION_MATCH = "no_condition_match"
     OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
@@ -77,6 +78,8 @@ class FeatureFlagMatchReason(str, Enum):
     def score(self):
         if self == FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
             return 4
+        if self == FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
+            return 3.5
         if self == FeatureFlagMatchReason.CONDITION_MATCH:
             return 3
         if self == FeatureFlagMatchReason.NO_GROUP_TYPE:
@@ -115,13 +118,13 @@ class FlagsMatcherCache:
             raise DatabaseError("Failed to fetch group type mapping previously, not trying again.")
         try:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING):
-                group_type_mapping_rows = GroupTypeMapping.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(
+                group_type_mapping_rows = GroupTypeMapping.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
                     team_id=self.team_id
                 )
                 return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
-        except DatabaseError as err:
+        except DatabaseError:
             self.failed_to_fetch_flags = True
-            raise err
+            raise
 
     @cached_property
     def group_type_index_to_name(self) -> dict[GroupTypeIndex, GroupTypeName]:
@@ -184,6 +187,32 @@ class FeatureFlagMatcher:
                 payload = self.get_matching_payload(super_condition_value, None, feature_flag)
                 return FeatureFlagMatch(
                     match=super_condition_value,
+                    reason=evaluation_reason,
+                    condition_index=0,
+                    payload=payload,
+                )
+
+        # Match for holdout super condition
+        # TODO: Flags shouldn't have both super_groups and holdout_groups
+        # TODO: Validate only multivariant flags to have holdout groups. I could make this implicit by reusing super_groups but
+        # this will shoot ourselves in the foot when we extend early access to support variants as well.
+        # TODO: Validate holdout variant should have 0% default rollout %?
+        # TODO: All this validation we need to do suggests the modelling is imperfect here. Carrying forward for now, we'll only enable
+        # in beta, and potentially rework representation before rolling out to everyone. Probably the problem is holdout groups are an
+        # experiment level concept that applies across experiments, and we are creating a feature flag level primitive to handle it.
+        # Validating things like the variant name is the same across all flags, rolled out to 0%, has the same correct conditions is a bit of
+        # a pain here. But I'm not sure if feature flags should indeed know all this info. It's fine for them to just work with what they're given.
+        if feature_flag.filters.get("holdout_groups", None):
+            (
+                is_match,
+                holdout_value,
+                evaluation_reason,
+            ) = self.is_holdout_condition_match(feature_flag)
+            if is_match:
+                payload = self.get_matching_payload(is_match, holdout_value, feature_flag)
+                return FeatureFlagMatch(
+                    match=is_match,
+                    variant=holdout_value,
                     reason=evaluation_reason,
                     condition_index=0,
                     payload=payload,
@@ -286,6 +315,33 @@ class FeatureFlagMatcher:
                 return feature_flag.get_payload("true")
         else:
             return None
+
+    def is_holdout_condition_match(self, feature_flag: FeatureFlag) -> tuple[bool, str | None, FeatureFlagMatchReason]:
+        # TODO: Right now holdout conditions only support basic rollout %s, and not property overrides.
+
+        # Evaluate if properties are empty
+        if feature_flag.holdout_conditions and len(feature_flag.holdout_conditions) > 0:
+            condition = feature_flag.holdout_conditions[0]
+
+            # TODO: Check properties and match based on them
+
+            if not condition.get("properties"):
+                rollout_percentage = condition.get("rollout_percentage")
+
+                if rollout_percentage is not None and self.get_holdout_hash(feature_flag) > (rollout_percentage / 100):
+                    return False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND
+
+                # rollout_percentage is None (=100%), or we are inside holdout rollout bound.
+                # Thus, we match. Now get the variant override for the holdout condition.
+                variant_override = condition.get("variant")
+                if variant_override:
+                    variant = variant_override
+                else:
+                    variant = self.get_matching_variant(feature_flag)
+
+                return (True, variant, FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE)
+
+        return False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH
 
     def is_super_condition_match(self, feature_flag: FeatureFlag) -> tuple[bool, bool, FeatureFlagMatchReason]:
         # TODO: Right now super conditions with property overrides bork when the database is down,
@@ -412,12 +468,14 @@ class FeatureFlagMatcher:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
                 all_conditions: dict = {}
                 team_id = self.feature_flags[0].team_id
-                person_query: QuerySet = Person.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(
+                person_query: QuerySet = Person.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
                     team_id=team_id,
                     persondistinctid__distinct_id=self.distinct_id,
                     persondistinctid__team_id=team_id,
                 )
-                basic_group_query: QuerySet = Group.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(team_id=team_id)
+                basic_group_query: QuerySet = Group.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
+                    team_id=team_id
+                )
                 group_query_per_group_type_mapping: dict[GroupTypeIndex, tuple[QuerySet, list[str]]] = {}
                 # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
                 # If no groups for a group type are passed in, we can skip querying for that group type,
@@ -501,10 +559,7 @@ class FeatureFlagMatcher:
                             # in properties_to_q, in empty_or_null_with_value_q
                             # These need to come in before the expr so they're available to use inside the expr.
                             # Same holds for the group queries below.
-                            type_property_annotations = {
-                                prop_key: Func(F(prop_field), function="JSONB_TYPEOF", output_field=CharField())
-                                for prop_key, prop_field in properties_with_math_operators
-                            }
+                            type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
                             person_query = person_query.annotate(
                                 **type_property_annotations,
                                 **{
@@ -523,10 +578,7 @@ class FeatureFlagMatcher:
                                 group_query,
                                 group_fields,
                             ) = group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index]
-                            type_property_annotations = {
-                                prop_key: Func(F(prop_field), function="JSONB_TYPEOF", output_field=CharField())
-                                for prop_key, prop_field in properties_with_math_operators
-                            }
+                            type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
                             group_query = group_query.annotate(
                                 **type_property_annotations,
                                 **{
@@ -546,7 +598,7 @@ class FeatureFlagMatcher:
                 if not self.cohorts_cache and any(feature_flag.uses_cohorts for feature_flag in self.feature_flags):
                     all_cohorts = {
                         cohort.pk: cohort
-                        for cohort in Cohort.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(
+                        for cohort in Cohort.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
                             team_id=team_id, deleted=False
                         )
                     }
@@ -596,14 +648,14 @@ class FeatureFlagMatcher:
                             assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
                             all_conditions = {**all_conditions, **group_query[0]}
                 return all_conditions
-        except DatabaseError as e:
+        except DatabaseError:
             self.failed_to_fetch_conditions = True
-            raise e
-        except Exception as e:
+            raise
+        except Exception:
             # Usually when a user somehow manages to create an invalid filter, usually via API.
             # In this case, don't put db down, just skip the flag.
             # Covers all cases like invalid JSON, invalid operator, invalid property name, invalid group input format, etc.
-            raise e
+            raise
 
     def hashed_identifier(self, feature_flag: FeatureFlag) -> Optional[str]:
         """
@@ -632,6 +684,15 @@ class FeatureFlagMatcher:
     # we can do _hash(key, identifier) < 0.2
     def get_hash(self, feature_flag: FeatureFlag, salt="") -> float:
         hash_key = f"{feature_flag.key}.{self.hashed_identifier(feature_flag)}{salt}"
+        hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
+        return hash_val / __LONG_SCALE__
+
+    # This function takes a identifier and a feature flag and returns a float between 0 and 1.
+    # Given the same identifier and key, it'll always return the same float. These floats are
+    # uniformly distributed between 0 and 1, and are keyed only on user's distinct id / group key.
+    # Thus, irrespective of the flag, the same user will always get the same value.
+    def get_holdout_hash(self, feature_flag: FeatureFlag, salt="") -> float:
+        hash_key = f"holdout-{self.hashed_identifier(feature_flag)}{salt}"
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
@@ -692,7 +753,7 @@ def get_feature_flag_hash_key_overrides(
 
     if not person_id_to_distinct_id_mapping:
         person_and_distinct_ids = list(
-            PersonDistinctId.objects.using(using_database)
+            PersonDistinctId.objects.db_manager(using_database)
             .filter(distinct_id__in=distinct_ids, team_id=team_id)
             .values_list("person_id", "distinct_id")
         )
@@ -703,7 +764,7 @@ def get_feature_flag_hash_key_overrides(
     person_ids = list(person_id_to_distinct_id.keys())
 
     for feature_flag, override, _ in sorted(
-        FeatureFlagHashKeyOverride.objects.using(using_database)
+        FeatureFlagHashKeyOverride.objects.db_manager(using_database)
         .filter(person_id__in=person_ids, team_id=team_id)
         .values_list("feature_flag_key", "hash_key", "person_id"),
         key=lambda x: 1 if person_id_to_distinct_id.get(x[2], "") == distinct_ids[0] else -1,
@@ -768,6 +829,7 @@ def get_all_feature_flags(
     )
     all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
     cache_hit = True
+
     if all_feature_flags is None:
         cache_hit = False
         all_feature_flags = set_feature_flags_for_team_in_cache(team_id)
@@ -969,7 +1031,7 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: list[str], h
                 )
                 time.sleep(retry_delay)
             else:
-                raise e
+                raise
 
     return False
 
@@ -1027,7 +1089,7 @@ def get_all_properties_with_math_operators(
             cohort_id = int(cast(Union[str, int], prop.value))
             if cohorts_cache.get(cohort_id) is None:
                 queried_cohort = (
-                    Cohort.objects.using(DATABASE_FOR_FLAG_MATCHING)
+                    Cohort.objects.db_manager(DATABASE_FOR_FLAG_MATCHING)
                     .filter(pk=cohort_id, team_id=team_id, deleted=False)
                     .first()
                 )
@@ -1094,15 +1156,25 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int) -
             team_id,
             property_list,
         )
+        properties_with_math_operators = get_all_properties_with_math_operators(property_list, {}, team_id)
+        type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
         base_query = base_query.annotate(
+            **type_property_annotations,
             **{
                 key: ExpressionWrapper(
                     expr if expr else RawSQL("true", []),
                     output_field=BooleanField(),
                 ),
-            }
+            },
         )
         query_fields.append(key)
 
     values = base_query.values(*query_fields)[:10]
     return len(values) > 0
+
+
+def _get_property_type_annotations(properties_with_math_operators):
+    return {
+        prop_key: Func(F(prop_field), function="JSONB_TYPEOF", output_field=CharField())
+        for prop_key, prop_field in properties_with_math_operators
+    }

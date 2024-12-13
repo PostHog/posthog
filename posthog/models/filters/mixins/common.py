@@ -3,8 +3,8 @@ import json
 import re
 from math import ceil
 from typing import Any, Literal, Optional, Union, cast
-
 from zoneinfo import ZoneInfo
+
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -15,6 +15,7 @@ from posthog.constants import (
     BREAKDOWN_ATTRIBUTION_TYPE,
     BREAKDOWN_ATTRIBUTION_VALUE,
     BREAKDOWN_GROUP_TYPE_INDEX,
+    BREAKDOWN_HIDE_OTHER_AGGREGATION,
     BREAKDOWN_HISTOGRAM_BIN_COUNT,
     BREAKDOWN_LIMIT,
     BREAKDOWN_NORMALIZE_URL,
@@ -23,6 +24,7 @@ from posthog.constants import (
     BREAKDOWNS,
     CLIENT_QUERY_ID,
     COMPARE,
+    COMPARE_TO,
     DATA_WAREHOUSE_ENTITIES,
     DATE_FROM,
     DATE_TO,
@@ -47,7 +49,6 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_WORLD_MAP,
     BreakdownAttributionType,
-    BREAKDOWN_HIDE_OTHER_AGGREGATION,
 )
 from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 from posthog.models.entity import Entity, ExclusionEntity, MathType
@@ -190,7 +191,7 @@ class BreakdownMixin(BaseParamMixin):
         if BREAKDOWN_LIMIT in self._data:
             try:
                 return int(self._data[BREAKDOWN_LIMIT])
-            except ValueError:
+            except (ValueError, TypeError):
                 pass
         return None
 
@@ -211,7 +212,7 @@ class BreakdownMixin(BaseParamMixin):
         if BREAKDOWN_HISTOGRAM_BIN_COUNT in self._data:
             try:
                 return int(self._data[BREAKDOWN_HISTOGRAM_BIN_COUNT])
-            except ValueError:
+            except (ValueError, TypeError):
                 pass
         return None
 
@@ -220,7 +221,7 @@ class BreakdownMixin(BaseParamMixin):
         if BREAKDOWN_HIDE_OTHER_AGGREGATION in self._data:
             try:
                 return self._data[BREAKDOWN_HIDE_OTHER_AGGREGATION] in ("True", "true", True)
-            except ValueError:
+            except (ValueError, TypeError):
                 pass
         return None
 
@@ -343,6 +344,15 @@ class CompareMixin(BaseParamMixin):
     @include_dict
     def compare_to_dict(self):
         return {"compare": self.compare} if self.compare else {}
+
+    @cached_property
+    def compare_to(self) -> bool:
+        _compare_to = self._data.get(COMPARE_TO, None)
+        return _compare_to
+
+    @include_dict
+    def compare_to_to_dict(self):
+        return {"compare_to": self.compare_to} if self.compare_to else {}
 
 
 class DateMixin(BaseParamMixin):

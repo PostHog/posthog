@@ -4,9 +4,11 @@ import {
     isEventsQuery,
     isHogQLQuery,
     isPersonsNode,
+    isSessionAttributionExplorerQuery,
+    isWebExternalClicksQuery,
+    isWebGoalsQuery,
     isWebOverviewQuery,
     isWebStatsTableQuery,
-    isWebTopClicksQuery,
 } from '~/queries/utils'
 
 export enum QueryFeature {
@@ -29,7 +31,7 @@ export enum QueryFeature {
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
     const features = new Set<QueryFeature>()
 
-    if (isHogQLQuery(query) || isEventsQuery(query)) {
+    if (isHogQLQuery(query) || isEventsQuery(query) || isSessionAttributionExplorerQuery(query)) {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.eventPropertyFilters)
@@ -57,7 +59,12 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         }
     }
 
-    if (isWebOverviewQuery(query) || isWebTopClicksQuery(query) || isWebStatsTableQuery(query)) {
+    if (
+        isWebOverviewQuery(query) ||
+        isWebExternalClicksQuery(query) ||
+        isWebStatsTableQuery(query) ||
+        isWebGoalsQuery(query)
+    ) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.hideLoadNextButton)

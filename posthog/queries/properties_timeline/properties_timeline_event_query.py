@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from posthog.models.entity.util import get_entity_filtering_params
@@ -14,22 +14,12 @@ class PropertiesTimelineEventQuery(EventQuery):
     effective_date_to: dt.datetime
 
     _filter: PropertiesTimelineFilter
-    _group_type_index: Optional[int]  # If the parent insight is group-based, this is the index of the group type
-
-    def __init__(self, filter: PropertiesTimelineFilter, *args, **kwargs):
-        super().__init__(filter, *args, **kwargs)
-        self._group_type_index = filter.aggregation_group_type_index
 
     def get_query(self) -> tuple[str, dict[str, Any]]:
         real_fields = [f"{self.EVENT_TABLE_ALIAS}.timestamp AS timestamp"]
         sentinel_fields = ["NULL AS timestamp"]
 
-        if self._group_type_index is None:
-            columns_to_query = self._column_optimizer.person_on_event_columns_to_query | {"person_properties"}
-        else:
-            columns_to_query = self._column_optimizer.group_on_event_columns_to_query | {
-                f"group_{self._group_type_index}_properties"
-            }
+        columns_to_query = self._column_optimizer.person_on_event_columns_to_query | {"person_properties"}
 
         for column_name in sorted(columns_to_query):
             real_fields.append(f'{self.EVENT_TABLE_ALIAS}."{column_name}" AS "{column_name}"')
@@ -44,15 +34,13 @@ class PropertiesTimelineEventQuery(EventQuery):
         entity_query, entity_params = self._get_entity_query()
         self.params.update(entity_params)
 
-        actor_id_column = "person_id" if self._group_type_index is None else f"$group_{self._group_type_index}"
-
         query = f"""
             (
                 SELECT {real_fields_combined}
                 FROM events {self.EVENT_TABLE_ALIAS}
                 WHERE
                     team_id = %(team_id)s
-                    AND {actor_id_column} = %(actor_id)s
+                    AND person_id = %(actor_id)s
                     {entity_query}
                     {date_query}
                 ORDER BY timestamp ASC

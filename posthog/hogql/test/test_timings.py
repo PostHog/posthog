@@ -15,9 +15,6 @@ class TestHogQLTimings(BaseTest):
     def setUp(self):
         counter_values[0] = 0
 
-    def assertAlmostEquals(self, a, b, epsilon=EPSILON):
-        self.assertTrue(abs(a - b) < epsilon, f"{a} != {b} within {epsilon}")
-
     def test_basic_timing(self):
         with patch("posthog.hogql.timings.perf_counter", fake_perf_counter):
             timings = HogQLTimings()

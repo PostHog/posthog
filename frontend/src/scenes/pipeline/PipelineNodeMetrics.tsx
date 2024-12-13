@@ -1,14 +1,14 @@
-import { IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
+import { IconCalendar, IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
@@ -32,22 +32,24 @@ export interface MetricsOverviewProps {
 export function PipelineNodeMetrics({ id }: PipelineNodeMetricsProps): JSX.Element {
     const logic = pipelineNodeMetricsLogic({ id })
 
-    const { appMetricsResponse, appMetricsResponseLoading, dateFrom } = useValues(logic)
-    const { setDateFrom } = useActions(logic)
+    const { appMetricsResponse, appMetricsResponseLoading, dateRange } = useValues(logic)
+    const { setDateRange } = useActions(logic)
 
     return (
         <div className="space-y-8">
             <div className="flex items-start justify-between gap-2">
                 <MetricsOverview metrics={appMetricsResponse?.metrics} metricsLoading={appMetricsResponseLoading} />
 
-                <LemonSelect
-                    value={dateFrom}
-                    onChange={(newValue) => setDateFrom(newValue)}
-                    options={[
-                        { label: 'Last 30 days', value: '-30d' },
-                        { label: 'Last 7 days', value: '-7d' },
-                        { label: 'Last 24 hours', value: '-24h' },
-                    ]}
+                <DateFilter
+                    dateTo={dateRange.to}
+                    dateFrom={dateRange.from}
+                    onChange={(from, to) => setDateRange(from, to)}
+                    allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                    makeLabel={(key) => (
+                        <>
+                            <IconCalendar /> {key}
+                        </>
+                    )}
                 />
             </div>
 
@@ -300,8 +302,7 @@ function ErrorDetailsModal({ id }: { id: number | string }): JSX.Element {
             {!errorDetailsModalError || errorDetailsLoading ? (
                 <LemonSkeleton className="h-10" />
             ) : (
-                // eslint-disable-next-line react/forbid-dom-props
-                <div className="flex flex-col space-y-2" style={{ height: '80vh' }}>
+                <div className="flex flex-col space-y-2 h-[80vh]">
                     <div>
                         <span className="font-semibold">When:</span>{' '}
                         <TZLabel time={activeErrorDetails.timestamp} showSeconds />
@@ -351,13 +352,13 @@ function CollapsibleSection(props: {
     const [isExpanded, setIsExpanded] = useState(props.defaultIsExpanded)
 
     return (
-        <div className="bg-mid border rounded">
+        <div className="bg-bg-3000 border rounded">
             <LemonButton
                 fullWidth
                 onClick={() => setIsExpanded(!isExpanded)}
                 sideIcon={isExpanded ? <IconCollapse /> : <IconExpand />}
                 title={isExpanded ? 'Show less' : 'Show more'}
-                className="bg-mid"
+                className="bg-bg-3000"
             >
                 {props.title}
             </LemonButton>

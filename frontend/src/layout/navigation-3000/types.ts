@@ -104,6 +104,7 @@ export interface BasicListItem {
      * URL within the app. In specific cases this can be null - such items are italicized.
      */
     url: string | null
+    onClick?: () => void
     /** An optional marker to highlight item state. */
     marker?: {
         /** A marker of type `fold` is a small triangle in the top left, `ribbon` is a narrow ribbon to the left. */
@@ -145,4 +146,9 @@ export interface TentativeListItem {
     loading: boolean
     adding: boolean
     ref?: BasicListItem['ref']
+}
+
+export interface ButtonListItem extends BasicListItem {
+    key: '__button__'
+    onClick: () => void
 }

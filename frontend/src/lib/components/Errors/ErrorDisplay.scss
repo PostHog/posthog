@@ -1,0 +1,11 @@
+.ErrorDisplay__stacktrace {
+    .LemonCollapsePanel__header {
+        min-height: 1.875rem !important;
+        padding: 0 !important;
+        background-color: var(--accent-3000);
+
+        &--disabled:hover {
+            background-color: var(--accent-3000) !important;
+        }
+    }
+}

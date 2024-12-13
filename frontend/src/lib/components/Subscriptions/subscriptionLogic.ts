@@ -1,4 +1,4 @@
-import { connect, kea, key, listeners, path, props } from 'kea'
+import { kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
@@ -7,7 +7,6 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isEmail, isURL } from 'lib/utils'
 import { getInsightId } from 'scenes/insights/utils'
-import { integrationsLogic } from 'scenes/settings/project/integrationsLogic'
 
 import { SubscriptionType } from '~/types'
 
@@ -31,10 +30,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionLogic']),
     props({} as SubscriptionsLogicProps),
     key(({ id, insightShortId, dashboardId }) => `${insightShortId || dashboardId}-${id ?? 'new'}`),
-    connect(({ insightShortId, dashboardId }: SubscriptionsLogicProps) => ({
-        actions: [subscriptionsLogic({ insightShortId, dashboardId }), ['loadSubscriptions']],
-        values: [integrationsLogic, ['isMemberOfSlackChannel']],
-    })),
 
     loaders(({ props }) => ({
         subscription: {
@@ -48,7 +43,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    forms(({ props, actions, values }) => ({
+    forms(({ props, actions }) => ({
         subscription: {
             defaults: {} as unknown as SubscriptionType,
             errors: ({ frequency, interval, target_value, target_type, title, start_date }) => ({
@@ -76,12 +71,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         ? 'Must be a valid URL'
                         : undefined
                     : undefined,
-                memberOfSlackChannel:
-                    target_type == 'slack'
-                        ? target_value && !values.isMemberOfSlackChannel(target_value)
-                            ? 'Please add the PostHog Slack App to the selected channel'
-                            : undefined
-                        : undefined,
             }),
             submit: async (subscription, breakpoint) => {
                 const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
@@ -105,7 +94,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     router.actions.replace(urlForSubscription(updatedSub.id, props))
                 }
 
-                actions.loadSubscriptions()
+                // If a subscriptionsLogic for this insight/dashboard is mounted already, let's make sure
+                // this change is propagated to `subscriptions` there
+                subscriptionsLogic.findMounted(props)?.actions.loadSubscriptions()
                 actions.loadSubscriptionSuccess(updatedSub)
                 lemonToast.success(`Subscription saved.`)
 

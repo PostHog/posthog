@@ -7,7 +7,7 @@ import React, { useContext } from 'react'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { Link } from '../Link'
-import { PopoverReferenceContext } from '../Popover'
+import { PopoverOverlayContext, PopoverReferenceContext } from '../Popover'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
 
@@ -26,6 +26,8 @@ export interface LemonButtonPropsBase
         | 'onMouseEnter'
         | 'onMouseLeave'
         | 'onKeyDown'
+        | 'className'
+        | 'style'
         | 'role'
         | 'aria-haspopup'
     > {
@@ -41,8 +43,6 @@ export interface LemonButtonPropsBase
     disableClientSideRouting?: boolean
     /** If set clicking this button will open the page in a new tab. */
     targetBlank?: boolean
-    /** External URL to link to. */
-    className?: string
 
     /** Icon displayed on the left. */
     icon?: React.ReactElement | null
@@ -75,7 +75,9 @@ export type SideAction = Pick<
     LemonButtonProps,
     | 'onClick'
     | 'to'
+    | 'disableClientSideRouting'
     | 'disabled'
+    | 'disabledReason'
     | 'icon'
     | 'type'
     | 'tooltip'
@@ -138,6 +140,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             ref
         ): JSX.Element => {
             const [popoverVisibility, popoverPlacement] = useContext(PopoverReferenceContext) || [false, null]
+            const [, parentPopoverLevel] = useContext(PopoverOverlayContext)
             const within3000PageHeader = useContext(WithinPageHeaderContext)
 
             if (!active && popoverVisibility) {
@@ -168,8 +171,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 icon = <Spinner textColored />
                 disabled = true // Cannot interact with a loading button
             }
-            if (within3000PageHeader) {
-                size = 'small'
+            if (within3000PageHeader && parentPopoverLevel === -1) {
+                size = 'small' // Ensure that buttons in the page header are small (but NOT inside dropdowns!)
             }
 
             let tooltipContent: TooltipProps['title']
@@ -206,9 +209,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 <ButtonComponent
                     ref={ref as any}
                     className={clsx(
-                        'LemonButton',
-                        `LemonButton--${type}`,
-                        `LemonButton--status-${status}`,
+                        `LemonButton LemonButton--${type} LemonButton--status-${status}`,
                         loading && `LemonButton--loading`,
                         noPadding && `LemonButton--no-padding`,
                         size && `LemonButton--${size}`,
@@ -239,8 +240,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             if (tooltipContent) {
                 workingButton = (
                     <Tooltip title={tooltipContent} placement={tooltipPlacement}>
-                        {/* If the button is a `button` element and disabled, wrap it in a div so that the tooltip works */}
-                        {disabled && ButtonComponent === 'button' ? <div>{workingButton}</div> : workingButton}
+                        {workingButton}
                     </Tooltip>
                 )
             }
@@ -252,7 +252,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 workingButton = (
                     <div
                         className={clsx(
-                            'LemonButtonWithSideAction',
+                            `LemonButtonWithSideAction LemonButtonWithSideAction--${type}`,
                             fullWidth && 'LemonButtonWithSideAction--full-width'
                         )}
                     >

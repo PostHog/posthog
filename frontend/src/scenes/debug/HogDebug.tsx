@@ -1,9 +1,9 @@
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { CodeEditor } from 'lib/components/CodeEditors'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import type { IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 
@@ -15,7 +15,10 @@ import { HogQuery, HogQueryResponse } from '~/queries/schema'
 export interface HogQueryEditorProps {
     query: HogQuery
     setQuery?: (query: HogQuery) => void
+    queryKey?: string
 }
+
+let uniqueNode = 0
 
 export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
     // Using useRef, not useState, as we don't want to reload the component when this changes.
@@ -29,6 +32,7 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
     useEffect(() => {
         setQueryInput(props.query?.code)
     }, [props.query?.code])
+    const [realKey] = useState(() => uniqueNode++)
 
     function saveQuery(): void {
         if (props.setQuery) {
@@ -40,11 +44,11 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
         <div className="space-y-2">
             <div data-attr="hogql-query-editor" className={clsx('flex flex-col rounded space-y-2 w-full p-2 border')}>
                 <div className="relative flex-1 overflow-hidden">
-                    {/* eslint-disable-next-line react/forbid-dom-props */}
-                    <div className="resize-y overflow-hidden" style={{ height: 222 }}>
+                    <div className="resize-y overflow-hidden h-[222px]">
                         <CodeEditor
+                            queryKey={props.queryKey ?? `new/${realKey}`}
                             className="border rounded overflow-hidden h-full"
-                            language="rust"
+                            language="hog"
                             value={queryInput}
                             onChange={(v) => setQueryInput(v ?? '')}
                             height="100%"
@@ -96,7 +100,7 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
 interface HogDebugProps {
     queryKey: string
     query: HogQuery
-    setQuery?: (query: HogQuery) => void
+    setQuery: (query: HogQuery) => void
     debug?: boolean
 }
 
@@ -104,14 +108,14 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
     const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey, dataNodeCollectionId: queryKey }
     const { dataLoading, response: _response } = useValues(dataNodeLogic(dataNodeLogicProps))
     const response = _response as HogQueryResponse | null
-    const [tab, setTab] = useState('results' as 'results' | 'bytecode' | 'stdout')
+    const [tab, setTab] = useState('results' as 'results' | 'bytecode' | 'coloredBytecode' | 'stdout')
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <div className="space-y-2">
                 {setQuery ? (
                     <>
-                        <HogQueryEditor query={query} setQuery={setQuery} />
+                        <HogQueryEditor query={query} setQuery={setQuery} queryKey={queryKey} />
                         <LemonDivider className="my-4" />
                         <div className="flex gap-2">
                             <Reload />
@@ -133,10 +137,11 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
                                 tabs={[
                                     { label: 'Results', key: 'results' },
                                     { label: 'Stdout', key: 'stdout' },
-                                    { label: 'Bytecode', key: 'bytecode' },
+                                    { label: 'Bytecode', key: 'coloredBytecode' },
+                                    { label: 'Raw bytecode', key: 'bytecode' },
                                 ]}
                                 activeKey={tab}
-                                onChange={(key) => setTab(String(key) as 'results' | 'bytecode')}
+                                onChange={(key) => setTab(String(key) as any)}
                             />
                         ) : null}
                         {tab === 'bytecode' && debug ? (
@@ -151,6 +156,21 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
                                 height={500}
                                 path={`debug/${queryKey}/hog-bytecode.json`}
                                 options={{ wordWrap: 'on' }}
+                            />
+                        ) : tab === 'coloredBytecode' && debug ? (
+                            <CodeEditor
+                                className="border"
+                                language="swift"
+                                value={
+                                    response?.coloredBytecode && Array.isArray(response?.coloredBytecode)
+                                        ? response?.coloredBytecode
+                                              .map((a) => (a.startsWith('op.') ? a : `    ${a}`))
+                                              .join('\n')
+                                        : 'No bytecode returned with response'
+                                }
+                                height={500}
+                                path={`debug/${queryKey}/hog-bytecode.json`}
+                                options={{ wordWrap: 'on', lineNumbers: (nr) => String(nr - 1) }}
                             />
                         ) : tab === 'stdout' ? (
                             <CodeEditor
@@ -172,6 +192,7 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
                                 }
                                 height={500}
                                 path={`debug/${queryKey}/hog-result.json`}
+                                options={{ wordWrap: 'on' }}
                             />
                         )}
                     </>

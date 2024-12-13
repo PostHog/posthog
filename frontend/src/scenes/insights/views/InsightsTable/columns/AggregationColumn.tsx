@@ -13,7 +13,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { TrendsFilter } from '~/queries/schema'
 import { TrendsFilterType } from '~/types'
 
-import { CalcColumnState } from '../insightsTableLogic'
+import { CalcColumnState } from '../InsightsTable'
 
 const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     total: 'Total Sum',

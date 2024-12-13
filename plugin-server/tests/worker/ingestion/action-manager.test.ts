@@ -1,23 +1,22 @@
 import { Hub, PropertyOperator } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 describe('ActionManager', () => {
     let hub: Hub
-    let closeServer: () => Promise<void>
     let actionManager: ActionManager
 
     beforeEach(async () => {
-        ;[hub, closeServer] = await createHub()
+        hub = await createHub()
         await resetTestDatabase()
         actionManager = new ActionManager(hub.postgres, hub)
         await actionManager.start()
     })
 
     afterEach(async () => {
-        await closeServer()
+        await closeHub(hub)
     })
 
     const TEAM_ID = 2

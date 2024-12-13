@@ -1,5 +1,6 @@
-import { LemonSnack } from '@posthog/lemon-ui'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { LemonSnack, Popover } from '@posthog/lemon-ui'
 import { midEllipsis } from 'lib/utils'
 import { useState } from 'react'
 
@@ -15,6 +16,10 @@ interface PathCleanFilterItem {
 
 export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFilterItem): JSX.Element {
     const [visible, setVisible] = useState(false)
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+        id: String(filter.alias),
+    })
+
     const label = `${filter.alias}::${filter.regex}`
 
     return (
@@ -33,7 +38,17 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
             }
         >
             {/* required for popover placement */}
-            <div className="relative">
+            <div
+                className="relative"
+                ref={setNodeRef}
+                {...attributes}
+                {...listeners}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    transform: CSS.Translate.toString(transform),
+                    transition,
+                }}
+            >
                 <LemonSnack
                     type="pill"
                     onClick={() => {

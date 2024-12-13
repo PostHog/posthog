@@ -1,6 +1,14 @@
 import { NodeViewProps } from '@tiptap/core'
-import { useSyncedAttributes } from './utils'
+import {
+    createUrlRegex,
+    INTEGER_REGEX_MATCH_GROUPS,
+    SHORT_CODE_REGEX_MATCH_GROUPS,
+    useSyncedAttributes,
+    UUID_REGEX_MATCH_GROUPS,
+} from './utils'
 import { renderHook, act } from '@testing-library/react'
+import { urls } from 'scenes/urls'
+import { InsightShortId } from '~/types'
 
 describe('notebook node utils', () => {
     jest.useFakeTimers()
@@ -131,6 +139,36 @@ describe('notebook node utils', () => {
 
             jest.runOnlyPendingTimers()
             expect(nodeViewProps.updateAttributes).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('paste matching handlers', () => {
+        it('matches the uuid regex', () => {
+            let url = urls.replaySingle(UUID_REGEX_MATCH_GROUPS)
+            let regex = createUrlRegex(url)
+            let matches = regex.exec('http://localhost/replay/0192c471-b890-7546-9eae-056d98b8c5a8')
+            expect(matches?.[1]).toEqual('0192c471-b890-7546-9eae-056d98b8c5a8')
+
+            url = urls.experiment(INTEGER_REGEX_MATCH_GROUPS)
+            regex = createUrlRegex(url)
+            matches = regex.exec('http://localhost/experiments/12345')
+            expect(matches?.[1]).toEqual('12345')
+
+            url = urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId)
+            regex = createUrlRegex(url)
+            matches = regex.exec('http://localhost/insights/TAg12F')
+            expect(matches?.[1]).toEqual('TAg12F')
+        })
+        it('ignores any query params', () => {
+            let url = urls.replaySingle(UUID_REGEX_MATCH_GROUPS)
+            let regex = createUrlRegex(url)
+            let matches = regex.exec('http://localhost/replay/0192c471-b890-7546-9eae-056d98b8c5a8?filters=false')
+            expect(matches?.[1]).toEqual('0192c471-b890-7546-9eae-056d98b8c5a8')
+
+            url = urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId)
+            regex = createUrlRegex(url)
+            matches = regex.exec('http://localhost/insights/TAg12F?dashboardId=1234')
+            expect(matches?.[1]).toEqual('TAg12F')
         })
     })
 })

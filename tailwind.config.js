@@ -52,9 +52,9 @@ const config = {
         },
         borderRadius: {
             none: '0',
-            sm: '0.25rem', // Originally 0.125rem, but we're rounder
-            DEFAULT: '0.375rem', // Originally 0.25rem, but we're rounder - aligned with var(--radius)
-            lg: '0.5rem',
+            sm: 'var(--radius-sm)',
+            DEFAULT: 'var(--radius)',
+            lg: 'var(--radius-lg)',
             full: '9999px',
         },
         extend: {
@@ -93,7 +93,7 @@ const config = {
                 '1/2': '50%',
             },
             boxShadow: {
-                DEFAULT: 'var(--shadow-elevation)',
+                DEFAULT: 'var(--shadow-elevation-3000)',
             },
             flex: {
                 2: '2 2 0%',

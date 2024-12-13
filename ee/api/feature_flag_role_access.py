@@ -1,10 +1,10 @@
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
-from ee.api.role import RoleSerializer
+from ee.api.rbac.role import RoleSerializer
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
-from ee.models.organization_resource_access import OrganizationResourceAccess
-from ee.models.role import Role
+from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
+from ee.models.rbac.role import Role
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import FeatureFlag
@@ -77,7 +77,7 @@ class FeatureFlagRoleAccessViewSet(
     permission_classes = [FeatureFlagRoleAccessPermissions]
     serializer_class = FeatureFlagRoleAccessSerializer
     queryset = FeatureFlagRoleAccess.objects.select_related("feature_flag")
-    filter_rewrite_rules = {"team_id": "feature_flag__team_id"}
+    filter_rewrite_rules = {"project_id": "feature_flag__team__project_id"}
 
     def safely_get_queryset(self, queryset):
         filters = self.request.GET.dict()

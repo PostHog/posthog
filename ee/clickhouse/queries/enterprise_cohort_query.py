@@ -78,11 +78,14 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         # Since we can FULL OUTER JOIN, we may end up with pairs of uuids where one side is blank. Always try to choose the non blank ID
         q, fields = self._build_sources(subq)
 
+        # optimize_aggregation_in_order slows down this query but massively decreases memory usage
+        # this is fine for offline cohort calculation
         final_query = f"""
         SELECT {fields} AS id  FROM
         {q}
         WHERE 1 = 1
         {conditions}
+        SETTINGS optimize_aggregation_in_order = 1, join_algorithm = 'auto'
         """
 
         return final_query, self.params
@@ -319,7 +322,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         event_param_name = f"{self._cohort_pk}_event_ids"
 
-        if self.should_pushdown_persons and self._person_on_events_mode != PersonsOnEventsMode.disabled:
+        if self.should_pushdown_persons and self._person_on_events_mode != PersonsOnEventsMode.DISABLED:
             person_prop_query, person_prop_params = self._get_prop_groups(
                 self._inner_property_groups,
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,

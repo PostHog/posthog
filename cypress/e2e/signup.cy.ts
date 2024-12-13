@@ -77,6 +77,9 @@ describe('Signup', () => {
         cy.get('[data-attr=password]').type(VALID_PASSWORD).should('have.value', VALID_PASSWORD)
         cy.get('[data-attr=signup-start]').click()
         cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
+        cy.get('[data-attr=signup-role-at-organization]').click()
+        cy.get('.Popover li:first-child').click()
+        cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
 
         cy.wait('@signupRequest').then((interception) => {
@@ -93,9 +96,12 @@ describe('Signup', () => {
         cy.get('[data-attr=password]').type(VALID_PASSWORD).should('have.value', VALID_PASSWORD)
         cy.get('[data-attr=signup-start]').click()
         cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
+        cy.get('[data-attr=signup-role-at-organization]').click()
+        cy.get('.Popover li:first-child').click()
+        cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
 
-        cy.wait('@signupRequest').then((interception) => {
+        cy.wait('@signupRequest').then(() => {
             cy.get('.LemonBanner').should('contain', 'There is already an account with this email address.')
         })
 
@@ -105,6 +111,9 @@ describe('Signup', () => {
         const newEmail = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
         cy.get('[data-attr=signup-email]').clear().type(newEmail).should('have.value', newEmail)
         cy.get('[data-attr=signup-start]').click()
+        cy.get('[data-attr=signup-role-at-organization]').click()
+        cy.get('.Popover li:first-child').click()
+        cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
 
         cy.wait('@signupRequest').then((interception) => {

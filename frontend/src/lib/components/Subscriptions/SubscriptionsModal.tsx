@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 
-import { PayGatePage } from '../PayGatePage/PayGatePage'
+import { PayGateMini } from '../PayGateMini/PayGateMini'
 import { SubscriptionBaseProps, urlForSubscription, urlForSubscriptions } from './utils'
 import { EditSubscription } from './views/EditSubscription'
 import { ManageSubscriptions } from './views/ManageSubscriptions'
@@ -22,15 +22,20 @@ export interface SubscriptionsModalProps extends SubscriptionBaseProps {
 export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element {
     const { closeModal, dashboardId, insightShortId, subscriptionId, isOpen, inline } = props
     const { push } = useActions(router)
-    const { hasAvailableFeature, userLoading } = useValues(userLogic)
+    const { userLoading } = useValues(userLogic)
 
     if (userLoading) {
         return <Spinner className="text-2xl" />
     }
     return (
         <LemonModal onClose={closeModal} isOpen={isOpen} width={600} simple title="" inline={inline}>
-            {hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS) ? (
-                !subscriptionId ? (
+            <PayGateMini
+                feature={AvailableFeature.SUBSCRIPTIONS}
+                background={false}
+                className="py-8"
+                docsLink="https://posthog.com/docs/user-guides/subscriptions"
+            >
+                {!subscriptionId ? (
                     <ManageSubscriptions
                         insightShortId={insightShortId}
                         dashboardId={dashboardId}
@@ -45,21 +50,8 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
                         onCancel={() => push(urlForSubscriptions(props))}
                         onDelete={() => push(urlForSubscriptions(props))}
                     />
-                )
-            ) : (
-                <div className="p-10">
-                    <PayGatePage
-                        featureKey={AvailableFeature.SUBSCRIPTIONS}
-                        header={
-                            <>
-                                Introducing <span className="highlight">Subscriptions</span>!
-                            </>
-                        }
-                        caption="Get Insight or Dashboard reports directly to your inbox!"
-                        docsLink="https://posthog.com/docs/user-guides/subscriptions"
-                    />
-                </div>
-            )}
+                )}
+            </PayGateMini>
         </LemonModal>
     )
 }

@@ -259,11 +259,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
                                         {Settings && editingNodeId === nodeId && containerSize === 'small' ? (
                                             <div className="NotebookNode__settings">
-                                                <Settings
-                                                    key={nodeId}
-                                                    attributes={attributes}
-                                                    updateAttributes={updateAttributes}
-                                                />
+                                                <ErrorBoundary>
+                                                    <Settings
+                                                        key={nodeId}
+                                                        attributes={attributes}
+                                                        updateAttributes={updateAttributes}
+                                                    />
+                                                </ErrorBoundary>
                                             </div>
                                         ) : null}
 
@@ -278,7 +280,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             onClick={!expanded && expandOnClick ? () => setExpanded(true) : undefined}
                                             onMouseDown={onResizeStart}
                                         >
-                                            <Component attributes={attributes} updateAttributes={updateAttributes} />
+                                            <ErrorBoundary>
+                                                <Component
+                                                    attributes={attributes}
+                                                    updateAttributes={updateAttributes}
+                                                />
+                                            </ErrorBoundary>
                                         </div>
                                     </>
                                 )}

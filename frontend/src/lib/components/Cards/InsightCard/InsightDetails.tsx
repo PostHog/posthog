@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import {
+    convertPropertiesToPropertyGroup,
     formatPropertyLabel,
     isAnyPropertyfilter,
     isCohortPropertyFilter,
@@ -15,24 +16,34 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
-import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
-import { isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
 import {
-    FilterLogicalOperator,
-    FilterType,
-    InsightModel,
-    InsightType,
-    PathsFilterType,
-    PropertyGroupFilter,
-} from '~/types'
+    FunnelsQuery,
+    InsightQueryNode,
+    LifecycleQuery,
+    PathsQuery,
+    StickinessQuery,
+    TrendsQuery,
+} from '~/queries/schema'
+import {
+    isActionsNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isPathsQuery,
+    isTrendsQuery,
+    isValidBreakdown,
+} from '~/queries/utils'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter, QueryBasedInsightModel } from '~/types'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
@@ -132,23 +143,22 @@ function CompactPropertyFiltersDisplay({
 }
 
 function SeriesDisplay({
-    filter,
-    insightType = InsightType.TRENDS,
-    index,
-    hasBreakdown,
+    query,
+    seriesIndex,
 }: {
-    filter: LocalFilter
-    insightType?: InsightType
-    index: number
-    hasBreakdown: boolean
+    query: TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery
+    seriesIndex: number
 }): JSX.Element {
     const { mathDefinitions } = useValues(mathsLogic)
+    const series = query.series[seriesIndex]
+
+    const hasBreakdown = isInsightQueryWithBreakdown(query) && isValidBreakdown(query.breakdownFilter)
 
     const mathDefinition = mathDefinitions[
-        insightType === InsightType.LIFECYCLE
+        isLifecycleQuery(query)
             ? 'dau'
-            : filter.math
-            ? apiValueToMathType(filter.math, filter.math_group_type_index)
+            : series.math
+            ? apiValueToMathType(series.math, series.math_group_type_index)
             : 'total'
     ] as MathDefinition | undefined
 
@@ -156,14 +166,14 @@ function SeriesDisplay({
         <LemonRow
             fullWidth
             className="SeriesDisplay"
-            icon={<SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />}
+            icon={<SeriesLetter seriesIndex={seriesIndex} hasBreakdown={hasBreakdown} />}
             extendedContent={
-                filter.properties &&
-                filter.properties.length > 0 && (
+                series.properties &&
+                series.properties.length > 0 && (
                     <CompactPropertyFiltersDisplay
                         groupFilter={{
                             type: FilterLogicalOperator.And,
-                            values: [{ type: FilterLogicalOperator.And, values: filter.properties }],
+                            values: [{ type: FilterLogicalOperator.And, values: series.properties }],
                         }}
                         embedded
                     />
@@ -171,35 +181,37 @@ function SeriesDisplay({
             }
         >
             <span>
-                {insightType === InsightType.FUNNELS ? 'Performed' : 'Showing'}
-                {filter.custom_name && <b> "{filter.custom_name}"</b>}
-                {filter.type === 'actions' && filter.id ? (
+                {isFunnelsQuery(query) ? 'Performed' : 'Showing'}
+                {series.custom_name && <b> "{series.custom_name}"</b>}
+                {isActionsNode(series) ? (
                     <Link
-                        to={urls.action(filter.id)}
+                        to={urls.action(series.id)}
                         className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
                         title="Action series"
                     >
-                        {filter.name}
+                        {series.name}
                     </Link>
-                ) : (
+                ) : isEventsNode(series) ? (
                     <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                        <PropertyKeyInfo value={filter.name || '$pageview'} type={TaxonomicFilterGroupType.Events} />
+                        <PropertyKeyInfo value={series.event || '$pageview'} type={TaxonomicFilterGroupType.Events} />
                     </span>
+                ) : (
+                    <i>{series.kind /* TODO: Support DataWarehouseNode */}</i>
                 )}
-                {insightType !== InsightType.FUNNELS && (
+                {!isFunnelsQuery(query) && (
                     <span className="leading-none">
                         counted by{' '}
                         {mathDefinition?.category === MathCategory.HogQLExpression ? (
-                            <code>{filter.math_hogql}</code>
+                            <code>{series.math_hogql}</code>
                         ) : (
                             <>
-                                {mathDefinition?.category === MathCategory.PropertyValue && filter.math_property && (
+                                {mathDefinition?.category === MathCategory.PropertyValue && series.math_property && (
                                     <>
                                         {' '}
                                         event's
                                         <span className="SeriesDisplay__raw-name">
                                             <PropertyKeyInfo
-                                                value={filter.math_property}
+                                                value={series.math_property}
                                                 type={TaxonomicFilterGroupType.EventProperties}
                                             />
                                         </span>
@@ -215,133 +227,122 @@ function SeriesDisplay({
     )
 }
 
-function PathsSummary({ filters }: { filters: Partial<PathsFilterType> }): JSX.Element {
+function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
     // Sync format with summarizePaths in utils
+    const { includeEventTypes, startPoint, endPoint } = query.pathsFilter
     return (
         <div className="SeriesDisplay">
             <div>
-                User paths based on <b>{humanizePathsEventTypes(filters.include_event_types).join(' and ')}</b>
+                User paths based on <b>{humanizePathsEventTypes(includeEventTypes).join(' and ')}</b>
             </div>
-            {filters.start_point && (
+            {startPoint && (
                 <div>
-                    starting at <b>{filters.start_point}</b>
+                    starting at <b>{startPoint}</b>
                 </div>
             )}
-            {filters.end_point && (
+            {endPoint && (
                 <div>
-                    ending at <b>{filters.end_point}</b>
+                    ending at <b>{endPoint}</b>
                 </div>
             )}
         </div>
     )
 }
 
-export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
-    const localFilters = toLocalFilters(filters)
-
+export function SeriesSummary({ query, heading }: { query: InsightQueryNode; heading?: JSX.Element }): JSX.Element {
     return (
-        <>
-            <h5>Query summary</h5>
-            <section className="InsightDetails__query">
-                {isTrendsFilter(filters) && filters.formula && (
+        <section>
+            <h5>{heading || 'Query summary'}</h5>
+            <div className="InsightDetails__query">
+                {isTrendsQuery(query) && query.trendsFilter?.formula && (
                     <>
                         <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
                             <span>
-                                Formula:<code>{filters.formula}</code>
+                                Formula:<code>{query.trendsFilter?.formula}</code>
                             </span>
                         </LemonRow>
                         <LemonDivider />
                     </>
                 )}
-                {isPathsFilter(filters) || localFilters.length > 0 ? (
-                    <div className="InsightDetails__series">
-                        {isPathsFilter(filters) ? (
-                            <PathsSummary filters={filters} />
-                        ) : (
-                            <>
-                                <SeriesDisplay
-                                    hasBreakdown={!!filters.breakdown}
-                                    filter={localFilters[0]}
-                                    insightType={filters.insight}
-                                    index={0}
-                                />
-                                {localFilters.slice(1).map((filter, index) => (
-                                    <>
-                                        <LemonDivider className="my-1" />
-                                        <SeriesDisplay
-                                            hasBreakdown={!!filters.breakdown}
-                                            key={index}
-                                            filter={filter}
-                                            insightType={filters.insight}
-                                            index={index + 1}
-                                        />
-                                    </>
-                                ))}
-                            </>
-                        )}
-                    </div>
-                ) : (
-                    /* TODO: Add support for Retention to InsightDetails */
-                    <i>Unavailable for this insight type.</i>
-                )}
-            </section>
-        </>
+                <div className="InsightDetails__series">
+                    {isPathsQuery(query) ? (
+                        <PathsSummary query={query} />
+                    ) : isInsightQueryWithSeries(query) ? (
+                        <>
+                            {query.series.map((_entity, index) => (
+                                <React.Fragment key={index}>
+                                    {index !== 0 && <LemonDivider className="my-1" />}
+                                    <SeriesDisplay query={query} seriesIndex={index} />
+                                </React.Fragment>
+                            ))}
+                        </>
+                    ) : (
+                        /* TODO: Add support for Retention to InsightDetails */
+                        <i>Unavailable for this insight type.</i>
+                    )}
+                </div>
+            </div>
+        </section>
     )
 }
 
-export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
-    const groupFilter: PropertyGroupFilter | null = Array.isArray(filters.properties)
-        ? {
-              type: FilterLogicalOperator.And,
-              values: [
-                  {
-                      type: FilterLogicalOperator.And,
-                      values: filters.properties,
-                  },
-              ],
-          }
-        : filters.properties || null
-
+export function PropertiesSummary({
+    properties,
+}: {
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+}): JSX.Element {
     return (
-        <>
+        <section>
             <h5>Filters</h5>
-            <section>
-                <CompactPropertyFiltersDisplay groupFilter={groupFilter} />
-            </section>
-        </>
+            <div>
+                <CompactPropertyFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(properties)} />
+            </div>
+        </section>
     )
 }
 
-export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element | null {
-    if (filters.breakdown_type == null || filters.breakdown == null) {
+export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.Element | null {
+    if (!isInsightQueryWithBreakdown(query) || !isValidBreakdown(query.breakdownFilter)) {
         return null
     }
 
-    const breakdownArray = Array.isArray(filters.breakdown) ? filters.breakdown : [filters.breakdown]
+    const { breakdown_type, breakdown, breakdowns } = query.breakdownFilter
 
     return (
-        <>
+        <section>
             <h5>Breakdown by</h5>
-            <section className="InsightDetails__breakdown">
-                {breakdownArray.map((breakdown) => (
-                    <BreakdownTag key={breakdown} breakdown={breakdown} breakdownType={filters.breakdown_type} />
-                ))}
-            </section>
-        </>
+            <div>
+                {Array.isArray(breakdowns)
+                    ? breakdowns.map((b) => (
+                          <BreakdownTag key={`${b.type}-${b.property}`} breakdown={b.property} breakdownType={b.type} />
+                      ))
+                    : breakdown &&
+                      (Array.isArray(breakdown)
+                          ? breakdown
+                          : [breakdown].map((b) => (
+                                <BreakdownTag key={b} breakdown={b} breakdownType={breakdown_type} />
+                            )))}
+            </div>
+        </section>
     )
 }
 
-function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
-    let { filters } = insight
-    const { created_at, created_by } = insight
-    if (!!insight.query && isInsightQueryNode(insight.query)) {
-        filters = filterForQuery(insight.query) as Partial<FilterType>
-    }
+function InsightDetailsInternal(
+    { insight }: { insight: QueryBasedInsightModel },
+    ref: React.Ref<HTMLDivElement>
+): JSX.Element {
+    const { created_at, created_by, query } = insight
+
+    // TODO: Implement summaries for HogQL query insights
     return (
         <div className="InsightDetails" ref={ref}>
-            <QuerySummary filters={filters} />
-            <FiltersSummary filters={filters} />
-            <BreakdownSummary filters={filters} />
+            {isInsightVizNode(query) && (
+                <>
+                    <SeriesSummary query={query.source} />
+                    <PropertiesSummary properties={query.source.properties} />
+                    <BreakdownSummary query={query.source} />
+                </>
+            )}
             <div className="InsightDetails__footer">
                 <div>
                     <h5>Created by</h5>

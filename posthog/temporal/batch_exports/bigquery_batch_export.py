@@ -1,11 +1,14 @@
 import asyncio
+import collections.abc
 import contextlib
 import dataclasses
 import datetime as dt
 import json
 
 import pyarrow as pa
+import structlog
 from django.conf import settings
+from google.api_core.exceptions import Forbidden
 from google.cloud import bigquery
 from google.oauth2 import service_account
 from temporalio import activity, workflow
@@ -14,6 +17,7 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportModel,
     BatchExportSchema,
     BigQueryBatchExportInputs,
 )
@@ -24,62 +28,62 @@ from posthog.temporal.batch_exports.batch_exports import (
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
-    finish_batch_export_run,
     get_data_interval,
-    iter_records,
     start_batch_export_run,
 )
-from posthog.temporal.batch_exports.metrics import (
-    get_bytes_exported_metric,
-    get_rows_exported_metric,
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
+    should_resume_from_activity_heartbeat,
+)
+from posthog.temporal.batch_exports.spmc import (
+    Consumer,
+    Producer,
+    RecordBatchQueue,
+    run_consumer_loop,
+    wait_for_schema_or_producer,
 )
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
+    WriterFormat,
 )
-from posthog.temporal.batch_exports.utils import peek_first_and_rewind
+from posthog.temporal.batch_exports.utils import (
+    JsonType,
+    set_status_to_running_task,
+)
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.logger import bind_temporal_worker_logger
-from posthog.temporal.common.utils import (
-    BatchExportHeartbeatDetails,
-    should_resume_from_activity_heartbeat,
-)
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import configure_temporal_worker_logger
+
+logger = structlog.get_logger()
+
+NON_RETRYABLE_ERROR_TYPES = [
+    # Raised on missing permissions.
+    "Forbidden",
+    # Invalid token.
+    "RefreshError",
+    # Usually means the dataset or project doesn't exist.
+    "NotFound",
+    # Raised when something about dataset is wrong (not alphanumeric, too long, etc).
+    "BadRequest",
+    # Raised when table_id isn't valid. Sadly, `ValueError` is rather generic, but we
+    # don't anticipate a `ValueError` thrown from our own export code.
+    "ValueError",
+    # Raised when attempting to run a batch export without required BigQuery permissions.
+    # Our own version of `Forbidden`.
+    "MissingRequiredPermissionsError",
+]
 
 
-async def load_jsonl_file_to_bigquery_table(jsonl_file, table, table_schema, bigquery_client):
-    """Execute a COPY FROM query with given connection to copy contents of jsonl_file."""
-    job_config = bigquery.LoadJobConfig(
-        source_format="NEWLINE_DELIMITED_JSON",
-        schema=table_schema,
-    )
+class MissingRequiredPermissionsError(Exception):
+    """Raised when missing required permissions in BigQuery."""
 
-    load_job = bigquery_client.load_table_from_file(jsonl_file, table, job_config=job_config, rewind=True)
-    await asyncio.to_thread(load_job.result)
-
-
-async def create_table_in_bigquery(
-    project_id: str,
-    dataset_id: str,
-    table_id: str,
-    table_schema: list[bigquery.SchemaField],
-    bigquery_client: bigquery.Client,
-    exists_ok: bool = True,
-) -> bigquery.Table:
-    """Create a table in BigQuery."""
-    fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
-    table = bigquery.Table(fully_qualified_name, schema=table_schema)
-
-    if "timestamp" in [field.name for field in table_schema]:
-        # TODO: Maybe choosing which column to use as parititoning should be a configuration parameter.
-        # 'timestamp' is used for backwards compatibility.
-        table.time_partitioning = bigquery.TimePartitioning(type_=bigquery.TimePartitioningType.DAY, field="timestamp")
-
-    table = await asyncio.to_thread(bigquery_client.create_table, table, exists_ok=exists_ok)
-
-    return table
+    def __init__(self):
+        super().__init__("Missing required permissions to run this batch export")
 
 
 def get_bigquery_fields_from_record_schema(
-    record_schema: pa.Schema, known_json_columns: list[str]
+    record_schema: pa.Schema, known_json_columns: collections.abc.Sequence[str]
 ) -> list[bigquery.SchemaField]:
     """Generate a list of supported BigQuery fields from PyArrow schema.
 
@@ -95,9 +99,12 @@ def get_bigquery_fields_from_record_schema(
     bq_schema: list[bigquery.SchemaField] = []
 
     for name in record_schema.names:
+        if name == "_inserted_at":
+            continue
+
         pa_field = record_schema.field(name)
 
-        if pa.types.is_string(pa_field.type):
+        if pa.types.is_string(pa_field.type) or isinstance(pa_field.type, JsonType):
             if pa_field.name in known_json_columns:
                 bq_type = "JSON"
             else:
@@ -106,7 +113,8 @@ def get_bigquery_fields_from_record_schema(
         elif pa.types.is_binary(pa_field.type):
             bq_type = "BYTES"
 
-        elif pa.types.is_signed_integer(pa_field.type):
+        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
+            # The latter comparison is hoping we don't overflow, but BigQuery doesn't have an uint64 type.
             bq_type = "INT64"
 
         elif pa.types.is_floating(pa_field.type):
@@ -127,7 +135,7 @@ def get_bigquery_fields_from_record_schema(
 
 
 @dataclasses.dataclass
-class BigQueryHeartbeatDetails(BatchExportHeartbeatDetails):
+class BigQueryHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     """The BigQuery batch export details included in every heartbeat."""
 
     pass
@@ -145,13 +153,316 @@ class BigQueryInsertInputs:
     private_key_id: str
     token_uri: str
     client_email: str
-    data_interval_start: str
+    data_interval_start: str | None
     data_interval_end: str
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     use_json_type: bool = False
-    batch_export_schema: BatchExportSchema | None = None
     run_id: str | None = None
+    is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    # TODO: Remove after updating existing batch exports
+    batch_export_schema: BatchExportSchema | None = None
+
+
+class BigQueryQuotaExceededError(Exception):
+    """Exception raised when a BigQuery quota is exceeded.
+
+    This error indicates that we have been exporting too much data and need to
+    slow down. This error is retryable.
+    """
+
+    def __init__(self, message: str):
+        super().__init__(f"A BigQuery quota has been exceeded. Error: {message}")
+
+
+class BigQueryClient(bigquery.Client):
+    async def acreate_table(
+        self,
+        project_id: str,
+        dataset_id: str,
+        table_id: str,
+        table_schema: list[bigquery.SchemaField],
+        exists_ok: bool = True,
+    ) -> bigquery.Table:
+        """Create a table in BigQuery."""
+        fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
+        table = bigquery.Table(fully_qualified_name, schema=table_schema)
+
+        if "timestamp" in [field.name for field in table_schema]:
+            # TODO: Maybe choosing which column to use as parititoning should be a configuration parameter.
+            # 'timestamp' is used for backwards compatibility.
+            table.time_partitioning = bigquery.TimePartitioning(
+                type_=bigquery.TimePartitioningType.DAY, field="timestamp"
+            )
+
+        table = await asyncio.to_thread(self.create_table, table, exists_ok=exists_ok)
+
+        return table
+
+    async def adelete_table(
+        self,
+        project_id: str,
+        dataset_id: str,
+        table_id: str,
+        not_found_ok: bool = True,
+    ) -> None:
+        """Delete a table in BigQuery."""
+        fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
+        table = bigquery.Table(fully_qualified_name)
+
+        await asyncio.to_thread(self.delete_table, table, not_found_ok=not_found_ok)
+
+        return None
+
+    async def aget_table(
+        self,
+        project_id: str,
+        dataset_id: str,
+        table_id: str,
+    ) -> bigquery.Table:
+        """Get a table in BigQuery."""
+        fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
+        return await asyncio.to_thread(self.get_table, fully_qualified_name)
+
+    @contextlib.asynccontextmanager
+    async def managed_table(
+        self,
+        project_id: str,
+        dataset_id: str,
+        table_id: str,
+        table_schema: list[bigquery.SchemaField],
+        exists_ok: bool = True,
+        not_found_ok: bool = True,
+        delete: bool = True,
+        create: bool = True,
+    ) -> collections.abc.AsyncGenerator[bigquery.Table, None]:
+        """Manage a table in BigQuery by ensuring it exists while in context."""
+        if create is True:
+            table = await self.acreate_table(project_id, dataset_id, table_id, table_schema, exists_ok)
+        else:
+            table = await self.aget_table(project_id, dataset_id, table_id)
+
+        try:
+            yield table
+        finally:
+            if delete is True:
+                try:
+                    await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
+                except Forbidden:
+                    await logger.awarning(
+                        "Missing delete permissions to delete %s.%s.%s", project_id, dataset_id, table_id
+                    )
+
+    async def amerge_tables(
+        self,
+        final_table: bigquery.Table,
+        stage_table: bigquery.Table,
+        mutable: bool,
+        stage_fields_cast_to_json: collections.abc.Sequence[str] | None = None,
+        merge_key: collections.abc.Iterable[bigquery.SchemaField] | None = None,
+    ):
+        """Merge two tables in BigQuery.
+
+        When `mutable` is `False`, we will do a simple `INSERT INTO final FROM stage`,
+        whereas when `mutable` is `True` we will do the more complex `MERGE` query.
+        This is because inmutable tables do not need to concern themselves with
+        the conflict resolution options provided by `MERGE` as each row is unique.
+
+        Arguments:
+            final_table: The BigQuery table we are merging into.
+            stage_table: The BigQuery table we are merging from.
+            mutable: Whether the table is mutable and requires a merge, or not.
+            stage_fields_cast_to_json: Fields that must be cast to `JSON` from
+                `stage_table` when inserting them in `final_table`.
+            merge_key: If table is mutable, the merge key columns.
+        """
+        if mutable is False:
+            return await self.ainsert_into_from_stage_table(
+                final_table, stage_table, stage_fields_cast_to_json=stage_fields_cast_to_json
+            )
+        else:
+            if merge_key is None:
+                raise ValueError("Merge key must be defined when merging a mutable model")
+
+            return await self.amerge_person_tables(
+                final_table, stage_table, merge_key=merge_key, stage_fields_cast_to_json=stage_fields_cast_to_json
+            )
+
+    async def acheck_for_query_permissions_on_table(
+        self,
+        table: bigquery.Table,
+    ):
+        """Attempt to SELECT from table to check for query permissions."""
+        job_config = bigquery.QueryJobConfig()
+        if "timestamp" in [field.name for field in table.schema]:
+            query = f"""
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` WHERE timestamp IS NOT NULL
+            """
+        else:
+            query = f"""
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}`
+            """
+
+        try:
+            query_job = self.query(query, job_config=job_config)
+            await asyncio.to_thread(query_job.result)
+        except Forbidden:
+            return False
+        return True
+
+    async def ainsert_into_from_stage_table(
+        self,
+        into_table: bigquery.Table,
+        stage_table: bigquery.Table,
+        stage_fields_cast_to_json: collections.abc.Sequence[str] | None = None,
+    ):
+        """Insert data from `stage_table` into `into_table`."""
+        job_config = bigquery.QueryJobConfig()
+        into_table_fields = ",".join(f"`{field.name}`" for field in into_table.schema)
+
+        if stage_fields_cast_to_json is not None:
+            fields_to_cast = set(stage_fields_cast_to_json)
+        else:
+            fields_to_cast = set()
+        stage_table_fields = ",".join(
+            f"PARSE_JSON(`{field.name}`, wide_number_mode=>'round')"
+            if field.name in fields_to_cast
+            else f"`{field.name}`"
+            for field in into_table.schema
+        )
+
+        query = f"""
+        INSERT INTO `{into_table.full_table_id.replace(":", ".", 1)}`
+          ({into_table_fields})
+        SELECT
+          {stage_table_fields}
+        FROM `{stage_table.full_table_id.replace(":", ".", 1)}`
+        """
+
+        query_job = self.query(query, job_config=job_config)
+        return await asyncio.to_thread(query_job.result)
+
+    async def amerge_person_tables(
+        self,
+        final_table: bigquery.Table,
+        stage_table: bigquery.Table,
+        merge_key: collections.abc.Iterable[bigquery.SchemaField],
+        person_version_key: str = "person_version",
+        person_distinct_id_version_key: str = "person_distinct_id_version",
+        stage_fields_cast_to_json: collections.abc.Sequence[str] | None = None,
+    ):
+        """Merge two identical person model tables in BigQuery."""
+        job_config = bigquery.QueryJobConfig()
+
+        if stage_fields_cast_to_json is not None:
+            fields_to_cast = set(stage_fields_cast_to_json)
+        else:
+            fields_to_cast = set()
+
+        merge_condition = "ON "
+
+        for n, field in enumerate(merge_key):
+            if n > 0:
+                merge_condition += " AND "
+            merge_condition += f"final.`{field.name}` = stage.`{field.name}`"
+
+        update_clause = ""
+        values = ""
+        field_names = ""
+
+        for n, field in enumerate(final_table.schema):
+            if n > 0:
+                update_clause += ", "
+                values += ", "
+                field_names += ", "
+
+            stage_field = (
+                f"PARSE_JSON(stage.`{field.name}`, wide_number_mode=>'round')"
+                if field.name in fields_to_cast
+                else f"stage.`{field.name}`"
+            )
+            update_clause += f"final.`{field.name}` = {stage_field}"
+            field_names += f"`{field.name}`"
+            values += stage_field
+
+        if not update_clause:
+            raise ValueError("Empty update clause")
+
+        merge_query = f"""
+        MERGE `{final_table.full_table_id.replace(":", ".", 1)}` final
+        USING (
+            SELECT * FROM
+            (
+              SELECT
+              *,
+              ROW_NUMBER() OVER (PARTITION BY {",".join(field.name for field in merge_key)}) row_num
+            FROM
+              `{stage_table.full_table_id.replace(":", ".", 1)}`
+            )
+            WHERE row_num = 1
+        ) stage
+        {merge_condition}
+
+        WHEN MATCHED AND (stage.`{person_version_key}` > final.`{person_version_key}` OR stage.`{person_distinct_id_version_key}` > final.`{person_distinct_id_version_key}`) THEN
+            UPDATE SET
+                {update_clause}
+        WHEN NOT MATCHED BY TARGET THEN
+            INSERT ({field_names})
+            VALUES ({values});
+        """
+
+        query_job = self.query(merge_query, job_config=job_config)
+        return await asyncio.to_thread(query_job.result)
+
+    async def load_parquet_file(self, parquet_file, table, table_schema):
+        """Execute a COPY FROM query with given connection to copy contents of parquet_file."""
+        job_config = bigquery.LoadJobConfig(
+            source_format="PARQUET",
+            schema=table_schema,
+        )
+
+        await logger.adebug("Creating BigQuery load job for Parquet file '%s'", parquet_file)
+        load_job = await asyncio.to_thread(
+            self.load_table_from_file, parquet_file, table, job_config=job_config, rewind=True
+        )
+        await logger.adebug("Waiting for BigQuery load job for Parquet file '%s'", parquet_file)
+
+        try:
+            result = await asyncio.to_thread(load_job.result)
+        except Forbidden as err:
+            if err.reason == "quotaExceeded":
+                raise BigQueryQuotaExceededError(err.message) from err
+            raise
+
+        return result
+
+    async def load_jsonl_file(self, jsonl_file, table, table_schema):
+        """Execute a COPY FROM query to copy contents of `jsonl_file`.
+
+        Raises:
+            BigQueryQuotaExceededError: If we receive a 'quotaExceeded' error from
+                BigQuery when loading a file.
+        """
+        job_config = bigquery.LoadJobConfig(
+            source_format="NEWLINE_DELIMITED_JSON",
+            schema=table_schema,
+        )
+
+        await logger.adebug("Creating BigQuery load job for JSONL file '%s'", jsonl_file)
+        load_job = await asyncio.to_thread(
+            self.load_table_from_file, jsonl_file, table, job_config=job_config, rewind=True
+        )
+        await logger.adebug("Waiting for BigQuery load job for JSONL file '%s'", jsonl_file)
+
+        try:
+            result = await asyncio.to_thread(load_job.result)
+        except Forbidden as err:
+            if err.reason == "quotaExceeded":
+                raise BigQueryQuotaExceededError(err.message) from err
+            raise
+
+        return result
 
 
 @contextlib.contextmanager
@@ -167,7 +478,7 @@ def bigquery_client(inputs: BigQueryInsertInputs):
         },
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
     )
-    client = bigquery.Client(
+    client = BigQueryClient(
         project=inputs.project_id,
         credentials=credentials,
     )
@@ -200,156 +511,231 @@ def bigquery_default_fields() -> list[BatchExportField]:
     return batch_export_fields
 
 
+class BigQueryConsumer(Consumer):
+    """Implementation of a SPMC pipeline Consumer for BigQuery batch exports."""
+
+    def __init__(
+        self,
+        heartbeater: Heartbeater,
+        heartbeat_details: BigQueryHeartbeatDetails,
+        data_interval_start: dt.datetime | str | None,
+        writer_format: WriterFormat,
+        bigquery_client: BigQueryClient,
+        bigquery_table: bigquery.Table,
+        table_schema: list[BatchExportField],
+    ):
+        super().__init__(heartbeater, heartbeat_details, data_interval_start, writer_format)
+        self.bigquery_client = bigquery_client
+        self.bigquery_table = bigquery_table
+        self.table_schema = table_schema
+
+    async def flush(
+        self,
+        batch_export_file: BatchExportTemporaryFile,
+        records_since_last_flush: int,
+        bytes_since_last_flush: int,
+        flush_counter: int,
+        last_date_range: DateRange,
+        is_last: bool,
+        error: Exception | None,
+    ):
+        """Implement flushing by loading batch export files to BigQuery"""
+        await self.logger.adebug(
+            "Loading %s records of size %s bytes to BigQuery table '%s'",
+            records_since_last_flush,
+            bytes_since_last_flush,
+            self.bigquery_table,
+        )
+
+        if self.writer_format == WriterFormat.PARQUET:
+            await self.bigquery_client.load_parquet_file(batch_export_file, self.bigquery_table, self.table_schema)
+        else:
+            await self.bigquery_client.load_jsonl_file(batch_export_file, self.bigquery_table, self.table_schema)
+
+        await self.logger.adebug("Loaded %s to BigQuery table '%s'", records_since_last_flush, self.bigquery_table)
+        self.rows_exported_counter.add(records_since_last_flush)
+        self.bytes_exported_counter.add(bytes_since_last_flush)
+
+        self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
+
+
 @activity.defn
 async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> RecordsCompleted:
     """Activity streams data from ClickHouse to BigQuery."""
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="BigQuery")
-    logger.info(
+    logger = await configure_temporal_worker_logger(
+        logger=structlog.get_logger(), team_id=inputs.team_id, destination="BigQuery"
+    )
+    await logger.ainfo(
         "Batch exporting range %s - %s to BigQuery: %s.%s.%s",
-        inputs.data_interval_start,
-        inputs.data_interval_end,
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
         inputs.project_id,
         inputs.dataset_id,
         inputs.table_id,
     )
 
-    should_resume, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails, logger)
-
-    if should_resume is True and details is not None:
-        data_interval_start = details.last_inserted_at.isoformat()
-        last_inserted_at = details.last_inserted_at
-    else:
-        data_interval_start = inputs.data_interval_start
-        last_inserted_at = None
-
-    async with get_client(team_id=inputs.team_id) as client:
+    async with (
+        Heartbeater() as heartbeater,
+        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+        get_client(team_id=inputs.team_id) as client,
+    ):
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        if inputs.batch_export_schema is None:
-            fields = bigquery_default_fields()
-            query_parameters = None
+        _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails)
+        if details is None:
+            details = BigQueryHeartbeatDetails()
 
+        done_ranges: list[DateRange] = details.done_ranges
+
+        model: BatchExportModel | BatchExportSchema | None = None
+        if inputs.batch_export_schema is None and "batch_export_model" in {
+            field.name for field in dataclasses.fields(inputs)
+        }:
+            model = inputs.batch_export_model
+            if model is not None:
+                model_name = model.name
+                extra_query_parameters = model.schema["values"] if model.schema is not None else None
+                fields = model.schema["fields"] if model.schema is not None else None
+            else:
+                model_name = "events"
+                extra_query_parameters = None
+                fields = None
         else:
-            fields = inputs.batch_export_schema["fields"]
-            query_parameters = inputs.batch_export_schema["values"]
+            model = inputs.batch_export_schema
+            model_name = "custom"
+            extra_query_parameters = model["values"] if model is not None else {}
+            fields = model["fields"] if model is not None else None
 
-        records_iterator = iter_records(
-            client=client,
+        data_interval_start = (
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
+        )
+        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
+        full_range = (data_interval_start, data_interval_end)
+
+        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        producer = Producer(clickhouse_client=client)
+        producer_task = producer.start(
+            queue=queue,
+            model_name=model_name,
+            is_backfill=inputs.is_backfill,
             team_id=inputs.team_id,
-            interval_start=data_interval_start,
-            interval_end=inputs.data_interval_end,
+            full_range=full_range,
+            done_ranges=done_ranges,
+            fields=fields,
+            destination_default_fields=bigquery_default_fields(),
+            use_latest_schema=True,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            fields=fields,
-            extra_query_parameters=query_parameters,
+            extra_query_parameters=extra_query_parameters,
         )
+        records_completed = 0
 
-        bigquery_table = None
-        inserted_at = None
+        record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
+        if record_batch_schema is None:
+            return records_completed
 
-        async def worker_shutdown_handler():
-            """Handle the Worker shutting down by heart-beating our latest status."""
-            await activity.wait_for_worker_shutdown()
-            logger.bind(last_inserted_at=last_inserted_at).debug("Worker shutting down!")
+        record_batch_schema = pa.schema(
+            # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
+            # record batches have them as nullable.
+            # Until we figure it out, we set all fields to nullable. There are some fields we know
+            # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
+            # between batches.
+            [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
+        )
+        if inputs.use_json_type is True:
+            json_type = "JSON"
+            json_columns = ["properties", "set", "set_once", "person_properties"]
+        else:
+            json_type = "STRING"
+            json_columns = []
 
-            if last_inserted_at is None:
-                # Don't heartbeat if worker shuts down before we could even send anything
-                # Just start from the beginning again.
-                return
+        if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+            schema = [
+                bigquery.SchemaField("uuid", "STRING"),
+                bigquery.SchemaField("event", "STRING"),
+                bigquery.SchemaField("properties", json_type),
+                bigquery.SchemaField("elements", "STRING"),
+                bigquery.SchemaField("set", json_type),
+                bigquery.SchemaField("set_once", json_type),
+                bigquery.SchemaField("distinct_id", "STRING"),
+                bigquery.SchemaField("team_id", "INT64"),
+                bigquery.SchemaField("ip", "STRING"),
+                bigquery.SchemaField("site_url", "STRING"),
+                bigquery.SchemaField("timestamp", "TIMESTAMP"),
+                bigquery.SchemaField("bq_ingested_timestamp", "TIMESTAMP"),
+            ]
+        else:
+            schema = get_bigquery_fields_from_record_schema(record_batch_schema, known_json_columns=json_columns)
 
-            activity.heartbeat(str(last_inserted_at))
-
-        asyncio.create_task(worker_shutdown_handler())
+        stage_schema = [
+            bigquery.SchemaField(field.name, "STRING") if field.name in json_columns else field for field in schema
+        ]
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}"
 
         with bigquery_client(inputs) as bq_client:
-            with BatchExportTemporaryFile() as jsonl_file:
-                rows_exported = get_rows_exported_metric()
-                bytes_exported = get_bytes_exported_metric()
+            async with bq_client.managed_table(
+                project_id=inputs.project_id,
+                dataset_id=inputs.dataset_id,
+                table_id=inputs.table_id,
+                table_schema=schema,
+                delete=False,
+            ) as bigquery_table:
+                can_perform_merge = await bq_client.acheck_for_query_permissions_on_table(bigquery_table)
 
-                async def flush_to_bigquery(bigquery_table, table_schema):
-                    logger.debug(
-                        "Loading %s records of size %s bytes",
-                        jsonl_file.records_since_last_reset,
-                        jsonl_file.bytes_since_last_reset,
+                if not can_perform_merge:
+                    if model_name == "persons":
+                        raise MissingRequiredPermissionsError()
+
+                    await logger.awarning(
+                        "Missing query permissions on BigQuery table required for merging, will attempt direct load into final table"
                     )
-                    await load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
 
-                    rows_exported.add(jsonl_file.records_since_last_reset)
-                    bytes_exported.add(jsonl_file.bytes_since_last_reset)
+                async with bq_client.managed_table(
+                    project_id=inputs.project_id,
+                    dataset_id=inputs.dataset_id,
+                    table_id=stage_table_name if can_perform_merge else inputs.table_id,
+                    table_schema=stage_schema,
+                    create=can_perform_merge,
+                    delete=can_perform_merge,
+                ) as bigquery_stage_table:
+                    records_completed = await run_consumer_loop(
+                        queue=queue,
+                        consumer_cls=BigQueryConsumer,
+                        producer_task=producer_task,
+                        heartbeater=heartbeater,
+                        heartbeat_details=details,
+                        data_interval_end=data_interval_end,
+                        data_interval_start=data_interval_start,
+                        schema=record_batch_schema,
+                        writer_format=WriterFormat.PARQUET if can_perform_merge else WriterFormat.JSONL,
+                        max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                        json_columns=() if can_perform_merge else json_columns,
+                        bigquery_client=bq_client,
+                        bigquery_table=bigquery_stage_table if can_perform_merge else bigquery_table,
+                        table_schema=stage_schema if can_perform_merge else schema,
+                        writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
+                        multiple_files=True,
+                    )
 
-                first_record, records_iterator = peek_first_and_rewind(records_iterator)
+                    if can_perform_merge:
+                        merge_key = (
+                            bigquery.SchemaField("team_id", "INT64"),
+                            bigquery.SchemaField("distinct_id", "STRING"),
+                        )
+                        await bq_client.amerge_tables(
+                            final_table=bigquery_table,
+                            stage_table=bigquery_stage_table,
+                            mutable=True if model_name == "persons" else False,
+                            merge_key=merge_key,
+                            stage_fields_cast_to_json=json_columns,
+                        )
 
-                if inputs.use_json_type is True:
-                    json_type = "JSON"
-                    json_columns = ["properties", "set", "set_once", "person_properties"]
-                else:
-                    json_type = "STRING"
-                    json_columns = []
-
-                if inputs.batch_export_schema is None:
-                    schema = [
-                        bigquery.SchemaField("uuid", "STRING"),
-                        bigquery.SchemaField("event", "STRING"),
-                        bigquery.SchemaField("properties", json_type),
-                        bigquery.SchemaField("elements", "STRING"),
-                        bigquery.SchemaField("set", json_type),
-                        bigquery.SchemaField("set_once", json_type),
-                        bigquery.SchemaField("distinct_id", "STRING"),
-                        bigquery.SchemaField("team_id", "INT64"),
-                        bigquery.SchemaField("ip", "STRING"),
-                        bigquery.SchemaField("site_url", "STRING"),
-                        bigquery.SchemaField("timestamp", "TIMESTAMP"),
-                        bigquery.SchemaField("bq_ingested_timestamp", "TIMESTAMP"),
-                    ]
-
-                else:
-                    column_names = [column for column in first_record.schema.names if column != "_inserted_at"]
-                    record_schema = first_record.select(column_names).schema
-                    schema = get_bigquery_fields_from_record_schema(record_schema, known_json_columns=json_columns)
-
-                bigquery_table = await create_table_in_bigquery(
-                    inputs.project_id,
-                    inputs.dataset_id,
-                    inputs.table_id,
-                    schema,
-                    bq_client,
-                )
-
-                # Columns need to be sorted according to BigQuery schema.
-                record_columns = [field.name for field in schema] + ["_inserted_at"]
-
-                for record_batch in records_iterator:
-                    for record in record_batch.select(record_columns).to_pylist():
-                        inserted_at = record.pop("_inserted_at")
-
-                        for json_column in json_columns:
-                            if json_column in record and (json_str := record.get(json_column, None)) is not None:
-                                record[json_column] = json.loads(json_str)
-
-                        # TODO: Parquet is a much more efficient format to send data to BigQuery.
-                        jsonl_file.write_records_to_jsonl([record])
-
-                        if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
-                            await flush_to_bigquery(bigquery_table, schema)
-
-                            last_inserted_at = inserted_at.isoformat()
-                            activity.heartbeat(last_inserted_at)
-
-                            jsonl_file.reset()
-
-                if jsonl_file.tell() > 0 and inserted_at is not None:
-                    await flush_to_bigquery(bigquery_table, schema)
-
-                    last_inserted_at = inserted_at.isoformat()
-                    activity.heartbeat(last_inserted_at)
-
-                    jsonl_file.reset()
-
-                return jsonl_file.records_total
+        return records_completed
 
 
-@workflow.defn(name="bigquery-export")
+@workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])
 class BigQueryBatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into BigQuery.
 
@@ -369,16 +755,18 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: BigQueryBatchExportInputs):
         """Workflow implementation to export data to BigQuery."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
         )
-        run_id, records_total_count = await workflow.execute_activity(
+        run_id = await workflow.execute_activity(
             start_batch_export_run,
             start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
@@ -397,20 +785,6 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
         )
 
-        if records_total_count == 0:
-            await workflow.execute_activity(
-                finish_batch_export_run,
-                finish_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
-            return
-
         insert_inputs = BigQueryInsertInputs(
             team_id=inputs.team_id,
             table_id=inputs.table_id,
@@ -420,31 +794,23 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             private_key_id=inputs.private_key_id,
             token_uri=inputs.token_uri,
             client_email=inputs.client_email,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             use_json_type=inputs.use_json_type,
-            batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
+            is_backfill=inputs.is_backfill,
+            batch_export_model=inputs.batch_export_model,
+            # TODO: Remove after updating existing batch exports.
+            batch_export_schema=inputs.batch_export_schema,
         )
 
         await execute_batch_export_insert_activity(
             insert_into_bigquery_activity,
             insert_inputs,
             interval=inputs.interval,
-            non_retryable_error_types=[
-                # Raised on missing permissions.
-                "Forbidden",
-                # Invalid token.
-                "RefreshError",
-                # Usually means the dataset or project doesn't exist.
-                "NotFound",
-                # Raised when something about dataset is wrong (not alphanumeric, too long, etc).
-                "BadRequest",
-                # Raised when table_id isn't valid. Sadly, `ValueError` is rather generic, but we
-                # don't anticipate a `ValueError` thrown from our own export code.
-                "ValueError",
-            ],
+            non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
             finish_inputs=finish_inputs,
+            maximum_retry_interval_seconds=240,
         )

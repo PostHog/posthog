@@ -1,5 +1,5 @@
 import { Hub } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { KafkaProducerWrapper } from '../../../src/utils/db/kafka-producer-wrapper'
 import { UUIDT } from '../../../src/utils/utils'
 import { AppMetricIdentifier, AppMetrics } from '../../../src/worker/ingestion/app-metrics'
@@ -275,10 +275,9 @@ describe('AppMetrics()', () => {
 
     describe('reading writes from clickhouse', () => {
         let hub: Hub
-        let closeHub: () => Promise<void>
 
         beforeEach(async () => {
-            ;[hub, closeHub] = await createHub({
+            hub = await createHub({
                 APP_METRICS_FLUSH_FREQUENCY_MS: 100,
                 APP_METRICS_FLUSH_MAX_QUEUE_SIZE: 5,
             })
@@ -286,7 +285,7 @@ describe('AppMetrics()', () => {
             jest.spyOn(hub.kafkaProducer, 'queueMessage').mockReturnValue(Promise.resolve())
         })
         afterEach(async () => {
-            await closeHub()
+            await closeHub(hub)
         })
         async function fetchRowsFromClickhouse() {
             return (await hub.db.clickhouseQuery(`SELECT * FROM app_metrics FINAL`)).data

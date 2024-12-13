@@ -7,13 +7,14 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FeatureFlagType } from '~/types'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { BaseMathType, FeatureFlagType } from '~/types'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { ExtendedListItem, SidebarCategory } from '../types'
@@ -34,8 +35,8 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
         values: [
             featureFlagsLogic,
             ['featureFlags', 'featureFlagsLoading'],
-            teamLogic,
-            ['currentTeamId'],
+            projectLogic,
+            ['currentProjectId'],
             sceneLogic,
             ['activeScene', 'sceneParams'],
             groupsModel,
@@ -45,8 +46,8 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
     }),
     selectors(({ actions }) => ({
         contents: [
-            (s) => [s.relevantFeatureFlags, s.featureFlagsLoading, s.currentTeamId, s.aggregationLabel],
-            (relevantFeatureFlags, featureFlagsLoading, currentTeamId, aggregationLabel) => [
+            (s) => [s.relevantFeatureFlags, s.featureFlagsLoading, s.currentProjectId, s.aggregationLabel],
+            (relevantFeatureFlags, featureFlagsLoading, currentProjectId, aggregationLabel) => [
                 {
                     key: 'feature-flags',
                     noun: 'feature flag',
@@ -56,6 +57,26 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                         if (!featureFlag.id) {
                             throw new Error('Feature flag ID should never be missing in the sidebar')
                         }
+
+                        const query: InsightVizNode = {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [
+                                    {
+                                        event: '$pageview',
+                                        name: '$pageview',
+                                        kind: NodeKind.EventsNode,
+                                        math: BaseMathType.UniqueUsers,
+                                    },
+                                ],
+                                breakdownFilter: {
+                                    breakdown: `$feature/${featureFlag.key}`,
+                                    breakdown_type: 'event',
+                                },
+                            },
+                        }
+
                         return {
                             key: featureFlag.id,
                             name: featureFlag.key,
@@ -115,13 +136,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                         },
                                         {
                                             label: 'Try out in Insights',
-                                            to: urls.insightNew({
-                                                events: [
-                                                    { id: '$pageview', name: '$pageview', type: 'events', math: 'dau' },
-                                                ],
-                                                breakdown_type: 'event',
-                                                breakdown: `$feature/${featureFlag.key}`,
-                                            }),
+                                            to: urls.insightNew(undefined, undefined, query),
                                             'data-attr': 'usage',
                                         },
                                     ],
@@ -132,9 +147,11 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                             label: 'Delete feature flag',
                                             onClick: () => {
                                                 void deleteWithUndo({
-                                                    endpoint: `projects/${currentTeamId}/feature_flags`,
+                                                    endpoint: `projects/${currentProjectId}/feature_flags`,
                                                     object: { name: featureFlag.key, id: featureFlag.id },
-                                                    callback: actions.loadFeatureFlags,
+                                                    callback: () => {
+                                                        actions.loadFeatureFlags()
+                                                    },
                                                 })
                                             },
                                             disabledReason: !featureFlag.can_edit
@@ -164,7 +181,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                 if (searchTerm) {
                     return fuse.search(searchTerm).map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
-                return featureFlags.map((featureFlag) => [featureFlag, null])
+                return featureFlags.results.map((featureFlag) => [featureFlag, null])
             },
         ],
     })),

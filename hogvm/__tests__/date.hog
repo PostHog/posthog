@@ -1,0 +1,57 @@
+let dt := fromUnixTimestamp(1234334543)
+print(dt)
+print(toString(dt))
+print(toInt(toUnixTimestamp(dt)))
+print('-')
+
+let dt2 := toDate('2024-05-03')
+print(dt2)
+print(toString(dt2))
+print(toInt(toUnixTimestamp(dt2)))
+print('-')
+
+let dt3 := toDateTime('2024-05-03T12:34:56Z')
+print(dt3)
+print(toString(dt3))
+print(toInt(toUnixTimestamp(dt3)))
+
+print('------')
+
+print(toTimeZone(dt3, 'Europe/Brussels'))
+print(toString(toTimeZone(dt3, 'Europe/Brussels')))
+print('-')
+
+print(toTimeZone(dt3, 'Europe/Tallinn'))
+print(toString(toTimeZone(dt3, 'Europe/Tallinn')))
+print('-')
+
+print(toTimeZone(dt3, 'America/New_York'))
+print(toString(toTimeZone(dt3, 'America/New_York')))
+
+print('------')
+let timestamp := fromUnixTimestamp(1234334543.123)
+print('timestamp:                                ', timestamp)
+print('toString(timestamp):                      ', toString(timestamp))
+
+print('toInt(timestamp):                         ', toInt(timestamp))
+print('toDateTime(toInt(timestamp)):             ', toDateTime(toInt(timestamp)))
+print('toInt(toDateTime(toInt(timestamp))):      ', toInt(toDateTime(toInt(timestamp))))
+print('toString(toDateTime(toInt(timestamp))):   ', toString(toDateTime(toInt(timestamp))))
+
+print('toFloat(timestamp):                       ', toFloat(timestamp))
+print('toDateTime(toFloat(timestamp)):           ', toDateTime(toFloat(timestamp)))
+print('toFloat(toDateTime(toFloat(timestamp))):  ', toFloat(toDateTime(toFloat(timestamp))))
+print('toString(toDateTime(toFloat(timestamp))): ', toString(toDateTime(toFloat(timestamp))))
+
+print('------')
+let millisTs := fromUnixTimestampMilli(1234334543123)
+print('millisTs:                                 ', toString(millisTs))
+print('toString(millisTs):                       ', toString(millisTs))
+print('toInt(millisTs):                          ', toInt(millisTs))
+print('toFloat(millisTs):                        ', toFloat(millisTs))
+print('toUnixTimestampMilli(millisTs):           ', toUnixTimestampMilli(millisTs))
+print('------')
+let date := toDate('2024-05-03')
+print(date)
+print(toString(date))
+print(toInt(date))

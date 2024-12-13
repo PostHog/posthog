@@ -4,7 +4,7 @@ import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -25,7 +25,6 @@ export function AccessLevelIndicator({ organization }: { organization: Organizat
 
 export function OtherOrganizationButton({
     organization,
-    index,
 }: {
     organization: OrganizationBasicType
     index: number
@@ -35,7 +34,13 @@ export function OtherOrganizationButton({
     return (
         <LemonButton
             onClick={() => updateCurrentOrganization(organization.id)}
-            icon={<Lettermark index={index} name={organization.name} />}
+            icon={
+                <UploadedLogo
+                    name={organization.name}
+                    entityId={organization.id}
+                    mediaId={organization.logo_media_id}
+                />
+            }
             title={`Switch to organization ${organization.name}`}
             fullWidth
         >
@@ -66,6 +71,7 @@ export function NewOrganizationButton(): JSX.Element {
                 )
             }
             fullWidth
+            data-attr="new-organization-button"
         >
             New organization
         </LemonButton>
@@ -82,11 +88,18 @@ export function OrganizationSwitcherOverlay(): JSX.Element {
             <LemonDivider />
             {currentOrganization && (
                 <LemonButton
-                    icon={<Lettermark name={currentOrganization.name} />}
+                    icon={
+                        <UploadedLogo
+                            name={currentOrganization.name}
+                            entityId={currentOrganization.id}
+                            mediaId={currentOrganization.logo_media_id}
+                        />
+                    }
                     title={`Switch to organization ${currentOrganization.name}`}
+                    active
                     fullWidth
                 >
-                    <strong>{currentOrganization.name}</strong>
+                    {currentOrganization.name}
                     <AccessLevelIndicator organization={currentOrganization} />
                 </LemonButton>
             )}

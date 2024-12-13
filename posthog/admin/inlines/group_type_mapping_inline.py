@@ -11,3 +11,4 @@ class GroupTypeMappingInline(admin.TabularInline):
     classes = ("collapse",)
     max_num = 5
     min_num = 5
+    show_change_link = True

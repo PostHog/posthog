@@ -37,7 +37,7 @@
     overflow-wrap: anywhere;
 
     &--unread {
-        background-color: var(--primary-3000-highlight);
+        background-color: var(--primary-highlight);
         border-radius: var(--radius);
     }
 
@@ -54,6 +54,17 @@
 
             & > .PersonDisplay {
                 min-width: 5.5rem;
+            }
+        }
+    }
+
+    .ActivityLogRow__description {
+        ul.bullet-list {
+            padding-left: 20px;
+            list-style-type: disc;
+
+            li {
+                display: list-item;
             }
         }
     }

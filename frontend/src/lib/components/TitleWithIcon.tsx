@@ -8,7 +8,7 @@ export function TitleWithIcon({ icon, children, 'data-attr': dataAttr }: TitleWi
     return (
         <div className="flex items-center" data-attr={dataAttr}>
             <div>{children}</div>
-            <div className="title-icon">{icon}</div>
+            <div className="ml-1.5 text-base leading-[0px]">{icon}</div>
         </div>
     )
 }

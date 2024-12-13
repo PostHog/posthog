@@ -1,64 +1,70 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { PageHeader } from 'lib/components/PageHeader'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { ConcreteLemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { PipelineTab } from '~/types'
+import { ActivityScope, PipelineTab } from '~/types'
 
 import { AppsManagement } from './AppsManagement'
-import { Destinations } from './Destinations'
+import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
+import { Destinations } from './destinations/Destinations'
 import { FrontendApps } from './FrontendApps'
 import { ImportApps } from './ImportApps'
 import { importAppsLogic } from './importAppsLogic'
-import { NewButton } from './NewButton'
 import { Overview } from './Overview'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
-import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
+import { Sources } from './sources/Sources'
 import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
     const { canGloballyManagePlugins } = useValues(pipelineAccessLogic)
     const { currentTab } = useValues(pipelineLogic)
     const { hasEnabledImportApps } = useValues(importAppsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    let tabToContent: Partial<Record<PipelineTab, JSX.Element>> = {
-        [PipelineTab.Overview]: <Overview />,
-        [PipelineTab.Transformations]: <Transformations />,
-        [PipelineTab.Destinations]: <Destinations />,
-        [PipelineTab.SiteApps]: <FrontendApps />,
-    }
+    const tabs: Pick<ConcreteLemonTab<PipelineTab>, 'key' | 'content'>[] = [
+        { key: PipelineTab.Overview, content: <Overview /> },
+        { key: PipelineTab.Sources, content: <Sources /> },
+        { key: PipelineTab.Transformations, content: <Transformations /> },
+        { key: PipelineTab.Destinations, content: <Destinations types={DESTINATION_TYPES} /> },
+        {
+            key: PipelineTab.SiteApps,
+            content: featureFlags[FEATURE_FLAGS.SITE_APP_FUNCTIONS] ? (
+                <Destinations types={SITE_APP_TYPES} />
+            ) : (
+                <FrontendApps />
+            ),
+        },
+    ]
+
     // Import apps are deprecated, we only show the tab if there are some still enabled
     if (hasEnabledImportApps) {
-        tabToContent = {
-            ...tabToContent,
-            [PipelineTab.ImportApps]: <ImportApps />,
-        }
+        tabs.push({ key: PipelineTab.ImportApps, content: <ImportApps /> })
     }
     if (canGloballyManagePlugins) {
-        tabToContent = {
-            ...tabToContent,
-            [PipelineTab.AppsManagement]: <AppsManagement />,
-        }
+        tabs.push({ key: PipelineTab.AppsManagement, content: <AppsManagement /> })
     }
 
-    const maybeKind = PIPELINE_TAB_TO_NODE_STAGE[currentTab]
+    tabs.push({
+        key: PipelineTab.History,
+        content: (
+            <ActivityLog scope={[ActivityScope.PLUGIN, ActivityScope.PLUGIN_CONFIG, ActivityScope.HOG_FUNCTION]} />
+        ),
+    })
 
     return (
         <div className="pipeline-scene">
-            <PageHeader
-                caption="Add transformations to the events sent to PostHog or export them to other tools."
-                buttons={maybeKind ? <NewButton stage={maybeKind} /> : undefined}
-            />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.pipeline(tab as PipelineTab))}
-                tabs={Object.entries(tabToContent).map(([tab, content]) => ({
-                    label: humanFriendlyTabName(tab as PipelineTab),
-                    key: tab,
-                    content: content,
+                tabs={tabs.map((tab) => ({
+                    ...tab,
+                    label: humanFriendlyTabName(tab.key),
                 }))}
             />
         </div>

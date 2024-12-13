@@ -1,12 +1,11 @@
 import './InsightLegend.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { InsightLegendRow } from './InsightLegendRow'
-import { shouldHighlightThisRow } from './utils'
 
 export interface InsightLegendProps {
     readOnly?: boolean
@@ -15,11 +14,8 @@ export interface InsightLegendProps {
 }
 
 export function InsightLegend({ horizontal, inCardView, readOnly = false }: InsightLegendProps): JSX.Element | null {
-    const { insightProps, highlightedSeries, hiddenLegendKeys } = useValues(insightLogic)
-    const { toggleVisibility } = useActions(insightLogic)
-    const { indexedResults, compare, display, trendsFilter, hasLegend, isSingleSeries } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const { insightProps } = useValues(insightLogic)
+    const { indexedResults, hasLegend } = useValues(trendsDataLogic(insightProps))
 
     return hasLegend ? (
         <div
@@ -32,18 +28,7 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
             <div className="grid grid-cols-1">
                 {indexedResults &&
                     indexedResults.map((item, index) => (
-                        <InsightLegendRow
-                            key={index}
-                            hiddenLegendKeys={hiddenLegendKeys}
-                            item={item}
-                            rowIndex={index}
-                            hasMultipleSeries={!isSingleSeries}
-                            highlighted={shouldHighlightThisRow(hiddenLegendKeys, index, highlightedSeries)}
-                            toggleVisibility={toggleVisibility}
-                            compare={compare}
-                            display={display}
-                            trendsFilter={trendsFilter}
-                        />
+                        <InsightLegendRow key={index} item={item} totalItems={indexedResults.length} rowIndex={index} />
                     ))}
             </div>
         </div>

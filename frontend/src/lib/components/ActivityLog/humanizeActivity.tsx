@@ -8,8 +8,8 @@ export interface ActivityChange {
     type: ActivityScope
     action: 'changed' | 'created' | 'deleted' | 'exported' | 'split'
     field?: string
-    before?: string | number | Record<string, any> | boolean | null
-    after?: string | number | Record<string, any> | boolean | null
+    before?: string | number | any[] | Record<string, any> | boolean | null
+    after?: string | number | any[] | Record<string, any> | boolean | null
 }
 
 export interface PersonMerge {

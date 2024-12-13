@@ -26,6 +26,7 @@ def create_aapl_stock_s3_table(name="aapl_stock") -> S3Table:
 
 def create_aapl_stock_table_view() -> SavedQuery:
     return SavedQuery(
+        id="aapl_stock_view",
         name="aapl_stock_view",
         query="SELECT * FROM aapl_stock",
         fields={
@@ -39,6 +40,7 @@ def create_aapl_stock_table_view() -> SavedQuery:
 
 def create_nested_aapl_stock_view() -> SavedQuery:
     return SavedQuery(
+        id="aapl_stock_nested_view",
         name="aapl_stock_nested_view",
         query="SELECT * FROM aapl_stock_view",
         fields={
@@ -52,6 +54,7 @@ def create_nested_aapl_stock_view() -> SavedQuery:
 
 def create_aapl_stock_table_self_referencing() -> SavedQuery:
     return SavedQuery(
+        id="aapl_stock_self",
         name="aapl_stock_self",
         query="SELECT * FROM aapl_stock_self",
         fields={

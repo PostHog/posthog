@@ -1,5 +1,4 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -8,10 +7,18 @@ import {
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
-    isOtherBreakdown,
 } from 'scenes/insights/utils'
 
-import { LifecycleQuery, MathType } from '~/queries/schema'
+import {
+    BreakdownFilter,
+    EventsNode,
+    InsightQueryNode,
+    LifecycleQuery,
+    MathType,
+    TrendsFilter,
+    TrendsQuery,
+} from '~/queries/schema'
+import { isValidBreakdown } from '~/queries/utils'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -48,15 +55,18 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'series',
                 'formula',
                 'display',
-                'compare',
+                'compareFilter',
                 'interval',
+                'enabledIntervals',
                 'breakdownFilter',
                 'showValuesOnSeries',
                 'showLabelOnSeries',
                 'showPercentStackView',
                 'supportsPercentStackView',
+                'insightFilter',
                 'trendsFilter',
                 'lifecycleFilter',
+                'stickinessFilter',
                 'isTrends',
                 'isDataWarehouseSeries',
                 'isLifecycle',
@@ -66,15 +76,19 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'hasLegend',
                 'showLegend',
                 'vizSpecificOptions',
-                'isHogQLInsight',
+                'yAxisScaleType',
             ],
         ],
-        actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter']],
+        actions: [
+            insightVizDataLogic(props),
+            ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter', 'updateHiddenLegendIndexes'],
+        ],
     })),
 
     actions({
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
+        toggleHiddenLegendIndex: (index: number) => ({ index }),
     }),
 
     reducers({
@@ -87,6 +101,18 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
     }),
 
     selectors(({ values }) => ({
+        /** series within the trend insight on which user can set alerts */
+        alertSeries: [
+            (s) => [s.querySource],
+            (queryNode: InsightQueryNode | null): EventsNode[] => {
+                if (queryNode === null) {
+                    return []
+                }
+
+                return (queryNode as TrendsQuery).series as EventsNode[]
+            },
+        ],
+
         results: [
             (s) => [s.insightData],
             (insightData: TrendAPIResponse | null): TrendResult[] => {
@@ -97,22 +123,19 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
-        loadMoreBreakdownUrl: [
-            (s) => [s.insightData, s.isTrends],
-            (insightData, isTrends) => {
-                return isTrends ? insightData?.next : null
-            },
-        ],
-
-        hasBreakdownOther: [
+        hasBreakdownMore: [
             (s) => [s.insightData, s.isTrends],
             (insightData, isTrends) => {
                 if (!isTrends) {
                     return false
                 }
-                const results = insightData.result ?? insightData.results
-                return !!(Array.isArray(results) && results.find((r) => isOtherBreakdown(r.breakdown_value)))
+                return !!insightData.hasMore
             },
+        ],
+
+        isBreakdownValid: [
+            (s) => [s.breakdownFilter],
+            (breakdownFilter: BreakdownFilter | null) => isValidBreakdown(breakdownFilter),
         ],
 
         indexedResults: [
@@ -152,7 +175,23 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                             defaultLifecyclesOrder.indexOf(String(a.status))
                     )
                 }
-                return indexedResults.map((result, index) => ({ ...result, id: index }))
+
+                /** Unique series in the results, determined by `item.label` and `item.action.order`. */
+                const uniqSeries = Array.from(
+                    // :TRICKY: Stickiness insights don't have an `action` object, despite
+                    // types here not reflecting that.
+                    new Set(
+                        indexedResults.map((item) => `${item.label}_${item.action?.order}_${item?.breakdown_value}`)
+                    )
+                )
+
+                // Give current and previous versions of the same dataset the same colorIndex
+                return indexedResults.map((item, index) => {
+                    const colorIndex = uniqSeries.findIndex(
+                        (identifier) => identifier === `${item.label}_${item.action?.order}_${item?.breakdown_value}`
+                    )
+                    return { ...item, colorIndex: colorIndex, id: index }
+                })
             },
         ],
 
@@ -160,7 +199,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (s) => [s.series, s.querySource, s.isLifecycle],
             (series, querySource, isLifecycle): 'people' | 'none' | number => {
                 // Find the commonly shared aggregation group index if there is one.
-                let firstAggregationGroupTypeIndex: 'people' | 'none' | number | undefined
+                let firstAggregationGroupTypeIndex: 'people' | 'none' | number | undefined | null
                 if (isLifecycle) {
                     firstAggregationGroupTypeIndex = (querySource as LifecycleQuery)?.aggregation_group_type_index
                 } else {
@@ -214,24 +253,27 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 return false
             },
         ],
+
+        hiddenLegendIndexes: [
+            (s) => [s.trendsFilter, s.stickinessFilter],
+            (trendsFilter, stickinessFilter): number[] => {
+                return trendsFilter?.hiddenLegendIndexes || stickinessFilter?.hiddenLegendIndexes || []
+            },
+        ],
     })),
 
     listeners(({ actions, values }) => ({
-        loadMoreBreakdownValues: async () => {
-            if (!values.loadMoreBreakdownUrl) {
-                return
+        toggleHiddenLegendIndex: ({ index }) => {
+            if ((values.insightFilter as TrendsFilter)?.hiddenLegendIndexes?.includes(index)) {
+                actions.updateHiddenLegendIndexes(
+                    (values.insightFilter as TrendsFilter).hiddenLegendIndexes?.filter((idx) => idx !== index)
+                )
+            } else {
+                actions.updateHiddenLegendIndexes([
+                    ...((values.insightFilter as TrendsFilter)?.hiddenLegendIndexes || []),
+                    index,
+                ])
             }
-            actions.setBreakdownValuesLoading(true)
-
-            const response = await api.get(values.loadMoreBreakdownUrl)
-
-            actions.setInsightData({
-                ...values.insightData,
-                result: [...values.insightData.result, ...(response.result ? response.result : [])],
-                next: response.next,
-            })
-
-            actions.setBreakdownValuesLoading(false)
         },
     })),
 ])

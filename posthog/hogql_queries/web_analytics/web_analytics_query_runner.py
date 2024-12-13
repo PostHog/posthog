@@ -9,26 +9,29 @@ from django.core.cache import cache
 from django.utils.timezone import datetime
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.caching.utils import is_stale
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    ActionConversionGoal,
+    CustomEventConversionGoal,
     EventPropertyFilter,
-    WebTopClicksQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
     PersonPropertyFilter,
     SamplingRate,
     SessionPropertyFilter,
+    WebGoalsQuery,
+    WebExternalClicksTableQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
-WebQueryNode = Union[WebOverviewQuery, WebTopClicksQuery, WebStatsTableQuery]
+WebQueryNode = Union[WebOverviewQuery, WebStatsTableQuery, WebGoalsQuery, WebExternalClicksTableQuery]
 
 
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
@@ -56,6 +59,86 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         self,
     ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
+
+    @cached_property
+    def conversion_goal_expr(self) -> Optional[ast.Expr]:
+        if isinstance(self.query.conversionGoal, ActionConversionGoal):
+            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
+            return action_to_expr(action)
+        elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
+            return ast.CompareOperation(
+                left=ast.Field(chain=["events", "event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=self.query.conversionGoal.customEventName),
+            )
+        else:
+            return None
+
+    @cached_property
+    def conversion_count_expr(self) -> Optional[ast.Expr]:
+        if self.conversion_goal_expr:
+            return ast.Call(name="countIf", args=[self.conversion_goal_expr])
+        else:
+            return None
+
+    @cached_property
+    def conversion_person_id_expr(self) -> Optional[ast.Expr]:
+        if self.conversion_goal_expr:
+            return ast.Call(
+                name="any",
+                args=[
+                    ast.Call(
+                        name="if",
+                        args=[
+                            self.conversion_goal_expr,
+                            ast.Field(chain=["events", "person_id"]),
+                            ast.Constant(value=None),
+                        ],
+                    )
+                ],
+            )
+        else:
+            return None
+
+    @cached_property
+    def event_type_expr(self) -> ast.Expr:
+        pageview_expr = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
+        )
+
+        if self.conversion_goal_expr:
+            return ast.Call(name="or", args=[pageview_expr, self.conversion_goal_expr])
+        else:
+            return pageview_expr
+
+    def period_aggregate(self, function_name, column_name, start, end, alias=None, params=None):
+        expr = ast.Call(
+            name=function_name + "If",
+            params=params,
+            args=[
+                ast.Field(chain=[column_name]),
+                ast.Call(
+                    name="and",
+                    args=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.GtEq,
+                            left=ast.Field(chain=["start_timestamp"]),
+                            right=start,
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Lt,
+                            left=ast.Field(chain=["start_timestamp"]),
+                            right=end,
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        if alias is not None:
+            return ast.Alias(alias=alias, expr=expr)
+
+        return expr
 
     def session_where(self, include_previous_period: Optional[bool] = None):
         properties = [
@@ -143,15 +226,12 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def _test_account_filters(self):
+        if not self.query.filterTestAccounts:
+            return []
         if isinstance(self.team.test_account_filters, list) and len(self.team.test_account_filters) > 0:
             return self.team.test_account_filters
         else:
             return []
-
-    def _is_stale(self, cached_result_package):
-        date_to = self.query_date_range.date_to()
-        interval = self.query_date_range.interval_name
-        return is_stale(self.team, date_to, interval, cached_result_package)
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
@@ -237,7 +317,7 @@ WHERE
             right=ast.Constant(value=sample_rate.denominator) if sample_rate.denominator else None,
         )
 
-    def _unsample(self, n: Optional[int | float]):
+    def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
         if n is None:
             return None
 
@@ -265,4 +345,4 @@ def _sample_rate_from_count(count: int) -> SamplingRate:
 
 
 def map_columns(results, mapper: dict[int, typing.Callable]):
-    return [[mapper[i](data) if i in mapper else data for i, data in enumerate(row)] for row in results]
+    return [[mapper[i](data, row) if i in mapper else data for i, data in enumerate(row)] for row in results]

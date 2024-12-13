@@ -3,8 +3,8 @@ import './ViewLinkModal.scss'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCheckbox,
     LemonDivider,
-    LemonDropdown,
     LemonInput,
     LemonModal,
     LemonSelect,
@@ -13,12 +13,12 @@ import {
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
-import { DatabaseSchemaField, NodeKind } from '~/queries/schema'
+import { DatabaseSchemaField } from '~/queries/schema'
 
 export function ViewLinkModal(): JSX.Element {
     const { isJoinTableModalOpen } = useValues(viewLinkLogic)
@@ -58,6 +58,8 @@ export function ViewLinkForm(): JSX.Element {
         sourceIsUsingHogQLExpression,
         joiningIsUsingHogQLExpression,
         isViewLinkSubmitting,
+        experimentsOptimized,
+        experimentsTimestampKey,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
@@ -66,6 +68,8 @@ export function ViewLinkForm(): JSX.Element {
         setFieldName,
         selectSourceKey,
         selectJoiningKey,
+        setExperimentsOptimized,
+        selectExperimentsTimestampKey,
     } = useActions(viewLinkLogic)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
@@ -117,6 +121,7 @@ export function ViewLinkForm(): JSX.Element {
                                 />
                                 {sourceIsUsingHogQLExpression && (
                                     <HogQLDropdown
+                                        className="mt-2"
                                         hogQLValue={selectedSourceKey ?? ''}
                                         onHogQLValueChange={selectSourceKey}
                                         tableName={selectedSourceTableName ?? ''}
@@ -142,6 +147,7 @@ export function ViewLinkForm(): JSX.Element {
                                 />
                                 {joiningIsUsingHogQLExpression && (
                                     <HogQLDropdown
+                                        className="mt-2"
                                         hogQLValue={selectedJoiningKey ?? ''}
                                         onHogQLValueChange={selectJoiningKey}
                                         tableName={selectedJoiningTableName ?? ''}
@@ -151,6 +157,37 @@ export function ViewLinkForm(): JSX.Element {
                         </Field>
                     </div>
                 </div>
+                {'events' === selectedJoiningTableName && (
+                    <div className="w-full mt-2">
+                        <LemonDivider className="mt-4 mb-4" />
+                        <div className="mt-4 flex flex-row justify-between w-full">
+                            <div className="mr-4">
+                                <span className="l4">Optimize for Experiments</span>
+                                <Field name="experiments_optimized">
+                                    <LemonCheckbox
+                                        className="mt-2"
+                                        checked={experimentsOptimized}
+                                        onChange={(checked) => setExperimentsOptimized(checked)}
+                                        fullWidth
+                                        label="Limit join to most recent matching event based on&nbsp;timestamp"
+                                    />
+                                </Field>
+                            </div>
+                            <div className="w-60 shrink-0">
+                                <span className="l4">Source Timestamp Key</span>
+                                <Field name="experiments_timestamp_key">
+                                    <LemonSelect
+                                        fullWidth
+                                        onSelect={selectExperimentsTimestampKey}
+                                        value={experimentsTimestampKey ?? undefined}
+                                        options={sourceTableKeys}
+                                        placeholder="Select a key"
+                                    />
+                                </Field>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 {sqlCodeSnippet && (
                     <div className="w-full mt-2">
                         <LemonDivider className="mt-4 mb-4" />
@@ -184,7 +221,7 @@ export function ViewLinkForm(): JSX.Element {
                             </div>
                         </div>
                         <div className="mt-4 flex w-full">
-                            <CodeSnippet style={{ width: '100%' }} language={Language.SQL}>
+                            <CodeSnippet className="w-full" language={Language.SQL}>
                                 {sqlCodeSnippet}
                             </CodeSnippet>
                         </div>
@@ -208,50 +245,6 @@ export function ViewLinkForm(): JSX.Element {
                 </LemonButton>
             </div>
         </Form>
-    )
-}
-
-const HogQLDropdown = ({
-    hogQLValue,
-    onHogQLValueChange,
-    tableName,
-}: {
-    hogQLValue: string
-    tableName: string
-    onHogQLValueChange: (hogQLValue: string) => void
-}): JSX.Element => {
-    const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
-
-    return (
-        <div className="flex-auto overflow-hidden mt-2">
-            <LemonDropdown
-                visible={isHogQLDropdownVisible}
-                closeOnClickInside={false}
-                onClickOutside={() => setIsHogQLDropdownVisible(false)}
-                overlay={
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
-                        <HogQLEditor
-                            disablePersonProperties
-                            value={hogQLValue}
-                            metadataSource={{ kind: NodeKind.HogQLQuery, query: `SELECT * FROM ${tableName}` }}
-                            onChange={(currentValue) => {
-                                onHogQLValueChange(currentValue)
-                                setIsHogQLDropdownVisible(false)
-                            }}
-                        />
-                    </div>
-                }
-            >
-                <LemonButton
-                    fullWidth
-                    type="secondary"
-                    onClick={() => setIsHogQLDropdownVisible(!isHogQLDropdownVisible)}
-                >
-                    <code>{hogQLValue}</code>
-                </LemonButton>
-            </LemonDropdown>
-        </div>
     )
 }
 

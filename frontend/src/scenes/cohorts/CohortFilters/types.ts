@@ -42,6 +42,7 @@ export enum FieldOptionsType {
     LifecycleBehavioral = 'lifecycleBehavioral',
     TimeUnits = 'timeUnits',
     DateOperators = 'dateOperators',
+    SingleFieldDateOperators = 'singleFieldDateOperators',
     MathOperators = 'mathOperators',
     ValueOptions = 'valueOptions',
     EventsAndActionsMathOperators = 'eventsAndActionsMathOperators',

@@ -19,7 +19,7 @@ export async function prepareEventStep(
         tsParsingIngestionWarnings.push(captureIngestionWarning(runner.hub.db.kafkaProducer, team_id, type, details))
     }
 
-    const preIngestionEvent = await runner.hub.eventsProcessor.processEvent(
+    const preIngestionEvent = await runner.eventsProcessor.processEvent(
         String(event.distinct_id),
         event,
         team_id,

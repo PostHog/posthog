@@ -1,10 +1,8 @@
-from datetime import timedelta
 import json
 from typing import cast
 from posthog.api.element import ElementSerializer
 
 
-from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -138,7 +136,6 @@ class SessionsTimelineQueryRunner(QueryRunner):
         query_result = execute_hogql_query(
             query=self.to_query(),
             team=self.team,
-            workload=Workload.ONLINE,
             query_type="SessionsTimelineQuery",
             timings=self.timings,
             modifiers=self.modifiers,
@@ -183,9 +180,3 @@ class SessionsTimelineQueryRunner(QueryRunner):
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
         )
-
-    def _is_stale(self, cached_result_package):
-        return True  # TODO: Make sure this is cached
-
-    def _refresh_frequency(self):
-        return timedelta(minutes=1)  # TODO: Make sure this is cached

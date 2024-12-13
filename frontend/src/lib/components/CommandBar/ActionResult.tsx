@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions } from 'kea'
 import { useEffect, useRef } from 'react'
 
@@ -10,7 +11,7 @@ type SearchResultProps = {
 }
 
 export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Element => {
-    const { executeResult, onMouseEnterResult, onMouseLeaveResult } = useActions(actionBarLogic)
+    const { executeResult } = useActions(actionBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
     const isExecutable = !!result.executor
@@ -22,17 +23,16 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
     }, [focused])
 
     return (
-        <div className={`border-l-4 ${isExecutable ? 'border-primary-3000' : ''}`}>
+        <div
+            className={clsx(
+                'border-l-4',
+                focused ? 'border-primary-3000' : !isExecutable ? 'border-transparent' : null
+            )}
+        >
             <div
-                className={`flex items-center w-full pl-3 pr-2 ${
+                className={`flex items-center w-full px-2 hover:bg-bg-3000 ${
                     focused ? 'bg-bg-3000' : 'bg-bg-light'
                 } border-b cursor-pointer`}
-                onMouseEnter={() => {
-                    onMouseEnterResult(result.index)
-                }}
-                onMouseLeave={() => {
-                    onMouseLeaveResult()
-                }}
                 onClick={() => {
                     if (isExecutable) {
                         executeResult(result)

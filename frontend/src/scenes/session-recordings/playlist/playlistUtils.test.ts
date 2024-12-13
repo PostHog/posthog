@@ -15,37 +15,40 @@ describe('summarizePlaylistFilters()', () => {
     it('summarizes a playlist with four events and an action', () => {
         expect(
             summarizePlaylistFilters(
-                {
-                    events: [
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            order: 0,
-                        },
-                        {
-                            id: '$rageclick',
-                            name: '$rageclick',
-                            order: 1,
-                        },
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            order: 4,
-                        },
-                        {
-                            id: '$autocapture',
-                            name: '$autocapture',
-                            order: 5,
-                        },
-                    ],
-                    actions: [
-                        {
-                            id: 1,
-                            name: 'Random action',
-                            order: 2,
-                        },
-                    ],
-                },
+                [
+                    // events
+                    {
+                        type: 'events',
+                        id: '$pageview',
+                        name: '$pageview',
+                        order: 0,
+                    },
+                    {
+                        type: 'events',
+                        id: '$rageclick',
+                        name: '$rageclick',
+                        order: 1,
+                    },
+                    {
+                        type: 'events',
+                        id: '$pageview',
+                        name: '$pageview',
+                        order: 4,
+                    },
+                    {
+                        type: 'events',
+                        id: '$autocapture',
+                        name: '$autocapture',
+                        order: 5,
+                    },
+                    // actions
+                    {
+                        type: 'actions',
+                        id: 1,
+                        name: 'Random action',
+                        order: 2,
+                    },
+                ],
                 cohortIdsMapped
             )
         ).toEqual('Pageview & Rageclick & Random action & Pageview & Autocapture')
@@ -54,29 +57,28 @@ describe('summarizePlaylistFilters()', () => {
     it('summarizes a playlist with one event, one PH person property and one custom property', () => {
         expect(
             summarizePlaylistFilters(
-                {
-                    events: [
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            order: 0,
-                        },
-                    ],
-                    properties: [
-                        {
-                            key: '$initial_browser',
-                            type: PropertyFilterType.Person,
-                            operator: PropertyOperator.Exact,
-                            value: 'Chrome',
-                        },
-                        {
-                            key: 'custom_property',
-                            type: PropertyFilterType.Person,
-                            operator: PropertyOperator.IContains,
-                            value: 'blah',
-                        },
-                    ],
-                },
+                [
+                    // events
+                    {
+                        type: 'events',
+                        id: '$pageview',
+                        name: '$pageview',
+                        order: 0,
+                    },
+                    // properties
+                    {
+                        key: '$initial_browser',
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.Exact,
+                        value: 'Chrome',
+                    },
+                    {
+                        key: 'custom_property',
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.IContains,
+                        value: 'blah',
+                    },
+                ],
                 cohortIdsMapped
             )
         ).toEqual('Pageview, on Initial Browser = Chrome & custom_property ∋ blah')
@@ -85,22 +87,22 @@ describe('summarizePlaylistFilters()', () => {
     it('summarizes a playlist with one event and one cohort', () => {
         expect(
             summarizePlaylistFilters(
-                {
-                    events: [
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            order: 0,
-                        },
-                    ],
-                    properties: [
-                        {
-                            key: 'id',
-                            type: PropertyFilterType.Cohort,
-                            value: 1,
-                        },
-                    ],
-                },
+                [
+                    // events
+                    {
+                        type: 'events',
+                        id: '$pageview',
+                        name: '$pageview',
+                        order: 0,
+                    },
+                    // properties
+                    {
+                        key: 'id',
+                        type: PropertyFilterType.Cohort,
+                        operator: PropertyOperator.In,
+                        value: 1,
+                    },
+                ],
                 cohortIdsMapped
             )
         ).toEqual('Pageview, on cohorts: New Yorkers')
@@ -109,15 +111,14 @@ describe('summarizePlaylistFilters()', () => {
     it('summarizes a playlist with one property', () => {
         expect(
             summarizePlaylistFilters(
-                {
-                    properties: [
-                        {
-                            key: 'id',
-                            type: PropertyFilterType.Cohort,
-                            value: 1,
-                        },
-                    ],
-                },
+                [
+                    {
+                        key: 'id',
+                        type: PropertyFilterType.Cohort,
+                        operator: PropertyOperator.In,
+                        value: 1,
+                    },
+                ],
                 cohortIdsMapped
             )
         ).toEqual('cohorts: New Yorkers')
@@ -126,41 +127,41 @@ describe('summarizePlaylistFilters()', () => {
     it('all together', () => {
         expect(
             summarizePlaylistFilters(
-                {
-                    events: [
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            order: 0,
-                        },
-                    ],
-                    actions: [
-                        {
-                            id: 1,
-                            name: 'Random action',
-                            order: 2,
-                        },
-                    ],
-                    properties: [
-                        {
-                            key: '$initial_browser',
-                            type: PropertyFilterType.Person,
-                            operator: PropertyOperator.Exact,
-                            value: 'Chrome',
-                        },
-                        {
-                            key: 'custom_property',
-                            type: PropertyFilterType.Person,
-                            operator: PropertyOperator.IContains,
-                            value: 'blah',
-                        },
-                        {
-                            key: 'id',
-                            type: PropertyFilterType.Cohort,
-                            value: 1,
-                        },
-                    ],
-                },
+                [
+                    // events
+                    {
+                        type: 'events',
+                        id: '$pageview',
+                        name: '$pageview',
+                        order: 0,
+                    },
+                    // actions
+                    {
+                        type: 'actions',
+                        id: 1,
+                        name: 'Random action',
+                        order: 2,
+                    },
+                    // properties
+                    {
+                        key: '$initial_browser',
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.Exact,
+                        value: 'Chrome',
+                    },
+                    {
+                        key: 'custom_property',
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.IContains,
+                        value: 'blah',
+                    },
+                    {
+                        key: 'id',
+                        type: PropertyFilterType.Cohort,
+                        operator: PropertyOperator.In,
+                        value: 1,
+                    },
+                ],
                 cohortIdsMapped
             )
         ).toEqual(

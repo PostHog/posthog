@@ -90,6 +90,8 @@ class SQLValueEscaper:
         return escape_param_clickhouse(value)
 
     def visit_bool(self, value: bool):
+        if self._dialect == "clickhouse":
+            return "1" if value is True else "0"
         return "true" if value is True else "false"
 
     def visit_int(self, value: int):

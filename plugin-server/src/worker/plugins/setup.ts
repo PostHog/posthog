@@ -1,8 +1,8 @@
 import { Gauge, Summary } from 'prom-client'
 
-import { Hub, StatelessVmMap } from '../../types'
+import { Hub, StatelessInstanceMap } from '../../types'
 import { status } from '../../utils/status'
-import { LazyPluginVM } from '../vm/lazy'
+import { constructPluginInstance } from '../vm/lazy'
 import { loadPlugin } from './loadPlugin'
 import { loadPluginsFromDB } from './loadPluginsFromDB'
 import { loadSchedule } from './loadSchedule'
@@ -24,7 +24,7 @@ export async function setupPlugins(hub: Hub): Promise<void> {
     status.info('🔁', `Loading plugin configs...`)
     const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(hub)
     const pluginVMLoadPromises: Array<Promise<any>> = []
-    const statelessVms = {} as StatelessVmMap
+    const statelessInstances = {} as StatelessInstanceMap
 
     const timer = new Date()
 
@@ -37,11 +37,11 @@ export async function setupPlugins(hub: Hub): Promise<void> {
         const pluginChanged = plugin?.updated_at !== prevPlugin?.updated_at
 
         if (!pluginConfigChanged && !pluginChanged) {
-            pluginConfig.vm = prevConfig.vm
-        } else if (plugin?.is_stateless && statelessVms[plugin.id]) {
-            pluginConfig.vm = statelessVms[plugin.id]
+            pluginConfig.instance = prevConfig.instance
+        } else if (plugin?.is_stateless && statelessInstances[plugin.id]) {
+            pluginConfig.instance = statelessInstances[plugin.id]
         } else {
-            pluginConfig.vm = new LazyPluginVM(hub, pluginConfig)
+            pluginConfig.instance = constructPluginInstance(hub, pluginConfig)
             if (hub.PLUGIN_LOAD_SEQUENTIALLY) {
                 await loadPlugin(hub, pluginConfig)
             } else {
@@ -52,7 +52,7 @@ export async function setupPlugins(hub: Hub): Promise<void> {
             }
 
             if (plugin?.is_stateless) {
-                statelessVms[plugin.id] = pluginConfig.vm
+                statelessInstances[plugin.id] = pluginConfig.instance
             }
         }
     }
@@ -67,7 +67,7 @@ export async function setupPlugins(hub: Hub): Promise<void> {
     importUsedGauge.reset()
     const seenPlugins = new Set<number>()
     for (const pluginConfig of pluginConfigs.values()) {
-        const usedImports = pluginConfig.vm?.usedImports
+        const usedImports = pluginConfig.instance?.usedImports
         if (usedImports && !seenPlugins.has(pluginConfig.plugin_id)) {
             seenPlugins.add(pluginConfig.plugin_id)
             for (const importName of usedImports) {

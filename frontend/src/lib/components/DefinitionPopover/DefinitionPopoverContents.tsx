@@ -19,11 +19,12 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
+import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TZLabel } from '../TZLabel'
 
@@ -77,6 +78,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         isEvent,
         isCohort,
         isDataWarehouse,
+        isDataWarehousePersonProperty,
         isProperty,
         hasSentAs,
     } = useValues(definitionPopoverLogic)
@@ -91,6 +93,24 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             setLocalDefinition(selectedItemMeta)
         }
     }, [definition])
+
+    const hasSentAsLabel = useMemo(() => {
+        const _definition = definition as PropertyDefinition
+
+        if (!_definition) {
+            return null
+        }
+
+        if (isDataWarehousePersonProperty) {
+            return _definition.id
+        }
+
+        if (_definition.name !== '') {
+            return _definition.name
+        }
+
+        return <i>(empty string)</i>
+    }, [isDataWarehousePersonProperty, definition, isProperty])
 
     if (!definition) {
         return <></>
@@ -173,8 +193,10 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             </>
         )
     }
+
     if (isProperty) {
         const _definition = definition as PropertyDefinition
+
         return (
             <>
                 {sharedComponents}
@@ -186,10 +208,17 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         <DefinitionPopover.HorizontalLine />
                         <DefinitionPopover.Grid cols={2}>
                             <DefinitionPopover.Card
-                                title="Sent as"
+                                title={isDataWarehousePersonProperty ? 'Table' : 'Sent as'}
                                 value={
-                                    <span className="truncate text-mono text-xs" title={_definition.name ?? undefined}>
-                                        {_definition.name !== '' ? _definition.name : <i>(empty string)</i>}
+                                    <span
+                                        className="truncate text-mono text-xs"
+                                        title={
+                                            isDataWarehousePersonProperty
+                                                ? _definition.id
+                                                : _definition.name ?? undefined
+                                        }
+                                    >
+                                        {hasSentAsLabel}
                                     </span>
                                 }
                             />
@@ -263,7 +292,20 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             label: column.name + ' (' + column.type + ')',
             value: column.name,
         }))
+        const hogqlOption = { label: 'HogQL Expression', value: '' }
         const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
+
+        const isUsingHogQLExpression = (value: string | undefined): boolean => {
+            if (value === undefined) {
+                return false
+            }
+            const column = Object.values(_definition.fields ?? {}).find((n) => n.name == value)
+            return !column
+        }
+
+        const distinct_id_field_value =
+            'distinct_id_field' in localDefinition ? localDefinition.distinct_id_field : undefined
+        const timestamp_field_value = 'timestamp_field' in localDefinition ? localDefinition.timestamp_field : undefined
 
         return (
             <form className="definition-popover-data-warehouse-schema-form">
@@ -282,23 +324,33 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             <span className="label-text">Distinct ID field</span>
                         </label>
                         <LemonSelect
-                            value={
-                                'distinct_id_field' in localDefinition ? localDefinition.distinct_id_field : undefined
-                            }
-                            options={columnOptions}
+                            value={isUsingHogQLExpression(distinct_id_field_value) ? '' : distinct_id_field_value}
+                            options={[...columnOptions, hogqlOption]}
                             onChange={(value) => setLocalDefinition({ distinct_id_field: value })}
                         />
+                        {isUsingHogQLExpression(distinct_id_field_value) && (
+                            <HogQLDropdown
+                                hogQLValue={distinct_id_field_value || ''}
+                                tableName={_definition.name}
+                                onHogQLValueChange={(value) => setLocalDefinition({ distinct_id_field: value })}
+                            />
+                        )}
 
                         <label className="definition-popover-edit-form-label" htmlFor="Timestamp Field">
                             <span className="label-text">Timestamp field</span>
                         </label>
                         <LemonSelect
-                            value={
-                                ('timestamp_field' in localDefinition && localDefinition.timestamp_field) || undefined
-                            }
-                            options={columnOptions}
+                            value={isUsingHogQLExpression(timestamp_field_value) ? '' : timestamp_field_value}
+                            options={[...columnOptions, hogqlOption]}
                             onChange={(value) => setLocalDefinition({ timestamp_field: value })}
                         />
+                        {isUsingHogQLExpression(timestamp_field_value) && (
+                            <HogQLDropdown
+                                hogQLValue={timestamp_field_value || ''}
+                                tableName={_definition.name}
+                                onHogQLValueChange={(value) => setLocalDefinition({ timestamp_field: value })}
+                            />
+                        )}
                     </DefinitionPopover.Section>
                     <div className="flex justify-end">
                         <LemonButton
@@ -451,13 +503,6 @@ export function ControlledDefinitionPopover({
     group,
     highlightedItemElement,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
-    // Supports all types specified in selectedItemHasPopover
-    const value = group.getValue?.(item)
-
-    if (!value || !item) {
-        return null
-    }
-
     const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
 
@@ -468,6 +513,13 @@ export function ControlledDefinitionPopover({
     useEffect(() => {
         setDefinition(item)
     }, [item])
+
+    // Supports all types specified in selectedItemHasPopover
+    const value = group.getValue?.(item)
+
+    if (!value || !item) {
+        return null
+    }
 
     return (
         <Popover

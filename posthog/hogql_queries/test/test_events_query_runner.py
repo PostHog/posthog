@@ -1,7 +1,7 @@
 from typing import Any, cast
 
 from freezegun import freeze_time
-
+from datetime import datetime
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
@@ -18,7 +18,9 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_different_timezones,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 
 
@@ -27,17 +29,20 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _create_events(self, data: list[tuple[str, str, Any]], event="$pageview"):
         person_result = []
+        distinct_ids_handled = set()
         for distinct_id, timestamp, event_properties in data:
             with freeze_time(timestamp):
-                person_result.append(
-                    _create_person(
-                        team_id=self.team.pk,
-                        distinct_ids=[distinct_id],
-                        properties={
-                            "name": distinct_id,
-                        },
+                if distinct_id not in distinct_ids_handled:
+                    person_result.append(
+                        _create_person(
+                            team_id=self.team.pk,
+                            distinct_ids=[distinct_id],
+                            properties={
+                                "name": distinct_id,
+                            },
+                        )
                     )
-                )
+                    distinct_ids_handled.add(distinct_id)
                 _create_event(
                     team=self.team,
                     event=event,
@@ -97,8 +102,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             EventPropertyFilter(
                 type="event",
                 key="boolean_field",
-                operator=PropertyOperator.is_not_set,
-                value=PropertyOperator.is_not_set,
+                operator=PropertyOperator.IS_NOT_SET,
+                value=PropertyOperator.IS_NOT_SET,
             )
         )
 
@@ -111,8 +116,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             EventPropertyFilter(
                 type="event",
                 key="boolean_field",
-                operator=PropertyOperator.is_set,
-                value=PropertyOperator.is_set,
+                operator=PropertyOperator.IS_SET,
+                value=PropertyOperator.IS_SET,
             )
         )
 
@@ -130,15 +135,17 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # matching team
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
-        right_expr = cast(ast.Constant, where_expr.right)
-        self.assertEqual(right_expr.value, ["id1", "id2"])
+        right_expr = cast(ast.Tuple, where_expr.right)
+        self.assertEqual(
+            [cast(ast.Constant, cast(ast.Call, x).args[0]).value for x in right_expr.exprs], ["id1", "id2"]
+        )
 
         # another team
         another_team = Team.objects.create(organization=Organization.objects.create())
         query_ast = EventsQueryRunner(query=query, team=another_team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
-        right_expr = cast(ast.Constant, where_expr.right)
-        self.assertEqual(right_expr.value, [])
+        right_expr = cast(ast.Tuple, where_expr.right)
+        self.assertEqual(right_expr.exprs, [])
 
     def test_test_account_filters(self):
         self.team.test_account_filters = [
@@ -156,3 +163,140 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         right_expr = cast(ast.Constant, where_expr.right)
         self.assertEqual(right_expr.value, "%posthog.com%")
         self.assertEqual(where_expr.op, CompareOperationOp.NotILike)
+
+    def test_big_int(self):
+        BIG_INT = 2**159 - 24
+        self._create_events(
+            data=[
+                (
+                    "p_null",
+                    "2020-01-11T12:00:04Z",
+                    {"boolean_field": None, "bigInt": BIG_INT},
+                ),
+            ]
+        )
+
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-11T12:01:00"):
+            query = EventsQuery(
+                after="-24h",
+                event="$pageview",
+                kind="EventsQuery",
+                orderBy=["timestamp ASC"],
+                select=["*"],
+            )
+
+            runner = EventsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+            assert isinstance(response, CachedEventsQueryResponse)
+            assert response.results[0][0]["properties"]["bigInt"] == float(BIG_INT)
+
+    def test_escaped_single_quotes_in_where_clause(self):
+        SINGLE_QUOTE = "I'm a string with a ' in it"
+        DOUBLE_QUOTE = 'I"m a string with a " in it'
+        self._create_events(
+            data=[
+                (
+                    "p_null",
+                    "2020-01-11T12:00:04Z",
+                    {"boolean_field": None, "arr_field": [SINGLE_QUOTE]},
+                ),
+                (
+                    "p_one",
+                    "2020-01-11T12:00:14Z",
+                    {"boolean_field": None, "arr_field": [DOUBLE_QUOTE]},
+                ),
+            ]
+        )
+
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-11T12:01:00"):
+            query = EventsQuery(
+                after="-24h",
+                event="$pageview",
+                kind="EventsQuery",
+                where=[
+                    "has(JSONExtract(ifNull(properties.arr_field,'[]'),'Array(String)'), 'I\\'m a string with a \\' in it')"
+                ],
+                orderBy=["timestamp ASC"],
+                select=["*"],
+            )
+
+            runner = EventsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+            assert isinstance(response, CachedEventsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][0]["properties"]["arr_field"] == [SINGLE_QUOTE]
+
+            query = EventsQuery(
+                after="-24h",
+                event="$pageview",
+                kind="EventsQuery",
+                where=[
+                    "has(JSONExtract(ifNull(properties.arr_field,'[]'),'Array(String)'), 'I\"m a string with a \" in it')"
+                ],
+                orderBy=["timestamp ASC"],
+                select=["*"],
+            )
+
+            runner = EventsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+            assert isinstance(response, CachedEventsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][0]["properties"]["arr_field"] == [DOUBLE_QUOTE]
+
+    @also_test_with_different_timezones
+    @snapshot_clickhouse_queries
+    def test_absolute_date_range(self):
+        self._create_events(
+            data=[
+                (  # Event two hours BEFORE THE START of the day
+                    "p17",
+                    "2020-01-11T22:00:00",
+                    {},
+                ),
+                (  # Event one hour after the start of the day
+                    "p2",
+                    "2020-01-12T01:00:00",
+                    {},
+                ),
+                (  # Event right in the middle of the day
+                    "p3",
+                    "2020-01-12T12:00:00",
+                    {},
+                ),
+                (  # Event one hour before the end of the day
+                    "p1",
+                    "2020-01-12T23:00:00",
+                    {},
+                ),
+                (  # Event two hours AFTER THE END of the day
+                    "p3",
+                    "2020-01-13T02:00:00",
+                    {},
+                ),
+            ]
+        )
+
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            after="2020-01-12",
+            before="2020-01-12T23:59:59",
+            event="$pageview",
+            kind="EventsQuery",
+            orderBy=["timestamp ASC"],
+            select=["*"],
+        )
+
+        runner = EventsQueryRunner(query=query, team=self.team)
+
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [row[0]["timestamp"] for row in response.results] == [
+            datetime(2020, 1, 12, 1, 0, 0, tzinfo=self.team.timezone_info),
+            datetime(2020, 1, 12, 12, 0, 0, tzinfo=self.team.timezone_info),
+            datetime(2020, 1, 12, 23, 0, 0, tzinfo=self.team.timezone_info),
+        ]

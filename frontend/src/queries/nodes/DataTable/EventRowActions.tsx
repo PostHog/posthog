@@ -1,13 +1,11 @@
-import { useActions } from 'kea'
-import { dayjs } from 'lib/dayjs'
-import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
+import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { createActionFromEvent } from 'scenes/events/createActionFromEvent'
+import { createActionFromEvent } from 'scenes/activity/explore/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -18,7 +16,6 @@ interface EventActionProps {
 }
 
 export function EventRowActions({ event }: EventActionProps): JSX.Element {
-    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const insightUrl = insightUrlForEvent(event)
 
     return (
@@ -56,26 +53,18 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             Copy link to event
                         </LemonButton>
                     )}
-                    {!!event.properties?.$session_id && (
-                        <LemonButton
-                            to={urls.replaySingle(event.properties.$session_id)}
-                            disableClientSideRouting
-                            onClick={(e) => {
-                                e.preventDefault()
-                                if (event.properties.$session_id) {
-                                    openSessionPlayer(
-                                        { id: event.properties.$session_id },
-                                        dayjs(event.timestamp).valueOf()
-                                    )
-                                }
-                            }}
-                            fullWidth
-                            sideIcon={<IconPlayCircle />}
-                            data-attr="events-table-usage"
-                        >
-                            View recording
-                        </LemonButton>
-                    )}
+                    <ViewRecordingButton
+                        fullWidth
+                        inModal
+                        sessionId={event.properties.$session_id}
+                        timestamp={event.timestamp}
+                        disabledReason={
+                            mightHaveRecording(event.properties)
+                                ? undefined
+                                : 'Replay was not active when capturing this event'
+                        }
+                        data-attr="events-table-usage"
+                    />
                     {insightUrl && (
                         <LemonButton to={insightUrl} fullWidth data-attr="events-table-usage">
                             Try out in Insights

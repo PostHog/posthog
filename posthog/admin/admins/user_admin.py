@@ -1,3 +1,4 @@
+from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
 from django.utils.html import format_html
@@ -38,6 +39,7 @@ class UserAdmin(DjangoUserAdmin):
             None,
             {
                 "fields": (
+                    "id",
                     "email",
                     "password",
                     "current_organization",
@@ -48,7 +50,7 @@ class UserAdmin(DjangoUserAdmin):
             },
         ),
         (_("Personal info"), {"fields": ("first_name", "last_name")}),
-        (_("Permissions"), {"fields": ("is_active", "is_staff")}),
+        (_("Permissions"), {"fields": ("is_active", "is_staff", "groups")}),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
         (_("Toolbar authentication"), {"fields": ("temporary_token",)}),
     )
@@ -66,9 +68,10 @@ class UserAdmin(DjangoUserAdmin):
     list_filter = ("is_staff", "is_active", "groups")
     list_select_related = ("current_team", "current_organization")
     search_fields = ("email", "first_name", "last_name")
-    readonly_fields = ["current_team", "current_organization"]
+    readonly_fields = ["id", "current_team", "current_organization"]
     ordering = ("email",)
 
+    @admin.display(description="Current Team")
     def current_team_link(self, user: User):
         if not user.team:
             return "–"
@@ -79,6 +82,7 @@ class UserAdmin(DjangoUserAdmin):
             user.team.name,
         )
 
+    @admin.display(description="Current Organization")
     def current_organization_link(self, user: User):
         if not user.organization:
             return "–"

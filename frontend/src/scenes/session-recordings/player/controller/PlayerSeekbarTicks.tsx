@@ -1,46 +1,75 @@
 import clsx from 'clsx'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { autoCaptureEventToDescription, capitalizeFirstLetter } from 'lib/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { autoCaptureEventToDescription } from 'lib/utils'
 import { memo } from 'react'
+import {
+    InspectorListItemComment,
+    InspectorListItemEvent,
+} from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { InspectorListItemEvent } from '../inspector/playerInspectorLogic'
+export interface SeekBarItem {
+    timeInRecording: number
+    highlightColor?: string
+    label: string | JSX.Element
+    title?: string
+    key: string
+}
 
-function PlayerSeekbarTick(props: {
-    item: InspectorListItemEvent
+function PlayerSeekbarTick({
+    item,
+    endTimeMs,
+    zIndex,
+    onClick,
+}: {
+    item: InspectorListItemComment | InspectorListItemEvent
     endTimeMs: number
     zIndex: number
     onClick: (e: React.MouseEvent) => void
-}): JSX.Element {
+}): JSX.Element | null {
+    const data = item.data
+    const isEventItem = 'event' in data
+    const position = (item.timeInRecording / endTimeMs) * 100
+
+    if (position < 0 || position > 100) {
+        return null
+    }
+
     return (
         <div
-            className={clsx(
-                'PlayerSeekbarTick',
-                props.item.highlightColor && `PlayerSeekbarTick--${props.item.highlightColor}`
-            )}
-            title={props.item.data.event}
+            className={clsx('PlayerSeekbarTick', item.highlightColor && `PlayerSeekbarTick--${item.highlightColor}`)}
+            title={isEventItem ? data.event : data.comment}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                left: `${(props.item.timeInRecording / props.endTimeMs) * 100}%`,
-                zIndex: props.zIndex,
+                left: `${position}%`,
+                zIndex: zIndex,
             }}
-            onClick={props.onClick}
+            onClick={onClick}
         >
             <div className="PlayerSeekbarTick__info">
-                <PropertyKeyInfo
-                    className="font-medium"
-                    disableIcon
-                    disablePopover
-                    ellipsis={true}
-                    value={capitalizeFirstLetter(autoCaptureEventToDescription(props.item.data))}
-                />
-                {props.item.data.event === '$autocapture' ? (
-                    <span className="opacity-75 ml-2">(Autocapture)</span>
-                ) : null}
-                {props.item.data.event === '$pageview' ? (
-                    <span className="ml-2 opacity-75">
-                        {props.item.data.properties.$pathname || props.item.data.properties.$current_url}
-                    </span>
-                ) : null}
+                {isEventItem ? (
+                    <>
+                        {data.event === '$autocapture' ? (
+                            <>{autoCaptureEventToDescription(data)}</>
+                        ) : (
+                            <PropertyKeyInfo
+                                className="font-medium"
+                                disableIcon
+                                disablePopover
+                                ellipsis={true}
+                                type={TaxonomicFilterGroupType.Events}
+                                value={data.event}
+                            />
+                        )}
+                        {data.event === '$pageview' && (data.properties.$pathname || data.properties.$current_url) ? (
+                            <span className="ml-2 opacity-75">
+                                {data.properties.$pathname || data.properties.$current_url}
+                            </span>
+                        ) : null}
+                    </>
+                ) : (
+                    data.comment
+                )}
             </div>
             <div className="PlayerSeekbarTick__line" />
         </div>
@@ -53,7 +82,7 @@ export const PlayerSeekbarTicks = memo(
         endTimeMs,
         seekToTime,
     }: {
-        seekbarItems: InspectorListItemEvent[]
+        seekbarItems: (InspectorListItemEvent | InspectorListItemComment)[]
         endTimeMs: number
         seekToTime: (timeInMilliseconds: number) => void
     }): JSX.Element {

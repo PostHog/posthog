@@ -1,5 +1,6 @@
 import { LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
 import { FilterType, InsightType } from '~/types'
@@ -9,12 +10,16 @@ import { newDashboardLogic } from './newDashboardLogic'
 
 export function DashboardTemplateVariables(): JSX.Element {
     const { activeDashboardTemplate } = useValues(newDashboardLogic)
-
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
         variables: activeDashboardTemplate?.variables || [],
     })
     const { variables } = useValues(theDashboardTemplateVariablesLogic)
-    const { setVariable } = useActions(theDashboardTemplateVariablesLogic)
+    const { setVariable, setVariables } = useActions(theDashboardTemplateVariablesLogic)
+
+    // this is a hack, I'm not sure why it's not set properly initially. Figure it out.
+    useEffect(() => {
+        setVariables(activeDashboardTemplate?.variables || [])
+    }, [activeDashboardTemplate])
 
     return (
         <div className="mb-4 DashboardTemplateVariables max-w-192">

@@ -17,22 +17,33 @@ from posthog.hogql.printer import (
 )
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
-from posthog.schema import HogQLQueryResponse, HogQLFilters, HogQLQueryModifiers, HogQLMetadata, HogQLMetadataResponse
+from posthog.schema import (
+    HogQLQueryResponse,
+    HogQLFilters,
+    HogQLQueryModifiers,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    HogLanguage,
+    HogQLVariable,
+)
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 def execute_hogql_query(
-    query: Union[str, ast.SelectQuery, ast.SelectUnionQuery],
+    query: Union[str, ast.SelectQuery, ast.SelectSetQuery],
     team: Team,
     *,
     query_type: str = "hogql_query",
     filters: Optional[HogQLFilters] = None,
     placeholders: Optional[dict[str, ast.Expr]] = None,
-    workload: Workload = Workload.ONLINE,
+    variables: Optional[dict[str, HogQLVariable]] = None,
+    workload: Workload = Workload.DEFAULT,
     settings: Optional[HogQLGlobalSettings] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
     limit_context: Optional[LimitContext] = LimitContext.QUERY,
@@ -55,11 +66,15 @@ def execute_hogql_query(
     metadata: Optional[HogQLMetadataResponse] = None
 
     with timings.measure("query"):
-        if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectUnionQuery):
+        if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectSetQuery):
             select_query = query
             query = None
         else:
             select_query = parse_select(str(query), timings=timings)
+
+    with timings.measure("variables"):
+        if variables and len(variables.keys()) > 0:
+            select_query = replace_variables(node=select_query, variables=list(variables.values()), team=team)
 
     with timings.measure("replace_placeholders"):
         placeholders_in_query = find_placeholders(select_query)
@@ -69,22 +84,29 @@ def execute_hogql_query(
             raise ValueError(
                 f"Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter."
             )
-        if "filters" in placeholders_in_query:
+        if "filters" in placeholders_in_query or any(
+            placeholder and placeholder.startswith("filters.") for placeholder in placeholders_in_query
+        ):
             select_query = replace_filters(select_query, filters, team)
-            placeholders_in_query.remove("filters")
+
+            leftover_placeholders: list[str] = []
+            for placeholder in placeholders_in_query:
+                if placeholder is None:
+                    raise ValueError("Placeholder expressions are not yet supported")
+                if placeholder != "filters" and not placeholder.startswith("filters."):
+                    leftover_placeholders.append(placeholder)
+
+            placeholders_in_query = leftover_placeholders
 
         if len(placeholders_in_query) > 0:
             if len(placeholders) == 0:
                 raise ValueError(
-                    f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(placeholders_in_query)}"
+                    f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(s for s in placeholders_in_query if s is not None)}"
                 )
             select_query = replace_placeholders(select_query, placeholders)
 
     with timings.measure("max_limit"):
-        select_queries = (
-            select_query.select_queries if isinstance(select_query, ast.SelectUnionQuery) else [select_query]
-        )
-        for one_query in select_queries:
+        for one_query in extract_select_queries(select_query):
             if one_query.limit is None:
                 one_query.limit = ast.Constant(value=get_default_limit_for_context(limit_context))
 
@@ -114,8 +136,8 @@ def execute_hogql_query(
             )
             print_columns = []
             columns_query = (
-                select_query_hogql.select_queries[0]
-                if isinstance(select_query_hogql, ast.SelectUnionQuery)
+                next(extract_select_queries(select_query_hogql))
+                if isinstance(select_query_hogql, ast.SelectSetQuery)
                 else select_query_hogql
             )
             for node in columns_query.select:
@@ -162,7 +184,7 @@ def execute_hogql_query(
                 else:
                     error = "Unknown error"
             else:
-                raise e
+                raise
 
     if clickhouse_sql is not None:
         timings_dict = timings.to_dict()
@@ -193,7 +215,7 @@ def execute_hogql_query(
                     else:
                         error = "Unknown error"
                 else:
-                    raise e
+                    raise
 
         if debug and error is None:  # If the query errored, explain will fail as well.
             with timings.measure("explain"):
@@ -209,7 +231,7 @@ def execute_hogql_query(
             with timings.measure("metadata"):
                 from posthog.hogql.metadata import get_hogql_metadata
 
-                metadata = get_hogql_metadata(HogQLMetadata(select=hogql, debug=True), team)
+                metadata = get_hogql_metadata(HogQLMetadata(language=HogLanguage.HOG_QL, query=hogql, debug=True), team)
 
     return HogQLQueryResponse(
         query=query,

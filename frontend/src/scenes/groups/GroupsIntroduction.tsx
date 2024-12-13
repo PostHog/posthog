@@ -1,51 +1,38 @@
-import { Link } from '@posthog/lemon-ui'
-import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
-import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { IconOpenSidebar } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 import { AvailableFeature } from '~/types'
 
-interface Props {
-    access: GroupsAccessStatus.NoAccess | GroupsAccessStatus.HasAccess | GroupsAccessStatus.HasGroupTypes
-}
-
-export function GroupsIntroduction({ access }: Props): JSX.Element {
-    let header, subtext
-
-    if (access === GroupsAccessStatus.NoAccess) {
-        header = (
-            <>
-                Introducing <span className="highlight">Group&nbsp;Analytics</span>!
-            </>
-        )
-        subtext = (
-            <>
-                Analyze how groups interact with your product as a whole instead of individual users (e.g. retention by
-                companies instead of by users)
-            </>
-        )
-    } else if (access === GroupsAccessStatus.HasAccess) {
-        header = <>You're almost done!</>
-        subtext = <>Learn how to track groups in your code</>
-    } else {
-        // HasGroupTypes
-        header = <>Looks like you're tracking groups!</>
-        subtext = <>Upgrade today to use groups in Insights.</>
-    }
-
+export function GroupsIntroduction(): JSX.Element {
     return (
-        <PayGatePage
-            header={header}
-            featureKey={AvailableFeature.GROUP_ANALYTICS}
-            caption={subtext}
+        <PayGateMini
+            feature={AvailableFeature.GROUP_ANALYTICS}
+            className="py-8"
             docsLink="https://posthog.com/docs/user-guides/group-analytics"
-            hideUpgradeButton={access === GroupsAccessStatus.HasAccess}
-        />
+        >
+            <div className="flex flex-col items-center mt-4 justify-center text-center border rounded-lg py-8 min-h-56">
+                <h2 className="mb-2 text-2xl font-semibold">You're almost done!</h2>
+                <div className="max-w-140">Learn how to track groups in your code</div>
+                <div className="w-80 max-w-[90%] mt-4">
+                    <LemonButton
+                        type="primary"
+                        to={`https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=${AvailableFeature.GROUP_ANALYTICS}-upgrade-learn-more`}
+                        targetBlank
+                        center
+                        data-attr={`${AvailableFeature.GROUP_ANALYTICS}-learn-more`}
+                    >
+                        Learn more <IconOpenSidebar className="ml-4" />
+                    </LemonButton>
+                </div>
+            </div>
+        </PayGateMini>
     )
 }
 
 export function GroupIntroductionFooter({ needsUpgrade }: { needsUpgrade: boolean }): JSX.Element {
     return (
-        <div className="text-sm bg-mid rounded p-2 max-w-60">
+        <div className="text-sm bg-bg-3000 rounded p-2 max-w-60">
             {needsUpgrade ? (
                 <>
                     Track usage of groups of users with Group&nbsp;Analytics.{' '}

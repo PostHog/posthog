@@ -3,11 +3,13 @@ import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { ManualLinkSourceType } from '~/types'
+
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
-import { ManualLinkProvider, sourceWizardLogic } from './sourceWizardLogic'
+import { sourceWizardLogic } from './sourceWizardLogic'
 
 const ProviderMappings: Record<
-    ManualLinkProvider,
+    ManualLinkSourceType,
     {
         fileUrlPatternPlaceholder: string
         accessKeyPlaceholder: string
@@ -32,6 +34,13 @@ const ProviderMappings: Record<
         accessKeyPlaceholder: 'eg: AKIAIOSFODNN7EXAMPLE',
         accessKeyLabel: 'Access key',
         accessSecretLabel: 'Access secret',
+    },
+    azure: {
+        fileUrlPatternPlaceholder:
+            'https://your-storage-container.blob.core.windows.net/airbyte/stripe/invoices/*.parquet',
+        accessKeyPlaceholder: 'your-storage-container',
+        accessKeyLabel: 'Storage account name',
+        accessSecretLabel: 'Account key',
     },
 }
 
@@ -81,7 +90,9 @@ export function DatawarehouseTableForm(): JSX.Element {
                         options={[
                             { label: 'Parquet (recommended)', value: 'Parquet' },
                             { label: 'CSV', value: 'CSV' },
+                            { label: 'CSV with headers', value: 'CSVWithNames' },
                             { label: 'JSON', value: 'JSONEachRow' },
+                            { label: 'Delta', value: 'Delta' },
                         ]}
                     />
                 </LemonField>

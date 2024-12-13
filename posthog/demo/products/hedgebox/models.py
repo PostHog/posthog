@@ -1,7 +1,7 @@
 import datetime as dt
 import math
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import auto, StrEnum
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 import pytz
 
-from posthog.demo.matrix.models import Effect, SimPerson, SimSessionIntent
+from posthog.demo.matrix.models import Effect, SimPerson, SimSessionIntent, EVENT_AUTOCAPTURE
 from .taxonomy import (
     EVENT_SIGNED_UP,
     EVENT_LOGGED_IN,
@@ -43,6 +43,8 @@ from .taxonomy import (
     GROUP_TYPE_ACCOUNT,
     dyn_url_file,
     dyn_url_invite,
+    URL_PRODUCT_AD_LINK_1,
+    URL_PRODUCT_AD_LINK_2,
 )
 
 if TYPE_CHECKING:
@@ -64,9 +66,10 @@ class HedgeboxSessionIntent(SimSessionIntent):
     JOIN_TEAM = auto()
     UPGRADE_PLAN = auto()
     DOWNGRADE_PLAN = auto()
+    CHECK_LINKED_PR = auto()
 
 
-class HedgeboxPlan(str, Enum):
+class HedgeboxPlan(StrEnum):
     PERSONAL_FREE = "personal/free"
     PERSONAL_PRO = "personal/pro"
     BUSINESS_STANDARD = "business/standard"
@@ -355,6 +358,10 @@ class HedgeboxPerson(SimPerson):
                 {"$referrer": "$direct" if entered_url_directly else "https://www.youtube.com/"}
             )
             self.go_to_marius_tech_tips(None if entered_url_directly else {"utm_source": "youtube"})
+            if self.cluster.random.random() < 0.2:
+                self.click_product_ad_1()
+            elif self.cluster.random.random() < 0.5:
+                self.click_product_ad_2()
         elif self.active_session_intent in (
             HedgeboxSessionIntent.UPLOAD_FILE_S,
             HedgeboxSessionIntent.DELETE_FILE_S,
@@ -809,6 +816,16 @@ class HedgeboxPerson(SimPerson):
             for neighbor in cast(list[HedgeboxPerson], self.cluster.list_neighbors(self))
             if neighbor.is_invitable
         ]
+
+    def click_product_ad_1(self):
+        self.active_client.capture(
+            EVENT_AUTOCAPTURE, {"$event_type": "click", "$external_click_url": URL_PRODUCT_AD_LINK_1}
+        )
+
+    def click_product_ad_2(self):
+        self.active_client.capture(
+            EVENT_AUTOCAPTURE, {"$event_type": "click", "$external_click_url": URL_PRODUCT_AD_LINK_2}
+        )
 
 
 def add_params_to_url(url, query_params):

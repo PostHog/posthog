@@ -3,26 +3,33 @@ import json
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal, Optional, Union
+from uuid import UUID
 
 import structlog
 from django.core.paginator import Paginator
+from django.core.exceptions import ObjectDoesNotExist
+
 from django.db import models
 from django.utils import timezone
 from django.conf import settings
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
+
 
 logger = structlog.get_logger(__name__)
 
 ActivityScope = Literal[
+    "Cohort",
     "FeatureFlag",
     "Person",
     "Insight",
     "Plugin",
     "PluginConfig",
+    "HogFunction",
     "DataManagement",
     "EventDefinition",
     "PropertyDefinition",
@@ -35,6 +42,7 @@ ActivityScope = Literal[
     "SessionRecordingPlaylist",
     "Comment",
     "Team",
+    "Project",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -82,6 +90,16 @@ class ActivityDetailEncoder(json.JSONEncoder):
         if isinstance(obj, Decimal):
             # more precision than we'll need but avoids rounding too unnecessarily
             return format(obj, ".6f").rstrip("0").rstrip(".")
+        if isinstance(obj, FeatureFlag):
+            return {
+                "id": obj.id,
+                "key": obj.key,
+                "name": obj.name,
+                "filters": obj.filters,
+                "team_id": obj.team_id,
+                "deleted": obj.deleted,
+                "active": obj.active,
+            }
 
         return json.JSONEncoder.default(self, obj)
 
@@ -114,7 +132,7 @@ class ActivityLog(UUIDModel):
     # e.g. FeatureFlags - this will often be the name of a model class
     scope = models.fields.CharField(max_length=79, null=False)
     detail = models.JSONField(encoder=ActivityDetailEncoder, null=True)
-    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=timezone.now)
 
 
 common_field_exclusions = [
@@ -132,7 +150,25 @@ common_field_exclusions = [
 ]
 
 
+field_with_masked_contents: dict[ActivityScope, list[str]] = {
+    "HogFunction": [
+        "encrypted_inputs",
+    ],
+}
+
 field_exclusions: dict[ActivityScope, list[str]] = {
+    "Cohort": [
+        "version",
+        "pending_version",
+        "count",
+        "is_calculating",
+        "last_calculation",
+        "errors_calculating",
+    ],
+    "HogFunction": [
+        "bytecode",
+        "icon_url",
+    ],
     "Notebook": [
         "text_content",
     ],
@@ -196,6 +232,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "property_type_format",
     ],
     "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
+    "Project": ["id", "created_at"],
 }
 
 
@@ -223,57 +260,82 @@ def _read_through_relation(relation: models.Manager) -> list[Union[dict, str]]:
     return described_models
 
 
+def safely_get_field_value(instance: models.Model | None, field: str):
+    """Helper function to get the value of a field, handling related objects and exceptions."""
+    if instance is None:
+        return None
+    try:
+        value = getattr(instance, field, None)
+        if isinstance(value, models.Manager):
+            value = _read_through_relation(value)
+    # If the field is a related field and the related object has been deleted, this will raise an ObjectDoesNotExist
+    # exception. We catch this exception and return None, since the related object has been deleted, and we
+    # don't need any additional information about it other than the fact that it was deleted.
+    except ObjectDoesNotExist:
+        value = None
+    return value
+
+
 def changes_between(
     model_type: ActivityScope,
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> list[Change]:
     """
-    Identifies changes between two models by comparing fields
+    Identifies changes between two models by comparing fields.
+    Note that this method only really works for models that have a single instance
+    and not for models that have a many-to-many relationship with another model.
     """
     changes: list[Change] = []
 
     if previous is None and current is None:
-        # there are no changes between two things that don't exist
+        # There are no changes between two things that don't exist.
         return changes
 
     if previous is not None:
         fields = current._meta.get_fields() if current is not None else []
         excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
-        filtered_fields = [f.name for f in fields if f.name not in excluded_fields]
+        masked_fields = field_with_masked_contents.get(model_type, [])
+        filtered_fields = [f for f in fields if f.name not in excluded_fields]
+        filtered_field_names = [f.name for f in filtered_fields]
 
         for field in filtered_fields:
-            left = getattr(previous, field, None)
-            if isinstance(left, models.Manager):
-                left = _read_through_relation(left)
+            field_name = field.name
+            left = safely_get_field_value(previous, field_name)
+            right = safely_get_field_value(current, field_name)
 
-            right = getattr(current, field, None)
-            if isinstance(right, models.Manager):
-                right = _read_through_relation(right)
+            if field_name == "tagged_items":
+                field_name = "tags"  # Or the UI needs to be coupled to this internal backend naming.
 
-            if field == "tagged_items":
-                field = "tags"  # or the UI needs to be coupled to this internal backend naming
-
-            if field == "dashboards" and "dashboard_tiles" in filtered_fields:
-                # only process dashboard_tiles when it is present. It supersedes dashboards
+            if field_name == "dashboards" and "dashboard_tiles" in filtered_field_names:
+                # Only process dashboard_tiles when it is present. It supersedes dashboards.
                 continue
 
-            if model_type == "Insight" and field == "dashboard_tiles":
-                # the api exposes this as dashboards and that's what the activity describers expect
-                field = "dashboards"
+            if model_type == "Insight" and field_name == "dashboard_tiles":
+                # The API exposes this as dashboards and that's what the activity describers expect.
+                field_name = "dashboards"
 
-            if left is None and right is not None:
-                changes.append(Change(type=model_type, field=field, action="created", after=right))
-            elif right is None and left is not None:
-                changes.append(Change(type=model_type, field=field, action="deleted", before=left))
+            # if is a django model field, check the empty_values list
+            left_is_none = left is None or (hasattr(field, "empty_values") and left in field.empty_values)
+            right_is_none = right is None or (hasattr(field, "empty_values") and right in field.empty_values)
+
+            left_value = "masked" if field_name in masked_fields else left
+            right_value = "masked" if field_name in masked_fields else right
+
+            if left_is_none and right_is_none:
+                pass  # could be {} vs None
+            elif left_is_none and not right_is_none:
+                changes.append(Change(type=model_type, field=field_name, action="created", after=right_value))
+            elif right_is_none and not left_is_none:
+                changes.append(Change(type=model_type, field=field_name, action="deleted", before=left_value))
             elif left != right:
                 changes.append(
                     Change(
                         type=model_type,
-                        field=field,
+                        field=field_name,
                         action="changed",
-                        before=left,
-                        after=right,
+                        before=left_value,
+                        after=right_value,
                     )
                 )
 
@@ -332,10 +394,10 @@ def dict_changes_between(
 
 def log_activity(
     *,
-    organization_id: Optional[UUIDT],
+    organization_id: Optional[UUID],
     team_id: int,
     user: Optional[User],
-    item_id: Optional[Union[int, str, UUIDT]],
+    item_id: Optional[Union[int, str, UUID]],
     scope: str,
     activity: str,
     detail: Detail,
@@ -386,7 +448,7 @@ def log_activity(
         if settings.TEST:
             # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
             # as we currently don't treat activity logs as critical
-            raise e
+            raise
 
 
 @dataclasses.dataclass(frozen=True)

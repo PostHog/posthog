@@ -55,8 +55,8 @@ export default {
                 '/api/organizations/:organization_id/plugins/repository': [],
                 '/api/organizations/:organization_id/plugins/unused': [],
                 '/api/organizations/:organization_id/plugins/:id': pluginRetrieveMock,
-                '/api/projects/:team_id/plugin_configs/': pluginConfigs,
-                '/api/projects/:team_id/plugin_configs/:id': pluginConfigRetrieveMock,
+                '/api/environments/:team_id/plugin_configs/': pluginConfigs,
+                '/api/environments/:team_id/plugin_configs/:id': pluginConfigRetrieveMock,
                 // TODO: Differentiate between transformation and destination mocks for nicer mocks
                 '/api/organizations/:organization_id/pipeline_transformations/': plugins,
                 '/api/projects/:team_id/pipeline_transformation_configs/': pluginConfigs,
@@ -69,7 +69,7 @@ export default {
                 '/api/projects/:team_id/pipeline_frontend_apps_configs/:id': pluginConfigRetrieveMock,
                 '/api/organizations/:organization_id/pipeline_import_apps/': empty,
                 '/api/projects/:team_id/pipeline_import_apps_configs/': empty,
-
+                '/api/projects/:team_id/integrations/': empty,
                 '/api/projects/:team_id/app_metrics/:plugin_config_id?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
                 '/api/projects/:team_id/app_metrics/:plugin_config_id/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
             },
@@ -219,6 +219,13 @@ export function PipelineNodeNewBigQueryWithoutPipelines(): JSX.Element {
     return <App />
 }
 
+export function PipelineNodeNewHogFunction(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, 'hog-template-slack'))
+    }, [])
+    return <App />
+}
+
 export function PipelineNodeEditConfiguration(): JSX.Element {
     useEffect(() => {
         router.actions.push(
@@ -271,7 +278,7 @@ export function PipelineNodeMetricsErrorModal(): JSX.Element {
 export function PipelineNodeLogs(): JSX.Element {
     useStorybookMocks({
         get: {
-            '/api/projects/:team_id/plugin_configs/:plugin_config_id/logs': require('./__mocks__/pluginLogs.json'),
+            '/api/environments/:team_id/plugin_configs/:plugin_config_id/logs': require('./__mocks__/pluginLogs.json'),
         },
     })
     useEffect(() => {
@@ -283,7 +290,7 @@ export function PipelineNodeLogs(): JSX.Element {
 export function PipelineNodeLogsBatchExport(): JSX.Element {
     useStorybookMocks({
         get: {
-            '/api/projects/:team_id/batch_exports/:export_id/logs': require('./__mocks__/batchExportLogs.json'),
+            '/api/environments/:team_id/batch_exports/:export_id/logs': require('./__mocks__/batchExportLogs.json'),
         },
     })
     useEffect(() => {

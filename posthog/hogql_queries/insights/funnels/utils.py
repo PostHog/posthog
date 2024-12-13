@@ -1,41 +1,68 @@
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql_queries.legacy_compatibility.feature_flag import (
+    insight_funnels_use_udf_trends,
+    insight_funnels_use_udf,
+)
+from posthog.models import Team
 from posthog.schema import FunnelConversionWindowTimeUnit, FunnelVizType, FunnelsFilter, StepOrderValue
 from rest_framework.exceptions import ValidationError
 
 
-def get_funnel_order_class(funnelsFilter: FunnelsFilter):
+def use_udf(funnelsFilter: FunnelsFilter, team: Team):
+    if funnelsFilter.useUdf:
+        return True
+    funnelVizType = funnelsFilter.funnelVizType
+    if funnelVizType == FunnelVizType.TRENDS and insight_funnels_use_udf_trends(team):
+        return True
+    if funnelVizType == FunnelVizType.STEPS and insight_funnels_use_udf(team):
+        return True
+    return False
+
+
+def get_funnel_order_class(funnelsFilter: FunnelsFilter, use_udf=False):
     from posthog.hogql_queries.insights.funnels import (
         Funnel,
+        FunnelUDF,
         FunnelStrict,
         FunnelUnordered,
     )
 
-    if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
+    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
         return FunnelUnordered
-    elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
+    elif use_udf:
+        return FunnelUDF
+    elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
         return FunnelStrict
     return Funnel
 
 
-def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
+def get_funnel_actor_class(funnelsFilter: FunnelsFilter, use_udf=False):
     from posthog.hogql_queries.insights.funnels import (
+        FunnelUDF,
         FunnelActors,
         FunnelStrictActors,
         FunnelUnorderedActors,
         FunnelTrendsActors,
+        FunnelTrendsUDF,
     )
 
-    if funnelsFilter.funnelVizType == FunnelVizType.trends:
+    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+        return FunnelUnorderedActors
+
+    if funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
+        if use_udf:
+            return FunnelTrendsUDF
         return FunnelTrendsActors
-    else:
-        if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
-            return FunnelUnorderedActors
-        elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
-            return FunnelStrictActors
-        else:
-            return FunnelActors
+
+    if use_udf:
+        return FunnelUDF
+
+    if funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
+        return FunnelStrictActors
+
+    return FunnelActors
 
 
 def funnel_window_interval_unit_to_sql(

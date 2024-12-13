@@ -7,6 +7,7 @@ on:
             - '.storybook/**'
             - 'package.json'
             - '.github/workflows/storybook-chromatic.yml'
+            - 'playwright.config.ts'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -17,7 +18,7 @@ concurrency:
 jobs:
     storybook-chromatic:
         name: Publish to Chromatic
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 15
         if: github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
         outputs:
@@ -49,10 +50,10 @@ jobs:
 
     visual-regression:
         name: Visual regression tests
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 30
         container:
-            image: mcr.microsoft.com/playwright:v1.41.2
+            image: mcr.microsoft.com/playwright:v1.45.0
         strategy:
             fail-fast: false
             matrix:
@@ -210,7 +211,7 @@ jobs:
 
     visual-regression-summary:
         name: Summarize visual regression tests
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: visual-regression
         if: always() # Run even if visual-regression fails for one (or more) of the browsers

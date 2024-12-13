@@ -53,7 +53,7 @@ export const sharingLogic = kea<sharingLogicType>([
         ({ insightShortId, dashboardId, recordingId }) =>
             `sharing-${insightShortId || dashboardId || recordingId || ''}`
     ),
-    connect([preflightLogic, userLogic, dashboardsModel]),
+    connect(() => [preflightLogic, userLogic, dashboardsModel]),
 
     actions({
         togglePreview: true,

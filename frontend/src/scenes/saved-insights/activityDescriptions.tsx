@@ -12,15 +12,16 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Link } from 'lib/lemon-ui/Link'
 import { areObjectValuesEmpty, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightQueryNode, QuerySchema } from '~/queries/schema'
-import { isInsightQueryNode } from '~/queries/utils'
+import { InsightQueryNode, QuerySchema, TrendsQuery } from '~/queries/schema'
+import { isInsightQueryNode, isValidBreakdown } from '~/queries/utils'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {
@@ -44,9 +45,8 @@ type DashboardLink = TileStyleDashboardLink | BareDashboardLink
 const unboxBareLink = (boxedLink: DashboardLink): BareDashboardLink => {
     if ('dashboard' in boxedLink) {
         return boxedLink.dashboard
-    } else {
-        return boxedLink
     }
+    return boxedLink
 }
 
 const linkToDashboard = (dashboard: BareDashboardLink): JSX.Element => (
@@ -219,26 +219,31 @@ const insightActionsMapping: Record<
     order: () => null,
     result: () => null,
     last_refresh: () => null,
+    cache_target_age: () => null,
     next_allowed_client_refresh: () => null,
     last_modified_by: () => null,
-    next: () => null, // only used by frontend
+    next: () => null,
     saved: () => null,
     is_sample: () => null,
     timezone: () => null,
-    effective_restriction_level: () => null, // read from dashboards
-    effective_privilege_level: () => null, // read from dashboards
+    effective_restriction_level: () => null,
+    effective_privilege_level: () => null,
     disable_baseline: () => null,
-    dashboard_tiles: () => null, // changes are sent as dashboards
+    dashboard_tiles: () => null,
+    query_status: () => null,
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
+    const query = filtersToQueryNode(filtersAfter)
+    const trendsQuery = query as TrendsQuery
+
     return {
         description: ['changed query definition'],
         extendedDescription: (
             <div className="ActivityDescription">
-                <QuerySummary filters={filtersAfter} />
-                <FiltersSummary filters={filtersAfter} />
-                {filtersAfter.breakdown_type && <BreakdownSummary filters={filtersAfter} />}
+                <SeriesSummary query={query} />
+                <PropertiesSummary properties={query.properties} />
+                {isValidBreakdown(trendsQuery?.breakdownFilter) && <BreakdownSummary query={query} />}
             </div>
         ),
     }

@@ -58,8 +58,22 @@ gen/
 .antlr
 upgrade/
 hogvm/typescript/dist
+hogvm/typescript/.parcel-cache
 .wokeignore
 plugin-transpiler/dist
 *-esbuild-meta.json
 *-esbuild-bundle-visualization.html
 .dlt
+*.db
+# Ignore any log files that happen to be present
+*.log
+# pyright config (keep this until we have a standardized one)
+pyrightconfig.json
+# Assistant Evaluation with Deepeval
+.deepeval
+.deepeval-cache.json
+.deepeval_telemtry.txt
+.temporal-worker-settings
+temp_test_run_data.json
+.temp-deepeval-cache.json
+.eslintcache

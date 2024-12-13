@@ -1,0 +1,53 @@
+// Commented out because python and JS add different spaces to their JSON output
+// print(jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }))
+// print(jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }, 3))
+
+print(jsonParse('[1,2,3]'))
+
+let event := {
+    'event': '$pageview',
+    'properties': {
+        '$browser': 'Chrome',
+        '$os': 'Windows'
+    }
+}
+let json := jsonStringify(event)
+print(jsonParse(json))
+
+print('-- JSONHas --')
+print(JSONHas('{"a": "hello", "b": [-100, 200.0, 300]}', 'b')) // true
+print(JSONHas('{"a": "hello", "b": [-100, 200.0, 300]}', 'b', 4)) // false
+print(JSONHas({'a': 'hello', 'b': [-100, 200.0, 300]}, 'b')) // true
+print(JSONHas({'a': 'hello', 'b': [-100, 200.0, 300]}, 'b', 4)) // false
+print(JSONHas({'a': 'hello', 'b': [-100, 200.0, 300]}, 'b', -2)) // true
+print(JSONHas({'a': 'hello', 'b': [-100, 200.0, 300]}, 'b', -4)) // false
+
+print(JSONHas('[1,2,3]', 0)) // false
+print(JSONHas('[1,2,[1,2]]', -1, 1)) // true
+print(JSONHas('[1,2,[1,2]]', -1, -3)) // false
+print(JSONHas('[1,2,[1,2]]', 1, 1)) // false
+
+print('-- isValidJSON --')
+print(isValidJSON('{"a": "hello", "b": [-100, 200.0, 300]}')) // true
+print(isValidJSON('not a json')) // false
+
+print('-- JSONLength --')
+print(JSONLength('{"a": "hello", "b": [-100, 200.0, 300]}', 'b')) // 3
+print(JSONLength('{"a": "hello", "b": [-100, 200.0, 300]}')) // 2
+
+print(JSONLength({'a': 'hello', 'b': [-100, 200.0, 300]}, 'b')) // 3
+print(JSONLength({'a': 'hello', 'b': [-100, 200.0, 300]})) // 2
+
+print('-- JSONExtractBool --')
+print(JSONExtractBool('{"a": "hello", "b": true}', 'b')) // true
+print(JSONExtractBool('{"a": "hello", "b": false}', 'b')) // false
+print(JSONExtractBool('{"a": "hello", "b": 1}', 'b')) // false
+print(JSONExtractBool('{"a": "hello", "b": 0}', 'b')) // false
+print(JSONExtractBool('{"a": "hello", "b": "true"}', 'b')) // false
+print(JSONExtractBool('{"a": "hello", "b": "false"}', 'b')) // false
+print(JSONExtractBool(true)) // true
+print(JSONExtractBool(false)) // false
+print(JSONExtractBool(1)) // false
+print(JSONExtractBool(0)) // false
+print(JSONExtractBool('true')) // true
+print(JSONExtractBool('false')) // false

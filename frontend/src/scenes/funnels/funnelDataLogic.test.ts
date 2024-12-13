@@ -166,13 +166,6 @@ describe('funnelDataLogic', () => {
 
     describe('based on insightDataLogic', () => {
         describe('results', () => {
-            it.skip('with non-funnel insight', async () => {
-                await expectLogic(logic).toMatchValues({
-                    insight: expect.objectContaining({ filters: {} }),
-                    results: [],
-                })
-            })
-
             it('for standard funnel', async () => {
                 const insight: Partial<InsightModel> = {
                     result: funnelResult.result,
@@ -656,7 +649,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        hidden_legend_breakdowns: ['Firefox'],
+                        hiddenLegendBreakdowns: ['Firefox'],
                     },
                 }
 
@@ -708,7 +701,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        hidden_legend_breakdowns: ['Chrome::Mac OS X'],
+                        hiddenLegendBreakdowns: ['Chrome::Mac OS X'],
                     },
                 }
 

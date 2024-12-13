@@ -17,7 +17,7 @@ describe('dataNodeLogic - query cancellation', () => {
         featureFlagLogic.mount()
         useMocks({
             get: {
-                '/api/projects/:team/insights/trend/': async (req) => {
+                '/api/environments/:team_id/insights/trend/': async (req) => {
                     if (req.url.searchParams.get('date_from') === '-180d') {
                         // delay for a second before response without pausing
                         return new Promise((resolve) =>
@@ -30,8 +30,8 @@ describe('dataNodeLogic - query cancellation', () => {
                 },
             },
             post: {
-                '/api/projects/997/insights/cancel/': [201],
-                '/api/projects/997/query/': async () => {
+                '/api/environments/997/insights/cancel/': [201],
+                '/api/environments/997/query/': async () => {
                     return new Promise((resolve) =>
                         setTimeout(() => {
                             resolve([200, { result: ['slow result from api'] }])
@@ -40,44 +40,11 @@ describe('dataNodeLogic - query cancellation', () => {
                 },
             },
             delete: {
-                '/api/projects/:team_id/query/uuid-first': [200, {}],
+                '/api/environments/:team_id/query/uuid-first': [200, {}],
             },
         })
     })
     afterEach(() => logic?.unmount())
-
-    it.skip('cancels a running query', async () => {
-        ;(libUtils as any).uuid = jest.fn().mockReturnValueOnce('uuid-first').mockReturnValueOnce('uuid-second')
-        logic = dataNodeLogic({
-            key: testUniqueKey,
-            query: {
-                kind: NodeKind.TrendsQuery,
-                series: [],
-                dateRange: { date_from: '-180d' },
-            },
-        })
-        logic.mount()
-
-        setTimeout(() => {
-            dataNodeLogic({
-                key: testUniqueKey,
-                query: {
-                    kind: NodeKind.TrendsQuery,
-                    series: [],
-                    dateRange: { date_from: '-90d' },
-                },
-            })
-        }, 200)
-
-        await expectLogic(logic).toDispatchActions([
-            'loadData',
-            'abortAnyRunningQuery',
-            'loadData',
-            'abortAnyRunningQuery',
-            logic.actionCreators.abortQuery({ queryId: 'uuid-first' }),
-            logic.actionCreators.loadDataSuccess({ result: ['result from api'] }),
-        ])
-    })
 
     it('cancels a running query on click', async () => {
         ;(libUtils as any).uuid = jest.fn().mockReturnValueOnce('uuid-first').mockReturnValueOnce('uuid-second')

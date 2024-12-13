@@ -16,7 +16,8 @@ class FunnelTimeToConvert(FunnelBase):
     ):
         super().__init__(context)
 
-        self.funnel_order = get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
+        # Haven't implemented calls for time_to_convert in UDF yet
+        self.funnel_order = get_funnel_order_class(self.context.funnelsFilter, use_udf=False)(context=self.context)
 
     def _format_results(self, results: list) -> FunnelTimeToConvertResults:
         return FunnelTimeToConvertResults(

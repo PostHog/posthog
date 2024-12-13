@@ -5,7 +5,7 @@ from typing import Any, Optional, cast
 from django.db import connection
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 

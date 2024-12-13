@@ -12,6 +12,7 @@ import {
     PluginConfigWithPluginInfo,
     PluginInstallationType,
     PluginType,
+    ProjectType,
     PropertyFilterType,
     PropertyOperator,
     TeamType,
@@ -37,6 +38,7 @@ export const api = apiReal as any as APIMockReturnType
 
 export const MOCK_DEFAULT_TEAM: TeamType = {
     id: MOCK_TEAM_ID,
+    project_id: MOCK_TEAM_ID,
     uuid: MOCK_TEAM_UUID,
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'default-team-api-token',
@@ -73,20 +75,31 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_recording_sample_rate: '1.0',
     session_recording_minimum_duration_milliseconds: null,
     session_recording_linked_flag: null,
-    session_recording_network_payload_capture_config: null,
+    session_recording_network_payload_capture_config: { recordHeaders: true, recordBody: true },
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
     heatmaps_opt_in: true,
     autocapture_exceptions_opt_in: false,
+    autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
+    user_access_level: 'admin',
     access_control: true,
     has_group_types: true,
     primary_dashboard: 1,
     live_events_columns: null,
     person_on_events_querying_enabled: true,
-    groups_on_events_querying_enabled: true,
+    live_events_token: '123',
+    capture_dead_clicks: false,
+}
+
+export const MOCK_DEFAULT_PROJECT: ProjectType = {
+    id: MOCK_TEAM_ID,
+    name: 'MockHog App + Marketing',
+    organization_id: MOCK_ORGANIZATION_ID,
+    created_at: '2020-06-30T09:53:35.932534Z',
+    product_description: null,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
@@ -100,10 +113,12 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     plugins_access_level: PluginsAccessLevel.Root,
     enforce_2fa: false,
     teams: [MOCK_DEFAULT_TEAM],
+    projects: [MOCK_DEFAULT_PROJECT],
     is_member_join_email_enabled: true,
     metadata: {},
     available_product_features: [],
     member_count: 2,
+    logo_media_id: null,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -138,6 +153,7 @@ export const MOCK_DEFAULT_USER: UserType = {
         name,
         slug,
         membership_level,
+        logo_media_id: null,
     })),
     events_column_config: {
         active: 'DEFAULT',
@@ -152,6 +168,7 @@ export const MOCK_DEFAULT_ORGANIZATION_MEMBER: OrganizationMemberType = {
     updated_at: '2020-09-24T15:05:26.758837Z',
     is_2fa_enabled: false,
     has_social_auth: false,
+    last_login: '2020-09-24T15:05:26.758796Z',
 }
 
 export const MOCK_SECOND_BASIC_USER: UserBasicType = {
@@ -170,6 +187,7 @@ export const MOCK_SECOND_ORGANIZATION_MEMBER: OrganizationMemberType = {
     updated_at: '2021-03-11T19:11:11Z',
     is_2fa_enabled: false,
     has_social_auth: false,
+    last_login: '2020-09-24T15:05:26.758796Z',
 }
 
 export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {

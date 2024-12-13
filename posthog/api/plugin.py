@@ -1,8 +1,6 @@
 import json
-import os
 import re
-import subprocess
-from typing import Any, Optional, cast, Literal
+from typing import Any, Optional, cast
 
 import requests
 from dateutil.relativedelta import relativedelta
@@ -15,13 +13,15 @@ from django.utils.encoding import smart_str
 from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
 from rest_framework import renderers, request, serializers, status, viewsets
-from rest_framework.decorators import action, renderer_classes
+from rest_framework.decorators import renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.permissions import SAFE_METHODS, BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import FiltersSerializer
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.cdp.templates import HOG_FUNCTION_MIGRATORS
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -29,6 +29,7 @@ from posthog.models.activity_logging.activity_log import (
     Detail,
     Trigger,
     dict_changes_between,
+    load_activity,
     load_all_activity,
     log_activity,
 )
@@ -39,12 +40,14 @@ from posthog.models.plugin import (
     PluginSourceFile,
     update_validated_data_from_url,
     validate_plugin_job_payload,
+    transpile,
 )
 from posthog.models.utils import UUIDT, generate_random_token
+from posthog.permissions import APIScopePermission
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
-from posthog.plugins.access import can_globally_manage_plugins
+from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
+from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers
 from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
-from posthog.redis import get_client
 from posthog.utils import format_query_params_absolute_url
 
 
@@ -196,24 +199,6 @@ def _fix_formdata_config_json(request: request.Request, validated_data: dict):
         validated_data["config"] = json.loads(request.POST["config"])
 
 
-def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
-    from posthog.settings.base_variables import BASE_DIR
-
-    transpiler_path = os.path.join(BASE_DIR, "plugin-transpiler/dist/index.js")
-    if type not in ["site", "frontend"]:
-        raise Exception('Invalid type. Must be "site" or "frontend".')
-
-    process = subprocess.Popen(
-        ["node", transpiler_path, "--type", type], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-    )
-    stdout, stderr = process.communicate(input=input_string.encode())
-
-    if process.returncode != 0:
-        error = stderr.decode()
-        raise Exception(error)
-    return stdout.decode()
-
-
 class PlainRenderer(renderers.BaseRenderer):
     format = "txt"
 
@@ -225,24 +210,34 @@ class PluginsAccessLevelPermission(BasePermission):
     message = "Your organization's plugin access level is insufficient."
 
     def has_permission(self, request, view) -> bool:
+        """
+        Generally this permission is used to check if the organization has the required access level to manage plugins.
+        """
+
         min_level = (
             Organization.PluginsAccessLevel.CONFIG
             if request.method in SAFE_METHODS
             else Organization.PluginsAccessLevel.INSTALL
         )
+
         return view.organization.plugins_access_level >= min_level
 
-
-class PluginOwnershipPermission(BasePermission):
-    message = "This plugin installation is managed by another organization."
-
     def has_object_permission(self, request, view, object) -> bool:
-        return view.organization == object.organization
+        if request.method in SAFE_METHODS:
+            # We allow viewing the plugin if the organization has the required access level
+            return view.organization.plugins_access_level >= Organization.PluginsAccessLevel.CONFIG
+
+        if view.organization != object.organization:
+            self.message = "This plugin installation is managed by another organization"
+            return False
+
+        return True
 
 
 class PluginSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
     organization_name = serializers.SerializerMethodField()
+    hog_function_migration_available = serializers.SerializerMethodField()
 
     class Meta:
         model = Plugin
@@ -262,8 +257,12 @@ class PluginSerializer(serializers.ModelSerializer):
             "capabilities",
             "metrics",
             "public_jobs",
+            "hog_function_migration_available",
         ]
-        read_only_fields = ["id", "latest_tag"]
+        read_only_fields = ["id", "latest_tag", "hog_function_migration_available"]
+
+    def get_hog_function_migration_available(self, plugin: Plugin):
+        return HOG_FUNCTION_MIGRATORS.get(plugin.url) is not None if plugin.url else False
 
     def get_url(self, plugin: Plugin) -> Optional[str]:
         # remove ?private_token=... from url
@@ -279,7 +278,10 @@ class PluginSerializer(serializers.ModelSerializer):
         return None
 
     def get_organization_name(self, plugin: Plugin) -> str:
-        return plugin.organization.name
+        if plugin.organization:
+            return plugin.organization.name
+        else:
+            return "posthog-inline"
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Plugin:
         validated_data["url"] = self.initial_data.get("url", None)
@@ -289,6 +291,17 @@ class PluginSerializer(serializers.ModelSerializer):
             raise PermissionDenied("This organization can't manage global plugins!")
 
         plugin = Plugin.objects.install(**validated_data)
+
+        for source_file in PluginSourceFile.objects.filter(plugin=plugin):
+            if source_file.filename in ("site.tsx", "frontend.tsx"):
+                try:
+                    source_file.transpiled = transpile(source_file.source, type=source_file.filename.split(".")[0])
+                    source_file.status = PluginSourceFile.Status.TRANSPILED
+                    source_file.save()
+                except Exception as e:
+                    source_file.status = PluginSourceFile.Status.ERROR
+                    source_file.error = str(e)
+                    source_file.save()
 
         return plugin
 
@@ -307,21 +320,44 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
-    permission_classes = [
-        PluginsAccessLevelPermission,
-        PluginOwnershipPermission,
-    ]
+    permission_classes = [PluginsAccessLevelPermission]
+    hide_api_docs = True
+
+    def dangerously_get_permissions(self):
+        # We have one very specific case to override - if the object we are getting is a global plugin, we need to
+        # allow it to be viewed by anyone with the correct access level.
+        # This is essentially only to avoid the OrganizationMemberPermission from blocking the retrieval of global plugins.
+
+        if self.action == "retrieve":
+            # NOTE: This is inefficient but it is such an edge case that it feels safer this way than
+            # Modifying our underyling permissions system too much.
+            try:
+                lookup_value = self.kwargs.get(self.lookup_field)
+                obj = Plugin.objects.get(pk=lookup_value)
+                if obj.is_global:
+                    return [IsAuthenticated(), APIScopePermission(), PluginsAccessLevelPermission()]
+            except Plugin.DoesNotExist:
+                pass
+
+        raise NotImplementedError()
 
     def safely_get_queryset(self, queryset):
+        if not has_plugin_access_level(self.organization_id, Organization.PluginsAccessLevel.CONFIG):
+            return queryset.none()
+
+        queryset = queryset.filter(
+            Q(organization_id=self.organization_id)
+            | Q(is_global=True)
+            | Q(
+                id__in=PluginConfig.objects.filter(  # If a config exists the org can see the plugin
+                    team__organization_id=self.organization_id, deleted=False
+                ).values_list("plugin_id", flat=True)
+            )
+        )
+
         queryset = queryset.select_related("organization")
 
-        if self.action == "retrieve" or self.action == "list":
-            if can_install_plugins(self.organization) or can_configure_plugins(self.organization):
-                return queryset
-        else:
-            if can_install_plugins(self.organization):
-                return queryset
-        return queryset.none()
+        return queryset
 
     def get_plugin_with_permissions(self, reason="installation"):
         plugin = self.get_object()
@@ -333,18 +369,9 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return plugin
 
     def _filter_queryset_by_parents_lookups(self, queryset):
-        try:
-            return queryset.filter(
-                Q(**self.parents_query_dict)
-                | Q(is_global=True)
-                | Q(
-                    id__in=PluginConfig.objects.filter(  # If a config exists the org can see the plugin
-                        team__organization_id=self.organization_id, deleted=False
-                    ).values_list("plugin_id", flat=True)
-                )
-            )
-        except ValueError:
-            raise NotFound()
+        # Special case - we don't want the typical team/org filtering because we want to allow global plugins to be
+        # installed by any organization.
+        return queryset
 
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs):
@@ -365,8 +392,10 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         allowed_plugins_q = Q(plugin__is_global=True) & (
             Q(plugin__capabilities__methods__contains=["processEvent"]) | Q(plugin__capabilities={})
         )
+        # also allow local site apps
+        allowed_local_plugins_q = Q(plugin__is_global=False) & Q(plugin__capabilities={})
         plugin_configs = PluginConfig.objects.filter(
-            Q(team__organization_id=self.organization_id, enabled=True) & ~allowed_plugins_q
+            Q(team__organization_id=self.organization_id, enabled=True) & ~allowed_plugins_q & ~allowed_local_plugins_q
         )
         return Response(
             PluginConfigSerializer(plugin_configs, many=True, context=super().get_serializer_context()).data
@@ -464,10 +493,9 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             plugin.updated_at = now()
             plugin.save()
         # Trigger capabilities update in plugin server, in case the app source changed the methods etc
-        get_client().publish(
-            "populate-plugin-capabilities",
-            json.dumps({"plugin_id": str(plugin.id)}),
-        )
+
+        populate_plugin_capabilities_on_workers(str(plugin.id))
+
         return Response(response)
 
     @action(methods=["POST"], detail=True)
@@ -564,6 +592,8 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     delivery_rate_24h = serializers.SerializerMethodField()
     error = serializers.SerializerMethodField()
 
+    deleted = ClassicBehaviorBooleanFieldSerializer()
+
     class Meta:
         model = PluginConfig
         fields = [
@@ -581,7 +611,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "deleted",
-            "filters",
         ]
         read_only_fields = [
             "id",
@@ -650,11 +679,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         # error details instead.
         return None
 
-    def validate_filters(self, value: dict) -> dict:
-        serializer = FiltersSerializer(data=value)
-        serializer.is_valid(raise_exception=True)
-        return serializer.validated_data
-
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(self.context["get_organization"]()):
             raise ValidationError("Plugin configuration is not available for the current organization!")
@@ -721,6 +745,7 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
+    hide_api_docs = True
 
     def safely_get_queryset(self, queryset):
         if not can_configure_plugins(self.team.organization_id):
@@ -752,9 +777,9 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         orders = request.data.get("orders", {})
 
         plugin_configs = PluginConfig.objects.filter(team_id=self.team.pk, enabled=True)
-        plugin_configs_dict = {p.plugin_id: p for p in plugin_configs}
-        for plugin_id, order in orders.items():
-            plugin_config = plugin_configs_dict.get(int(plugin_id), None)
+        plugin_configs_dict = {p.id: p for p in plugin_configs}
+        for plugin_config_id, order in orders.items():
+            plugin_config = plugin_configs_dict.get(int(plugin_config_id), None)
             if plugin_config and plugin_config.order != order:
                 old_order = plugin_config.order
                 plugin_config.order = order
@@ -865,6 +890,42 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         content = f"export function getFrontendApp () {'{'} return {json.dumps(obj)} {'}'}"
         return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
 
+    @action(methods=["GET"], url_path="activity", detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(
+            "PluginConfig", team_id=self.team_id, item_ids=[self.get_object().id], limit=limit, page=page
+        )
+
+        return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["POST"], url_path="migrate", detail=True)
+    def migrate(self, request: request.Request, **kwargs):
+        obj = self.get_object()
+        migrater = HOG_FUNCTION_MIGRATORS.get(obj.plugin.url)
+
+        if not migrater:
+            raise ValidationError("No migration available for this plugin")
+
+        hog_function_data = migrater.migrate(obj)
+        hog_function_data["template_id"] = hog_function_data["id"]
+        del hog_function_data["id"]
+
+        if obj.enabled:
+            hog_function_data["enabled"] = True
+
+        hog_function_serializer = HogFunctionSerializer(data=hog_function_data, context=self.get_serializer_context())
+        hog_function_serializer.is_valid(raise_exception=True)
+        hog_function_serializer.save()
+
+        if obj.enabled:
+            obj.enabled = False
+            obj.save()
+
+        return Response(hog_function_serializer.data)
+
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
     # A set of keys for config fields that have secret = true
@@ -873,16 +934,18 @@ def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
 
 
 class LegacyPluginConfigViewSet(PluginConfigViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "team_id"
 
 
 class PipelineTransformationsViewSet(PluginViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.filter(Q(capabilities__has_key="methods") & Q(capabilities__methods__contains=["processEvent"]))
 
 
 class PipelineTransformationsConfigsViewSet(PluginConfigViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.filter(
             Q(plugin__capabilities__has_key="methods") & Q(plugin__capabilities__methods__contains=["processEvent"])
         )
@@ -890,6 +953,7 @@ class PipelineTransformationsConfigsViewSet(PluginConfigViewSet):
 
 class PipelineDestinationsViewSet(PluginViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.filter(
             Q(capabilities__has_key="methods")
             & (Q(capabilities__methods__contains=["onEvent"]) | Q(capabilities__methods__contains=["composeWebhook"]))
@@ -898,6 +962,7 @@ class PipelineDestinationsViewSet(PluginViewSet):
 
 class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.filter(
             Q(plugin__capabilities__has_key="methods")
             & (
@@ -909,11 +974,13 @@ class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
 
 class PipelineFrontendAppsViewSet(PluginViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.exclude(Q(capabilities__has_key="methods") | Q(capabilities__has_key="scheduled_tasks"))
 
 
 class PipelineFrontendAppsConfigsViewSet(PluginConfigViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.exclude(
             Q(plugin__capabilities__has_key="methods") | Q(plugin__capabilities__has_key="scheduled_tasks")
         )
@@ -921,6 +988,7 @@ class PipelineFrontendAppsConfigsViewSet(PluginConfigViewSet):
 
 class PipelineImportAppsViewSet(PluginViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         # All the plugins, that are not on the other pages
         return queryset.filter(
             Q(Q(capabilities__has_key="scheduled_tasks") & ~Q(capabilities__scheduled_tasks=[]))
@@ -935,6 +1003,7 @@ class PipelineImportAppsViewSet(PluginViewSet):
 
 class PipelineImportAppsConfigsViewSet(PluginConfigViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.filter(
             Q(Q(plugin__capabilities__has_key="scheduled_tasks") & ~Q(plugin__capabilities__scheduled_tasks=[]))
             | Q(

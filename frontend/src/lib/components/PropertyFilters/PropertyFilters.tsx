@@ -38,6 +38,8 @@ interface PropertyFiltersProps {
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
     allowRelativeDateOptions?: boolean
     disabledReason?: string
+    exactMatchFeatureFlagCohortOperators?: boolean
+    hideBehavioralCohorts?: boolean
 }
 
 export function PropertyFilters({
@@ -65,16 +67,18 @@ export function PropertyFilters({
     propertyAllowList,
     allowRelativeDateOptions,
     disabledReason = undefined,
+    exactMatchFeatureFlagCohortOperators = false,
+    hideBehavioralCohorts,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
-    const { remove, setFilters } = useActions(propertyFilterLogic(logicProps))
+    const { remove, setFilters, setFilter } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
     // Update the logic's internal filters when the props change
     useEffect(() => {
         setFilters(propertyFilters ?? [])
-    }, [propertyFilters])
+    }, [propertyFilters, setFilters])
 
     // do not open on initial render, only open if newly inserted
     useEffect(() => {
@@ -88,7 +92,7 @@ export function PropertyFilters({
                     <>&#8627;</>
                 </div>
             )}
-            <div className="PropertyFilters__content">
+            <div className="PropertyFilters__content max-w-full">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
                     {(allowNew ? filtersWithNew : filters).map((item: AnyPropertyFilter, index: number) => {
                         return (
@@ -113,6 +117,8 @@ export function PropertyFilters({
                                             key={index}
                                             pageKey={pageKey}
                                             index={index}
+                                            filters={filters}
+                                            setFilter={setFilter}
                                             onComplete={onComplete}
                                             orFiltering={orFiltering}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
@@ -126,6 +132,8 @@ export function PropertyFilters({
                                             propertyAllowList={propertyAllowList}
                                             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
                                             allowRelativeDateOptions={allowRelativeDateOptions}
+                                            exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}
+                                            hideBehavioralCohorts={hideBehavioralCohorts}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

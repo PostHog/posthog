@@ -5,6 +5,7 @@ import structlog
 from django.apps import AppConfig
 from django.conf import settings
 from posthoganalytics.client import Client
+from posthoganalytics.exception_capture import Integrations
 
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.settings import SELF_CAPTURE, SKIP_ASYNC_MIGRATIONS_SETUP
@@ -22,6 +23,8 @@ class PostHogConfig(AppConfig):
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
         posthoganalytics.poll_interval = 90
+        posthoganalytics.enable_exception_autocapture = True
+        posthoganalytics.exception_autocapture_integrations = [Integrations.Django]
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"

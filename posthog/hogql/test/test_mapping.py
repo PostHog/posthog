@@ -1,10 +1,17 @@
+from posthog.hogql.ast import FloatType, IntegerType, DateType
+from posthog.hogql.base import UnknownType
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.printer import print_ast
 from posthog.test.base import BaseTest
 from typing import Optional
 from posthog.hogql.functions.mapping import (
+    compare_types,
     find_hogql_function,
     find_hogql_aggregation,
     find_hogql_posthog_function,
     HogQLFunctionMeta,
+    HOGQL_CLICKHOUSE_FUNCTIONS,
 )
 
 
@@ -42,3 +49,42 @@ class TestMappings(BaseTest):
         self.assertEqual(find_hogql_function("functionThatDoesntExist"), None)
         self.assertEqual(find_hogql_aggregation("functionThatDoesntExist"), None)
         self.assertEqual(find_hogql_posthog_function("functionThatDoesntExist"), None)
+
+    def test_compare_types(self):
+        res = compare_types([IntegerType()], (IntegerType(),))
+        assert res is True
+
+    def test_compare_types_mismatch(self):
+        res = compare_types([IntegerType()], (FloatType(),))
+        assert res is False
+
+    def test_compare_types_mismatch_lengths(self):
+        res = compare_types([IntegerType()], (IntegerType(), IntegerType()))
+        assert res is False
+
+    def test_compare_types_mismatch_differing_order(self):
+        res = compare_types([IntegerType(), FloatType()], (FloatType(), IntegerType()))
+        assert res is False
+
+    def test_unknown_type_mapping(self):
+        HOGQL_CLICKHOUSE_FUNCTIONS["overloadedFunction"] = HogQLFunctionMeta(
+            "overloadFailure",
+            1,
+            1,
+            overloads=[((DateType,), "overloadSuccess")],
+        )
+
+        HOGQL_CLICKHOUSE_FUNCTIONS["dateEmittingFunction"] = HogQLFunctionMeta(
+            "dateEmittingFunction",
+            1,
+            1,
+            signatures=[
+                ((UnknownType(),), DateType()),
+            ],
+        )
+        ast = print_ast(
+            parse_expr("overloadedFunction(dateEmittingFunction('123123'))"),
+            HogQLContext(self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        assert "overloadSuccess" in ast

@@ -39,6 +39,7 @@ import {
     FilterLogicalOperator,
     PropertyMathType,
     PropertyOperator,
+    SingleFieldDateType,
     TimeUnitType,
     ValueOptionType,
 } from '~/types'
@@ -197,6 +198,21 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             },
             [DateOperatorType.IsSet]: {
                 label: 'is set',
+            },
+        },
+    },
+    [FieldOptionsType.SingleFieldDateOperators]: {
+        label: 'Date Operators',
+        type: FieldOptionsType.SingleFieldDateOperators,
+        values: {
+            [SingleFieldDateType.IsDateExact]: {
+                label: 'on the date',
+            },
+            [SingleFieldDateType.IsDateAfter]: {
+                label: 'since',
+            },
+            [SingleFieldDateType.IsDateBefore]: {
+                label: 'before',
             },
         },
     },
@@ -861,7 +877,12 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.DateOperators]} />
     },
     [FilterType.MathOperator]: function _renderField(p) {
-        return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.MathOperators]} />
+        return (
+            <CohortSelectorField
+                {...p}
+                fieldOptionGroupTypes={[FieldOptionsType.MathOperators, FieldOptionsType.SingleFieldDateOperators]}
+            />
+        )
     },
     [FilterType.EventsAndActionsMathOperator]: function _renderField(p) {
         return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.EventsAndActionsMathOperators]} />

@@ -1,5 +1,3 @@
-import 'antd/lib/dropdown/style/index.css'
-
 import { CohortEdit } from 'scenes/cohorts/CohortEdit'
 import { SceneExport } from 'scenes/sceneTypes'
 

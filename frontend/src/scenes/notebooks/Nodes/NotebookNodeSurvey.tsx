@@ -15,6 +15,7 @@ import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
+import { UUID_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = attributes
@@ -80,11 +81,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                                     />
 
                                     <div className="w-full flex flex-col items-center">
-                                        <SurveyAppearancePreview
-                                            survey={survey}
-                                            activePreview="survey"
-                                            questionIndex={0}
-                                        />
+                                        <SurveyAppearancePreview survey={survey} previewPageIndex={0} />
                                     </div>
                                 </div>
                             </>
@@ -119,7 +116,7 @@ export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttr
         id: {},
     },
     pasteOptions: {
-        find: urls.survey('') + '(.+)',
+        find: urls.survey(UUID_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
             return { id: match[1] }
         },

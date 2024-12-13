@@ -99,7 +99,8 @@ class TestView(APIBaseTest):
         "posthog.warehouse.models.datawarehouse_saved_query.DataWarehouseSavedQuery.get_columns",
         return_value={"id": "String", "a_column": "String"},
     )
-    def test_view_with_external_table(self, patch_get_columns_1, patch_get_columns_2):
+    @patch("posthog.tasks.warehouse.get_ph_client")
+    def test_view_with_external_table(self, patch_get_columns_1, patch_get_columns_2, patch_get_ph_client):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
             {

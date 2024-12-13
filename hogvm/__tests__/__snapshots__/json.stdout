@@ -1,0 +1,34 @@
+[1, 2, 3]
+{'event': '$pageview', 'properties': {'$browser': 'Chrome', '$os': 'Windows'}}
+-- JSONHas --
+true
+false
+true
+false
+true
+false
+false
+true
+false
+false
+-- isValidJSON --
+true
+false
+-- JSONLength --
+3
+2
+3
+2
+-- JSONExtractBool --
+true
+false
+false
+false
+false
+false
+true
+false
+false
+false
+true
+false

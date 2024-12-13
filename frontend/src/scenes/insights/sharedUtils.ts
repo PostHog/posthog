@@ -45,10 +45,6 @@ export function filterTrendsClientSideParams(
     return newFilters
 }
 
-export function isTrendsInsight(insight?: InsightType): boolean {
-    return insight === InsightType.TRENDS || insight === InsightType.LIFECYCLE || insight === InsightType.STICKINESS
-}
-
 export function isTrendsFilter(filters?: Partial<FilterType>): filters is Partial<TrendsFilterType> {
     return filters?.insight === InsightType.TRENDS || (!!filters && !filters.insight)
 }
@@ -67,11 +63,7 @@ export function isLifecycleFilter(filters?: Partial<FilterType>): filters is Par
 export function isPathsFilter(filters?: Partial<FilterType>): filters is Partial<PathsFilterType> {
     return filters?.insight === InsightType.PATHS
 }
-export function isFilterWithHiddenLegendKeys(
-    filters: Partial<FilterType>
-): filters is Partial<TrendsFilterType> | Partial<StickinessFilterType> | Partial<FunnelsFilterType> {
-    return isTrendsFilter(filters) || isFunnelsFilter(filters) || isStickinessFilter(filters)
-}
+
 export function isFilterWithDisplay(
     filters: Partial<FilterType>
 ): filters is Partial<TrendsFilterType> | Partial<StickinessFilterType> {

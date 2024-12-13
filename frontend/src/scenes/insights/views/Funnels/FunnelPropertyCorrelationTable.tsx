@@ -1,8 +1,7 @@
 import './FunnelCorrelationTable.scss'
 
-import { IconTrending } from '@posthog/icons'
+import { IconArchive, IconTrending } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
-import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
@@ -103,7 +102,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 
         return (
             <>
-                <div className="font-semibold text-default">
+                <div className="font-semibold text-text-3000">
                     {is_success ? (
                         <IconTrending style={{ color: 'green' }} />
                     ) : (
@@ -257,10 +256,10 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         <div className="p-4 m-auto max-w-140">
                             <div className="flex flex-col items-center justify-self-center text-center">
                                 {loadedPropertyCorrelationsTableOnce ? (
-                                    <Empty
-                                        image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                        description="No correlated properties found."
-                                    />
+                                    <div className="flex flex-col items-center justify-center space-y-1 min-h-24">
+                                        <IconArchive className="text-secondary-3000-hover text-2xl" />
+                                        <div>No correlated properties found.</div>
+                                    </div>
                                 ) : (
                                     <>
                                         <p className="m-auto">

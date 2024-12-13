@@ -2,7 +2,7 @@ import { PluginAttachment } from '@posthog/plugin-scaffold'
 import { Summary } from 'prom-client'
 
 import { Hub, Plugin, PluginConfig, PluginConfigId, PluginId, PluginMethod, TeamId } from '../../types'
-import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../../utils/db/sql'
+import { getActivePluginRows, getPluginAttachmentRows, getPluginConfigRows } from '../../utils/db/sql'
 
 const loadPluginsMsSummary = new Summary({
     name: 'load_plugins_ms',
@@ -29,7 +29,7 @@ export async function loadPluginsFromDB(
     hub: Hub
 ): Promise<Pick<Hub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
     const startTimer = new Date()
-    const pluginRows = await getPluginRows(hub)
+    const pluginRows = await getActivePluginRows(hub)
     const plugins = new Map<PluginId, Plugin>()
 
     for (const row of pluginRows) {
@@ -78,7 +78,7 @@ export async function loadPluginsFromDB(
             ...row,
             plugin: plugin,
             attachments: attachmentsPerConfig.get(row.id) || {},
-            vm: null,
+            instance: null,
             method,
         }
         pluginConfigs.set(row.id, pluginConfig)

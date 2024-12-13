@@ -30,10 +30,12 @@ describe('postgres parity', () => {
     let teamId = 10 // Incremented every test. Avoids late ingestion causing issues
 
     beforeAll(async () => {
+        console.log('[TEST] Resetting kafka')
         await resetKafka(extraServerConfig)
     })
 
     beforeEach(async () => {
+        console.log('[TEST] Resetting tests databases')
         await resetTestDatabase(`
             async function processEvent (event) {
                 event.properties.processed = 'hell yes'
@@ -42,10 +44,12 @@ describe('postgres parity', () => {
             }
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
+        console.log('[TEST] Starting plugins server')
+        const startResponse = await startPluginsServer(extraServerConfig, makePiscina, { ingestion: true })
         hub = startResponse.hub
         stopServer = startResponse.stop
         teamId++
+        console.log('[TEST] Setting up seed data')
         await createUserTeamAndOrganization(
             hub.db.postgres,
             teamId,
@@ -54,9 +58,11 @@ describe('postgres parity', () => {
             new UUIDT().toString(),
             new UUIDT().toString()
         )
+        console.log('[TEST] BeforeEach complete')
     })
 
     afterEach(async () => {
+        console.log('[TEST] Stopping server')
         await stopServer()
     })
 
@@ -72,7 +78,7 @@ describe('postgres parity', () => {
             null,
             true,
             uuid,
-            ['distinct1', 'distinct2']
+            [{ distinctId: 'distinct1' }, { distinctId: 'distinct2' }]
         )
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
@@ -164,15 +170,20 @@ describe('postgres parity', () => {
             null,
             false,
             uuid,
-            ['distinct1', 'distinct2']
+            [{ distinctId: 'distinct1' }, { distinctId: 'distinct2' }]
         )
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
 
         // update properties and set is_identified to true
-        await hub.db.updatePersonDeprecated(person, {
+        const [_p, kafkaMessages] = await hub.db.updatePersonDeprecated(person, {
             properties: { replacedUserProp: 'propValue' },
             is_identified: true,
+        })
+
+        await hub.db.kafkaProducer.queueMessages({
+            kafkaMessages,
+            waitForAck: true,
         })
 
         await delayUntilEventIngested(async () =>
@@ -196,9 +207,14 @@ describe('postgres parity', () => {
         // update date and boolean to false
 
         const randomDate = DateTime.utc().minus(100000).setZone('UTC')
-        const [updatedPerson] = await hub.db.updatePersonDeprecated(person, {
+        const [updatedPerson, kafkaMessages2] = await hub.db.updatePersonDeprecated(person, {
             created_at: randomDate,
             is_identified: false,
+        })
+
+        await hub.db.kafkaProducer.queueMessages({
+            kafkaMessages: kafkaMessages2,
+            waitForAck: true,
         })
 
         expect(updatedPerson.version).toEqual(2)
@@ -235,7 +251,7 @@ describe('postgres parity', () => {
             null,
             true,
             uuid,
-            ['distinct1']
+            [{ distinctId: 'distinct1' }]
         )
         const anotherPerson = await hub.db.createPerson(
             DateTime.utc(),
@@ -246,7 +262,7 @@ describe('postgres parity', () => {
             null,
             true,
             uuid2,
-            ['another_distinct_id']
+            [{ distinctId: 'another_distinct_id' }]
         )
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
         const [postgresPerson] = await hub.db.fetchPersons(Database.Postgres)
@@ -318,7 +334,7 @@ describe('postgres parity', () => {
             null,
             false,
             uuid,
-            ['distinct1']
+            [{ distinctId: 'distinct1' }]
         )
         const anotherPerson = await hub.db.createPerson(
             DateTime.utc(),
@@ -329,7 +345,7 @@ describe('postgres parity', () => {
             null,
             true,
             uuid2,
-            ['another_distinct_id']
+            [{ distinctId: 'another_distinct_id' }]
         )
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
         const [postgresPerson] = await hub.db.fetchPersons(Database.Postgres)

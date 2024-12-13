@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { range } from 'lib/utils'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -17,6 +18,8 @@ export interface IngestionWarningSummary {
     lastSeen: string
     count: number
     warnings: IngestionWarning[]
+    // count and day date pairs
+    sparkline: [number, string][]
 }
 
 export interface IngestionWarning {
@@ -29,7 +32,7 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
     path(['scenes', 'data-management', 'ingestion-warnings', 'ingestionWarningsLogic']),
 
     connect({
-        values: [teamLogic, ['currentTeamId', 'timezone']],
+        values: [teamLogic, ['timezone'], projectLogic, ['currentProjectId']],
     }),
 
     loaders(({ values }) => ({
@@ -37,7 +40,7 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
             [] as IngestionWarningSummary[],
             {
                 loadData: async () => {
-                    const { results } = await api.get(`api/projects/${values.currentTeamId}/ingestion_warnings`)
+                    const { results } = await api.get(`api/projects/${values.currentProjectId}/ingestion_warnings`)
                     return results
                 },
             },
@@ -76,10 +79,10 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
                 const summaryDatasets: Record<string, number[]> = {}
                 data.forEach((summary) => {
                     const result = new Array(30).fill(0)
-                    for (const warning of summary.warnings) {
-                        const date = dayjsUtcToTimezone(warning.timestamp, timezone)
+                    for (const spark of summary.sparkline) {
+                        const date = dayjsUtcToTimezone(spark[1], timezone)
                         const dayIndex = dayjs().diff(date, 'days')
-                        result[dayIndex] += 1
+                        result[dayIndex] = spark[0]
                     }
                     summaryDatasets[summary.type] = result.reverse()
                 })

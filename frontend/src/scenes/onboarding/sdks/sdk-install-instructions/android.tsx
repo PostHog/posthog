@@ -42,19 +42,23 @@ function AndroidSetupSnippet({ includeReplay }: AndroidSetupProps): JSX.Element 
         ${
             includeReplay
                 ? `
-        // check https://posthog.com/docs/session-replay/mobile#installation
+        // check https://posthog.com/docs/session-replay/installation?tab=Android
         // for more config and to learn about how we capture sessions on mobile
         // and what to expect
         config.sessionReplay = true
         // choose whether to mask images or text
         config.sessionReplayConfig.maskAllImages = false
-        config.sessionReplayConfig.maskAllTextInputs = true`
+        config.sessionReplayConfig.maskAllTextInputs = true
+        // screenshot is disabled by default
+        // The screenshot may contain sensitive information, use with caution
+        config.sessionReplayConfig.screenshot = true`
                 : ''
         }
 
         // Setup PostHog with the given Context and Config
         PostHogAndroid.setup(this, config)
-    }`}
+    }
+}`}
         </CodeSnippet>
     )
 }
@@ -77,6 +81,29 @@ export function SDKInstallAndroidInstructions(props: AndroidSetupProps): JSX.Ele
             <AndroidInstallSnippet />
             <h3>Configure</h3>
             <AndroidSetupSnippet {...props} />
+        </>
+    )
+}
+
+export function SDKInstallAndroidTrackScreenInstructions(): JSX.Element {
+    return (
+        <>
+            <p>
+                With <code>captureScreenViews = true</code>, PostHog will try to record all screen changes
+                automatically.
+            </p>
+            <p>
+                If you want to manually send a new screen capture event, use the <code>screen</code> function.
+            </p>
+            <CodeSnippet language={Language.Kotlin}>{`import com.posthog.PostHog
+
+PostHog.screen(
+    screenTitle = "Dashboard",
+    properties = mapOf(
+        "background" to "blue",
+        "hero" to "superhog"
+    )
+)`}</CodeSnippet>
         </>
     )
 }

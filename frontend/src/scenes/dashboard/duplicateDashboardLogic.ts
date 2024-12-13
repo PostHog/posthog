@@ -24,7 +24,7 @@ const defaultFormValues: DuplicateDashboardForm = {
 
 export const duplicateDashboardLogic = kea<duplicateDashboardLogicType>([
     path(['scenes', 'dashboard', 'duplicateDashboardLogic']),
-    connect({ logic: [dashboardsModel], actions: [insightsModel, ['insightsAddedToDashboard']] }),
+    connect({ actions: [insightsModel, ['insightsAddedToDashboard']] }),
     actions({
         showDuplicateDashboardModal: (id: number, name: string) => ({
             id,

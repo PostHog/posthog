@@ -4,10 +4,9 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include
 from django.urls.conf import path
-from rest_framework_extensions.routers import NestedRegistryItem
 
-from ee.api import integration, time_to_see_data
-from posthog.api.routing import DefaultRouterPlusPlus
+from ee.api import integration
+from .api.rbac import organization_resource_access, role
 
 from .api import (
     authentication,
@@ -17,26 +16,25 @@ from .api import (
     feature_flag_role_access,
     hooks,
     license,
-    organization_resource_access,
-    role,
     sentry_stats,
     subscription,
 )
 from .session_recordings import session_recording_playlist
 
 
-def extend_api_router(
-    root_router: DefaultRouterPlusPlus,
-    *,
-    projects_router: NestedRegistryItem,
-    organizations_router: NestedRegistryItem,
-    project_dashboards_router: NestedRegistryItem,
-    project_feature_flags_router: NestedRegistryItem,
-) -> None:
+def extend_api_router() -> None:
+    from posthog.api import (
+        router as root_router,
+        register_grandfathered_environment_nested_viewset,
+        projects_router,
+        organizations_router,
+        project_feature_flags_router,
+        environment_dashboards_router,
+        legacy_project_dashboards_router,
+    )
+
     root_router.register(r"billing", billing.BillingViewset, "billing")
-    root_router.register(r"billing-v2", billing.BillingViewset, "billing")  # Legacy transition route
     root_router.register(r"license", license.LicenseViewSet)
-    root_router.register(r"time_to_see_data", time_to_see_data.TimeToSeeDataViewSet, "query_metrics")
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
     organization_roles_router = organizations_router.register(
         r"roles",
@@ -50,11 +48,12 @@ def extend_api_router(
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
+    # Start: routes to be deprecated
     project_feature_flags_router.register(
         r"role_access",
         feature_flag_role_access.FeatureFlagRoleAccessViewSet,
-        "feature_flag_role_access",
-        ["team_id", "feature_flag_id"],
+        "project_feature_flag_role_access",
+        ["project_id", "feature_flag_id"],
     )
     organizations_router.register(
         r"resource_access",
@@ -62,26 +61,36 @@ def extend_api_router(
         "organization_resource_access",
         ["organization_id"],
     )
-    projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
-    projects_router.register(
+    # End: routes to be deprecated
+    register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
+    register_grandfathered_environment_nested_viewset(
         r"explicit_members",
         explicit_team_member.ExplicitTeamMemberViewSet,
-        "project_explicit_members",
+        "environment_explicit_members",
         ["team_id"],
     )
-    project_dashboards_router.register(
+
+    environment_dashboards_router.register(
+        r"collaborators",
+        dashboard_collaborator.DashboardCollaboratorViewSet,
+        "environment_dashboard_collaborators",
+        ["project_id", "dashboard_id"],
+    )
+    legacy_project_dashboards_router.register(
         r"collaborators",
         dashboard_collaborator.DashboardCollaboratorViewSet,
         "project_dashboard_collaborators",
-        ["team_id", "dashboard_id"],
+        ["project_id", "dashboard_id"],
     )
 
-    projects_router.register(r"subscriptions", subscription.SubscriptionViewSet, "subscriptions", ["team_id"])
+    register_grandfathered_environment_nested_viewset(
+        r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
+    )
     projects_router.register(
         r"session_recording_playlists",
         session_recording_playlist.SessionRecordingPlaylistViewSet,
         "project_session_recording_playlists",
-        ["team_id"],
+        ["project_id"],
     )
 
 

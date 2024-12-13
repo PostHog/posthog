@@ -1,7 +1,7 @@
 import './FeatureFlag.scss'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSnack, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -40,6 +40,7 @@ export function FeatureFlagReleaseConditions({
     filters,
     onChange,
     hideMatchOptions,
+    nonEmptyFeatureFlagVariants,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
     isSuper?: boolean
@@ -78,6 +79,8 @@ export function FeatureFlagReleaseConditions({
     const { cohortsById } = useValues(cohortsModel)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
+    const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
+
     const filterGroups: FeatureFlagGroupType[] = (isSuper ? filters?.super_groups : filters?.groups) || []
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption()
@@ -106,7 +109,7 @@ export function FeatureFlagReleaseConditions({
                 <div className="mb-4 border rounded p-4 bg-bg-light">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
-                            <span className="simple-tag tag-light-blue font-medium mr-2">Set {index + 1}</span>
+                            <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
                             <div>
                                 {group.properties?.length ? (
                                     <>
@@ -169,9 +172,7 @@ export function FeatureFlagReleaseConditions({
                                     ) : (
                                         <LemonButton icon={<span className="text-sm">&</span>} size="small" />
                                     )}
-                                    <span className="simple-tag tag-light-blue text-primary-alt">
-                                        {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
-                                    </span>
+                                    <LemonSnack>{property.type === 'cohort' ? 'Cohort' : property.key} </LemonSnack>
                                     {isPropertyFilterWithOperator(property) ? (
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
                                     ) : null}
@@ -190,10 +191,7 @@ export function FeatureFlagReleaseConditions({
                                     ) : (
                                         [...(Array.isArray(property.value) ? property.value : [property.value])].map(
                                             (val, idx) => (
-                                                <span
-                                                    key={idx}
-                                                    className="simple-tag tag-light-blue text-primary-alt display-value"
-                                                >
+                                                <LemonSnack key={idx}>
                                                     {val}
                                                     {isPropertyFilterWithOperator(property) &&
                                                     ['is_date_before', 'is_date_after'].includes(property.operator) &&
@@ -210,7 +208,7 @@ export function FeatureFlagReleaseConditions({
                                                               true
                                                           )} )`
                                                         : ''}
-                                                </span>
+                                                </LemonSnack>
                                             )
                                         )
                                     )}
@@ -249,6 +247,8 @@ export function FeatureFlagReleaseConditions({
                                           })
                                         : null
                                 }
+                                exactMatchFeatureFlagCohortOperators={true}
+                                hideBehavioralCohorts={true}
                             />
                         </div>
                     )}
@@ -321,16 +321,24 @@ export function FeatureFlagReleaseConditions({
                                 ) : (
                                     <Spinner className="mr-1" />
                                 )}{' '}
-                                {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
-                                    ? `(${humanFriendlyNumber(
-                                          Math.floor((affectedUsers[index] * (group.rollout_percentage ?? 100)) / 100)
-                                      )} / ${humanFriendlyNumber(totalUsers)})`
-                                    : ''}{' '}
+                                {(() => {
+                                    const affectedUserCount = affectedUsers[index]
+                                    if (
+                                        affectedUserCount !== undefined &&
+                                        affectedUserCount >= 0 &&
+                                        totalUsers !== null
+                                    ) {
+                                        return `(${humanFriendlyNumber(
+                                            Math.floor((affectedUserCount * (group.rollout_percentage ?? 100)) / 100)
+                                        )} / ${humanFriendlyNumber(totalUsers)})`
+                                    }
+                                    return ''
+                                })()}{' '}
                                 of total {aggregationTargetName}.
                             </div>
                         </div>
                     )}
-                    {nonEmptyVariants.length > 0 && (
+                    {featureFlagVariants.length > 0 && (
                         <>
                             <LemonDivider className="my-3" />
                             {readOnly ? (
@@ -355,7 +363,7 @@ export function FeatureFlagReleaseConditions({
                                             allowClear={true}
                                             value={group.variant}
                                             onChange={(value) => updateConditionSet(index, undefined, undefined, value)}
-                                            options={nonEmptyVariants.map((variant) => ({
+                                            options={featureFlagVariants.map((variant) => ({
                                                 label: variant.key,
                                                 value: variant.key,
                                             }))}
@@ -389,9 +397,7 @@ export function FeatureFlagReleaseConditions({
                                 {group.properties?.length ? (
                                     <>
                                         Match <b>{aggregationTargetName}</b> against value set on{' '}
-                                        <span className="simple-tag tag-light-blue text-primary-alt">
-                                            {'$feature_enrollment/' + featureFlagKey}
-                                        </span>
+                                        <LemonSnack>{'$feature_enrollment/' + featureFlagKey}</LemonSnack>
                                     </>
                                 ) : (
                                     <>
@@ -451,8 +457,17 @@ export function FeatureFlagReleaseConditions({
                                 <>
                                     <h3 className="l3">Release conditions</h3>
                                     <div className="text-muted mb-4">
-                                        Specify the {aggregationTargetName} to which you want to release this flag. Note
-                                        that condition sets are rolled out independently of each other.
+                                        Specify {aggregationTargetName} for flag release. Condition sets roll out
+                                        independently.
+                                        {aggregationTargetName === 'users' && (
+                                            <>
+                                                {' '}
+                                                Cohort-based targeting{' '}
+                                                <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-behavioral-cohort-as-a-feature-flag-target">
+                                                    doesn't support dynamic behavioral cohorts.
+                                                </Link>{' '}
+                                            </>
+                                        )}
                                     </div>
                                 </>
                             )}

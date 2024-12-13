@@ -22,10 +22,10 @@ testdata_equals = [
     (ActionsNode(id=1), ActionsNode(id=2), False),
     (
         EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         True,
     ),
@@ -44,50 +44,50 @@ testdata_equals = [
     # different type
     (
         EventsNode(
-            properties=[PersonPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[PersonPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         False,
     ),
     # different key
     (
         EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         EventsNode(
-            properties=[EventPropertyFilter(key="other_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[EventPropertyFilter(key="other_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         False,
     ),
     # different value
     (
         EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="other_value", operator=PropertyOperator.exact)]
+            properties=[EventPropertyFilter(key="some_key", value="other_value", operator=PropertyOperator.EXACT)]
         ),
         False,
     ),
     # different operator
     (
         EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.is_not)]
+            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.IS_NOT)]
         ),
         False,
     ),
     # different fixed properties
     (
         EventsNode(
-            fixedProperties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            fixedProperties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         EventsNode(
-            fixedProperties=[EventPropertyFilter(key="other_key", value="some_value", operator=PropertyOperator.exact)]
+            fixedProperties=[EventPropertyFilter(key="other_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         False,
     ),
@@ -103,10 +103,10 @@ testdata_superset = [
     # everything equal
     (
         EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         True,
     ),
@@ -114,24 +114,24 @@ testdata_superset = [
     (
         EventsNode(
             properties=[
-                EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact),
-                PersonPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact),
+                EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT),
+                PersonPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT),
             ]
         ),
         EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         True,
     ),
     # subset
     (
         EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         EventsNode(
             properties=[
-                EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact),
-                PersonPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact),
+                EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT),
+                PersonPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT),
             ]
         ),
         False,
@@ -154,10 +154,10 @@ testdata_superset = [
     # different type
     (
         EventsNode(
-            properties=[PersonPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[PersonPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.exact)]
+            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         False,
     ),

@@ -2,29 +2,25 @@ import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonModal, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
+import { getProration } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { confirmUpgradeModalLogic } from './confirmUpgradeModalLogic'
 
 export function ConfirmUpgradeModal(): JSX.Element {
     const { upgradePlan } = useValues(confirmUpgradeModalLogic)
-    const { daysRemaining, daysTotal, billing } = useValues(billingLogic)
+    const { timeRemainingInSeconds, timeTotalInSeconds, billing } = useValues(billingLogic)
     const { hideConfirmUpgradeModal, confirm, cancel } = useActions(confirmUpgradeModalLogic)
 
-    const prorationAmount = useMemo(
+    const { prorationAmount, isProrated } = useMemo(
         () =>
-            upgradePlan?.unit_amount_usd
-                ? (parseInt(upgradePlan?.unit_amount_usd) * ((daysRemaining || 1) / (daysTotal || 1))).toFixed(2)
-                : 0,
-        [upgradePlan, daysRemaining, daysTotal]
-    )
-
-    const isProrated = useMemo(
-        () =>
-            billing?.has_active_subscription && upgradePlan?.unit_amount_usd
-                ? prorationAmount !== parseInt(upgradePlan?.unit_amount_usd || '')
-                : false,
-        [billing?.has_active_subscription, prorationAmount]
+            getProration({
+                timeRemainingInSeconds,
+                timeTotalInSeconds,
+                amountUsd: upgradePlan?.unit_amount_usd,
+                hasActiveSubscription: billing?.has_active_subscription,
+            }),
+        [billing?.has_active_subscription, upgradePlan, timeRemainingInSeconds, timeTotalInSeconds]
     )
 
     return (
@@ -49,7 +45,7 @@ export function ConfirmUpgradeModal(): JSX.Element {
                     Woo! You're gonna love the {upgradePlan?.name}. We're just confirming that this is a $
                     {Number(upgradePlan?.unit_amount_usd)} / {upgradePlan?.unit} subscription.{' '}
                     {isProrated
-                        ? `The first payment will be prorated to $${prorationAmount} and it will be charged immediately.`
+                        ? `The first payment will be prorated to ~$${prorationAmount} and it will be charged immediately.`
                         : 'The first payment will be charged immediately.'}
                 </p>
                 {upgradePlan && upgradePlan?.features?.length > 1 && (

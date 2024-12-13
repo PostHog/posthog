@@ -16,12 +16,10 @@
         outline: 1px solid var(--primary-3000);
     }
 
-    &.react-draggable::after {
-        // During dashboard layout editing, we need an overlay to prevent accidental interaction with card content
-        position: absolute;
-        inset: 0;
-        z-index: var(--z-content-overlay);
-        content: '';
+    .ErrorBoundary {
+        width: 100%;
+        height: 100%;
+        margin: auto;
     }
 }
 
@@ -50,6 +48,10 @@
         background: none;
         border: none;
         border-radius: 0;
+    }
+
+    .WebAnalyticsDashboard .InsightVizDisplay & {
+        min-height: var(--insight-viz-min-height);
     }
 }
 
@@ -106,16 +108,6 @@
     }
 }
 
-.InsightDetails__breakdown {
-    margin-bottom: 0.5rem;
-
-    .breakdown-tag {
-        padding: 0.375rem 0.75rem;
-        font-size: 0.8125rem;
-        line-height: 0.8125rem;
-    }
-}
-
 .InsightDetails__footer {
     display: flex;
     flex-wrap: wrap;
@@ -147,8 +139,9 @@
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1rem;
-    color: var(--primary-alt);
-    background: var(--primary-bg-hover);
+    color: var(--text-3000);
+    vertical-align: middle;
+    background: var(--primary-highlight);
     border-radius: var(--radius);
 
     &.SeriesDisplay__raw-name--action,
@@ -181,10 +174,6 @@
 
 .SeriesDisplay__condition {
     display: flex;
-
-    .SeriesDisplay__raw-name {
-        vertical-align: middle;
-    }
 }
 
 .SeriesDisplay__arrow {

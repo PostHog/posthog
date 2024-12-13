@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\nWITH stalled AS (\n    SELECT id FROM cyclotron_jobs WHERE state = 'running' AND COALESCE(last_heartbeat, $1) <= $1 FOR UPDATE SKIP LOCKED\n)\nUPDATE cyclotron_jobs\nSET state = 'available', lock_id = NULL, last_heartbeat = NULL, janitor_touch_count = janitor_touch_count + 1\nFROM stalled\nWHERE cyclotron_jobs.id = stalled.id\n    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "54d9afe6952f92b753fbce2c4e8554065b71152389f98d35532c6b332d5a4c9d"
+}

@@ -1,12 +1,12 @@
-import { IconArrowRightDown, IconInfo } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { IconArrowRightDown } from '@posthog/icons'
+import { LemonBanner, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 
 import { BillingProductV2Type, BillingTableTierRow, ProductPricingTierSubrows } from '~/types'
 
 import { billingLogic } from './billingLogic'
-import { getTierDescription } from './BillingProduct'
+import { FeatureFlagUsageNotice, getTierDescription } from './BillingProduct'
 
 function Subrows(props: ProductPricingTierSubrows): JSX.Element {
     return (
@@ -35,7 +35,9 @@ export const BillingProductPricingTable = ({
         {
             title: 'Total',
             dataIndex: 'total',
-            render: (_, item: BillingTableTierRow) => <span className="font-bold mb-0 text-default">{item.total}</span>,
+            render: (_, item: BillingTableTierRow) => (
+                <span className="font-bold mb-0 text-text-3000">{item.total}</span>
+            ),
         },
         { title: 'Projected Total', dataIndex: 'projectedTotal' },
     ]
@@ -179,19 +181,10 @@ export const BillingProductPricingTable = ({
                             rowExpandable: (row) => !!row.subrows?.rows?.length,
                         }}
                     />
-                    {product.type === 'feature_flags' && (
-                        <p className="mt-4 ml-0 text-sm text-muted italic">
-                            <IconInfo className="mr-1" />
-                            Using local evaluation? Here's{' '}
-                            <Link
-                                to="https://posthog.com/docs/feature-flags/bootstrapping-and-local-evaluation#server-side-local-evaluation"
-                                className="italic"
-                            >
-                                how we calculate usage
-                            </Link>
-                            .
-                        </p>
-                    )}
+                    <FeatureFlagUsageNotice product={product} />
+                    <LemonBanner type="warning" className="text-sm pt-2">
+                        Tier breakdowns are updated once daily and may differ from the gauge above.
+                    </LemonBanner>
                 </>
             ) : (
                 <LemonTable

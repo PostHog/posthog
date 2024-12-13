@@ -17,6 +17,42 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "__dlt_id": StringDatabaseField(name="_dlt_id", hidden=True),
         "__dlt_load_id": StringDatabaseField(name="_dlt_load_id", hidden=True),
     },
+    "stripe_account": {
+        "id": StringDatabaseField(name="id"),
+        "object": StringDatabaseField(name="object"),
+        "business_profile": StringJSONDatabaseField(name="business_profile"),
+        "business_type": StringDatabaseField(name="business_type"),
+        "capabilities": StringJSONDatabaseField(name="capabilities"),
+        "charges_enabled": BooleanDatabaseField(name="charges_enabled"),
+        "controller": StringJSONDatabaseField(name="controller"),
+        "country": StringDatabaseField(name="country"),
+        "__created": IntegerDatabaseField(name="created", hidden=True),
+        "created_at": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                    )
+                ],
+            ),
+            name="created_at",
+        ),
+        "default_currency": StringDatabaseField(name="default_currency"),
+        "details_submitted": BooleanDatabaseField(name="details_submitted"),
+        "email": StringDatabaseField(name="email"),
+        "external_accounts": StringJSONDatabaseField(name="external_accounts"),
+        "future_requirements": StringJSONDatabaseField(name="future_requirements"),
+        "login_links": StringJSONDatabaseField(name="login_links"),
+        "metadata": StringJSONDatabaseField(name="metadata"),
+        "payouts_enabled": BooleanDatabaseField(name="payouts_enabled"),
+        "requirements": StringJSONDatabaseField(name="requirements"),
+        "settings": StringJSONDatabaseField(name="settings"),
+        "tos_acceptance": StringJSONDatabaseField(name="tos_acceptance"),
+        "type": StringDatabaseField(name="type"),
+    },
     "stripe_customer": {
         "id": StringDatabaseField(name="id"),
         "name": StringDatabaseField(name="name"),
@@ -27,6 +63,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "balance": IntegerDatabaseField(name="balance"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -65,6 +102,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "status": StringDatabaseField(name="status"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -89,6 +127,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "amount_due": IntegerDatabaseField(name="amount_due"),
         "__period_start": IntegerDatabaseField(name="period_start", hidden=True),
         "period_start_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -102,6 +141,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "__period_end": IntegerDatabaseField(name="period_end", hidden=True),
         "period_end_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -120,6 +160,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "auto_advance": BooleanDatabaseField(name="auto_advance"),
         "__effective_at": IntegerDatabaseField(name="effective_at", hidden=True),
         "effective_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -157,6 +198,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "subscription_details": StringJSONDatabaseField(name="subscription_details"),
         "__webhooks_delivered_at": IntegerDatabaseField(name="webhooks_delivered_at", hidden=True),
         "webhooks_delivered_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -182,6 +224,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "status": StringDatabaseField(name="status"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -226,6 +269,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "object": StringDatabaseField(name="object"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -244,6 +288,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "nickname": StringDatabaseField(name="nickname"),
         "recurring": StringJSONDatabaseField(name="recurring"),
         "tiers_mode": StringDatabaseField(name="tiers_mode"),
+        "tiers": StringArrayDatabaseField(name="tiers"),
         "unit_amount": IntegerDatabaseField(name="unit_amount"),
         "tax_behavior": StringDatabaseField(name="tax_behavior"),
         "billing_scheme": StringDatabaseField(name="billing_scheme"),
@@ -258,6 +303,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "object": StringDatabaseField(name="object"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -271,6 +317,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "__updated": IntegerDatabaseField(name="updated", hidden=True),
         "updated_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -298,6 +345,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "status": StringDatabaseField(name="status"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -313,6 +361,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "customer_id": StringDatabaseField(name="customer"),
         "__ended_at": IntegerDatabaseField(name="ended_at", hidden=True),
         "ended_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -329,6 +378,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "quantity": IntegerDatabaseField(name="quantity"),
         "__start_date": IntegerDatabaseField(name="start_date", hidden=True),
         "start_date": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -342,6 +392,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "__canceled_at": IntegerDatabaseField(name="canceled_at", hidden=True),
         "canceled_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -362,6 +413,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "default_tax_rates": StringJSONDatabaseField(name="default_tax_rates"),
         "__current_period_start": IntegerDatabaseField(name="current_period_start", hidden=True),
         "current_period_start": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -375,6 +427,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "__current_period_end": IntegerDatabaseField(name="current_period_end", hidden=True),
         "current_period_end": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -388,6 +441,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "__billing_cycle_anchor": IntegerDatabaseField(name="billing_cycle_anchor", hidden=True),
         "billing_cycle_anchor": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -401,6 +455,35 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "cancel_at_period_end": BooleanDatabaseField(name="cancel_at_period_end"),
         "cancellation_details": StringJSONDatabaseField(name="cancellation_details"),
+        "__trial_end": IntegerDatabaseField(name="trial_end", hidden=True),
+        "trial_end": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__trial_end"])])],
+                    )
+                ],
+            ),
+            name="trial_end",
+        ),
+        "__trial_start": IntegerDatabaseField(name="trial_start", hidden=True),
+        "trial_start": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__trial_start"])])],
+                    )
+                ],
+            ),
+            name="trial_start",
+        ),
+        "trial_settings": StringJSONDatabaseField(name="trial_settings"),
     },
     "stripe_balancetransaction": {
         "id": StringDatabaseField(name="id"),
@@ -413,6 +496,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "status": StringDatabaseField(name="status"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -429,6 +513,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "fee_details": StringJSONDatabaseField(name="fee_details"),
         "__available_on": IntegerDatabaseField(name="available_on", hidden=True),
         "available_on": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -622,8 +707,8 @@ HOGQL_FIELD_DLT_TYPE_MAP = {
     IntegerDatabaseField: "bigint",
     BooleanDatabaseField: "bool",
     DateTimeDatabaseField: "timestamp",
-    StringJSONDatabaseField: "complex",
-    StringArrayDatabaseField: "complex",
+    StringJSONDatabaseField: "json",
+    StringArrayDatabaseField: "json",
     FloatDatabaseField: "double",
     DateDatabaseField: "date",
 }
@@ -632,13 +717,10 @@ HOGQL_FIELD_DLT_TYPE_MAP = {
 def get_dlt_mapping_for_external_table(table):
     return {
         field.name: {
+            "name": field.name,
             "data_type": HOGQL_FIELD_DLT_TYPE_MAP[type(field)],
             "nullable": True,
         }
         for _, field in external_tables[table].items()
-        if type(field) != ast.ExpressionField
+        if type(field) is not ast.ExpressionField
     }
-
-
-def get_imported_fields_for_table(table):
-    return [field.name for _, field in external_tables[table].items() if type(field) != ast.ExpressionField]

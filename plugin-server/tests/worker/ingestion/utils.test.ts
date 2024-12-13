@@ -1,5 +1,5 @@
 import { Hub, LogLevel } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { captureIngestionWarning } from '../../../src/worker/ingestion/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 
@@ -7,15 +7,14 @@ jest.setTimeout(60000) // 60 sec timeout
 
 describe('captureIngestionWarning()', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
+        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
         await resetTestDatabaseClickhouse()
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     async function fetchWarnings() {

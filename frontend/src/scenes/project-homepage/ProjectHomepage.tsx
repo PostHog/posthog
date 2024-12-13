@@ -15,6 +15,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
+import { WatchNextPanel } from 'scenes/project-homepage/WatchNextPanel'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
@@ -24,7 +25,6 @@ import { DashboardPlacement } from '~/types'
 
 import { RecentInsights } from './RecentInsights'
 import { RecentPersons } from './RecentPersons'
-import { RecentRecordings } from './RecentRecordings'
 
 export const scene: SceneExport = {
     component: ProjectHomepage,
@@ -70,7 +70,7 @@ export function ProjectHomepage(): JSX.Element {
             <div className="ProjectHomepage__lists">
                 <RecentInsights />
                 <RecentPersons />
-                <RecentRecordings />
+                <WatchNextPanel />
             </div>
             {dashboardLogicProps ? (
                 <HomeDashboard dashboardLogicProps={dashboardLogicProps} />
@@ -97,7 +97,7 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
                     {!dashboard && <LemonSkeleton className="w-20 h-4" />}
                     {dashboard?.name && (
                         <>
-                            <Link className="font-semibold text-xl text-default" to={urls.dashboard(dashboard.id)}>
+                            <Link className="font-semibold text-xl text-text-3000" to={urls.dashboard(dashboard.id)}>
                                 <IconHome className="mr-2 text-2xl opacity-50" />
                                 {dashboard?.name}
                             </Link>

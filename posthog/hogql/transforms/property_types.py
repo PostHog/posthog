@@ -1,5 +1,10 @@
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 
+from posthog.clickhouse.materialized_columns import (
+    MaterializedColumn,
+    TablesWithMaterializedColumns,
+    get_materialized_column_for_property,
+)
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -13,11 +18,11 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.database.s3_table import S3Table
 
 
-def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
+def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     from posthog.models import PropertyDefinition
 
     if not context or not context.team_id:
-        return node
+        return
 
     # find all properties
     property_finder = PropertyFinder(context)
@@ -61,14 +66,14 @@ def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
         )
 
     timezone = context.database.get_timezone() if context and context.database else "UTC"
-    property_swapper = PropertySwapper(
+    context.property_swapper = PropertySwapper(
         timezone=timezone,
         event_properties=event_properties,
         person_properties=person_properties,
         group_properties=group_properties,
         context=context,
+        setTimeZones=True,
     )
-    return property_swapper.visit(node)
 
 
 class PropertyFinder(TraversingVisitor):
@@ -122,6 +127,7 @@ class PropertySwapper(CloningVisitor):
         person_properties: dict[str, str],
         group_properties: dict[str, str],
         context: HogQLContext,
+        setTimeZones: bool,
     ):
         super().__init__(clear_types=False)
         self.timezone = timezone
@@ -129,10 +135,11 @@ class PropertySwapper(CloningVisitor):
         self.person_properties = person_properties
         self.group_properties = group_properties
         self.context = context
+        self.setTimeZones = setTimeZones
 
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):
-            if isinstance(node.type.resolve_database_field(self.context), DateTimeDatabaseField):
+            if self.setTimeZones and isinstance(node.type.resolve_database_field(self.context), DateTimeDatabaseField):
                 return ast.Call(
                     name="toTimeZone",
                     args=[node, ast.Constant(value=self.timezone)],
@@ -218,12 +225,17 @@ class PropertySwapper(CloningVisitor):
             return ast.Call(name="toFloat", args=[node])
         if field_type == "Boolean":
             return ast.Call(
-                name="transform",
+                name="toBool",
                 args=[
-                    node,
-                    ast.Constant(value=["true", "false"]),
-                    ast.Constant(value=[True, False]),
-                    ast.Constant(value=None),
+                    ast.Call(
+                        name="transform",
+                        args=[
+                            ast.Call(name="toString", args=[node]),
+                            ast.Constant(value=["true", "false"]),
+                            ast.Constant(value=[1, 0]),
+                            ast.Constant(value=None),
+                        ],
+                    )
                 ],
             )
         return node
@@ -236,7 +248,7 @@ class PropertySwapper(CloningVisitor):
     ):
         property_name = str(node.chain[-1])
         if property_type == "person":
-            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
+            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
                 materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
                 materialized_column = self._get_materialized_column("person", property_name, "properties")
@@ -250,7 +262,7 @@ class PropertySwapper(CloningVisitor):
 
         message = f"{property_type.capitalize()} property '{property_name}' is of type '{field_type}'."
         if self.context.debug:
-            if materialized_column:
+            if materialized_column is not None:
                 message += " This property is materialized ⚡️."
             else:
                 message += " This property is not materialized 🐢."
@@ -269,14 +281,7 @@ class PropertySwapper(CloningVisitor):
 
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> Optional[str]:
-        try:
-            from ee.clickhouse.materialized_columns.columns import (
-                TablesWithMaterializedColumns,
-                get_materialized_columns,
-            )
-
-            materialized_columns = get_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
-            return materialized_columns.get((property_name, field_name), None)
-        except ModuleNotFoundError:
-            return None
+    ) -> MaterializedColumn | None:
+        return get_materialized_column_for_property(
+            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
+        )

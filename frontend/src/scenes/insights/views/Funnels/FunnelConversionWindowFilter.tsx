@@ -10,7 +10,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { FunnelsFilter } from '~/queries/schema'
 import { EditorFilterProps, FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
 
-const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
+export const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Second]: [1, 3600],
     [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
     [FunnelConversionWindowTimeUnit.Hour]: [1, 24],
@@ -82,8 +82,7 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
                     fullWidth={false}
                     min={intervalBounds[0]}
                     max={intervalBounds[1]}
-                    defaultValue={funnelWindowInterval}
-                    value={localConversionWindow.funnelWindowInterval}
+                    value={localConversionWindow.funnelWindowInterval || funnelWindowInterval}
                     onChange={(funnelWindowInterval) => {
                         setLocalConversionWindow((state) => ({
                             ...state,

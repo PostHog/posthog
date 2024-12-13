@@ -1,5 +1,5 @@
 import { eventWithTime } from '@rrweb/types'
-import { getSeriesColor } from 'lib/colors'
+import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
 import { humanizeBytes } from 'lib/utils'
 import { CapturedNetworkRequest } from 'posthog-js'
 
@@ -124,6 +124,7 @@ export const RRWebPerformanceEventReverseMapping: Record<string, keyof Performan
     requestBody: 'request_body',
     responseBody: 'response_body',
     method: 'method',
+    endTime: 'end_time',
 }
 
 export function initiatorTypeToColor(type: NonNullable<PerformanceEvent['initiator_type']>): string {
@@ -181,19 +182,19 @@ export const initiatorToAssetTypeMapping: Record<string, AssetType> = {
 export function assetTypeToColor(type: AssetType): string {
     switch (type) {
         case 'CSS':
-            return getSeriesColor(14, null, true)
+            return getSeriesBackgroundColor(14)
         case 'JS':
-            return getSeriesColor(15, null, true)
+            return getSeriesBackgroundColor(15)
         case 'Fetch':
-            return getSeriesColor(17, null, true)
+            return getSeriesBackgroundColor(17)
         case 'Image':
-            return getSeriesColor(22, null, true)
+            return getSeriesBackgroundColor(22)
         case 'Link':
-            return getSeriesColor(27, null, true)
+            return getSeriesBackgroundColor(27)
         case 'XHR':
-            return getSeriesColor(16, null, true)
+            return getSeriesBackgroundColor(16)
         case 'HTML':
-            return getSeriesColor(13, null, true)
+            return getSeriesBackgroundColor(13)
     }
 }
 
@@ -222,7 +223,7 @@ export function mapRRWebNetworkRequest(
     return data as PerformanceEvent
 }
 
-export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWithTime[]>): PerformanceEvent[] {
+export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWithTime[]>): PerformanceEvent[] {
     // we only support rrweb/network@1 events or posthog/network@1 events in any one recording
     // apart from during testing, where we might have both
     // if we have both, we only display posthog/network@1 events
@@ -299,7 +300,35 @@ export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWith
     return events.length ? events : rrwebEvents
 }
 
-export function itemSizeInfo(item: PerformanceEvent): {
+function isPositiveNumber(value: any): value is number {
+    return typeof value === 'number' && value >= 0
+}
+
+function bytesFrom(item: PerformanceEvent): number | null {
+    // encoded body + header
+    if (isPositiveNumber(item.transfer_size)) {
+        return item.transfer_size
+    }
+    // body while encoded e.g. gzipped
+    if (isPositiveNumber(item.encoded_body_size)) {
+        return item.encoded_body_size
+    }
+    // body after being decoded e.g. unzipped
+    if (isPositiveNumber(item.decoded_body_size)) {
+        return item.decoded_body_size
+    }
+
+    if (item.response_body && typeof item.response_body === 'string') {
+        const bodySize = new Blob([item.response_body]).size
+        const headerSize = new Blob([JSON.stringify(item.response_headers)]).size
+        return bodySize + headerSize
+    }
+
+    // we use null as the default not 0 because 0 can mean "was cached" and if we have no data we don't know
+    return null
+}
+
+export interface PerformanceEventSizeInfo {
     formattedBytes: string
     compressionPercentage: number | null
     formattedDecodedBodySize: string | null
@@ -309,18 +338,22 @@ export function itemSizeInfo(item: PerformanceEvent): {
     bytes: number | null
     decodedBodySize: number | null
     encodedBodySize: number | null
-} {
-    const bytes = item.encoded_body_size || item.decoded_body_size || item.transfer_size || 0
+}
+
+export function itemSizeInfo(item: PerformanceEvent): PerformanceEventSizeInfo {
+    const bytes = bytesFrom(item)
     const formattedBytes = humanizeBytes(bytes)
-    const decodedBodySize = item.decoded_body_size ?? null
-    const formattedDecodedBodySize = decodedBodySize ? humanizeBytes(decodedBodySize) : null
-    const encodedBodySize = item.encoded_body_size ?? null
-    const formattedEncodedBodySize = encodedBodySize ? humanizeBytes(encodedBodySize) : null
+    const decodedBodySize = isPositiveNumber(item.decoded_body_size) ? item.decoded_body_size : null
+    const formattedDecodedBodySize = isPositiveNumber(decodedBodySize) ? humanizeBytes(decodedBodySize) : null
+    const encodedBodySize = isPositiveNumber(item.encoded_body_size) ? item.encoded_body_size : null
+    const formattedEncodedBodySize = isPositiveNumber(encodedBodySize) ? humanizeBytes(encodedBodySize) : null
     const compressionPercentage =
-        item.decoded_body_size && item.encoded_body_size
+        isPositiveNumber(item.decoded_body_size) && isPositiveNumber(item.encoded_body_size)
             ? ((item.decoded_body_size - item.encoded_body_size) / item.decoded_body_size) * 100
             : null
-    const formattedCompressionPercentage = compressionPercentage ? `${compressionPercentage.toFixed(1)}%` : null
+    const formattedCompressionPercentage = isPositiveNumber(compressionPercentage)
+        ? `${compressionPercentage.toFixed(1)}%`
+        : null
     const isFromLocalCache = item.transfer_size === 0 && (item.decoded_body_size || 0) > 0
     return {
         bytes,

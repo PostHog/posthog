@@ -136,7 +136,7 @@ class SessionReplayEvents:
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
         q = """
-            select event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+            select event, timestamp, elements_chain_href, elements_chain_texts, elements_chain_elements, properties.$window_id, properties.$current_url, properties.$event_type
             from events
             where timestamp >= {start_time} and timestamp <= {end_time}
             and $session_id = {session_id}

@@ -33,6 +33,7 @@ export function AppsManagement(): JSX.Element {
         shouldNotBeGlobalPlugins,
         globalPlugins,
         localPlugins,
+        inlinePlugins,
         pluginsLoading,
     } = useValues(appsManagementLogic)
     const { isDev, isCloudOrDev } = useValues(preflightLogic)
@@ -72,6 +73,14 @@ export function AppsManagement(): JSX.Element {
                     <h3 className="mt-3">Local apps</h3>
                     <p>These apps can only be used by this organization, or ones with an existing plugin config.</p>
                     <AppsTable plugins={localPlugins} />
+                </>
+            )}
+
+            {inlinePlugins && (
+                <>
+                    <h3 className="mt-3">Inline plugins</h3>
+                    <p>These plugins are inlined into plugin-server code, any updates should be done there.</p>
+                    <InlinePluginsTable plugins={inlinePlugins} />
                 </>
             )}
         </div>
@@ -255,11 +264,60 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                     },
                 ]}
                 expandable={{
-                    // TODO: how to handle expanding multiple rows?
                     expandedRowRender: function Render(plugin: PluginType) {
                         return <AppCode pluginId={plugin.id} pluginType={plugin.plugin_type} />
                     },
                 }}
+            />
+        </>
+    )
+}
+
+function InlinePluginsTable({ plugins }: RenderAppsTable): JSX.Element {
+    const data = plugins.map((plugin) => ({ ...plugin, key: plugin.id }))
+    return (
+        <>
+            <LemonTable
+                dataSource={data}
+                columns={[
+                    {
+                        title: 'Name',
+                        render: function RenderName(_, plugin) {
+                            return (
+                                <>
+                                    <div className="flex gap-2 items-center">
+                                        <span className="font-semibold truncate">{plugin.name}</span>
+                                    </div>
+                                    <div className="text-sm">{plugin.description}</div>
+                                </>
+                            )
+                        },
+                    },
+                    {
+                        title: 'Capabilities',
+                        width: '30%',
+                        render: function RenderCapabilities(_, plugin) {
+                            // TODO: use labels by app type once we get rid of jobs and scheduled tasks
+                            return (
+                                <>
+                                    <div className="text-sm">
+                                        Methods: {JSON.stringify(plugin.capabilities?.methods)}
+                                    </div>
+                                    <div className="text-sm">Jobs: {JSON.stringify(plugin.capabilities?.jobs)}</div>
+                                    <div className="text-sm">
+                                        Scheduled tasks: {JSON.stringify(plugin.capabilities?.scheduled_tasks)}
+                                    </div>
+                                </>
+                            )
+                        },
+                    },
+                    {
+                        title: 'Global',
+                        render: function RenderGlobal(_, plugin) {
+                            return <span>{plugin.is_global ? 'Yes' : 'No'}</span>
+                        },
+                    },
+                ]}
             />
         </>
     )

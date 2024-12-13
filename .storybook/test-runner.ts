@@ -1,8 +1,10 @@
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
-import { getStoryContext, TestRunnerConfig, TestContext, waitForPageReady } from '@storybook/test-runner'
+import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
 import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
 import type { Mocks } from '~/mocks/utils'
 import { StoryContext } from '@storybook/csf'
+
+const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
@@ -36,6 +38,8 @@ declare module '@storybook/types' {
             snapshotBrowsers?: SupportedBrowserName[]
             /** If taking a component snapshot, you can narrow it down by specifying the selector. */
             snapshotTargetSelector?: string
+            /** specify an alternative viewport size */
+            viewport?: { width: number; height: number }
         }
         msw?: {
             mocks?: Mocks
@@ -50,7 +54,6 @@ declare module '@storybook/types' {
 
 const RETRY_TIMES = 2
 const LOADER_SELECTORS = [
-    '.ant-skeleton',
     '.Spinner',
     '.LemonSkeleton',
     '.LemonTableLoader',
@@ -73,8 +76,15 @@ module.exports = {
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
         jest.setTimeout(JEST_TIMEOUT_MS)
     },
+    async preVisit(page, context) {
+        const storyContext = await getStoryContext(page, context)
+        const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
+        await page.setViewportSize(viewport)
+    },
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
+        const storyContext = await getStoryContext(page, context)
+        const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
         await page.evaluate(
             ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
             [ATTEMPT_COUNT_PER_ID[context.id], context.id]
@@ -83,10 +93,9 @@ module.exports = {
             // When retrying, resize the viewport and then resize again to default,
             // just in case the retry is due to a useResizeObserver fail
             await page.setViewportSize({ width: 1920, height: 1080 })
-            await page.setViewportSize({ width: 1280, height: 720 })
+            await page.setViewportSize(viewport)
         }
         const browserContext = page.context()
-        const storyContext = await getStoryContext(page, context)
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
         browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS)
@@ -145,24 +154,25 @@ async function expectStoryToMatchSnapshot(
         await Promise.all(waitForSelector.map((selector) => page.waitForSelector(selector)))
     }
 
-    await page.waitForTimeout(400) // Wait for effects to finish
-
-    // Wait for all images to load
-    await page.waitForFunction(() =>
-        Array.from(document.querySelectorAll('img')).every((i: HTMLImageElement) => i.complete)
-    )
-
-    // snapshot light theme
+    // Snapshot light theme
     await page.evaluate(() => {
         document.body.setAttribute('theme', 'light')
     })
 
+    await waitForPageReady(page)
+    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
+    await page.waitForTimeout(2000)
+
     await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 
-    // snapshot dark theme
+    // Snapshot dark theme
     await page.evaluate(() => {
         document.body.setAttribute('theme', 'dark')
     })
+
+    await waitForPageReady(page)
+    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
+    await page.waitForTimeout(100)
 
     await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
@@ -246,4 +256,17 @@ async function expectLocatorToMatchStorySnapshot(
         failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
+}
+
+/**
+ * Just like the `waitForPageReady` helper offered by Playwright - except we only wait for `networkidle` in CI,
+ * as it doesn't work with local Storybook (the live reload feature keeps up a long-running request, so we aren't idle).
+ */
+async function waitForPageReady(page: Page): Promise<void> {
+    await page.waitForLoadState('domcontentloaded')
+    await page.waitForLoadState('load')
+    if (process.env.CI) {
+        await page.waitForLoadState('networkidle')
+    }
+    await page.evaluate(() => document.fonts.ready)
 }

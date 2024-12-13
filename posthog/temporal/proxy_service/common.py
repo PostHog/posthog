@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import grpc.aio
 import uuid
 from django.conf import settings
+from django.db import connection
 
 from temporalio import activity
 
@@ -19,6 +20,10 @@ async def get_grpc_client():
 
 
 class NonRetriableException(Exception):
+    pass
+
+
+class RecordDeletedException(NonRetriableException):
     pass
 
 
@@ -43,8 +48,14 @@ async def update_proxy_record(inputs: UpdateProxyRecordInputs):
 
     @sync_to_async
     def update_record(proxy_record_id):
-        pr = ProxyRecord.objects.get(id=proxy_record_id)
+        connection.connect()
+        prs = ProxyRecord.objects.filter(id=proxy_record_id)
+        if len(prs) == 0:
+            raise RecordDeletedException("proxy record was deleted before workflow completed")
+        pr = prs[0]
         pr.status = inputs.status
+        # clear message after every transition
+        pr.message = ""
         pr.save()
 
     await update_record(inputs.proxy_record_id)

@@ -3,13 +3,16 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { DashboardTemplateScope, DashboardTemplateType } from '~/types'
+import { DashboardTemplateScope, DashboardTemplateType, TemplateAvailabilityContext } from '~/types'
 
 import type { dashboardTemplatesLogicType } from './dashboardTemplatesLogicType'
 
 export interface DashboardTemplateProps {
     // default is to present global templates _and_ those visible only in the current team
     scope?: 'default' | DashboardTemplateScope
+    onItemClick?: (template: DashboardTemplateType) => void
+    redirectAfterCreation?: boolean
+    availabilityContexts?: TemplateAvailabilityContext[]
 }
 
 export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([

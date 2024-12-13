@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { htmlElementsDisplayLogic } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
@@ -13,7 +14,13 @@ function indent(level: number): string {
     return Array(level).fill('    ').join('')
 }
 
-function CloseAllTags({ elements }: { elements: ElementType[] }): JSX.Element {
+function CloseAllTags({
+    elements,
+    size = 'small',
+}: {
+    elements: ElementType[]
+    size?: 'small' | 'xsmall'
+}): JSX.Element {
     return (
         <>
             {[...elements]
@@ -28,7 +35,10 @@ function CloseAllTags({ elements }: { elements: ElementType[] }): JSX.Element {
                         }}
                     >
                         <pre
-                            className="whitespace-pre-wrap break-all p-0 m-0 rounded-none text-default text-sm"
+                            className={clsx(
+                                'whitespace-pre-wrap break-all p-0 m-0 rounded-none text-text-3000',
+                                size === 'xsmall' ? 'text-xs' : 'text-sm'
+                            )}
                             key={index}
                         >
                             {indent(elements.length - index - 2)}
@@ -47,6 +57,7 @@ function Tags({
     editable,
     onChange,
     selectedText,
+    size = 'small',
 }: {
     elements: ElementType[]
     parsedCSSSelectors: Record<number, ParsedCSSSelector>
@@ -54,6 +65,7 @@ function Tags({
     editable: boolean
     onChange: (i: number, s: ParsedCSSSelector) => void
     selectedText?: string
+    size?: 'small' | 'xsmall'
 }): JSX.Element {
     return (
         <>
@@ -78,6 +90,7 @@ function Tags({
                             highlight={highlight}
                             parsedCSSSelector={parsedCSSSelectors[index]}
                             selectedText={selectedText}
+                            size={size}
                         />
                     </Fade>
                 )
@@ -92,6 +105,7 @@ interface HTMLElementsDisplayPropsBase {
     elements: ElementType[]
     highlight?: boolean
     selectedText?: string
+    size?: 'small' | 'xsmall'
 }
 
 type HTMLElementsDisplayProps =
@@ -119,6 +133,7 @@ export function HTMLElementsDisplay({
     highlight = true,
     editable = false,
     checkUniqueness = false,
+    size = 'small',
 }: HTMLElementsDisplayProps): JSX.Element {
     const [key] = useState(() => `HtmlElementsDisplay.${uniqueNode++}`)
 
@@ -137,12 +152,12 @@ export function HTMLElementsDisplay({
     const { setParsedSelectors, showAdditionalElements } = useActions(logic)
 
     return (
-        <div className="flex flex-col gap-1">
+        <div className={clsx('flex flex-col gap-1', size === 'xsmall' && 'text-xxs')}>
             {editable && !!parsedElements.length && (
                 <div className="flex flex-col gap-2 mb-2">
                     <div>Selector:</div>
                     <div className="w-full border rounded bg-bg-3000 px-4 py-2 select-text">
-                        <pre className="m-0">{chosenSelector}</pre>
+                        <pre className={clsx('m-0', size === 'xsmall' ? 'text-xxs' : 'text-sm')}>{chosenSelector}</pre>
                     </div>
                 </div>
             )}
@@ -161,7 +176,10 @@ export function HTMLElementsDisplay({
                     <>
                         {elementsToShowDepth ? (
                             <pre
-                                className="p-1 m-0 opacity-50 text-default text-sm cursor-pointer"
+                                className={clsx(
+                                    'p-1 m-0 opacity-50 text-text-3000 cursor-pointer',
+                                    size === 'xsmall' ? 'text-xxs' : 'text-sm'
+                                )}
                                 data-attr="elements-display-show-more-of-chain"
                                 onClick={showAdditionalElements}
                             >
@@ -177,8 +195,9 @@ export function HTMLElementsDisplay({
                             parsedCSSSelectors={parsedSelectors}
                             onChange={(index, s) => setParsedSelectors({ ...parsedSelectors, [index]: s })}
                             selectedText={selectedText}
+                            size={size}
                         />
-                        <CloseAllTags elements={parsedElements} />
+                        <CloseAllTags elements={parsedElements} size={size} />
                     </>
                 ) : (
                     <div>No elements to display</div>

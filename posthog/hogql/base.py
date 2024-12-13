@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass, field
 
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional, TypeVar
 
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.errors import NotImplementedError
@@ -34,6 +34,24 @@ class AST:
             return visitor.visit_unknown(self)
         raise NotImplementedError(f"{visitor.__class__.__name__} has no method {method_name}")
 
+    def to_hogql(self):
+        from posthog.hogql.printer import print_prepared_ast
+        from posthog.hogql.context import HogQLContext
+
+        return print_prepared_ast(
+            node=self,
+            context=HogQLContext(enable_select_queries=True, limit_top_select=False),
+            dialect="hogql",
+        )
+
+    def __str__(self):
+        if isinstance(self, Type):
+            return super().__str__()
+        return f"sql({self.to_hogql()})"
+
+
+_T_AST = TypeVar("_T_AST", bound=AST)
+
 
 @dataclass(kw_only=True)
 class Type(AST):
@@ -43,8 +61,11 @@ class Type(AST):
     def has_child(self, name: str, context: "HogQLContext") -> bool:
         return self.get_child(name, context) is not None
 
-    def resolve_constant_type(self, context: "HogQLContext") -> Optional["ConstantType"]:
-        return UnknownType()
+    def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
+        raise NotImplementedError(f"{self.__class__.__name__}.resolve_constant_type not overridden")
+
+    def resolve_column_constant_type(self, name: str, context: "HogQLContext") -> "ConstantType":
+        raise NotImplementedError(f"{self.__class__.__name__}.resolve_column_constant_type not overridden")
 
 
 @dataclass(kw_only=True)
@@ -65,6 +86,7 @@ class CTE(Expr):
 @dataclass(kw_only=True)
 class ConstantType(Type):
     data_type: ConstantDataType
+    nullable: bool = field(default=True)
 
     def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
         return self

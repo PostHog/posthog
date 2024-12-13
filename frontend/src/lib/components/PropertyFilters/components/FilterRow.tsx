@@ -64,7 +64,7 @@ export const FilterRow = React.memo(function FilterRow({
         <>
             <div
                 className={clsx(
-                    'property-filter-row flex items-center flex-nowrap space-x-2',
+                    'property-filter-row flex items-center flex-nowrap space-x-2 max-w-full',
                     !disablePopover && 'wrap-filters'
                 )}
                 data-attr={'property-filter-' + index}

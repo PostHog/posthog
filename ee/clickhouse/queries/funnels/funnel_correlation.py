@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from posthog.clickhouse.materialized_columns import get_materialized_columns
+from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
 from posthog.constants import (
     AUTOCAPTURE_EVENT,
     TREND_FILTER_TYPE_ACTIONS,
@@ -24,12 +24,11 @@ from posthog.models.event.util import ElementSerializer
 from posthog.models.filters import Filter
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
-from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.funnels.utils import get_funnel_order_actor_class
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
-from posthog.queries.util import correct_result_for_sampling
+from posthog.queries.util import alias_poe_mode_for_legacy, correct_result_for_sampling
 from posthog.schema import PersonsOnEventsMode
 from posthog.utils import generate_short_id
 
@@ -152,40 +151,23 @@ class FunnelCorrelation:
     def properties_to_include(self) -> list[str]:
         props_to_include = []
         if (
-            self._team.person_on_events_mode != PersonsOnEventsMode.disabled
+            alias_poe_mode_for_legacy(self._team.person_on_events_mode) != PersonsOnEventsMode.DISABLED
             and self._filter.correlation_type == FunnelCorrelationType.PROPERTIES
         ):
             # When dealing with properties, make sure funnel response comes with properties
             # so we don't have to join on persons/groups to get these properties again
-            mat_event_cols = get_materialized_columns("events")
-
             for property_name in cast(list, self._filter.correlation_property_names):
                 if self._filter.aggregation_group_type_index is not None:
-                    if not groups_on_events_querying_enabled():
-                        continue
-
-                    if "$all" == property_name:
-                        return [f"group{self._filter.aggregation_group_type_index}_properties"]
-
-                    possible_mat_col = mat_event_cols.get(
-                        (
-                            property_name,
-                            f"group{self._filter.aggregation_group_type_index}_properties",
-                        )
-                    )
-                    if possible_mat_col is not None:
-                        props_to_include.append(possible_mat_col)
-                    else:
-                        props_to_include.append(f"group{self._filter.aggregation_group_type_index}_properties")
-
+                    continue  # We don't support group properties on events at this time
                 else:
                     if "$all" == property_name:
                         return [f"person_properties"]
 
-                    possible_mat_col = mat_event_cols.get((property_name, "person_properties"))
-
-                    if possible_mat_col is not None:
-                        props_to_include.append(possible_mat_col)
+                    possible_mat_col = get_materialized_column_for_property(
+                        "events", "person_properties", property_name
+                    )
+                    if possible_mat_col is not None and not possible_mat_col.is_nullable:
+                        props_to_include.append(possible_mat_col.name)
                     else:
                         props_to_include.append(f"person_properties")
 
@@ -322,7 +304,7 @@ class FunnelCorrelation:
                     {event_join_query}
                     AND event.event IN %(event_names)s
             )
-            GROUP BY name
+            GROUP BY name, prop
             -- Discard high cardinality / low hits properties
             -- This removes the long tail of random properties with empty, null, or very small values
             HAVING (success_count + failure_count) > 2
@@ -432,7 +414,7 @@ class FunnelCorrelation:
         return query, params
 
     def _get_aggregation_target_join_query(self) -> str:
-        if self._team.person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+        if self._team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             aggregation_person_join = f"""
                 JOIN funnel_actors as actors
                     ON event.person_id = actors.actor_id
@@ -499,9 +481,6 @@ class FunnelCorrelation:
 
     def _get_aggregation_join_query(self):
         if self._filter.aggregation_group_type_index is None:
-            if self._team.person_on_events_mode != PersonsOnEventsMode.disabled and groups_on_events_querying_enabled():
-                return "", {}
-
             person_query, person_query_params = PersonQuery(
                 self._filter,
                 self._team.pk,
@@ -519,11 +498,11 @@ class FunnelCorrelation:
             return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_actors.actor_id").get_join_query()
 
     def _get_properties_prop_clause(self):
-        if self._team.person_on_events_mode != PersonsOnEventsMode.disabled and groups_on_events_querying_enabled():
-            group_properties_field = f"group{self._filter.aggregation_group_type_index}_properties"
-            aggregation_properties_alias = (
-                "person_properties" if self._filter.aggregation_group_type_index is None else group_properties_field
-            )
+        if (
+            alias_poe_mode_for_legacy(self._team.person_on_events_mode) != PersonsOnEventsMode.DISABLED
+            and self._filter.aggregation_group_type_index is None
+        ):
+            aggregation_properties_alias = "person_properties"
         else:
             group_properties_field = f"groups_{self._filter.aggregation_group_type_index}.group_properties_{self._filter.aggregation_group_type_index}"
             aggregation_properties_alias = (
@@ -546,7 +525,9 @@ class FunnelCorrelation:
                 param_name = f"property_name_{index}"
                 if self._filter.aggregation_group_type_index is not None:
                     expression, _ = get_property_string_expr(
-                        "groups" if self._team.person_on_events_mode == PersonsOnEventsMode.disabled else "events",
+                        "groups"
+                        if alias_poe_mode_for_legacy(self._team.person_on_events_mode) == PersonsOnEventsMode.DISABLED
+                        else "events",
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
@@ -554,13 +535,18 @@ class FunnelCorrelation:
                     )
                 else:
                     expression, _ = get_property_string_expr(
-                        "person" if self._team.person_on_events_mode == PersonsOnEventsMode.disabled else "events",
+                        "person"
+                        if alias_poe_mode_for_legacy(self._team.person_on_events_mode) == PersonsOnEventsMode.DISABLED
+                        else "events",
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
-                        materialised_table_column=aggregation_properties_alias
-                        if self._team.person_on_events_mode != PersonsOnEventsMode.disabled
-                        else "properties",
+                        materialised_table_column=(
+                            aggregation_properties_alias
+                            if alias_poe_mode_for_legacy(self._team.person_on_events_mode)
+                            != PersonsOnEventsMode.DISABLED
+                            else "properties"
+                        ),
                     )
                 person_property_params[param_name] = property_name
                 person_property_expressions.append(expression)

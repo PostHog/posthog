@@ -5,7 +5,7 @@ import structlog
 from django.http import HttpResponse
 from django.utils.timezone import now
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 

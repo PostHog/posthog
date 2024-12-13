@@ -7,7 +7,7 @@ from django.db.models.query import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.settings import api_settings
@@ -215,7 +215,7 @@ class EventViewSet(
 
         except Exception as ex:
             capture_exception(ex)
-            raise ex
+            raise
 
     def _get_people(self, query_result: List[dict], team: Team) -> dict[str, Any]:  # noqa: UP006
         distinct_ids = [event["distinct_id"] for event in query_result]
@@ -258,7 +258,7 @@ class EventViewSet(
         res = ClickhouseEventSerializer(query_result[0], many=False, context=query_context).data
         return response.Response(res)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
         team = self.team
 
@@ -282,4 +282,4 @@ class EventViewSet(
 
 
 class LegacyEventViewSet(EventViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "team_id"

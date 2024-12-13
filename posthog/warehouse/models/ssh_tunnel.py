@@ -21,9 +21,9 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
     except ValueError:
         key = crypto_serialization.load_pem_private_key(  # type: ignore
             file_bytes,
-            password=password,
+            password=password if passphrase is not None else None,
         )
-        if password:
+        if passphrase:
             encryption_algorithm = crypto_serialization.BestAvailableEncryption(password)
         else:
             encryption_algorithm = crypto_serialization.NoEncryption()
@@ -119,6 +119,7 @@ class SSHTunnel:
         else:
             return SSHTunnelForwarder(
                 (self.host, int(self.port)),
+                ssh_username=self.username,
                 ssh_pkey=self.parse_private_key(),
                 ssh_private_key_password=self.passphrase,
                 remote_bind_address=(remote_host, remote_port),

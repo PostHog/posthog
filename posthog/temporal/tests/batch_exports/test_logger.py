@@ -26,7 +26,7 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.temporal.common.logger import (
     BACKGROUND_LOGGER_TASKS,
     bind_temporal_worker_logger,
-    configure_logger,
+    configure_logger_async,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -142,7 +142,9 @@ async def configure(log_capture, queue, producer):
     * Set the queue and producer to capture messages sent.
     * Do not cache logger to ensure each test starts clean.
     """
-    configure_logger(extra_processors=[log_capture], queue=queue, producer=producer, cache_logger_on_first_use=False)
+    configure_logger_async(
+        extra_processors=[log_capture], queue=queue, producer=producer, cache_logger_on_first_use=False
+    )
 
     yield
 
@@ -211,13 +213,13 @@ BATCH_EXPORT_ID = str(uuid.uuid4())
     "activity_environment",
     [
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.timezone.utc)}",
+            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.UTC)}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.timezone.utc)}",
+            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.UTC)}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
@@ -262,13 +264,13 @@ async def test_batch_exports_logger_binds_activity_context(
     "activity_environment",
     [
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.timezone.utc)}",
+            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.UTC)}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.timezone.utc)}",
+            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.UTC)}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
@@ -324,13 +326,13 @@ def log_entries_table():
     "activity_environment",
     [
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.timezone.utc)}",
+            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.UTC)}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.timezone.utc)}",
+            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.UTC)}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),

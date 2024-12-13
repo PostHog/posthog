@@ -1,6 +1,7 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { SDKInstallPHPInstructions } from '../sdk-install-instructions'
+import { PersonModeEventPropertyInstructions } from '../shared-snippets'
 
 function PHPCaptureSnippet(): JSX.Element {
     return (
@@ -16,6 +17,7 @@ export function ProductAnalyticsPHPInstructions(): JSX.Element {
             <SDKInstallPHPInstructions />
             <h3>Send an Event</h3>
             <PHPCaptureSnippet />
+            <PersonModeEventPropertyInstructions />
         </>
     )
 }

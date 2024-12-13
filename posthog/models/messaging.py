@@ -19,16 +19,32 @@ class MessagingRecordManager(models.Manager):
 
         return super().get_or_create(defaults, **kwargs)
 
+    def filter(self, *args, **kwargs):
+        raw_email = kwargs.pop("raw_email", None)
+
+        if raw_email:
+            kwargs["email_hash"] = get_email_hash(raw_email)
+
+        return super().filter(*args, **kwargs)
+
+    def get(self, *args, **kwargs):
+        raw_email = kwargs.pop("raw_email", None)
+
+        if raw_email:
+            kwargs["email_hash"] = get_email_hash(raw_email)
+
+        return super().get(*args, **kwargs)
+
 
 class MessagingRecord(UUIDModel):
     objects = MessagingRecordManager()
 
-    email_hash: models.CharField = models.CharField(max_length=1024)
-    campaign_key: models.CharField = models.CharField(max_length=128)
+    email_hash = models.CharField(max_length=1024)
+    campaign_key = models.CharField(max_length=128)
     # Numeric indicator for repeat emails of the same campaign key
-    campaign_count: models.IntegerField = models.IntegerField(null=True)
-    sent_at: models.DateTimeField = models.DateTimeField(null=True)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    campaign_count = models.IntegerField(null=True)
+    sent_at = models.DateTimeField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = (

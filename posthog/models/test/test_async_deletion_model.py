@@ -65,7 +65,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_person(self):
-        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 
         _create_event(
             event_uuid=uuid4(),
@@ -101,7 +101,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_person_when_not_done(self):
-        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 
         _create_event(
             event_uuid=uuid4(),
@@ -226,7 +226,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_alter_queries
     def test_delete_person(self):
-        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 
         # Event for person, created before AsyncDeletion, so it should be deleted
         _create_event(
@@ -264,7 +264,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_alter_queries
     def test_delete_person_unrelated(self):
-        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+        base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 
         _create_event(
             event_uuid=uuid4(),
@@ -365,7 +365,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             group_key="org:5",
             properties={},
         )
-        insert_static_cohort([uuid4()], 0, self.teams[0])
+        insert_static_cohort([uuid4()], 0, team_id=self.teams[0].pk)
         self._insert_cohortpeople_row(self.teams[0], uuid4(), 3)
         create_plugin_log_entry(
             team_id=self.teams[0].pk,
@@ -403,7 +403,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             group_key="org:5",
             properties={},
         )
-        insert_static_cohort([uuid4()], 0, self.teams[1])
+        insert_static_cohort([uuid4()], 0, team_id=self.teams[1].pk)
         self._insert_cohortpeople_row(self.teams[1], uuid4(), 3)
         create_plugin_log_entry(
             team_id=self.teams[1].pk,

@@ -32,6 +32,7 @@ describe('session recording process event', () => {
             | 'event_count'
             | 'message_count'
             | 'snapshot_source'
+            | 'urls'
         >
     }[] = [
         {
@@ -67,6 +68,7 @@ describe('session recording process event', () => {
                 event_count: 6,
                 message_count: 1,
                 snapshot_source: 'web',
+                urls: [],
             },
         },
         {
@@ -90,6 +92,7 @@ describe('session recording process event', () => {
                 event_count: 1,
                 message_count: 1,
                 snapshot_source: 'web',
+                urls: [],
             },
         },
         {
@@ -178,6 +181,7 @@ describe('session recording process event', () => {
                 event_count: 11,
                 message_count: 1,
                 snapshot_source: 'web',
+                urls: [],
             },
         },
         {
@@ -215,6 +219,7 @@ describe('session recording process event', () => {
                 event_count: 2,
                 message_count: 1,
                 snapshot_source: 'web',
+                urls: ['http://127.0.0.1:8000/the/url'],
             },
         },
         {
@@ -256,6 +261,7 @@ describe('session recording process event', () => {
                 event_count: 2,
                 message_count: 1,
                 snapshot_source: 'web',
+                urls: ['http://127.0.0.1:8000/home', 'http://127.0.0.1:8000/second/url'],
             },
         },
         {
@@ -301,6 +307,7 @@ describe('session recording process event', () => {
                 event_count: 2,
                 message_count: 1,
                 snapshot_source: 'web',
+                urls: ['http://127.0.0.1:8000/my-spa'],
             },
         },
         {
@@ -329,6 +336,7 @@ describe('session recording process event', () => {
                 event_count: 3,
                 message_count: 1,
                 snapshot_source: 'web',
+                urls: [],
             },
         },
         {
@@ -360,6 +368,7 @@ describe('session recording process event', () => {
                 event_count: 6,
                 message_count: 1,
                 snapshot_source: 'web',
+                urls: [],
             },
         },
         {
@@ -383,6 +392,102 @@ describe('session recording process event', () => {
                 mouse_activity_count: 1,
                 size: 82,
                 snapshot_source: 'mobile',
+                urls: [],
+            },
+        },
+        {
+            testDescription: 'message too large warning is reported',
+            snapshotData: {
+                events_summary: [
+                    { timestamp: 1682449093000, type: 3, data: { source: 2, type: 2 }, windowId: '1' },
+                    { timestamp: 1682449093000, type: 5, data: { tag: 'Message too large' }, windowId: '1' },
+                ],
+            },
+            snapshotSource: 'web',
+            expected: {
+                active_milliseconds: 1,
+                click_count: 1,
+                console_error_count: 0,
+                console_log_count: 0,
+                console_warn_count: 0,
+                event_count: 2,
+                first_timestamp: '2023-04-25 18:58:13.000',
+                first_url: null,
+                keypress_count: 0,
+                last_timestamp: '2023-04-25 18:58:13.000',
+                message_count: 1,
+                mouse_activity_count: 1,
+                size: 169,
+                snapshot_source: 'web',
+                urls: [],
+            },
+        },
+        {
+            testDescription: 'urls array is deduplicated',
+            snapshotData: {
+                events_summary: [
+                    {
+                        timestamp: 1682449093469,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // we don't read just any URL
+                                'the-page-url': 'http://127.0.0.1:8000/not/included',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                    {
+                        timestamp: 1682449093693,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // matches href nested in payload
+                                href: 'http://127.0.0.1:8000/my-spa',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                    {
+                        timestamp: 1682449093693,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // matches href nested in payload
+                                href: 'http://127.0.0.1:8000/my-spa',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                    {
+                        timestamp: 1682449093693,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // matches href nested in payload
+                                href: 'http://127.0.0.1:8000/my-spa/1',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                ],
+            },
+            expected: {
+                click_count: 0,
+                keypress_count: 0,
+                mouse_activity_count: 0,
+                first_url: 'http://127.0.0.1:8000/my-spa',
+                first_timestamp: '2023-04-25 18:58:13.469',
+                last_timestamp: '2023-04-25 18:58:13.693',
+                active_milliseconds: 0, // no data.source, so no activity
+                console_log_count: 0,
+                console_warn_count: 0,
+                console_error_count: 0,
+                size: 461,
+                event_count: 4,
+                message_count: 1,
+                snapshot_source: 'web',
+                urls: ['http://127.0.0.1:8000/my-spa', 'http://127.0.0.1:8000/my-spa/1'],
             },
         },
     ]
@@ -390,7 +495,7 @@ describe('session recording process event', () => {
     it.each(sessionReplayEventTestCases)(
         'session replay event generation - $testDescription',
         ({ snapshotData, snapshotSource, expected }) => {
-            const data = createSessionReplayEvent(
+            const { event: data } = createSessionReplayEvent(
                 'some-id',
                 12345,
                 '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',

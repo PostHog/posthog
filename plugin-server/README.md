@@ -61,6 +61,7 @@ testing:
         DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog \
         PLUGINS_DEFAULT_LOG_LEVEL=0 \
         RELOAD_PLUGIN_JITTER_MAX_MS=0 \
+        PLUGIN_SERVER_MODE=functional-tests \
         pnpm start:dev
     ```
 1. run the tests:

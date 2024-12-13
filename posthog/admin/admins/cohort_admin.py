@@ -18,6 +18,7 @@ class CohortAdmin(admin.ModelAdmin):
     autocomplete_fields = ("team", "created_by")
     ordering = ("-created_at",)
 
+    @admin.display(description="Team")
     def team_link(self, cohort: Cohort):
         return format_html(
             '<a href="/admin/posthog/team/{}/change/">{}</a>',

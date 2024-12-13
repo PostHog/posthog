@@ -6,64 +6,94 @@ import { urlToAction } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, Region, SidePanelTab, TeamType, UserType } from '~/types'
+import { AvailableFeature, OrganizationBasicType, Region, SidePanelTab, TeamPublicType, UserType } from '~/types'
 
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
 
-export function getPublicSupportSnippet(region: Region | null | undefined, user: UserType | null): string {
-    if (!user || !region) {
+export function getPublicSupportSnippet(
+    cloudRegion: Region | null | undefined,
+    currentOrganization: OrganizationBasicType | null,
+    currentTeam: TeamPublicType | null,
+    includeCurrentLocation = true
+): string {
+    if (!cloudRegion) {
         return ''
     }
+    return (
+        (includeCurrentLocation ? getCurrentLocationLink() : '') +
+        getSessionReplayLink() +
+        `\nAdmin: http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})` +
+        getSentryLink(cloudRegion, currentTeam)
+    ).trimStart()
+}
 
-    return `Session: ${posthog
-        .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
-        .replace(window.location.origin + '/replay/', 'http://go/session/')} ${
-        !window.location.href.includes('settings/project') ? `(at ${window.location.href})` : ''
-    }\n${`Admin: ${`http://go/adminOrg${region}/${user.organization?.id}`} (Project: ${
-        teamLogic.values.currentTeamId
-    })`}\nSentry: ${`http://go/sentry${region}/${user.team?.id}`}`
+function getCurrentLocationLink(): string {
+    const cleanedCurrentUrl = window.location.href.replace(/panel=support[^&]*(&)?/, '').replace(/#$/, '')
+    return `\nLocation: ${cleanedCurrentUrl}`
 }
 
 function getSessionReplayLink(): string {
-    const link = posthog
+    const replayUrl = posthog
         .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
         .replace(window.location.origin + '/replay/', 'http://go/session/')
+    return `\nSession: ${replayUrl}`
+}
 
-    return `Session: ${link} (at ${window.location.href.replace(/&supportModal=.+($|&)?/, '$1')})`
+function getErrorTrackingLink(): string {
+    const filterGroup = encodeURIComponent(
+        JSON.stringify({
+            type: 'AND',
+            values: [
+                {
+                    type: 'AND',
+                    values: [
+                        {
+                            key: '$session_id',
+                            value: [posthog.get_session_id()],
+                            operator: 'exact',
+                            type: 'event',
+                        },
+                    ],
+                },
+            ],
+        })
+    )
+
+    return `\nExceptions: https://us.posthog.com/project/2/error_tracking?filterGroup=${filterGroup}`
 }
 
 function getDjangoAdminLink(
     user: UserType | null,
     cloudRegion: Region | null | undefined,
-    currentTeamId: TeamType['id'] | null
+    currentOrganization: OrganizationBasicType | null,
+    currentTeam: TeamPublicType | null
 ): string {
     if (!user || !cloudRegion) {
         return ''
     }
     const link = `http://go/admin${cloudRegion}/${user.email}`
-    return `Admin: ${link} (Organization: '${user.organization?.name}'; Project: ${currentTeamId}:'${user.team?.name}')`
+    return `\nAdmin: ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
 }
 
-function getBillingAdminLink(user: UserType | null): string {
-    if (!user) {
+function getBillingAdminLink(currentOrganization: OrganizationBasicType | null): string {
+    if (!currentOrganization) {
         return ''
     }
-    const link = `http://go/billing/${user.organization?.id}`
-    return `Billing Admin: ${link} (Organization: '${user.organization?.name}'`
+    return `\nBilling admin: http://go/billing/${currentOrganization.id}`
 }
 
-function getSentryLink(user: UserType | null, cloudRegion: Region | null | undefined): string {
-    if (!user || !cloudRegion) {
+function getSentryLink(cloudRegion: Region | null | undefined, currentTeam: TeamPublicType | null): string {
+    if (!cloudRegion || !currentTeam) {
         return ''
     }
-    const link = `http://go/sentry${cloudRegion}/${user.team?.id}`
-    return `Sentry: ${link}`
+    return `\nSentry: http://go/sentry${cloudRegion}/${currentTeam.id}`
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
@@ -97,6 +127,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Onboarding',
             },
             {
+                value: 'sdk',
+                'data-attr': `support-form-target-area-onboarding`,
+                label: 'SDK / Implementation',
+            },
+            {
                 value: 'cohorts',
                 'data-attr': `support-form-target-area-cohorts`,
                 label: 'Cohorts',
@@ -124,12 +159,17 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'experiments',
                 'data-attr': `support-form-target-area-experiments`,
-                label: 'A/B testing',
+                label: 'Experiments',
             },
             {
                 value: 'data_warehouse',
                 'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse (beta)',
+                label: 'Data warehouse',
+            },
+            {
+                value: 'batch_exports',
+                'data-attr': `support-form-target-area-batch-exports`,
+                label: 'Batch exports',
             },
             {
                 value: 'feature_flags',
@@ -159,7 +199,12 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'web_analytics',
                 'data-attr': `support-form-target-area-web_analytics`,
-                label: 'Web Analytics (beta)',
+                label: 'Web Analytics',
+            },
+            {
+                value: 'error_tracking',
+                'data-attr': `support-form-target-area-error_tracking`,
+                label: 'Error tracking',
             },
         ],
     },
@@ -194,6 +239,7 @@ export type SupportTicketTargetArea =
     | 'toolbar'
     | 'surveys'
     | 'web_analytics'
+    | 'error_tracking'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -234,7 +280,7 @@ export const SUPPORT_TICKET_TEMPLATES = {
     feedback:
         "If your request is due to a problem, please describe the problem as best you can.\n\nPlease also describe the solution you'd like to see, and any alternatives you considered.\n\nYou can add images below to help illustrate your request, if needed!",
     support:
-        "Please explain as fully as possible what it is you're trying to do, and what you'd like help with.\n\nIf your question involves an existing insight or dashboard, please include a link to it.",
+        "Please explain as fully as possible what you're aiming to do, and what you'd like help with.\n\nIf your question involves an existing insight or dashboard, please include a link to it.",
 }
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
@@ -253,6 +299,7 @@ export type SupportFormFields = {
     target_area: SupportTicketTargetArea | null
     severity_level: SupportTicketSeverityLevel | null
     message: string
+    isEmailFormOpen?: boolean | 'true' | 'false'
 }
 
 export const supportLogic = kea<supportLogicType>([
@@ -340,13 +387,14 @@ export const supportLogic = kea<supportLogicType>([
                 values.sendSupportRequest.kind ?? '',
                 values.sendSupportRequest.target_area ?? '',
                 values.sendSupportRequest.severity_level ?? '',
+                values.isEmailFormOpen ?? 'false',
             ].join(':')
 
             if (panelOptions !== ':') {
                 actions.setSidePanelOptions(panelOptions)
             }
         },
-        openSupportForm: async ({ name, email, kind, target_area, severity_level, message }) => {
+        openSupportForm: async ({ name, email, isEmailFormOpen, kind, target_area, severity_level, message }) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
@@ -360,6 +408,12 @@ export const supportLogic = kea<supportLogicType>([
                 severity_level: severity_level ?? null,
                 message: message ?? '',
             })
+
+            if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
+                actions.openEmailForm()
+            } else {
+                actions.closeEmailForm()
+            }
 
             if (values.sidePanelAvailable) {
                 const panelOptions = [kind ?? '', area ?? ''].join(':')
@@ -397,6 +451,14 @@ export const supportLogic = kea<supportLogicType>([
                             value: posthog.get_distinct_id(),
                         },
                         {
+                            id: 27242745654043,
+                            value: target_area ?? '',
+                        },
+                        {
+                            id: 27031528411291,
+                            value: userLogic?.values?.user?.organization?.id ?? '',
+                        },
+                        {
                             id: 26073267652251,
                             value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
                                 ? 'priority_support'
@@ -406,27 +468,31 @@ export const supportLogic = kea<supportLogicType>([
                         },
                     ],
                     comment: {
-                        body: (
+                        body:
                             message +
                             `\n\n-----` +
                             `\nKind: ${kind}` +
                             `\nTarget area: ${target_area}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
-                            '\n' +
                             getSessionReplayLink() +
-                            '\n' +
-                            getDjangoAdminLink(userLogic.values.user, cloudRegion, teamLogic.values.currentTeamId) +
-                            '\n' +
-                            'PoE mode: ' +
-                            (teamLogic.values.currentTeam?.modifiers?.personsOnEventsMode ??
-                                teamLogic.values.currentTeam?.default_modifiers?.personsOnEventsMode ??
-                                'disabled') +
-                            '\n' +
+                            getErrorTrackingLink() +
+                            getCurrentLocationLink() +
+                            getDjangoAdminLink(
+                                userLogic.values.user,
+                                cloudRegion,
+                                organizationLogic.values.currentOrganization,
+                                teamLogic.values.currentTeam
+                            ) +
                             (target_area === 'billing' || target_area === 'login' || target_area === 'onboarding'
-                                ? getBillingAdminLink(userLogic.values.user) + '\n'
+                                ? getBillingAdminLink(organizationLogic.values.currentOrganization)
                                 : '') +
-                            getSentryLink(userLogic.values.user, cloudRegion)
-                        ).trim(),
+                            getSentryLink(cloudRegion, teamLogic.values.currentTeam) +
+                            (cloudRegion && teamLogic.values.currentTeam
+                                ? '\nPersons-on-events mode for project: ' +
+                                  (teamLogic.values.currentTeam.modifiers?.personsOnEventsMode ??
+                                      teamLogic.values.currentTeam.default_modifiers?.personsOnEventsMode ??
+                                      'unknown')
+                                : ''),
                     },
                 },
             }
@@ -509,12 +575,13 @@ export const supportLogic = kea<supportLogicType>([
             const [panel, ...panelOptions] = (hashParams['panel'] ?? '').split(':')
 
             if (panel === SidePanelTab.Support) {
-                const [kind, area, severity] = panelOptions
+                const [kind, area, severity, isEmailFormOpen] = panelOptions
 
                 actions.openSupportForm({
                     kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
+                    target_area: getLabelBasedOnTargetArea(area) ? area : null,
                     severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
+                    isEmailFormOpen: isEmailFormOpen ?? 'false',
                 })
                 return
             }

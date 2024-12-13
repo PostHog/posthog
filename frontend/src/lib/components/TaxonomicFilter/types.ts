@@ -37,6 +37,8 @@ export interface TaxonomicFilterProps {
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] } // only return properties in this list, currently only working for EventProperties and PersonProperties
     metadataSource?: AnyDataNode
+    hideBehavioralCohorts?: boolean
+    showNumericalPropsOnly?: boolean
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
@@ -47,12 +49,13 @@ export type TaxonomicFilterValue = string | number | null
 
 export type TaxonomicFilterRender = (props: {
     value?: TaxonomicFilterValue
-    onChange: (value: TaxonomicFilterValue) => void
+    onChange: (value: TaxonomicFilterValue, item: any) => void
 }) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {
     name: string
-    searchPlaceholder: string
+    /** Null means this group is not searchable (like HogQL expressions). */
+    searchPlaceholder: string | null
     type: TaxonomicFilterGroupType
     /** Component to show instead of the usual taxonomic list. */
     render?: TaxonomicFilterRender
@@ -64,7 +67,7 @@ export interface TaxonomicFilterGroup {
     logic?: LogicWrapper
     value?: string
     searchAlias?: string
-    valuesEndpoint?: (key: string) => string
+    valuesEndpoint?: (propertyKey: string) => string | undefined
     getName?: (instance: any) => string
     getValue?: (instance: any) => TaxonomicFilterValue
     getPopoverHeader: (instance: any) => string
@@ -108,6 +111,9 @@ export enum TaxonomicFilterGroupType {
     SessionProperties = 'session_properties',
     HogQLExpression = 'hogql_expression',
     Notebooks = 'notebooks',
+    LogEntries = 'log_entries',
+    // Misc
+    Replay = 'replay',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

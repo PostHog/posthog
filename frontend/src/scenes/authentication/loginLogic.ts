@@ -86,13 +86,13 @@ export const loginLogic = kea<loginLogicType>([
                     }
 
                     breakpoint()
-                    const response = await api.create('api/login/precheck', { email })
+                    const response = await api.create<any>('api/login/precheck', { email })
                     return { status: 'completed', ...response }
                 },
             },
         ],
     })),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         login: {
             defaults: { email: '', password: '' } as LoginForm,
             errors: ({ email, password }) => ({
@@ -102,7 +102,7 @@ export const loginLogic = kea<loginLogicType>([
             submit: async ({ email, password }, breakpoint) => {
                 breakpoint()
                 try {
-                    return await api.create('api/login', { email, password })
+                    return await api.create<any>('api/login', { email, password })
                 } catch (e) {
                     const { code } = e as Record<string, any>
                     let { detail } = e as Record<string, any>
@@ -110,7 +110,7 @@ export const loginLogic = kea<loginLogicType>([
                         router.actions.push(urls.login2FA())
                         throw e
                     }
-                    if (code === 'invalid_credentials') {
+                    if (code === 'invalid_credentials' && values.preflight?.cloud) {
                         detail += ' Make sure you have selected the right data region.'
                     }
                     actions.setGeneralError(code, detail)

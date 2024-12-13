@@ -213,24 +213,20 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         onChange={(files) => onChange(files[0])}
                                         showUploadedFiles={false}
                                         callToAction={
-                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-default space-y-1">
+                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 space-y-1">
                                                 {cohort.csv ? (
                                                     <>
                                                         <IconUploadFile
                                                             style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
                                                         />
-                                                        <div className="ant-upload-text">
-                                                            {cohort.csv?.name ?? 'File chosen'}
-                                                        </div>
+                                                        <div>{cohort.csv?.name ?? 'File chosen'}</div>
                                                     </>
                                                 ) : (
                                                     <>
                                                         <IconUploadFile
                                                             style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
                                                         />
-                                                        <div className="ant-upload-text">
-                                                            Drag a file here or click to browse for a file
-                                                        </div>
+                                                        <div>Drag a file here or click to browse for a file</div>
                                                     </>
                                                 )}
                                             </div>

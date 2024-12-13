@@ -340,9 +340,9 @@ def extract_plugin_code(
     index_ts: Optional[str] = None
     try:
         index_ts = find_index_ts_in_archive(archive, plugin_json_parsed.get("main"))
-    except ValueError as e:
+    except ValueError:
         if frontend_tsx is None and site_ts is None:
-            raise e
+            raise
     return plugin_json, index_ts, frontend_tsx, site_ts
 
 

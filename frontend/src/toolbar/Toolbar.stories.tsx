@@ -12,6 +12,7 @@ import { ToolbarParams } from '~/types'
 import { listActionsAPIResponse } from './__mocks__/list-actions-response'
 import { listHeatmapStatsAPIResponse } from './__mocks__/list-heatmap-stats-response'
 import { listMyFlagsAPIResponse } from './__mocks__/list-my-flags-response'
+import { listExperimentsAPIResponse } from './__mocks__/list-web-experiments-response'
 import { MenuState, toolbarLogic } from './bar/toolbarLogic'
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 import { TOOLBAR_ID } from './utils'
@@ -54,7 +55,6 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
         userIntent: undefined,
         dataAttributes: ['data-attr'],
         apiURL: '/',
-        jsURL: 'http://localhost:8234/',
         userEmail: 'foobar@posthog.com',
     }
     useToolbarStyles()
@@ -67,11 +67,12 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
                 },
                 toolbarParams: {
                     toolbarVersion: 'toolbar',
-                    jsURL: 'http://localhost:8234/',
                 },
                 isAuthenticated: props.unauthenticated ?? true,
                 supportedCompression: ['gzip', 'gzip-js', 'lz64'],
-                featureFlags: {},
+                featureFlags: {
+                    'web-experiments': true,
+                },
                 sessionRecording: {
                     endpoint: '/s/',
                 },
@@ -79,6 +80,7 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
             '/api/element/stats/': listHeatmapStatsAPIResponse,
             '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
             '/api/projects/@current/actions/': listActionsAPIResponse,
+            '/api/projects/@current/web_experiments/': listExperimentsAPIResponse,
             '/api/users/@me/hedgehog_config/': {},
         },
     })
@@ -134,6 +136,16 @@ export const FeatureFlags = (): JSX.Element => {
 
 export const EventsDebuggerEmpty = (): JSX.Element => {
     return <BasicTemplate menu="debugger" />
+}
+
+export const Experiments = (): JSX.Element => {
+    return <BasicTemplate menu="experiments" />
+}
+
+export const ExperimentsDisabledInParent = (): JSX.Element => {
+    // fake that the host site posthog config disables web experiments
+    window.parent.posthog = { config: { disable_web_experiments: true } }
+    return <BasicTemplate menu="experiments" />
 }
 
 // Dark theme

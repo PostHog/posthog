@@ -1,12 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { DataVisualizationNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId } from '~/types'
 
@@ -22,7 +20,7 @@ describe('insightDataLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team_id/insights/trend': [],
+                '/api/environments/:team_id/insights/trend': [],
             },
         })
         initKeaTests()
@@ -39,33 +37,11 @@ describe('insightDataLogic', () => {
     })
 
     describe('reacts when the insight changes', () => {
-        it('sets query when present', async () => {
-            const q = {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: ['*'],
-                    after: '-24h',
-                    limit: 100,
-                },
-            }
+        const q = examples.InsightTrends
 
+        it('sets query when override is set', async () => {
             await expectLogic(theInsightDataLogic, () => {
-                theInsightLogic.actions.setInsight({ query: q }, {})
-            })
-                .toDispatchActions(['setQuery'])
-                .toMatchValues({
-                    query: q,
-                })
-        })
-
-        it('sets query when filters is present and override is set', async () => {
-            const q = examples.InsightTrendsQuery as TrendsQuery
-
-            const filters = queryNodeToFilter(q)
-
-            await expectLogic(theInsightDataLogic, () => {
-                theInsightLogic.actions.setInsight({ filters }, { overrideFilter: true })
+                theInsightLogic.actions.setInsight({ query: q }, { overrideQuery: true })
             })
                 .toDispatchActions(['setQuery'])
                 .toMatchValues({
@@ -109,7 +85,6 @@ describe('insightDataLogic', () => {
                                     custom_name: 'Views',
                                     event: '$pageview',
                                     kind: 'EventsNode',
-                                    math: 'total',
                                     name: '$pageview',
                                     properties: [
                                         {
@@ -121,6 +96,7 @@ describe('insightDataLogic', () => {
                                         {
                                             key: 'id',
                                             type: 'cohort',
+                                            operator: 'in',
                                             value: 2,
                                         },
                                     ],
@@ -133,53 +109,10 @@ describe('insightDataLogic', () => {
                     },
                 })
         })
-        it('does not set query when filters is present and override is not set', async () => {
-            const q = examples.InsightTrendsQuery as TrendsQuery
-
-            const filters = queryNodeToFilter(q)
-
+        it('does not set query override is not set', async () => {
             await expectLogic(theInsightDataLogic, () => {
-                theInsightLogic.actions.setInsight({ filters }, { overrideFilter: false })
+                theInsightLogic.actions.setInsight({ query: q }, { overrideQuery: false })
             }).toNotHaveDispatchedActions(['setQuery'])
-        })
-        it('does not set query when insight is invalid', async () => {
-            await expectLogic(theInsightDataLogic, () => {
-                theInsightLogic.actions.setInsight({ filters: {}, query: undefined }, {})
-            }).toNotHaveDispatchedActions(['setQuery'])
-        })
-    })
-
-    describe('isHogQLInsight', () => {
-        it('returns false for non-insight query', () => {
-            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_INSIGHTS], {
-                [FEATURE_FLAGS.HOGQL_INSIGHTS]: true,
-            })
-
-            expectLogic(theInsightDataLogic, () => {
-                theInsightDataLogic.actions.setQuery({
-                    kind: NodeKind.DataVisualizationNode,
-                    source: {
-                        kind: 'HogQLQuery',
-                        query: 'select 1',
-                    },
-                } as DataVisualizationNode)
-            }).toMatchValues({ isHogQLInsight: false })
-        })
-
-        it('returns true with generic flag enabled', () => {
-            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_INSIGHTS], {
-                [FEATURE_FLAGS.HOGQL_INSIGHTS]: true,
-            })
-
-            expectLogic(theInsightDataLogic).toMatchValues({ isHogQLInsight: true })
-        })
-
-        it('returns true with specific flag enabled', () => {
-            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS], {
-                [FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]: true,
-            })
-
-            expectLogic(theInsightDataLogic).toMatchValues({ isHogQLInsight: true })
         })
     })
 })

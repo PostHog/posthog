@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -16,6 +18,8 @@ function EnvVarsSnippet(): JSX.Element {
 }
 
 function AngularInitializeCodeSnippet(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
     return (
         <CodeSnippet language={Language.JavaScript}>
             {`// in src/main.ts
@@ -28,7 +32,12 @@ import posthog from 'posthog-js'
 posthog.init(
   process.env.POSTHOG_KEY,
   {
-    api_host:process.env.POSTHOG_HOST
+    api_host:process.env.POSTHOG_HOST,
+    ${
+        !isPersonProfilesDisabled
+            ? `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
+            : null
+    }
   }
 )
 

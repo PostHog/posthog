@@ -29,11 +29,10 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
 
     return (
         <div
-            className="absolute left-0 right-0 flex items-center z-10"
+            className="absolute left-0 right-0 flex items-center z-10 -translate-y-1/2"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 top: mouseY,
-                transform: 'translateY(-50%)',
             }}
         >
             <div className="border-b border-default w-full opacity-75" />
@@ -118,15 +117,12 @@ export function ScrollDepth(): JSX.Element | null {
                 {heatmapElements.map(({ y, count }, i) => (
                     <div
                         key={y}
+                        className="absolute left-0 w-full opacity-50"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            position: 'absolute',
                             top: heatmapElements[i - 1]?.y ?? 0,
-                            left: 0,
-                            width: '100%',
                             height: y - (heatmapElements[i - 1]?.y ?? 0),
                             backgroundColor: color(count),
-                            opacity: 0.5,
                         }}
                     />
                 ))}

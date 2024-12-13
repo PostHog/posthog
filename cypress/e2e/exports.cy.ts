@@ -19,8 +19,8 @@ describe('Exporting Insights', () => {
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
-        cy.get('[data-attr=prop-val] input').type('not-applicable')
-        cy.get('[data-attr=prop-val] input').type('{enter}')
+        cy.get('[data-attr=prop-val]').type('not-applicable')
+        cy.get('[data-attr=prop-val]').type('{enter}')
 
         // Save
         cy.get('[data-attr="insight-save-button"]').click()

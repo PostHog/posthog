@@ -15,7 +15,7 @@ import {
     TimestampFormat,
 } from '../../types'
 import { status } from '../../utils/status'
-import { castTimestampOrNow } from '../../utils/utils'
+import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
     return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
@@ -50,25 +50,10 @@ export function timeoutGuard(
         }
     }, timeout)
 }
-
-// when changing this set, be sure to update the frontend as well (taxonomy.tsx (eventToPersonProperties))
-const eventToPersonProperties = new Set([
-    // mobile params
-    '$app_build',
-    '$app_name',
-    '$app_namespace',
-    '$app_version',
-    // web params
-    '$browser',
-    '$browser_version',
-    '$device_type',
-    '$current_url',
-    '$pathname',
-    '$os',
-    '$os_version',
-    '$referring_domain',
-    '$referrer',
-    // campaign params - automatically added by posthog-js here https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts
+// When changing this set, make sure you also make the same changes in:
+// - taxonomy.tsx (CAMPAIGN_PROPERTIES)
+// - posthog-js event-utils.ts (CAMPAIGN_PARAMS)
+export const campaignParams = new Set([
     'utm_source',
     'utm_medium',
     'utm_campaign',
@@ -88,7 +73,36 @@ const eventToPersonProperties = new Set([
     'mc_cid', // mailchimp campaign id
     'igshid', // instagram
     'ttclid', // tiktok
+    'rdt_cid', // reddit
 ])
+
+export const initialCampaignParams = new Set(Array.from(campaignParams, (key) => `$initial_${key.replace('$', '')}`))
+
+// When changing this set, make sure you also make the same changes in:
+// - taxonomy.tsx (PERSON_PROPERTIES_ADAPTED_FROM_EVENT)
+export const eventToPersonProperties = new Set([
+    // mobile params
+    '$app_build',
+    '$app_name',
+    '$app_namespace',
+    '$app_version',
+    // web params
+    '$browser',
+    '$browser_version',
+    '$device_type',
+    '$current_url',
+    '$pathname',
+    '$os',
+    '$os_name', // $os_name is a special case, it's treated as an alias of $os!
+    '$os_version',
+    '$referring_domain',
+    '$referrer',
+
+    ...campaignParams,
+])
+export const initialEventToPersonProperties = new Set(
+    Array.from(eventToPersonProperties, (key) => `$initial_${key.replace('$', '')}`)
+)
 
 /** If we get new UTM params, make sure we set those  **/
 export function personInitialAndUTMProperties(properties: Properties): Properties {
@@ -113,7 +127,53 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     if (maybeSetOnce.length > 0) {
         propertiesCopy.$set_once = { ...Object.fromEntries(maybeSetOnce), ...(properties.$set_once || {}) }
     }
+
+    if (propertiesCopy.$os_name) {
+        // For the purposes of $initial properties, $os_name is treated as a fallback alias of $os, starting August 2024
+        // It's as special case due to _some_ SDKs using $os_name: https://github.com/PostHog/posthog-js-lite/issues/244
+        propertiesCopy.$os ??= propertiesCopy.$os_name
+        propertiesCopy.$set.$os ??= propertiesCopy.$os_name
+        propertiesCopy.$set_once.$initial_os ??= propertiesCopy.$os_name
+        // Make sure $os_name is not used in $set/$set_once, as that hasn't been a thing before
+        delete propertiesCopy.$set.$os_name
+        delete propertiesCopy.$set_once.$initial_os_name
+    }
+
     return propertiesCopy
+}
+
+export function hasDifferenceWithProposedNewNormalisationMode(properties: Properties): boolean {
+    // this functions checks if there would be a difference in the properties if we strip the initial campaign params
+    // when any $set_once initial eventToPersonProperties are present. This will often return true for events from
+    // posthog-js, but it is unknown if this will be the case for other SDKs.
+    if (
+        !properties.$set_once ||
+        !Object.keys(properties.$set_once).some((key) => initialEventToPersonProperties.has(key))
+    ) {
+        return false
+    }
+
+    const propertiesForPerson: [string, any][] = Object.entries(properties).filter(([key]) =>
+        eventToPersonProperties.has(key)
+    )
+
+    const maybeSetOnce: [string, any][] = propertiesForPerson.map(([key, value]) => [
+        `$initial_${key.replace('$', '')}`,
+        value,
+    ])
+
+    if (maybeSetOnce.length === 0) {
+        return false
+    }
+
+    const filteredMayBeSetOnce = maybeSetOnce.filter(([key]) => !initialCampaignParams.has(key))
+
+    const setOnce = new Map(Object.entries({ ...Object.fromEntries(maybeSetOnce), ...(properties.$set_once || {}) }))
+    const filteredSetOnce = new Map(
+        Object.entries({ ...Object.fromEntries(filteredMayBeSetOnce), ...(properties.$set_once || {}) })
+    )
+
+    return !areMapsEqual(setOnce, filteredSetOnce)
 }
 
 export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): ProducerRecord {

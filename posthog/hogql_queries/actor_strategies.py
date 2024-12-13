@@ -27,7 +27,7 @@ class ActorStrategy:
         raise NotImplementedError()
 
     def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        return {}
+        return RecordingsHelper(self.team).get_recordings(matching_events)
 
     def input_columns(self) -> list[str]:
         raise NotImplementedError()
@@ -45,15 +45,18 @@ class PersonStrategy(ActorStrategy):
     origin_id = "id"
 
     # This is hand written instead of using the ORM because the ORM was blowing up the memory on exports and taking forever
-    def get_actors(self, actor_ids) -> dict[str, dict]:
+    def get_actors(self, actor_ids, order_by: str = "") -> dict[str, dict]:
         # If actor queries start quietly dying again, this might need batching at some point
         # but currently works with 800,000 persondistinctid entries (May 24, 2024)
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """SELECT posthog_person.id, posthog_person.uuid, posthog_person.properties, posthog_person.is_identified, posthog_person.created_at
+        persons_query = """SELECT posthog_person.id, posthog_person.uuid, posthog_person.properties, posthog_person.is_identified, posthog_person.created_at
             FROM posthog_person
             WHERE posthog_person.uuid = ANY(%(uuids)s)
-            AND posthog_person.team_id = %(team_id)s""",
+            AND posthog_person.team_id = %(team_id)s"""
+        if order_by:
+            persons_query += f" ORDER BY {order_by}"
+        with connection.cursor() as cursor:
+            cursor.execute(
+                persons_query,
                 {"uuids": list(actor_ids), "team_id": self.team.pk},
             )
             people = cursor.fetchall()
@@ -85,11 +88,8 @@ class PersonStrategy(ActorStrategy):
 
         return person_uuid_to_person
 
-    def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        return RecordingsHelper(self.team).get_recordings(matching_events)
-
     def input_columns(self) -> list[str]:
-        return ["person", "id", "created_at", "person.$delete"]
+        return ["person", "id", "person.$delete"]
 
     def filter_conditions(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []

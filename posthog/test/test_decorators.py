@@ -111,7 +111,7 @@ class TestIsStaleHelper(BaseTest):
     }
 
     def test_keeps_fresh_hourly_result(self) -> None:
-        with freeze_time("2023-02-08T12:59:59Z"):
+        with freeze_time("2023-02-08T12:15:59Z"):
             filter = Filter(data={"interval": "hour"})
 
             stale = is_stale_filter(self.team, filter, self.cached_response)
@@ -127,7 +127,7 @@ class TestIsStaleHelper(BaseTest):
             assert stale is True
 
     def test_keeps_fresh_daily_result(self) -> None:
-        with freeze_time("2023-02-08T23:59:59Z"):
+        with freeze_time("2023-02-08T13:59:59Z"):
             filter = Filter(data={"interval": "day"})
 
             stale = is_stale_filter(self.team, filter, self.cached_response)
@@ -143,7 +143,7 @@ class TestIsStaleHelper(BaseTest):
             assert stale is True
 
     def test_keeps_fresh_weekly_result(self) -> None:
-        with freeze_time("2023-02-11T23:59:59Z"):
+        with freeze_time("2023-02-09T00:04:59Z"):
             filter = Filter(data={"interval": "week"})
 
             stale = is_stale_filter(self.team, filter, self.cached_response)
@@ -159,7 +159,7 @@ class TestIsStaleHelper(BaseTest):
             assert stale is True
 
     def test_keeps_fresh_monthly_result(self) -> None:
-        with freeze_time("2023-02-28T23:59:59Z"):
+        with freeze_time("2023-02-08T12:04:59Z"):
             filter = Filter(data={"interval": "month"})
 
             stale = is_stale_filter(self.team, filter, self.cached_response)
@@ -182,7 +182,7 @@ class TestIsStaleHelper(BaseTest):
         assert stale is False
 
     def test_keeps_fresh_result_with_date_to_in_future(self) -> None:
-        with freeze_time("2023-02-08T23:59:59Z"):
+        with freeze_time("2023-02-08T12:15:59Z"):
             filter = Filter(data={"interval": "day", "date_to": "2999-01-01"})
 
             stale = is_stale_filter(self.team, filter, self.cached_response)
@@ -190,7 +190,7 @@ class TestIsStaleHelper(BaseTest):
             assert stale is False
 
     def test_keeps_fresh_stickiness_result(self) -> None:
-        with freeze_time("2023-02-08T23:59:59Z"):
+        with freeze_time("2023-02-08T12:15:59Z"):
             filter = StickinessFilter(data={}, team=self.team)
 
             stale = is_stale_filter(self.team, filter, self.cached_response)
@@ -206,7 +206,7 @@ class TestIsStaleHelper(BaseTest):
             assert stale is True
 
     def test_keeps_fresh_path_result(self) -> None:
-        with freeze_time("2023-02-08T23:59:59Z"):
+        with freeze_time("2023-02-08T12:15:59Z"):
             filter = PathFilter()
 
             stale = is_stale_filter(self.team, filter, self.cached_response)
@@ -222,7 +222,7 @@ class TestIsStaleHelper(BaseTest):
             assert stale is True
 
     def test_keeps_fresh_retention_hourly_result(self) -> None:
-        with freeze_time("2023-02-08T12:59:59Z"):
+        with freeze_time("2023-02-08T12:15:59Z"):
             filter = RetentionFilter(data={"period": "Hour"})
 
             stale = is_stale_filter(self.team, filter, self.cached_response)
@@ -238,7 +238,7 @@ class TestIsStaleHelper(BaseTest):
             assert stale is True
 
     def test_keeps_fresh_retention_result(self) -> None:
-        with freeze_time("2023-02-08T23:59:59Z"):
+        with freeze_time("2023-02-08T12:15:59Z"):
             filter = RetentionFilter()
 
             stale = is_stale_filter(self.team, filter, self.cached_response)

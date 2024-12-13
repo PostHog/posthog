@@ -18,7 +18,6 @@ from posthog.test.base import APIBaseTest
 TEST_PREFIX = "Test-Exports"
 
 
-@patch("posthog.tasks.exports.image_exporter.synchronously_update_cache")
 @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
 @patch(
     "posthog.tasks.exports.image_exporter.open",

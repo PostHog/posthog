@@ -73,41 +73,49 @@ class Subscription(models.Model):
         SATURDAY = "saturday"
         SUNDAY = "sunday"
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._rrule = self.rrule
-
     # Relations - i.e. WHAT are we exporting?
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
 
     # Subscription type (email, slack etc.)
-    title: models.CharField = models.CharField(max_length=100, null=True, blank=True)
-    target_type: models.CharField = models.CharField(max_length=10, choices=SubscriptionTarget.choices)
-    target_value: models.TextField = models.TextField()
+    title = models.CharField(max_length=100, null=True, blank=True)
+    target_type = models.CharField(max_length=10, choices=SubscriptionTarget.choices)
+    target_value = models.TextField()
 
     # Subscription delivery (related to rrule)
-    frequency: models.CharField = models.CharField(max_length=10, choices=SubscriptionFrequency.choices)
-    interval: models.IntegerField = models.IntegerField(default=1)
-    count: models.IntegerField = models.IntegerField(null=True)
+    frequency = models.CharField(max_length=10, choices=SubscriptionFrequency.choices)
+    interval = models.IntegerField(default=1)
+    count = models.IntegerField(null=True)
     byweekday: ArrayField = ArrayField(
         models.CharField(max_length=10, choices=SubscriptionByWeekDay.choices),
         null=True,
         blank=True,
         default=None,
     )
-    bysetpos: models.IntegerField = models.IntegerField(null=True)
-    start_date: models.DateTimeField = models.DateTimeField()
-    until_date: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    bysetpos = models.IntegerField(null=True)
+    start_date = models.DateTimeField()
+    until_date = models.DateTimeField(null=True, blank=True)
 
     # Controlled field - next schedule as helper for
-    next_delivery_date: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    next_delivery_date = models.DateTimeField(null=True, blank=True)
 
     # Meta
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
-    deleted: models.BooleanField = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    deleted = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs) -> None:
+        # Only if the schedule has changed do we update the next delivery date
+        if not self.id or str(self._rrule) != str(self.rrule):
+            self.set_next_delivery_date()
+            if "update_fields" in kwargs:
+                kwargs["update_fields"].append("next_delivery_date")
+        super().save(*args, **kwargs)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._rrule = self.rrule
 
     @property
     def rrule(self):
@@ -127,14 +135,6 @@ class Subscription(models.Model):
         # We never want next_delivery_date to be in the past
         now = timezone.now() + timedelta(minutes=15)  # Buffer of 15 minutes since we might run a bit early
         self.next_delivery_date = self.rrule.after(dt=max(from_dt or now, now), inc=False)
-
-    def save(self, *args, **kwargs) -> None:
-        # Only if the schedule has changed do we update the next delivery date
-        if not self.id or str(self._rrule) != str(self.rrule):
-            self.set_next_delivery_date()
-            if "update_fields" in kwargs:
-                kwargs["update_fields"].append("next_delivery_date")
-        super().save(*args, **kwargs)
 
     @property
     def url(self):

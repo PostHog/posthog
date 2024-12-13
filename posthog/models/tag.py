@@ -8,8 +8,8 @@ def tagify(tag: str):
 
 
 class Tag(UUIDModel):
-    name: models.CharField = models.CharField(max_length=255)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     class Meta:
         unique_together = ("name", "team")

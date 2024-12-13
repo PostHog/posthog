@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from unittest import mock
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -187,7 +187,7 @@ class TestSessionRecordingPlaylist(APILicensedTest):
 
         session_one = f"test_fetch_playlist_recordings-session1-{uuid4()}"
         session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
-        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=UTC)
 
         produce_replay_summary(
             team_id=self.team.id,
@@ -242,7 +242,7 @@ class TestSessionRecordingPlaylist(APILicensedTest):
 
         session_one = f"test_fetch_playlist_recordings-session1-{uuid4()}"
         session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
-        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=UTC)
 
         for session_id in [session_one, session_two]:
             produce_replay_summary(

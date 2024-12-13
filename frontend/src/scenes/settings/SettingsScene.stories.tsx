@@ -1,6 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
-import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -27,6 +27,13 @@ const meta: Meta = {
                 },
                 '/api/projects/:id/integrations': { results: [] },
             },
+            patch: {
+                '/api/projects/:id': async (req, res, ctx) => {
+                    // bounce the setting back as is
+                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...(await req.json()) }
+                    return res(ctx.json(newTeamSettings))
+                },
+            },
         }),
     ],
 }
@@ -39,7 +46,7 @@ export const SettingsProject: StoryFn = () => {
     return <App />
 }
 SettingsProject.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsProjectWithReplayFeatures: StoryFn = () => {
@@ -54,7 +61,7 @@ export const SettingsProjectWithReplayFeatures: StoryFn = () => {
     return <App />
 }
 SettingsProjectWithReplayFeatures.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsUser: StoryFn = () => {
@@ -64,7 +71,7 @@ export const SettingsUser: StoryFn = () => {
     return <App />
 }
 SettingsUser.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsOrganization: StoryFn = () => {
@@ -74,7 +81,17 @@ export const SettingsOrganization: StoryFn = () => {
     return <App />
 }
 SettingsOrganization.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
+}
+
+export const SettingsWebVitals: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.settings('project-autocapture', 'web-vitals-autocapture'))
+    }, [])
+    return <App />
+}
+SettingsOrganization.parameters = {
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 function TimeSensitiveSettings(props: {
@@ -116,40 +133,40 @@ export const SettingsSessionTimeoutAllOptions: StoryFn = () => {
     return <TimeSensitiveSettings has_password saml_available />
 }
 SettingsSessionTimeoutAllOptions.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsSessionTimeoutPasswordOnly: StoryFn = () => {
     return <TimeSensitiveSettings has_password />
 }
 SettingsSessionTimeoutPasswordOnly.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsSessionTimeoutSsoOnly: StoryFn = () => {
     return <TimeSensitiveSettings />
 }
 SettingsSessionTimeoutSsoOnly.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsSessionTimeoutSsoEnforcedGithub: StoryFn = () => {
     return <TimeSensitiveSettings sso_enforcement="github" />
 }
 SettingsSessionTimeoutSsoEnforcedGithub.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsSessionTimeoutSsoEnforcedGoogle: StoryFn = () => {
     return <TimeSensitiveSettings sso_enforcement="google-oauth2" />
 }
 SettingsSessionTimeoutSsoEnforcedGoogle.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsSessionTimeoutSsoEnforcedSaml: StoryFn = () => {
     return <TimeSensitiveSettings sso_enforcement="saml" />
 }
 SettingsSessionTimeoutSsoEnforcedSaml.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }

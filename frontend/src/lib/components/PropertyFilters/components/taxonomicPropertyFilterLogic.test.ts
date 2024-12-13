@@ -1,6 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 import { taxonomicPropertyFilterLogic } from 'lib/components/PropertyFilters/components/taxonomicPropertyFilterLogic'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { initKeaTests } from '~/test/init'
@@ -11,11 +10,8 @@ describe('the taxonomic property filter', () => {
     beforeEach(() => {
         initKeaTests()
         logic = taxonomicPropertyFilterLogic({
-            propertyFilterLogic: propertyFilterLogic({
-                pageKey: 'tests',
-                propertyFilters: [],
-                onChange: () => {},
-            }),
+            filters: [],
+            setFilter: () => {},
             taxonomicGroupTypes: [
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,

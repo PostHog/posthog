@@ -9,12 +9,15 @@ export enum Scene {
     Error404 = '404',
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
+    ErrorTracking = 'ErrorTracking',
+    ErrorTrackingIssue = 'ErrorTrackingIssue',
+    ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Insight = 'Insight',
     WebAnalytics = 'WebAnalytics',
     Cohort = 'Cohort',
-    Events = 'Events',
+    Activity = 'Activity',
     DataManagement = 'DataManagement',
     EventDefinition = 'EventDefinition',
     EventDefinitionEdit = 'EventDefinitionEdit',
@@ -24,6 +27,7 @@ export enum Scene {
     ReplaySingle = 'ReplaySingle',
     ReplayPlaylist = 'ReplayPlaylist',
     ReplayFilePlayback = 'ReplayFilePlayback',
+    CustomCss = 'CustomCss',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
     PipelineNodeNew = 'PipelineNodeNew',
@@ -33,9 +37,7 @@ export enum Scene {
     Action = 'Action',
     Experiments = 'Experiments',
     Experiment = 'Experiment',
-    BatchExports = 'BatchExports',
-    BatchExport = 'BatchExport',
-    BatchExportEdit = 'BatchExportEdit',
+    FeatureManagement = 'FeatureManagement',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
@@ -44,20 +46,20 @@ export enum Scene {
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
     DataWarehouse = 'DataWarehouse',
+    SQLEditor = 'SQLEditor',
+    DataModel = 'DataModel',
     DataWarehouseExternal = 'DataWarehouseExternal',
     DataWarehouseTable = 'DataWarehouseTable',
-    DataWarehouseSettings = 'DataWarehouseSettings',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
+    Max = 'Max',
     ProjectCreateFirst = 'ProjectCreate',
     SystemStatus = 'SystemStatus',
     AsyncMigrations = 'AsyncMigrations',
     DeadLetterQueue = 'DeadLetterQueue',
     Billing = 'Billing',
-    Apps = 'Apps',
-    FrontendAppScene = 'FrontendAppScene',
-    AppMetrics = 'AppMetrics',
+    BillingAuthorizationStatus = 'BillingAuthorizationStatus',
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
     Site = 'Site',
@@ -73,6 +75,7 @@ export enum Scene {
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
     DebugQuery = 'DebugQuery',
+    DebugHog = 'DebugHog',
     VerifyEmail = 'VerifyEmail',
     Notebooks = 'Notebooks',
     Notebook = 'Notebook',
@@ -83,6 +86,9 @@ export enum Scene {
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
     ClientAuthorization = 'ClientAuthorization',
+    SessionAttributionExplorer = 'SessionAttributionExplorer',
+    MessagingProviders = 'MessagingProviders',
+    MessagingBroadcasts = 'MessagingBroadcasts',
 }
 
 export type SceneProps = Record<string, any>
@@ -129,7 +135,7 @@ export interface SceneConfig {
      * If `plain`, there's no navigation present, and the scene has no padding.
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'app-container' | 'plain'
+    layout?: 'app' | 'app-raw' | 'app-canvas' | 'app-container' | 'app-raw-no-header' | 'plain'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Hides billing notice (BillingAlertsV2.tsx). */

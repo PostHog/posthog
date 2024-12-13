@@ -1,0 +1,25 @@
+#!/bin/bash
+
+set -ex
+
+trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+
+cargo build
+
+export RUST_LOG=${DEBUG:-debug}
+SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+export RUST_LOG=$RUST_LOG,sqlx::query=$SQLX_QUERY_LEVEL
+
+export HOG_MODE=true
+DATABASE_NAME=${DEBUG:-hoghooks}
+export DATABASE_URL=postgres://posthog:posthog@localhost:5432/$DATABASE_NAME
+export ALLOW_INTERNAL_IPS=true
+
+sqlx database create -D "$DATABASE_URL"
+sqlx migrate run -D "$DATABASE_URL"
+
+./target/debug/hook-api &
+./target/debug/hook-worker &
+./target/debug/hook-janitor &
+
+wait

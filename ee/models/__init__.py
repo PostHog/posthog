@@ -5,16 +5,18 @@ from .feature_flag_role_access import FeatureFlagRoleAccess
 from .hook import Hook
 from .license import License
 from .property_definition import EnterprisePropertyDefinition
-from .role import Role, RoleMembership
+from .rbac.access_control import AccessControl
+from .rbac.role import Role, RoleMembership
 
 __all__ = [
-    "EnterpriseEventDefinition",
-    "ExplicitTeamMembership",
+    "AccessControl",
     "DashboardPrivilege",
+    "EnterpriseEventDefinition",
+    "EnterprisePropertyDefinition",
+    "ExplicitTeamMembership",
+    "FeatureFlagRoleAccess",
     "Hook",
     "License",
     "Role",
     "RoleMembership",
-    "EnterprisePropertyDefinition",
-    "FeatureFlagRoleAccess",
 ]

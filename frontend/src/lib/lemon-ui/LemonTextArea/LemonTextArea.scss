@@ -5,7 +5,7 @@
     padding: 0.5rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
-    color: var(--default);
+    color: var(--text-3000);
     text-align: left;
     text-overflow: ellipsis;
     cursor: text;
@@ -14,19 +14,15 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     outline: none;
-    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
 
-    &:not(:disabled):hover {
+    &:not(:disabled):hover,
+    &:focus:not(:disabled) {
         border: 1px solid var(--border-bold);
     }
 
     &:disabled {
         cursor: not-allowed;
         opacity: var(--opacity-disabled);
-    }
-
-    &:focus:not(:disabled) {
-        border: 1px solid var(--border-active);
     }
 
     .Field--error & {

@@ -2,15 +2,18 @@ from typing import cast
 import uuid
 
 from rest_framework import response, serializers, viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, BasePermission
 
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import PersonalAPIKey, User
-from posthog.models.api_scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.models.personal_api_key import hash_key_value, mask_key_value
+from posthog.models.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.user_permissions import UserPermissions
+
+MAX_API_KEYS_PER_USER = 10  # Same as in personalAPIKeysLogic.tsx
 
 
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
@@ -94,6 +97,11 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         user = self.context["request"].user
+        count = PersonalAPIKey.objects.filter(user=user).count()
+        if count >= MAX_API_KEYS_PER_USER:
+            raise serializers.ValidationError(
+                f"You can only have {MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one."
+            )
         value = generate_random_token_personal()
         mask_value = mask_key_value(value)
         secure_value = hash_key_value(value)
@@ -104,13 +112,44 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         return personal_api_key
 
 
+class PersonalApiKeySelfAccessPermission(BasePermission):
+    """
+    Personal API Keys can only access their own key and only for retrieval
+    """
+
+    message = "This action does not support Personal API Key access"
+
+    def has_permission(self, request, view) -> bool:
+        # This permission check only applies to the personal api key
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return True
+
+        return view.action == "retrieve"
+
+    def has_object_permission(self, request, view, item: PersonalAPIKey) -> bool:
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return True
+
+        return request.successful_authenticator.personal_api_key == item
+
+
 class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer
-    permission_classes = [IsAuthenticated, TimeSensitiveActionPermission]
+    permission_classes = [IsAuthenticated, TimeSensitiveActionPermission, PersonalApiKeySelfAccessPermission]
+    authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication]
+    queryset = PersonalAPIKey.objects.none()
 
     def get_queryset(self):
         return PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id).order_by("-created_at")
+
+    def get_object(self) -> PersonalAPIKey:
+        lookup_value = self.kwargs[self.lookup_field]
+        if lookup_value == "@current":
+            authenticator = cast(PersonalAPIKeyAuthentication, self.request.successful_authenticator)
+            return authenticator.personal_api_key
+
+        return super().get_object()
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())

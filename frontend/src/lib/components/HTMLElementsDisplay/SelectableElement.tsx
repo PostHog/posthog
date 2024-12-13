@@ -193,6 +193,7 @@ export function SelectableElement({
     highlight,
     parsedCSSSelector,
     selectedText,
+    size = 'small',
 }: {
     element: ElementType
     isDeepestChild: boolean
@@ -202,6 +203,7 @@ export function SelectableElement({
     highlight?: boolean
     parsedCSSSelector?: ParsedCSSSelector
     selectedText?: string
+    size?: 'small' | 'xsmall'
 }): JSX.Element {
     const setParsedCSSSelector = (newParsedCSSSelector: ParsedCSSSelector): void => {
         if (!objectsEqual(newParsedCSSSelector, parsedCSSSelector)) {
@@ -212,8 +214,9 @@ export function SelectableElement({
     return (
         <pre
             className={clsx(
-                'p-0 m-0 rounded whitespace-pre-wrap break-all text-default text-sm',
-                isDeepestChild && highlight ? 'bg-brand-red' : 'bg-transparent'
+                'p-0 m-0 rounded whitespace-pre-wrap break-all text-text-3000',
+                isDeepestChild && highlight ? 'bg-brand-red' : 'bg-transparent',
+                size === 'xsmall' ? 'text-xs' : 'text-sm'
             )}
         >
             {indent}

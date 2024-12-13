@@ -7,7 +7,10 @@ import { CSSProperties } from 'react'
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
 import { ActionStepType } from '~/types'
 
+import { ActionStepPropertyKey } from './actions/ActionStep'
+
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
+export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
 
 export function getSafeText(el: HTMLElement): string {
@@ -93,7 +96,8 @@ export function getParent(element: HTMLElement): HTMLElement | null {
     return null
 }
 
-export function trimElement(element: HTMLElement): HTMLElement | null {
+export function trimElement(element: HTMLElement, selector?: string): HTMLElement | null {
+    const target_selector = selector || CLICK_TARGET_SELECTOR
     if (!element) {
         return null
     }
@@ -121,7 +125,7 @@ export function trimElement(element: HTMLElement): HTMLElement | null {
         }
 
         // return when we find a click target
-        if (loopElement.matches?.(CLICK_TARGET_SELECTOR)) {
+        if (loopElement.matches?.(target_selector)) {
             return loopElement
         }
 
@@ -143,8 +147,12 @@ export function inBounds(min: number, value: number, max: number): number {
     return Math.max(min, Math.min(max, value))
 }
 
-export function getAllClickTargets(startNode: Document | HTMLElement | ShadowRoot = document): HTMLElement[] {
-    const elements = startNode.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown as HTMLElement[]
+export function getAllClickTargets(
+    startNode: Document | HTMLElement | ShadowRoot = document,
+    selector?: string
+): HTMLElement[] {
+    const targetSelector = selector || CLICK_TARGET_SELECTOR
+    const elements = startNode.querySelectorAll(targetSelector) as unknown as HTMLElement[]
 
     const allElements = [...(startNode.querySelectorAll('*') as unknown as HTMLElement[])]
 
@@ -159,10 +167,10 @@ export function getAllClickTargets(startNode: Document | HTMLElement | ShadowRoo
 
     const shadowElements = allElements
         .filter((el) => el.shadowRoot && el.getAttribute('id') !== TOOLBAR_ID)
-        .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot) : []))
+        .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot, targetSelector) : []))
         .reduce((a, b) => [...a, ...b], [])
     const selectedElements = [...elements, ...pointerElements, ...shadowElements]
-        .map((e) => trimElement(e))
+        .map((e) => trimElement(e, targetSelector))
         .filter((e) => e)
     const uniqueElements = Array.from(new Set(selectedElements)) as HTMLElement[]
 
@@ -265,7 +273,11 @@ export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opa
     }
 }
 
-export function actionStepToActionStepFormItem(step: ActionStepType, isNew = false): ActionStepForm {
+export function actionStepToActionStepFormItem(
+    step: ActionStepType,
+    isNew = false,
+    includedPropertyKeys?: ActionStepPropertyKey[]
+): ActionStepForm {
     if (!step) {
         return {}
     }
@@ -281,24 +293,24 @@ export function actionStepToActionStepFormItem(step: ActionStepType, isNew = fal
                 ...step,
                 href_selected: true,
                 selector_selected: hasSelector,
-                text_selected: false,
-                url_selected: false,
+                text_selected: includedPropertyKeys?.includes('text') || false,
+                url_selected: includedPropertyKeys?.includes('url') || false,
             }
         } else if (step.tag_name === 'button') {
             return {
                 ...step,
                 text_selected: true,
                 selector_selected: hasSelector,
-                href_selected: false,
-                url_selected: false,
+                href_selected: includedPropertyKeys?.includes('href') || false,
+                url_selected: includedPropertyKeys?.includes('url') || false,
             }
         }
         return {
             ...step,
             selector_selected: hasSelector,
-            text_selected: false,
-            url_selected: false,
-            href_selected: false,
+            text_selected: includedPropertyKeys?.includes('text') || false,
+            url_selected: includedPropertyKeys?.includes('url') || false,
+            href_selected: includedPropertyKeys?.includes('href') || false,
         }
     }
 

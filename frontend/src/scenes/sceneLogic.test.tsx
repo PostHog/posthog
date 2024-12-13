@@ -11,8 +11,8 @@ import { initKeaTests } from '~/test/init'
 import { sceneLogic } from './sceneLogic'
 import type { logicType } from './sceneLogic.testType'
 
-export const Component = (): JSX.Element => <div />
-export const logic = kea<logicType>([path(['scenes', 'sceneLogic', 'test'])])
+const Component = (): JSX.Element => <div />
+const logic = kea<logicType>([path(['scenes', 'sceneLogic', 'test'])])
 const sceneImport = (): any => ({ scene: { component: Component, logic: logic } })
 
 const testScenes: Record<string, () => any> = {

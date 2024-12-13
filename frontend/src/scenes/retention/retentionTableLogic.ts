@@ -81,19 +81,19 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                     } else {
                         switch (period) {
                             case 'Hour':
-                                firstColumn = dayjs(currentResult.date).format('MMM D, h A')
+                                firstColumn = dayjs.utc(currentResult.date).format('MMM D, h A')
                                 break
                             case 'Month':
-                                firstColumn = dayjs(currentResult.date).format('MMM YYYY')
+                                firstColumn = dayjs.utc(currentResult.date).format('MMM YYYY')
                                 break
                             case 'Week': {
-                                const startDate = dayjs(currentResult.date)
+                                const startDate = dayjs.utc(currentResult.date)
                                 const endDate = startDate.add(6, 'day') // To show last day of the week we add 6 days, not 7
                                 firstColumn = `${startDate.format('MMM D')} to ${endDate.format('MMM D')}`
                                 break
                             }
                             default:
-                                firstColumn = dayjs(currentResult.date).format('MMM D')
+                                firstColumn = dayjs.utc(currentResult.date).format('MMM D')
                         }
                     }
 

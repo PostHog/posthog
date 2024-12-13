@@ -1,16 +1,20 @@
 import './LemonInput.scss'
 
+import { useMergeRefs } from '@floating-ui/react'
 import { IconEye, IconSearch, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React, { useRef, useState } from 'react'
 
+import { RawInputAutosize } from './RawInputAutosize'
+
 interface LemonInputPropsBase
     extends Pick<
         // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
         React.InputHTMLAttributes<HTMLInputElement>,
         | 'className'
+        | 'onClick'
         | 'onFocus'
         | 'onBlur'
         | 'autoFocus'
@@ -25,7 +29,7 @@ interface LemonInputPropsBase
         | 'inputMode'
         | 'pattern'
     > {
-    ref?: React.Ref<HTMLInputElement>
+    inputRef?: React.Ref<HTMLInputElement>
     id?: string
     placeholder?: string
     /** Use the danger status for invalid input. */
@@ -38,12 +42,14 @@ interface LemonInputPropsBase
     suffix?: React.ReactElement | null
     /** Whether input field is disabled */
     disabled?: boolean
-    /** Whether input field is full width */
+    /** Whether input field is full width. Cannot be used in conjuction with `autoWidth`. */
     fullWidth?: boolean
+    /** Whether input field should be as wide as its content. Cannot be used in conjuction with `fullWidth`. */
+    autoWidth?: boolean
     /** Special case - show a transparent background rather than white */
     transparentBackground?: boolean
     /** Size of the element. Default: `'medium'`. */
-    size?: 'xsmall' | 'small' | 'medium'
+    size?: 'xsmall' | 'small' | 'medium' | 'large'
     onPressEnter?: (event: React.KeyboardEvent<HTMLInputElement>) => void
     'data-attr'?: string
     'aria-label'?: string
@@ -52,12 +58,10 @@ interface LemonInputPropsBase
 }
 
 export interface LemonInputPropsText extends LemonInputPropsBase {
-    type?: 'text' | 'email' | 'search' | 'url' | 'password' | 'time' | 'tel'
+    type?: 'text' | 'email' | 'search' | 'url' | 'password' | 'time'
     value?: string
     defaultValue?: string
     onChange?: (newValue: string) => void
-    min?: string
-    max?: string
 }
 
 export interface LemonInputPropsNumber
@@ -71,7 +75,7 @@ export interface LemonInputPropsNumber
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
 
-export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(function _LemonInput(
+export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(function _LemonInput(
     {
         className,
         onChange,
@@ -81,6 +85,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         status = 'default',
         allowClear, // Default handled inside the component
         fullWidth,
+        autoWidth,
         prefix,
         suffix,
         type,
@@ -88,19 +93,23 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         transparentBackground = false,
         size = 'medium',
         stopPropagation = false,
+        inputRef,
         ...props
     },
     ref
 ): JSX.Element {
-    const _ref = useRef<HTMLInputElement | null>(null)
-    const inputRef = ref || _ref
+    const internalInputRef = useRef<HTMLInputElement>(null)
+    const mergedInputRef = useMergeRefs([inputRef, internalInputRef])
+
     const [focused, setFocused] = useState<boolean>(Boolean(props.autoFocus))
     const [passwordVisible, setPasswordVisible] = useState<boolean>(false)
 
+    if (autoWidth && fullWidth) {
+        throw new Error('Cannot use `autoWidth` and `fullWidth` props together')
+    }
+
     const focus = (): void => {
-        if (inputRef && 'current' in inputRef) {
-            inputRef.current?.focus()
-        }
+        internalInputRef.current?.focus()
         setFocused(true)
     }
 
@@ -143,6 +152,8 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         )
     }
 
+    const InputComponent = autoWidth ? RawInputAutosize : 'input'
+
     return (
         <span
             className={clsx(
@@ -158,11 +169,12 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             )}
             aria-disabled={props.disabled}
             onClick={() => focus()}
+            ref={ref}
         >
             {prefix}
-            <input
+            <InputComponent
                 className="LemonInput__input"
-                ref={inputRef}
+                ref={mergedInputRef}
                 type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
                 value={value}
                 onChange={(event) => {

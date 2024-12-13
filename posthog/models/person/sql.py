@@ -286,6 +286,10 @@ WHERE version > 0 -- only store updated rows, not newly inserted ones
     database=CLICKHOUSE_DATABASE,
 )
 
+TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = (
+    f"TRUNCATE TABLE IF EXISTS {PERSON_DISTINCT_ID_OVERRIDES_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+)
+
 #
 # Static Cohort
 #
@@ -401,7 +405,7 @@ INSERT INTO person_overrides (team_id, old_person_id, override_person_id, versio
 
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
-    SELECT actor_id FROM ({query})
+    SELECT DISTINCT actor_id FROM ({query})
 )
 """
 

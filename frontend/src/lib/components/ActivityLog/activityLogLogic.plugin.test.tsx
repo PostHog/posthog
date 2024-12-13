@@ -16,7 +16,7 @@ describe('the activity log logic', () => {
     })
 
     describe('humanizing plugins', () => {
-        const pluginTestSetup = makeTestSetup(ActivityScope.PLUGIN, '/api/organizations/:id/plugins/activity')
+        const pluginTestSetup = makeTestSetup(ActivityScope.PLUGIN, '/api/projects/:id/activity_log')
         it('can handle installation of a plugin', async () => {
             const logic = await pluginTestSetup('the installed plugin', 'installed', null)
             const actual = logic.values.humanizedActivity
@@ -89,7 +89,7 @@ describe('the activity log logic', () => {
             )
         })
 
-        it('can handle config_update ', async () => {
+        it('can handle config_update', async () => {
             const logic = await pluginTestSetup('the changed plugin', 'config_updated', [
                 {
                     type: ActivityScope.PLUGIN,

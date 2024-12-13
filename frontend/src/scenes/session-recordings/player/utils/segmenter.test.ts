@@ -85,4 +85,23 @@ describe('segmenter', () => {
 
         expect(segments).toMatchSnapshot()
     })
+
+    it('can segment to include only one window', () => {
+        // NOTE: It is important that the segments are "inclusive" of the start and end timestamps as the player logic
+        // depends on this to choose which segment should be played next
+        const start = dayjs('2023-01-01T00:00:00.000Z')
+        const end = start.add(210, 'milliseconds')
+
+        const snapshots: RecordingSnapshot[] = [
+            { windowId: 'A', timestamp: start.valueOf() + 10, type: 3, data: {} } as any,
+            { windowId: 'C', timestamp: start.valueOf() + 100, type: 3, data: {} } as any,
+            { windowId: 'B', timestamp: start.valueOf() + 120, type: 3, data: {} } as any,
+            { windowId: 'C', timestamp: start.valueOf() + 160, type: 3, data: {} } as any,
+            { windowId: 'B', timestamp: start.valueOf() + 200, type: 3, data: {} } as any,
+        ]
+
+        const segments = createSegments(snapshots, start, end, 'C')
+
+        expect(segments).toMatchSnapshot()
+    })
 })

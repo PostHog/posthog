@@ -1,9 +1,9 @@
 import { IconMagicWand } from '@posthog/icons'
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
-import { heatmapDateOptions } from 'lib/components/heatmaps/utils'
+import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -142,7 +142,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         loading={rawHeatmapLoading}
                         checked={!!heatmapFilters.enabled}
                     >
-                        Heatmaps <LemonTag type="highlight">NEW</LemonTag>{' '}
+                        Heatmaps
                     </SectionButton>
 
                     {heatmapFilters.enabled && (

@@ -1,16 +1,16 @@
 import './EditableField.scss'
 
-import { useMergeRefs } from '@floating-ui/react'
 import { IconPencil } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconMarkdown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { RawInputAutosize } from 'lib/lemon-ui/LemonInput/RawInputAutosize'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 
 import { AvailableFeature } from '~/types'
@@ -182,13 +182,13 @@ export function EditableField({
                                 ref={inputRef as React.RefObject<HTMLTextAreaElement>}
                             />
                         ) : (
-                            <AutosizeInput
+                            <RawInputAutosize
                                 name={name}
                                 value={localTentativeValue}
                                 onChange={(e) => {
                                     guardAvailableFeature(paywallFeature, () => {
-                                        onChange?.(e.target.value)
-                                        setLocalTentativeValue(e.target.value)
+                                        onChange?.(e.currentTarget.value)
+                                        setLocalTentativeValue(e.currentTarget.value)
                                     })
                                 }}
                                 onBlur={saveOnBlur ? (localTentativeValue !== value ? save : cancel) : undefined}
@@ -198,6 +198,7 @@ export function EditableField({
                                 maxLength={maxLength}
                                 autoFocus={autoFocus}
                                 ref={inputRef as React.RefObject<HTMLInputElement>}
+                                wrapperClassName="self-center py-px"
                             />
                         )}
                         {(!mode || !!onModeToggle) && (
@@ -286,93 +287,3 @@ export function EditableField({
         </div>
     )
 }
-
-interface AutosizeInputProps {
-    name: string
-    value: string
-    onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
-    onBlur: (() => void) | undefined
-    placeholder?: string
-    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => void
-    minLength?: number
-    maxLength?: number
-    autoFocus?: boolean
-}
-
-const AutosizeInput = React.forwardRef<HTMLInputElement, AutosizeInputProps>(function AutosizeInput(
-    { name, value, onChange, placeholder, onBlur, onKeyDown, minLength, maxLength, autoFocus },
-    ref
-) {
-    const [inputWidth, setInputWidth] = useState<number | string>(1)
-    const [inputStyles, setInputStyles] = useState<CSSStyleDeclaration>()
-    const sizerRef = useRef<HTMLDivElement>(null)
-    const placeHolderSizerRef = useRef<HTMLDivElement>(null)
-    const inputRef = useRef<HTMLInputElement>(null)
-    const mergedRefs = useMergeRefs([ref, inputRef])
-
-    const copyStyles = (styles: CSSStyleDeclaration, node: HTMLDivElement): void => {
-        node.style.fontSize = styles.fontSize
-        node.style.fontFamily = styles.fontFamily
-        node.style.fontWeight = styles.fontWeight
-        node.style.fontStyle = styles.fontStyle
-        node.style.letterSpacing = styles.letterSpacing
-        node.style.textTransform = styles.textTransform
-    }
-
-    useLayoutEffect(() => {
-        if (inputRef.current) {
-            setInputStyles(getComputedStyle(inputRef.current))
-        }
-    }, [inputRef.current])
-
-    useLayoutEffect(() => {
-        if (inputStyles) {
-            if (sizerRef.current) {
-                copyStyles(inputStyles, sizerRef.current)
-            }
-            if (placeHolderSizerRef.current) {
-                copyStyles(inputStyles, placeHolderSizerRef.current)
-            }
-        }
-    }, [inputStyles])
-
-    useLayoutEffect(() => {
-        if (!sizerRef.current || !placeHolderSizerRef.current) {
-            return
-        }
-        let newInputWidth
-        if (placeholder && !value) {
-            newInputWidth = Math.max(sizerRef.current.scrollWidth, placeHolderSizerRef.current.scrollWidth) + 2
-        } else {
-            newInputWidth = sizerRef.current.scrollWidth + 2
-        }
-        if (newInputWidth !== inputWidth) {
-            setInputWidth(newInputWidth)
-        }
-    }, [sizerRef.current, placeHolderSizerRef.current, placeholder, value])
-
-    return (
-        <div className="EditableField__autosize">
-            <input
-                name={name}
-                value={value}
-                placeholder={placeholder}
-                onChange={onChange}
-                onKeyDown={onKeyDown}
-                onBlur={onBlur}
-                minLength={minLength}
-                maxLength={maxLength}
-                autoFocus={autoFocus}
-                ref={mergedRefs}
-                /* eslint-disable-next-line react/forbid-dom-props */
-                style={{ boxSizing: 'content-box', width: `${inputWidth}px` }}
-            />
-            <div ref={sizerRef} className="EditableField__autosize__sizer">
-                {value}
-            </div>
-            <div ref={placeHolderSizerRef} className="EditableField__autosize__sizer">
-                {placeholder}
-            </div>
-        </div>
-    )
-})

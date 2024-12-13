@@ -8,11 +8,12 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { Link } from 'lib/lemon-ui/Link'
 import { isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, TeamType } from '~/types'
+import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
 
 const teamActionsMapping: Record<
     keyof TeamType,
@@ -36,6 +37,39 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    session_recording_url_trigger_config(change: ActivityChange | undefined): ChangeMapping | null {
+        const before = change?.before
+        const after = change?.after
+        if (before === null && after === null) {
+            return null
+        }
+
+        return {
+            description: [<>Changed session replay URL triggers</>],
+        }
+    },
+    session_recording_url_blocklist_config(change: ActivityChange | undefined): ChangeMapping | null {
+        const before = change?.before
+        const after = change?.after
+        if (before === null && after === null) {
+            return null
+        }
+
+        return {
+            description: [<>Changed session replay URL blocklist</>],
+        }
+    },
+    session_recording_event_trigger_config(change: ActivityChange | undefined): ChangeMapping | null {
+        const before = change?.before
+        const after = change?.after
+        if (before === null && after === null) {
+            return null
+        }
+
+        return {
+            description: [<>Changed session replay event triggers</>],
+        }
+    },
     capture_console_log_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} console log capture in session replay</>] }
     },
@@ -44,6 +78,11 @@ const teamActionsMapping: Record<
             description: [
                 <>{change?.after ? 'enabled' : 'disabled'} console network performance capture in session replay</>,
             ],
+        }
+    },
+    capture_dead_clicks(change: ActivityChange | undefined): ChangeMapping | null {
+        return {
+            description: [<>{change?.after ? 'enabled' : 'disabled'} dead clicks autocapture</>],
         }
     },
     recording_domains(change: ActivityChange | undefined): ChangeMapping | null {
@@ -138,9 +177,53 @@ const teamActionsMapping: Record<
             ],
         }
     },
-    session_replay_config(_change: ActivityChange | undefined): ChangeMapping | null {
+    survey_config: (change: ActivityChange | undefined): ChangeMapping | null => {
+        const before = change!.before as TeamSurveyConfigType
+        const after = change!.after as TeamSurveyConfigType
+        const descriptions = []
+        const preamble = 'Survey Configuration : '
+        if (before === undefined) {
+            descriptions.push('Survey Configuration was enabled')
+        }
+
+        const propertyChangeDesc = (
+            name: string,
+            callback: (config: TeamSurveyConfigType) => string | undefined
+        ): void => {
+            if (callback(before) !== callback(after)) {
+                descriptions.push(`${preamble} ${name} was changed from "${callback(before)}" to "${callback(after)}"`)
+            }
+        }
+
+        if (before?.appearance?.whiteLabel !== after?.appearance?.whiteLabel) {
+            descriptions.push(
+                `${preamble} Survey white labeling was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
+            )
+        }
+
+        if (before?.appearance?.displayThankYouMessage !== after?.appearance?.displayThankYouMessage) {
+            descriptions.push(
+                `${preamble} displayThankYouMessage was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
+            )
+        }
+
+        propertyChangeDesc('backgroundColor', (c) => c?.appearance?.backgroundColor)
+        propertyChangeDesc('submitButtonColor', (c) => c?.appearance?.submitButtonColor)
+        propertyChangeDesc('submitButtonTextColor', (c) => c?.appearance?.submitButtonTextColor)
+        propertyChangeDesc('ratingButtonColor', (c) => c?.appearance?.ratingButtonColor)
+        propertyChangeDesc('ratingButtonActiveColor', (c) => c?.appearance?.ratingButtonActiveColor)
+        propertyChangeDesc('borderColor', (c) => c?.appearance?.borderColor)
+        propertyChangeDesc('placeholder', (c) => c?.appearance?.placeholder)
+        propertyChangeDesc('thankYouMessageHeader', (c) => c?.appearance?.thankYouMessageHeader)
+        propertyChangeDesc('position', (c) => c?.appearance?.position)
+
+        return { description: descriptions }
+    },
+    session_replay_config(change: ActivityChange | undefined): ChangeMapping | null {
         // TODO we'll eventually need a deeper mapping for this nested object
-        const recordCanvasAfter = typeof _change?.after === 'object' ? _change?.after?.record_canvas : null
+        const after = change?.after
+        const recordCanvasAfter =
+            after && typeof after === 'object' && !Array.isArray(after) ? after.record_canvas : null
 
         if (recordCanvasAfter === null) {
             return null
@@ -149,9 +232,19 @@ const teamActionsMapping: Record<
     },
     // autocapture
     autocapture_exceptions_errors_to_ignore: () => null,
-    autocapture_exceptions_opt_in: () => null,
+    autocapture_exceptions_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
+        return { description: [<>{change?.after ? 'enabled' : 'disabled'} exception autocapture</>] }
+    },
+    autocapture_web_vitals_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
+        return { description: [<>{change?.after ? 'enabled' : 'disabled'} web vitals autocapture</>] }
+    },
+    autocapture_web_vitals_allowed_metrics(change: ActivityChange | undefined): ChangeMapping | null {
+        const after = change?.after
+        const metricsList = Array.isArray(after) ? after.join(', ') : 'CLS, FCP, INP, and LCP'
+        return { description: [<>set allowed web vitals autocapture metrics to {metricsList}</>] }
+    },
     autocapture_opt_out(change: ActivityChange | undefined): ChangeMapping | null {
-        return { description: [<>{change?.after ? 'opted in to' : 'opted out of'} autocapture</>] }
+        return { description: [<>{change?.after ? 'opted out of' : 'opted in to'} autocapture</>] }
     },
     heatmaps_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} heatmaps</>] }
@@ -166,6 +259,50 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    test_account_filters: (change) => {
+        // change?.after is an array of property filters
+        // change?.before is an array o property filters
+        // so we can say what was removed and what was added
+        const afters = Array.isArray(change?.after) ? change?.after || [] : []
+        const befores = Array.isArray(change?.before) ? change?.before || [] : []
+
+        const addedFilters = afters.filter((filter) => !befores.some((before) => before.key === filter.key))
+
+        const removedFilters = befores.filter((filter) => !afters.some((after) => after.key === filter.key))
+
+        const listParts = []
+        if (addedFilters.length) {
+            listParts.push(
+                <>
+                    added <PropertyFiltersDisplay filters={addedFilters} />
+                </>
+            )
+        }
+        if (removedFilters.length) {
+            listParts.push(
+                <>
+                    removed <PropertyFiltersDisplay filters={removedFilters} />
+                </>
+            )
+        }
+        if (listParts.length === 0) {
+            return null
+        }
+
+        return {
+            description: [
+                <>Updated the "internal and test" account filters</>,
+                <SentenceList key={0} listParts={listParts} />,
+            ],
+        }
+    },
+    test_account_filters_default_checked: (change) => {
+        return {
+            description: [
+                <>{change?.after ? 'enabled' : 'disabled'} "internal & test account filters" for all insights</>,
+            ],
+        }
+    },
     // TODO if I had to test and describe every single one of this I'd never release this
     // we can add descriptions here as the need arises
     access_control: () => null,
@@ -175,19 +312,17 @@ const teamActionsMapping: Record<
     correlation_config: () => null,
     data_attributes: () => null,
     effective_membership_level: () => null,
-    groups_on_events_querying_enabled: () => null,
     has_group_types: () => null,
     ingested_event: () => null,
     is_demo: () => null,
     live_events_columns: () => null,
     organization: () => null,
+    project_id: () => null,
     path_cleaning_filters: () => null,
     person_display_name_properties: () => null,
     person_on_events_querying_enabled: () => null,
     primary_dashboard: () => null,
     slack_incoming_webhook: () => null,
-    test_account_filters: () => null,
-    test_account_filters_default_checked: () => null,
     timezone: () => null,
     surveys_opt_in: () => null,
     week_start_day: () => null,
@@ -227,6 +362,9 @@ const teamActionsMapping: Record<
     id: () => null,
     updated_at: () => null,
     uuid: () => null,
+    user_access_level: () => null,
+    live_events_token: () => null,
+    product_intents: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

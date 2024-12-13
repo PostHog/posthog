@@ -1,3 +1,4 @@
+from collections import defaultdict
 import re
 from datetime import timedelta
 from typing import Optional
@@ -7,6 +8,7 @@ import structlog
 
 from ee.clickhouse.materialized_columns.columns import (
     DEFAULT_TABLE_COLUMN,
+    MaterializedColumn,
     backfill_materialized_columns,
     get_materialized_columns,
     materialize,
@@ -27,6 +29,7 @@ from posthog.models.person.sql import (
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team
+from posthog.settings import CLICKHOUSE_CLUSTER
 
 Suggestion = tuple[TableWithProperties, TableColumn, PropertyName]
 
@@ -49,13 +52,6 @@ class TeamManager:
     @instance_memoize
     def person_on_events_properties(self, team_id: str) -> set[str]:
         return self._get_properties(GET_EVENT_PROPERTIES_COUNT.format(column_name="person_properties"), team_id)
-
-    @instance_memoize
-    def group_on_events_properties(self, group_type_index: int, team_id: str) -> set[str]:
-        return self._get_properties(
-            GET_EVENT_PROPERTIES_COUNT.format(column_name=f"group{group_type_index}_properties"),
-            team_id,
-        )
 
     def _get_properties(self, query, team_id) -> set[str]:
         rows = sync_execute(query, {"team_id": team_id})
@@ -99,11 +95,6 @@ class Query:
         person_props = team_manager.person_properties(self.team_id)
         event_props = team_manager.event_properties(self.team_id)
         person_on_events_props = team_manager.person_on_events_properties(self.team_id)
-        group0_props = team_manager.group_on_events_properties(0, self.team_id)
-        group1_props = team_manager.group_on_events_properties(1, self.team_id)
-        group2_props = team_manager.group_on_events_properties(2, self.team_id)
-        group3_props = team_manager.group_on_events_properties(3, self.team_id)
-        group4_props = team_manager.group_on_events_properties(4, self.team_id)
 
         for table_column, property in self._all_properties:
             if property in event_props:
@@ -113,19 +104,9 @@ class Query:
 
             if property in person_on_events_props and "person_properties" in table_column:
                 yield "events", "person_properties", property
-            if property in group0_props and "group0_properties" in table_column:
-                yield "events", "group0_properties", property
-            if property in group1_props and "group1_properties" in table_column:
-                yield "events", "group1_properties", property
-            if property in group2_props and "group2_properties" in table_column:
-                yield "events", "group2_properties", property
-            if property in group3_props and "group3_properties" in table_column:
-                yield "events", "group3_properties", property
-            if property in group4_props and "group4_properties" in table_column:
-                yield "events", "group4_properties", property
 
 
-def _analyze(since_hours_ago: int, min_query_time: int) -> list[Suggestion]:
+def _analyze(since_hours_ago: int, min_query_time: int, team_id: Optional[int] = None) -> list[Suggestion]:
     "Finds columns that should be materialized"
 
     raw_queries = sync_execute(
@@ -142,7 +123,7 @@ SELECT
     arrayJoin(
         extractAll(query, 'JSONExtract[a-zA-Z0-9]*?\\((?:[a-zA-Z0-9\\`_-]+\\.)?(.*?), .*?\\)')
     ) as column,
-    arrayJoin(extractAll(query, 'JSONExtract[a-zA-Z0-9]*?\\(.*?, \\'(.*?)\\'\\)')) as prop_to_materialize
+    arrayJoin(extractAll(query, 'JSONExtract[a-zA-Z0-9]*?\\(.*?, \\'([a-zA-Z0-9_\\-\\.\\$\\/\\ ]*?)\\'\\)')) as prop_to_materialize
     --,groupUniqArrayIf(JSONExtractInt(log_comment, 'team_id'), type > 2),
     --count(),
     --countIf(type > 2) as failures,
@@ -150,7 +131,7 @@ SELECT
     --formatReadableSize(avg(read_bytes)),
     --formatReadableSize(max(read_bytes))
 FROM
-    clusterAllReplicas(posthog, system, query_log)
+    clusterAllReplicas({cluster}, system, query_log)
 WHERE
     query_start_time > now() - toIntervalHour({since})
     and query LIKE '%JSONExtract%'
@@ -165,6 +146,7 @@ WHERE
     and read_bytes > min_bytes_read
     and (exception_code IN exception_codes OR query_duration_ms > slow_query_minimum)
     and read_rows > min_read_rows
+    {team_id_filter}
 GROUP BY
     1, 2
 HAVING
@@ -173,49 +155,59 @@ ORDER BY
     countIf(exception_code IN exception_codes) DESC,
     countIf(query_duration_ms > slow_query_minimum) DESC
 LIMIT 100 -- Make sure we don't add 100s of columns in one run
-        """.format(since=since_hours_ago, min_query_time=min_query_time),
+        """.format(
+            since=since_hours_ago,
+            min_query_time=min_query_time,
+            team_id_filter=f"and JSONExtractInt(log_comment, 'team_id') = {team_id}" if team_id else "",
+            cluster=CLICKHOUSE_CLUSTER,
+        ),
     )
 
     return [("events", table_column, property_name) for (table_column, property_name) in raw_queries]
 
 
 def materialize_properties_task(
-    columns_to_materialize: Optional[list[Suggestion]] = None,
+    properties_to_materialize: Optional[list[Suggestion]] = None,
     time_to_analyze_hours: int = MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     maximum: int = MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     min_query_time: int = MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
     backfill_period_days: int = MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     dry_run: bool = False,
+    team_id_to_analyze: Optional[int] = None,
+    is_nullable: bool = False,
 ) -> None:
     """
     Creates materialized columns for event and person properties based off of slow queries
     """
 
-    if columns_to_materialize is None:
-        columns_to_materialize = _analyze(time_to_analyze_hours, min_query_time)
-    result = []
-    for suggestion in columns_to_materialize:
-        table, table_column, property_name = suggestion
-        if (property_name, table_column) not in get_materialized_columns(table):
-            result.append(suggestion)
+    if properties_to_materialize is None:
+        properties_to_materialize = _analyze(time_to_analyze_hours, min_query_time, team_id_to_analyze)
+
+    properties_by_table: dict[TableWithProperties, list[tuple[TableColumn, PropertyName]]] = defaultdict(list)
+    for table, table_column, property_name in properties_to_materialize:
+        properties_by_table[table].append((table_column, property_name))
+
+    result: list[Suggestion] = []
+    for table, properties in properties_by_table.items():
+        existing_materialized_properties = get_materialized_columns(table).keys()
+        for table_column, property_name in properties:
+            if (property_name, table_column) not in existing_materialized_properties:
+                result.append((table, table_column, property_name))
 
     if len(result) > 0:
         logger.info(f"Calculated columns that could be materialized. count={len(result)}")
     else:
         logger.info("Found no columns to materialize.")
 
-    properties: dict[TableWithProperties, list[tuple[PropertyName, TableColumn]]] = {
-        "events": [],
-        "person": [],
-    }
+    materialized_columns: dict[TableWithProperties, list[MaterializedColumn]] = defaultdict(list)
     for table, table_column, property_name in result[:maximum]:
         logger.info(f"Materializing column. table={table}, property_name={property_name}")
-
         if not dry_run:
-            materialize(table, property_name, table_column=table_column)
-        properties[table].append((property_name, table_column))
+            materialized_columns[table].append(
+                materialize(table, property_name, table_column=table_column, is_nullable=is_nullable)
+            )
 
     if backfill_period_days > 0 and not dry_run:
         logger.info(f"Starting backfill for new materialized columns. period_days={backfill_period_days}")
-        backfill_materialized_columns("events", properties["events"], timedelta(days=backfill_period_days))
-        backfill_materialized_columns("person", properties["person"], timedelta(days=backfill_period_days))
+        for table, columns in materialized_columns.items():
+            backfill_materialized_columns(table, columns, timedelta(days=backfill_period_days))

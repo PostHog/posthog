@@ -40,7 +40,7 @@ export function FunnelHistogram(): JSX.Element | null {
                 width={width}
                 isDashboardItem={isInDashboardContext}
                 height={height}
-                formatXTickLabel={(v) => humanFriendlyDuration(v, 2)}
+                formatXTickLabel={(v) => humanFriendlyDuration(v, { maxUnits: 2 })}
             />
         </div>
     )

@@ -1,28 +1,28 @@
 import { combineUrl } from 'kea-router'
-import { toParams } from 'lib/utils'
+import { AlertType } from 'lib/components/Alerts/types'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
-import { HogQLFilters } from '~/queries/schema'
+import { HogQLFilters, HogQLVariable, Node } from '~/queries/schema'
 import {
     ActionType,
+    ActivityTab,
     AnnotationType,
-    AnyPartialFilterType,
-    AppMetricsUrlParams,
     DashboardType,
-    FilterType,
     InsightShortId,
+    InsightType,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
     ProductKey,
+    RecordingUniversalFilters,
     ReplayTabs,
     SDKKey,
 } from '~/types'
 
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
-import { PluginTab } from './plugins/types'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
+import { SurveysTabs } from './surveys/surveysLogic'
 
 /**
  * To add a new URL to the front end:
@@ -52,7 +52,7 @@ export const urls = {
 
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     createAction: (): string => `/data-management/actions/new`,
-    copyAction: (action: ActionType | null): string => {
+    duplicateAction: (action: ActionType | null): string => {
         const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
         return `/data-management/actions/new/${queryParams}`
     },
@@ -66,37 +66,43 @@ export const urls = {
     propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
-    events: (): string => '/events',
+    activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
-    batchExports: (): string => '/batch_exports',
-    batchExportNew: (): string => `/batch_exports/new`,
-    batchExport: (id: string, params?: { runId?: string }): string =>
-        `/batch_exports/${id}` + (params ? `?${toParams(params)}` : ''),
-    batchExportEdit: (id: string): string => `/batch_exports/${id}/edit`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insights: (): string => '/insights',
-    insightNew: (
-        filters?: AnyPartialFilterType,
-        dashboardId?: DashboardType['id'] | null,
-        query?: string | Record<string, any>
-    ): string =>
+    insightNew: (type?: InsightType, dashboardId?: DashboardType['id'] | null, query?: Node): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
-            ...(filters ? { filters } : {}),
+            ...(type ? { insight: type } : {}),
             ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
         }).url,
     insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
-        urls.insightNew(
-            undefined,
-            undefined,
-            JSON.stringify({
-                kind: 'DataTableNode',
-                full: true,
-                source: { kind: 'HogQLQuery', query, filters },
-            })
-        ),
+        combineUrl(
+            `/data-warehouse`,
+            {},
+            {
+                q: JSON.stringify({
+                    kind: 'DataTableNode',
+                    full: true,
+                    source: { kind: 'HogQLQuery', query, filters },
+                }),
+            }
+        ).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
-    insightView: (id: InsightShortId): string => `/insights/${id}`,
+    insightView: (
+        id: InsightShortId,
+        dashboardId?: number,
+        variablesOverride?: Record<string, HogQLVariable>
+    ): string => {
+        const params = [
+            { param: 'dashboard', value: dashboardId },
+            { param: 'variables_override', value: variablesOverride },
+        ]
+            .filter((n) => Boolean(n.value))
+            .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
+            .join('&')
+        return `/insights/${id}${params.length ? `?${params}` : ''}`
+    },
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
     insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
         `/insights/${id}/subscriptions/${subscriptionId}`,
@@ -104,20 +110,29 @@ export const urls = {
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
     webAnalytics: (): string => `/web`,
 
-    replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
-        combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
-    replayPlaylist: (id: string, filters?: Partial<FilterType>): string =>
-        combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,
-    replaySingle: (id: string, filters?: Partial<FilterType>): string =>
-        combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
-    replayFilePlayback: (): string => combineUrl('/replay/file-playback').url,
+    replay: (
+        tab?: ReplayTabs,
+        filters?: Partial<RecordingUniversalFilters>,
+        sessionRecordingId?: string,
+        order?: string
+    ): string =>
+        combineUrl(tab ? `/replay/${tab}` : '/replay/home', {
+            ...(filters ? { filters } : {}),
+            ...(sessionRecordingId ? { sessionRecordingId } : {}),
+            ...(order ? { order } : {}),
+        }).url,
+    replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
+    replaySingle: (id: string): string => `/replay/${id}`,
+    replayFilePlayback: (): string => '/replay/file-playback',
+
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
-    pipelineNodeNew: (stage: PipelineStage | ':stage', pluginIdOrBatchExportDestination?: string | number): string =>
-        `/pipeline/new/${stage}${pluginIdOrBatchExportDestination ? `/${pluginIdOrBatchExportDestination}` : ''}`,
+    pipelineNodeNew: (stage: PipelineStage | ':stage', id?: string | number): string => {
+        return `/pipeline/new/${stage}${id ? `/${id}` : ''}`
+    },
     pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
     pipelineNode: (
@@ -125,7 +140,15 @@ export const urls = {
         id: string | number,
         nodeTab?: PipelineNodeTab | ':nodeTab'
     ): string =>
-        `/pipeline/${!stage.startsWith(':') ? `${stage}s` : stage}/${id}/${nodeTab ?? PipelineNodeTab.Configuration}`,
+        `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
+            nodeTab ? `/${nodeTab}` : ''
+        }`,
+    messagingBroadcasts: (): string => '/messaging/broadcasts',
+    messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
+    messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
+    messagingProviders: (): string => '/messaging/providers',
+    messagingProvider: (id?: string): string => `/messaging/providers/${id}`,
+    messagingProviderNew: (template?: string): string => '/messaging/providers/new' + (template ? `/${template}` : ''),
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
@@ -136,35 +159,32 @@ export const urls = {
     experiments: (): string => '/experiments',
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
+    featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     /** @param id A UUID or 'new'. ':id' for routing. */
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
-    surveys: (): string => '/surveys',
+    errorTracking: (): string => '/error_tracking',
+    errorTrackingConfiguration: (): string => '/error_tracking/configuration',
+    errorTrackingIssue: (id: string): string => `/error_tracking/${id}`,
+    surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
-    dataWarehouse: (): string => '/data-warehouse',
+    customCss: (): string => '/themes/custom-css',
+    dataModel: (): string => '/data-model',
+    dataWarehouse: (query?: string | Record<string, any>): string =>
+        combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
+            .url,
+    sqlEditor: (): string => `/sql`,
+    dataWarehouseView: (id: string): string => combineUrl(`/data-warehouse/view/${id}`).url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
-    dataWarehouseSettings: (): string => '/data-warehouse/settings',
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
-    projectApps: (tab?: PluginTab): string => `/apps${tab ? `?tab=${tab}` : ''}`,
-    projectApp: (id: string | number): string => `/apps/${id}`,
-    projectAppSearch: (name: string): string => `/apps?name=${name}`,
-    projectAppLogs: (id: string | number): string => `/apps/${id}/logs`,
-    projectAppSource: (id: string | number): string => `/apps/${id}/source`,
-    frontendApp: (id: string | number): string => `/app/${id}`,
-    appMetrics: (pluginConfigId: string | number, params: AppMetricsUrlParams = {}): string =>
-        combineUrl(`/app/${pluginConfigId}/metrics`, params).url,
-    appHistoricalExports: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/historical_exports`,
-    appHistory: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
-        combineUrl(`/app/${pluginConfigId}/history`, searchParams).url,
-    appLogs: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
-        combineUrl(`/app/${pluginConfigId}/logs`, searchParams).url,
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectHomepage: (): string => '/',
+    max: (): string => '/max',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
@@ -189,6 +209,7 @@ export const urls = {
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
+    billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
     instanceStaffUsers: (): string => '/instance/staff_users',
@@ -200,7 +221,7 @@ export const urls = {
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
-    integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
+    integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     shared: (token: string, exportOptions: ExportOptions = {}): string =>
         combineUrl(
             `/shared/${token}`,
@@ -218,6 +239,7 @@ export const urls = {
         urls.shared(token, exportOptions).replace('/shared/', '/embedded/'),
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
+    debugHog: (): string => '/debug/hog',
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
     notebooks: (): string => '/notebooks',
@@ -227,4 +249,10 @@ export const urls = {
     clientAuthorization: (): string => `/client_authorization`,
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
+    alerts: (): string => `/insights?tab=alerts`,
+    insightAlerts: (insightShortId: InsightShortId): string => `/insights/${insightShortId}/alerts`,
+    insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
+        `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
+    sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
 }

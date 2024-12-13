@@ -15,12 +15,6 @@ body.ExporterBody {
         max-height: 100vh;
     }
 
-    &--dashboard {
-        height: 100vh;
-        max-height: 100vh;
-        overflow: auto;
-    }
-
     .SharedDashboard-header {
         .SharedDashboard-header-team {
             display: none;
@@ -62,7 +56,6 @@ html.export-type-embed {
     overflow-y: auto;
 
     .Exporter {
-        height: 100vh;
         padding: 0;
     }
 }

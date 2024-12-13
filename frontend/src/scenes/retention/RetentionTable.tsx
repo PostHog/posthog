@@ -12,7 +12,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
 
-export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
+export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { tableHeaders, tableRows, isLatestPeriod, hideSizeColumn, retentionVizOptions } = useValues(
         retentionTableLogic(insightProps)
@@ -35,7 +35,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
 
                 {showMean && tableRows.length > 0 ? (
                     <tr className="border-b" key={-1}>
-                        {range(0, tableRows[0].length - 1).map((columnIndex) => (
+                        {range(0, tableRows[0].length).map((columnIndex) => (
                             <td key={columnIndex} className="pb-2">
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
                                     columnIndex == 0 ? (
@@ -47,23 +47,23 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                                             mean(
                                                 tableRows.map((row) => {
                                                     // Stop before the last item in a row, which is an incomplete time period
-                                                    if (columnIndex < row.length - 1) {
-                                                        return row[columnIndex].percentage
+                                                    if (
+                                                        (columnIndex >= row.length - 1 && isLatestPeriod) ||
+                                                        !row[columnIndex]
+                                                    ) {
+                                                        return null
                                                     }
-                                                    return null
+                                                    return row[columnIndex].percentage
                                                 })
                                             ) || 0
                                         }
-                                        latest={columnIndex == tableRows[0].length - 1}
+                                        latest={isLatestPeriod && columnIndex == tableRows[0].length - 1}
                                         clickable={false}
                                         backgroundColor={PURPLE}
                                     />
                                 )}
                             </td>
                         ))}
-                        <td className="pb-2">
-                            <CohortDay percentage={0} latest={true} clickable={false} />
-                        </td>
                     </tr>
                 ) : undefined}
 
@@ -71,7 +71,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                     <tr
                         key={rowIndex}
                         onClick={() => {
-                            if (!inCardView) {
+                            if (!inSharedMode) {
                                 openModal(rowIndex)
                             }
                         }}
@@ -109,7 +109,7 @@ function CohortDay({
 }): JSX.Element {
     const backgroundColorSaturation = percentage / 100
     const saturatedBackgroundColor = gradateColor(backgroundColor || BRAND_BLUE_HSL, backgroundColorSaturation, 0.1)
-    const textColor = backgroundColorSaturation > 0.4 ? '#fff' : 'var(--default)' // Ensure text contrast
+    const textColor = backgroundColorSaturation > 0.4 ? '#fff' : 'var(--text-3000)' // Ensure text contrast
 
     const numberCell = (
         <div

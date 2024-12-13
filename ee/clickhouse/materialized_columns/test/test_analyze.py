@@ -19,6 +19,7 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
             "SELECT * FROM events WHERE JSONExtractRaw(`e`.properties, \\'materialize_me3\\')",
             "SELECT * FROM events WHERE JSONExtractRaw(person_properties, \\'materialize_person_prop\\')",
             "SELECT * FROM groups WHERE JSONExtractRaw(group.group_properties, \\'materialize_person_prop\\')",  # this should not appear
+            "SELECT * FROM groups WHERE JSONExtractRaw(group.group_properties, \\'nested\\', \\'property\\')",  # this should not appear
         ]
 
         for query in queries_to_insert:
@@ -48,9 +49,9 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
         materialize_properties_task()
         patch_materialize.assert_has_calls(
             [
-                call("events", "materialize_me", table_column="properties"),
-                call("events", "materialize_me2", table_column="properties"),
-                call("events", "materialize_person_prop", table_column="person_properties"),
-                call("events", "materialize_me3", table_column="properties"),
+                call("events", "materialize_me", table_column="properties", is_nullable=False),
+                call("events", "materialize_me2", table_column="properties", is_nullable=False),
+                call("events", "materialize_person_prop", table_column="person_properties", is_nullable=False),
+                call("events", "materialize_me3", table_column="properties", is_nullable=False),
             ]
         )

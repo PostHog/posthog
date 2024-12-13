@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 import type { pipelineNodeMetricsLogicType } from './pipelineNodeMetricsLogicType'
 
@@ -52,10 +52,10 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
     key(({ id }: PipelineNodeMetricsProps) => id),
     path((id) => ['scenes', 'pipeline', 'appMetricsLogic', id]),
     connect({
-        values: [teamLogic, ['currentTeamId']],
+        values: [projectLogic, ['currentProjectId']],
     }),
     actions({
-        setDateFrom: (dateFrom: string) => ({ dateFrom }),
+        setDateRange: (from: string | null, to: string | null) => ({ from, to }),
         openErrorDetailsModal: (errorType: string) => ({
             errorType,
         }),
@@ -66,10 +66,8 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
             null as AppMetricsResponse | null,
             {
                 loadMetrics: async () => {
-                    const params = toParams({ date_from: values.dateFrom })
-                    return await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.id}?${params}`
-                    )
+                    const params = toParams({ date_from: values.dateRange.from, date_to: values.dateRange.to })
+                    return await api.get(`api/projects/${values.currentProjectId}/app_metrics/${props.id}?${params}`)
                 },
             },
         ],
@@ -79,7 +77,7 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
                 openErrorDetailsModal: async ({ errorType }) => {
                     const params = toParams({ error_type: errorType })
                     const { result } = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.id}/error_details?${params}`
+                        `api/projects/${values.currentProjectId}/app_metrics/${props.id}/error_details?${params}`
                     )
                     return result
                 },
@@ -87,10 +85,10 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
         ],
     })),
     reducers({
-        dateFrom: [
-            DEFAULT_DATE_FROM as string,
+        dateRange: [
+            { from: DEFAULT_DATE_FROM, to: null } as { from: string; to: string | null },
             {
-                setDateFrom: (_, { dateFrom }) => dateFrom,
+                setDateRange: (_, { from, to }) => ({ from: from ?? DEFAULT_DATE_FROM, to: to }),
             },
         ],
         errorDetailsModalError: [
@@ -102,7 +100,7 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        setDateFrom: () => {
+        setDateRange: () => {
             actions.loadMetrics()
         },
     })),

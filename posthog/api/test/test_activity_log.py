@@ -5,8 +5,8 @@ from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
 from rest_framework import status
 
-from posthog.models import User
-from posthog.test.base import APIBaseTest, QueryMatchingTest
+from posthog.models import User, NotificationViewed
+from posthog.test.base import APIBaseTest, QueryMatchingTest, FuzzyInt
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -51,6 +51,24 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
     def tearDown(self):
         super().tearDown()
         self.client.force_login(self.user)
+
+    def _create_insight(
+        self,
+        data: dict[str, Any],
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_201_CREATED,
+    ) -> tuple[int, dict[str, Any]]:
+        if team_id is None:
+            team_id = self.team.id
+
+        if "filters" not in data:
+            data["filters"] = {"events": [{"id": "$pageview"}]}
+
+        response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
+        self.assertEqual(response.status_code, expected_status)
+
+        response_json = response.json()
+        return response_json.get("id", None), response_json
 
     def _create_and_edit_things(self):
         with freeze_time("2023-08-17") as frozen_time:
@@ -267,20 +285,30 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         assert changes.json()["last_read"] == "2023-08-17T04:24:25Z"
         assert [c["unread"] for c in changes.json()["results"]] == [True, True]
 
-    def _create_insight(
-        self,
-        data: dict[str, Any],
-        team_id: Optional[int] = None,
-        expected_status: int = status.HTTP_201_CREATED,
-    ) -> tuple[int, dict[str, Any]]:
-        if team_id is None:
-            team_id = self.team.id
+    def test_notifications_viewed_n_plus_1(self) -> None:
+        for i in range(1, 9):
+            if i % 3 == 0:
+                user = self.user
+            elif i % 3 == 1:
+                user = self.other_user
+            else:
+                user = self.third_user
 
-        if "filters" not in data:
-            data["filters"] = {"events": [{"id": "$pageview"}]}
+            NotificationViewed.objects.update_or_create(
+                user=user, defaults={"last_viewed_activity_date": f"2023-0{i}-17T04:36:50Z"}
+            )
 
-        response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
-        self.assertEqual(response.status_code, expected_status)
+            with self.assertNumQueries(FuzzyInt(42, 42)):
+                self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
 
-        response_json = response.json()
-        return response_json.get("id", None), response_json
+    def test_can_list_all_activity(self) -> None:
+        res = self.client.get(f"/api/projects/{self.team.id}/activity_log")
+
+        assert res.status_code == status.HTTP_200_OK
+        assert len(res.json()["results"]) == 31
+
+    def test_can_list_all_activity_filtered_by_scope(self) -> None:
+        res = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=FeatureFlag")
+        assert res.status_code == status.HTTP_200_OK
+        assert len(res.json()["results"]) == 6
+        assert [r["scope"] for r in res.json()["results"]] == ["FeatureFlag"] * 6

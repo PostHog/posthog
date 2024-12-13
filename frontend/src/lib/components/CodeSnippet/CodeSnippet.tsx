@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { CSSProperties, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import dart from 'react-syntax-highlighter/dist/esm/languages/prism/dart'
@@ -54,6 +54,53 @@ export enum Language {
     Kotlin = 'kotlin',
 }
 
+export const getLanguage = (lang: string): Language => {
+    switch (lang) {
+        case 'bash':
+            return Language.Bash
+        case 'jsx':
+            return Language.JSX
+        case 'javascript':
+            return Language.JavaScript
+        case 'java':
+            return Language.Java
+        case 'ruby':
+            return Language.Ruby
+        case 'objectivec':
+            return Language.ObjectiveC
+        case 'swift':
+            return Language.Swift
+        case 'elixir':
+            return Language.Elixir
+        case 'php':
+            return Language.PHP
+        case 'python':
+            return Language.Python
+        case 'dart':
+            return Language.Dart
+        case 'go':
+            return Language.Go
+        case 'json':
+            return Language.JSON
+        case 'yaml':
+            return Language.YAML
+        case 'html':
+            return Language.HTML
+        case 'xml':
+            return Language.XML
+        case 'http':
+            return Language.HTTP
+        case 'markup':
+            return Language.Markup
+        case 'sql':
+            return Language.SQL
+        case 'kotlin':
+            return Language.Kotlin
+        default:
+            return Language.Text
+    }
+}
+
 SyntaxHighlighter.registerLanguage(Language.Bash, bash)
 SyntaxHighlighter.registerLanguage(Language.JSX, jsx)
 SyntaxHighlighter.registerLanguage(Language.JavaScript, javascript)
@@ -81,7 +128,7 @@ export interface CodeSnippetProps {
     wrap?: boolean
     compact?: boolean
     actions?: JSX.Element
-    style?: CSSProperties
+    className?: string
     /** What is being copied. @example 'link' */
     thing?: string
     /** If set, the snippet becomes expandable when there's more than this number of lines. */
@@ -93,13 +140,11 @@ export function CodeSnippet({
     language = Language.Text,
     wrap = false,
     compact = false,
-    style,
+    className,
     actions,
     thing = 'snippet',
     maxLinesWithoutExpansion,
 }: CodeSnippetProps): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-
     const [expanded, setExpanded] = useState(false)
     const [indexOfLimitNewline, setIndexOfLimitNewline] = useState(
         maxLinesWithoutExpansion ? indexOfNth(text || '', '\n', maxLinesWithoutExpansion) : -1
@@ -120,8 +165,7 @@ export function CodeSnippet({
     }
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div className={clsx('CodeSnippet', compact && 'CodeSnippet--compact')} style={style}>
+        <div className={clsx('CodeSnippet', compact && 'CodeSnippet--compact', className)}>
             <div className="CodeSnippet__actions">
                 {actions}
                 <LemonButton
@@ -137,14 +181,7 @@ export function CodeSnippet({
                     noPadding
                 />
             </div>
-            <SyntaxHighlighter
-                style={isDarkModeOn ? darkTheme : lightTheme}
-                language={language}
-                wrapLines={wrap}
-                lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}
-            >
-                {displayedText}
-            </SyntaxHighlighter>
+            <CodeLine text={displayedText} language={language} wrapLines={wrap} />
             {indexOfLimitNewline !== -1 && (
                 <LemonButton
                     onClick={() => setExpanded(!expanded)}
@@ -161,6 +198,30 @@ export function CodeSnippet({
                 </LemonButton>
             )}
         </div>
+    )
+}
+
+export function CodeLine({
+    text,
+    wrapLines,
+    language,
+}: {
+    text: string
+    wrapLines: boolean
+    language: Language
+}): JSX.Element {
+    const { isDarkModeOn } = useValues(themeLogic)
+
+    return (
+        <SyntaxHighlighter
+            style={isDarkModeOn ? darkTheme : lightTheme}
+            language={language}
+            wrapLines={wrapLines}
+            lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}
+            PreTag={({ children }) => <pre className="bg-transparent m-0">{children}</pre>}
+        >
+            {text}
+        </SyntaxHighlighter>
     )
 }
 

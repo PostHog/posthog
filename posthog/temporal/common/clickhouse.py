@@ -1,14 +1,21 @@
+import asyncio
 import collections.abc
 import contextlib
 import datetime as dt
 import json
+import ssl
 import typing
 import uuid
 
 import aiohttp
 import pyarrow as pa
 import requests
+import structlog
 from django.conf import settings
+
+import posthog.temporal.common.asyncpa as asyncpa
+
+logger = structlog.get_logger()
 
 
 def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
@@ -74,6 +81,36 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             return f"{quote_char}{str_data}{quote_char}".encode()
 
 
+class ChunkBytesAsyncStreamIterator:
+    """Async iterator of HTTP chunk bytes.
+
+    Similar to the class provided by aiohttp, but this allows us to control
+    when to stop iteration.
+    """
+
+    def __init__(self, stream: aiohttp.StreamReader) -> None:
+        self._stream = stream
+
+    def __aiter__(self) -> "ChunkBytesAsyncStreamIterator":
+        return self
+
+    async def __anext__(self) -> bytes:
+        data, end_of_chunk = await self._stream.readchunk()
+
+        if data == b"" and end_of_chunk is False and self._stream.at_eof():
+            await logger.adebug("At EOF, stopping chunk iteration")
+            raise StopAsyncIteration
+
+        return data
+
+
+class ClickHouseClientNotConnected(Exception):
+    """Exception raised when attempting to run an async query without connecting."""
+
+    def __init__(self):
+        super().__init__("ClickHouseClient is not connected. Are you running in a context manager?")
+
+
 class ClickHouseError(Exception):
     """Base Exception representing anything going wrong with ClickHouse."""
 
@@ -95,21 +132,21 @@ class ClickHouseClient:
 
     def __init__(
         self,
-        session: aiohttp.ClientSession | None = None,
         url: str = "http://localhost:8123",
         user: str = "default",
         password: str = "",
         database: str = "default",
+        timeout: None | aiohttp.ClientTimeout = None,
+        ssl: ssl.SSLContext | bool = True,
         **kwargs,
     ):
-        if session is None:
-            self.session = aiohttp.ClientSession()
-        else:
-            self.session = session
-
         self.url = url
         self.headers = {}
         self.params = {}
+        self.timeout = timeout
+        self.ssl = ssl
+        self.connector: None | aiohttp.TCPConnector = None
+        self.session: None | aiohttp.ClientSession = None
 
         if user:
             self.headers["X-ClickHouse-User"] = user
@@ -121,10 +158,9 @@ class ClickHouseClient:
         self.params.update(kwargs)
 
     @classmethod
-    def from_posthog_settings(cls, session, settings, **kwargs):
+    def from_posthog_settings(cls, settings, **kwargs):
         """Initialize a ClickHouseClient from PostHog settings."""
         return cls(
-            session=session,
             url=settings.CLICKHOUSE_URL,
             user=settings.CLICKHOUSE_USER,
             password=settings.CLICKHOUSE_PASSWORD,
@@ -138,6 +174,9 @@ class ClickHouseClient:
         Returns:
             A boolean indicating whether the connection is alive.
         """
+        if self.session is None:
+            raise ClickHouseClientNotConnected()
+
         try:
             await self.session.get(
                 url=self.url,
@@ -215,6 +254,8 @@ class ClickHouseClient:
         Returns:
             The response received from the ClickHouse HTTP interface.
         """
+        if self.session is None:
+            raise ClickHouseClientNotConnected()
 
         params = {**self.params}
         if query_id is not None:
@@ -243,6 +284,8 @@ class ClickHouseClient:
         Returns:
             The response received from the ClickHouse HTTP interface.
         """
+        if self.session is None:
+            raise ClickHouseClientNotConnected()
 
         params = {**self.params}
         if query_id is not None:
@@ -357,18 +400,62 @@ class ClickHouseClient:
             with pa.ipc.open_stream(pa.PythonFile(response.raw)) as reader:
                 yield from reader
 
+    async def astream_query_as_arrow(
+        self,
+        query,
+        *data,
+        query_parameters=None,
+        query_id: str | None = None,
+    ) -> typing.AsyncGenerator[pa.RecordBatch, None]:
+        """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
+
+        This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
+        """
+        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+            reader = asyncpa.AsyncRecordBatchReader(ChunkBytesAsyncStreamIterator(response.content))
+            async for batch in reader:
+                yield batch
+
+    async def aproduce_query_as_arrow_record_batches(
+        self,
+        query,
+        *data,
+        queue: asyncio.Queue,
+        query_parameters=None,
+        query_id: str | None = None,
+    ) -> None:
+        """Execute the given query in ClickHouse and produce Arrow record batches to given buffer queue.
+
+        This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
+        This method is intended to be ran as a background task, producing record batches continuously, while other
+        downstream consumer tasks process them from the queue.
+        """
+        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+            reader = asyncpa.AsyncRecordBatchProducer(ChunkBytesAsyncStreamIterator(response.content))
+            await reader.produce(queue=queue)
+
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""
+        self.connector = aiohttp.TCPConnector(ssl=self.ssl)
+        self.session = aiohttp.ClientSession(connector=self.connector, timeout=self.timeout)
         return self
 
     async def __aexit__(self, exc_type, exc_value, tb):
         """Exit method part of the AsyncContextManager protocol."""
-        await self.session.close()
+        if self.session is not None:
+            await self.session.close()
+
+        if self.connector is not None:
+            await self.connector.close()
+
+        self.session = None
+        self.connector = None
+        return False
 
 
 @contextlib.asynccontextmanager
 async def get_client(
-    *, team_id: typing.Optional[int] = None, **kwargs
+    *, team_id: typing.Optional[int] = None, clickhouse_url: str | None = None, **kwargs
 ) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an
@@ -399,7 +486,7 @@ async def get_client(
     #        ssl_context.load_verify_locations(settings.CLICKHOUSE_CA)
     #    elif ssl_context.verify_mode is ssl.CERT_REQUIRED:
     #        ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
-    timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=None, sock_read=None)
+    timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=30, sock_read=None)
 
     if team_id is None:
         max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
@@ -408,17 +495,23 @@ async def get_client(
             team_id, settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
         )
 
-    with aiohttp.TCPConnector(ssl=False) as connector:
-        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-            async with ClickHouseClient(
-                session,
-                url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
-                user=settings.CLICKHOUSE_USER,
-                password=settings.CLICKHOUSE_PASSWORD,
-                database=settings.CLICKHOUSE_DATABASE,
-                max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
-                max_block_size=max_block_size,
-                output_format_arrow_string_as_string="true",
-                **kwargs,
-            ) as client:
-                yield client
+    if clickhouse_url is None:
+        url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
+    else:
+        url = clickhouse_url
+
+    async with ClickHouseClient(
+        url=url,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+        timeout=timeout,
+        ssl=False,
+        max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
+        max_memory_usage=settings.CLICKHOUSE_MAX_MEMORY_USAGE,
+        max_block_size=max_block_size,
+        output_format_arrow_string_as_string="true",
+        http_send_timeout=0,
+        **kwargs,
+    ) as client:
+        yield client

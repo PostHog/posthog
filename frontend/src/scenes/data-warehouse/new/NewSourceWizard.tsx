@@ -1,34 +1,69 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import hubspotLogo from 'public/hubspot-logo.svg'
-import postgresLogo from 'public/postgres-logo.svg'
-import stripeLogo from 'public/stripe-logo.svg'
-import zendeskLogo from 'public/zendesk-logo.png'
 import { useCallback } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SourceConfig } from '~/types'
+import { ManualLinkSourceType, SourceConfig } from '~/types'
 
-import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
+import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
+import SchemaForm from '../external/forms/SchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
+import { RenderDataWarehouseSourceIcon } from '../settings/DataWarehouseManagedSourcesTable'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
-import { ManualLinkProvider } from './ManualLinkProvider'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 export const scene: SceneExport = {
-    component: NewSourceWizard,
+    component: NewSourceWizardScene,
     logic: sourceWizardLogic,
 }
-export function NewSourceWizard(): JSX.Element {
-    const { modalTitle, modalCaption } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit, closeWizard } = useActions(sourceWizardLogic)
-    const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } =
-        useValues(sourceWizardLogic)
+export function NewSourceWizardScene(): JSX.Element {
+    const { closeWizard } = useActions(sourceWizardLogic)
+
+    return (
+        <>
+            <PageHeader
+                buttons={
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            center
+                            data-attr="source-form-cancel-button"
+                            onClick={closeWizard}
+                        >
+                            Cancel
+                        </LemonButton>
+                    </>
+                }
+            />
+            <NewSourcesWizard />
+        </>
+    )
+}
+
+interface NewSourcesWizardProps {
+    onComplete?: () => void
+}
+
+export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Element {
+    const wizardLogic = sourceWizardLogic({ onComplete })
+
+    const {
+        modalTitle,
+        modalCaption,
+        isWrapped,
+        currentStep,
+        isLoading,
+        canGoBack,
+        canGoNext,
+        nextButtonText,
+        showSkipButton,
+    } = useValues(wizardLogic)
+    const { onBack, onSubmit } = useActions(wizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
 
     const footer = useCallback(() => {
@@ -37,19 +72,16 @@ export function NewSourceWizard(): JSX.Element {
         }
 
         return (
-            <div className="mt-2 flex flex-row justify-end gap-2">
-                <LemonButton
-                    type="secondary"
-                    center
-                    data-attr="source-modal-back-button"
-                    onClick={onBack}
-                    disabledReason={!canGoBack && 'You cant go back from here'}
-                >
-                    Back
-                </LemonButton>
-                {showSkipButton && (
-                    <LemonButton type="primary" center onClick={() => closeWizard()} data-attr="source-link">
-                        Skip
+            <div className="mt-4 flex flex-row justify-end gap-2">
+                {canGoBack && (
+                    <LemonButton
+                        type="secondary"
+                        center
+                        data-attr="source-modal-back-button"
+                        onClick={onBack}
+                        disabledReason={!canGoBack && 'You cant go back from here'}
+                    >
+                        Back
                     </LemonButton>
                 )}
                 <LemonButton
@@ -68,136 +100,162 @@ export function NewSourceWizard(): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                buttons={
-                    <>
-                        <LemonButton
-                            type="secondary"
-                            center
-                            data-attr="source-form-cancel-button"
-                            onClick={closeWizard}
-                        >
-                            Cancel
-                        </LemonButton>
-                    </>
-                }
-            />
+            {!isWrapped && <DataWarehouseInitialBillingLimitNotice />}
             <>
                 <h3>{modalTitle}</h3>
                 <p>{modalCaption}</p>
-                <FirstStep />
-                <SecondStep />
-                <ThirdStep />
-                <FourthStep />
+
+                {currentStep === 1 ? (
+                    <FirstStep />
+                ) : currentStep === 2 ? (
+                    <SecondStep />
+                ) : currentStep === 3 ? (
+                    <ThirdStep />
+                ) : currentStep === 4 ? (
+                    <FourthStep />
+                ) : (
+                    <div>Something went wrong...</div>
+                )}
+
                 {footer()}
             </>
         </>
     )
 }
 
-interface ModalPageProps {
-    page: number
-    children?: React.ReactNode
-}
-
-function ModalPage({ children, page }: ModalPageProps): JSX.Element {
-    const { currentStep } = useValues(sourceWizardLogic)
-
-    if (currentStep !== page) {
-        return <></>
-    }
-
-    return <div>{children}</div>
-}
-
 function FirstStep(): JSX.Element {
-    const { connectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
-    const { selectConnector, toggleManualLinkFormVisible, onNext } = useActions(sourceWizardLogic)
+    const { connectors, manualConnectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
+    const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
+        useActions(sourceWizardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const MenuButton = (config: SourceConfig): JSX.Element => {
-        const onClick = (): void => {
-            selectConnector(config)
-            onNext()
+    const onClick = (sourceConfig: SourceConfig): void => {
+        if (sourceConfig.name == 'Hubspot') {
+            window.open(addToHubspotButtonUrl() as string)
+        } else {
+            selectConnector(sourceConfig)
         }
-
-        if (config.name === 'Stripe') {
-            return (
-                <LemonButton onClick={onClick} fullWidth center type="secondary">
-                    <img src={stripeLogo} alt="stripe logo" height={50} />
-                </LemonButton>
-            )
-        }
-        if (config.name === 'Hubspot') {
-            return (
-                <LemonButton fullWidth center type="secondary" to={addToHubspotButtonUrl() || ''}>
-                    <img src={hubspotLogo} alt="hubspot logo" height={45} />
-                </LemonButton>
-            )
-        }
-
-        if (config.name === 'Postgres' && featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_POSTGRES_IMPORT]) {
-            return (
-                <LemonButton onClick={onClick} fullWidth center type="secondary">
-                    <div className="flex flex-row gap-2 justify-center items-center">
-                        <img src={postgresLogo} alt="postgres logo" height={45} />
-                        <div className="text-base">Postgres</div>
-                    </div>
-                </LemonButton>
-            )
-        }
-        if (config.name === 'Zendesk') {
-            return (
-                <LemonButton onClick={onClick} fullWidth center type="secondary">
-                    <img src={zendeskLogo} alt="Zendesk logo" height={40} />
-                </LemonButton>
-            )
-        }
-
-        return <></>
-    }
-
-    const onManualLinkClick = (): void => {
-        toggleManualLinkFormVisible(true)
         onNext()
     }
 
+    const onManualLinkClick = (manulLinkSource: ManualLinkSourceType): void => {
+        toggleManualLinkFormVisible(true)
+        setManualLinkingProvider(manulLinkSource)
+    }
+
+    const filteredConnectors = connectors.filter((n) => {
+        if (n.name === 'BigQuery' && !featureFlags[FEATURE_FLAGS.BIGQUERY_DWH]) {
+            return false
+        }
+
+        return true
+    })
+
     return (
-        <ModalPage page={1}>
-            <div className="flex flex-col gap-2 items-center">
-                {connectors.map((config, index) => (
-                    <MenuButton key={config.name + '_' + index} {...config} />
-                ))}
-                <LemonButton onClick={onManualLinkClick} className="w-full" center type="secondary">
-                    Manual Link
-                </LemonButton>
-            </div>
-        </ModalPage>
+        <>
+            <h2 className="mt-4">Managed by PostHog</h2>
+
+            <p>
+                Data will be synced to PostHog and regularly refreshed.{' '}
+                <Link to="https://posthog.com/docs/data-warehouse/setup#stripe">Learn more</Link>
+            </p>
+            <LemonTable
+                dataSource={filteredConnectors}
+                loading={false}
+                disableTableWhileLoading={false}
+                columns={[
+                    {
+                        title: 'Source',
+                        width: 0,
+                        render: function RenderAppInfo(_, sourceConfig) {
+                            return <RenderDataWarehouseSourceIcon type={sourceConfig.name} />
+                        },
+                    },
+                    {
+                        title: 'Name',
+                        key: 'name',
+                        render: function RenderName(_, sourceConfig) {
+                            return (
+                                <span className="font-semibold text-sm gap-1">
+                                    {sourceConfig.label ?? sourceConfig.name}
+                                </span>
+                            )
+                        },
+                    },
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: function RenderActions(_, sourceConfig) {
+                            return (
+                                <div className="flex flex-row justify-end">
+                                    <LemonButton onClick={() => onClick(sourceConfig)} className="my-2" type="primary">
+                                        Link
+                                    </LemonButton>
+                                </div>
+                            )
+                        },
+                    },
+                ]}
+            />
+
+            <h2 className="mt-4">Self Managed</h2>
+
+            <p>
+                Data will be queried directly from your data source that you manage.{' '}
+                <Link to="https://posthog.com/docs/data-warehouse/setup#linking-a-custom-source">Learn more</Link>
+            </p>
+            <LemonTable
+                dataSource={manualConnectors}
+                loading={false}
+                disableTableWhileLoading={false}
+                columns={[
+                    {
+                        title: 'Source',
+                        width: 0,
+                        render: function RenderAppInfo(_, sourceConfig) {
+                            return <RenderDataWarehouseSourceIcon type={sourceConfig.type} />
+                        },
+                    },
+                    {
+                        title: 'Name',
+                        key: 'name',
+                        render: function RenderName(_, sourceConfig) {
+                            return <span className="font-semibold text-sm gap-1">{sourceConfig.name}</span>
+                        },
+                    },
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: function RenderActions(_, sourceConfig) {
+                            return (
+                                <div className="flex flex-row justify-end">
+                                    <LemonButton
+                                        onClick={() => onManualLinkClick(sourceConfig.type)}
+                                        className="my-2"
+                                        type="primary"
+                                    >
+                                        Link
+                                    </LemonButton>
+                                </div>
+                            )
+                        },
+                    },
+                ]}
+            />
+        </>
     )
 }
 
 function SecondStep(): JSX.Element {
     const { selectedConnector } = useValues(sourceWizardLogic)
 
-    return (
-        <ModalPage page={2}>
-            {selectedConnector ? <SourceForm sourceConfig={selectedConnector} /> : <ManualLinkProvider />}
-        </ModalPage>
-    )
+    return selectedConnector ? <SourceForm sourceConfig={selectedConnector} /> : <DatawarehouseTableForm />
 }
 
 function ThirdStep(): JSX.Element {
-    const { isManualLinkFormVisible } = useValues(sourceWizardLogic)
-
-    return (
-        <ModalPage page={3}>{isManualLinkFormVisible ? <DatawarehouseTableForm /> : <PostgresSchemaForm />}</ModalPage>
-    )
+    return <SchemaForm />
 }
 
 function FourthStep(): JSX.Element {
-    return (
-        <ModalPage page={4}>
-            <SyncProgressStep />
-        </ModalPage>
-    )
+    return <SyncProgressStep />
 }

@@ -31,6 +31,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         // TRICKY: We cache a copy of the props. This allows us to connect the logic without passing the props in - only the top level caller has to do this.
         props: [props],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
+        experimentId: [props.experimentId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
     })),
@@ -95,11 +96,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             (s) => [s.props],
             (props: ToolbarProps) => `${props.apiURL?.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL}`,
         ],
-        jsURL: [
-            (s) => [s.props, s.apiURL],
-            (props: ToolbarProps, apiUrl) =>
-                `${props.jsURL ? (props.jsURL.endsWith('/') ? props.jsURL.replace(/\/+$/, '') : props.jsURL) : apiUrl}`,
-        ],
         dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
         accessToken: [(s) => [s.authorization], (authorization) => authorization?.accessToken ?? null],
         // TODO: Check for expiry
@@ -140,6 +136,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             const toolbarParams: ToolbarProps = {
                 ...values.props,
                 actionId: values.actionId ?? undefined,
+                experimentId: values.experimentId ?? undefined,
                 userIntent: values.userIntent ?? undefined,
                 posthog: undefined,
                 featureFlags: undefined,

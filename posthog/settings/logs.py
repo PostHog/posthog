@@ -91,5 +91,6 @@ LOGGING = {
             "handlers": ["null"],
         },  # blackhole Django autoreload logs (this is only needed in DEV)
         "kafka.conn": {"level": "WARN"},  # kafka-python logs are noisy
+        "posthog.caching.warming": {"level": "INFO"},
     },
 }

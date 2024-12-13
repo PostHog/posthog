@@ -140,27 +140,39 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
     cleanedParams['breakdown_type'] = undefined
     cleanedParams['breakdown_group_type_index'] = undefined
     cleanedParams['breakdown_normalize_url'] = undefined
+
     if (isTrends && filters.display === ChartDisplayType.WorldMap) {
         // For the map, make sure we are breaking down by country
         // Support automatic switching to country code breakdown both from no breakdown and from country name breakdown
         cleanedParams['breakdown'] = '$geoip_country_code'
+        // this isn't a react hook
+        // eslint-disable-next-line react-hooks/rules-of-hooks
         useMostRelevantBreakdownType(cleanedParams, filters)
         return
     }
+
     if (canBreakdown) {
         if (filters.breakdown_type && (filters.breakdown || filters.breakdowns)) {
             cleanedParams['breakdown_type'] = filters.breakdown_type
         }
 
-        const hasBreakdowns = Array.isArray(filters.breakdowns) && filters.breakdowns?.length > 0
-        if (hasBreakdowns && canMultiPropertyBreakdown) {
+        if (canMultiPropertyBreakdown && filters.breakdowns && filters.breakdowns.length > 0) {
             cleanedParams['breakdowns'] = filters.breakdowns
-        } else if (hasBreakdowns && isTrends) {
-            cleanedParams['breakdown'] = filters.breakdowns && filters.breakdowns[0].property
-            cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
-                cleanedParams['breakdown'] as string,
-                filters.breakdown_normalize_url
-            )
+        } else if (isTrends && filters.breakdowns && filters.breakdowns.length > 0) {
+            cleanedParams['breakdown_type'] = undefined
+            cleanedParams['breakdowns'] = filters.breakdowns.map((b) => ({
+                property: b.property,
+                type: b.type || filters.breakdown_type || 'event',
+                histogram_bin_count: b.histogram_bin_count,
+                group_type_index: b.group_type_index,
+                normalize_url:
+                    typeof b.property === 'string'
+                        ? cleanBreakdownNormalizeURL(
+                              b.property,
+                              typeof b.normalize_url === 'boolean' ? b.normalize_url : filters.breakdown_normalize_url
+                          )
+                        : undefined,
+            }))
         } else if (filters.breakdown) {
             cleanedParams['breakdown'] = filters.breakdown
             cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
@@ -296,6 +308,7 @@ export function cleanFilters(
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
             show_mean: filters.show_mean,
+            cumulative: filters.cumulative,
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
@@ -419,6 +432,7 @@ export function cleanFilters(
             ...(isTrendsFilter(filters) && filters?.show_percent_stack_view
                 ? { show_percent_stack_view: filters.show_percent_stack_view }
                 : {}),
+            y_axis_scale_type: isTrendsFilter(filters) ? filters.y_axis_scale_type : undefined,
             ...commonFilters,
         }
 
@@ -465,6 +479,7 @@ export function cleanFilters(
 
         if (filters.date_from === 'all' || isLifecycleFilter(filters)) {
             trendLikeFilter['compare'] = false
+            trendLikeFilter['compare_to'] = undefined
         }
 
         if (trendLikeFilter.interval && trendLikeFilter.smoothing_intervals) {

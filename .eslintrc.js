@@ -12,7 +12,7 @@ const globals = {
 }
 
 module.exports = {
-    ignorePatterns: ['node_modules', 'plugin-server', 'cypress'],
+    ignorePatterns: ['node_modules', 'plugin-server', 'rust', 'livestream'],
     env,
     settings: {
         react: {
@@ -42,10 +42,9 @@ module.exports = {
     },
     plugins: [
         'react',
+        'react-hooks',
         'cypress',
         '@typescript-eslint',
-        'no-only-tests',
-        'jest',
         'compat',
         'posthog',
         'simple-import-sort',
@@ -53,6 +52,8 @@ module.exports = {
         'unused-imports',
     ],
     rules: {
+        'react-hooks/rules-of-hooks': 'error',
+        'react-hooks/exhaustive-deps': 'warn',
         // PyCharm always adds curly braces, I guess vscode doesn't, PR reviewers often complain they are present on props that don't need them
         // let's save the humans time and let the machines do the work
         // "never" means if the prop does not need the curly braces, they will be removed/errored
@@ -60,7 +61,6 @@ module.exports = {
         'react/jsx-curly-brace-presence': ['error', { props: 'never', children: 'never', propElementValues: 'always' }],
         'no-console': ['error', { allow: ['warn', 'error'] }],
         'no-debugger': 'error',
-        'no-only-tests/no-only-tests': 'error',
         'simple-import-sort/imports': 'error',
         'simple-import-sort/exports': 'error',
         'react/prop-types': [0],
@@ -116,26 +116,6 @@ module.exports = {
                     {
                         name: 'dayjs',
                         message: 'Do not directly import dayjs. Only import the dayjs exported from lib/dayjs.',
-                    },
-                    {
-                        name: '@ant-design/icons',
-                        message: 'Please use icons from the @posthog/icons package instead',
-                    },
-                    {
-                        name: 'antd',
-                        importNames: [
-                            'Card',
-                            'Col',
-                            'Row',
-                            'Alert',
-                            'Tooltip',
-                            'Progress',
-                            'Radio',
-                            'Divider',
-                            'Popconfirm',
-                            'Table',
-                        ],
-                        message: 'please use the Lemon equivalent instead',
                     },
                 ],
             },
@@ -302,6 +282,8 @@ module.exports = {
                 node: true,
                 'jest/globals': true,
             },
+            plugins: ['jest'],
+            extends: ['plugin:jest/recommended'],
             globals: {
                 ...globals,
                 given: 'readonly',
@@ -309,6 +291,36 @@ module.exports = {
             rules: {
                 // The below complains needlessly about expect(api.createInvite).toHaveBeenCalledWith(...)
                 '@typescript-eslint/unbound-method': 'off',
+                // it doesn't know about expectLogic kea tests so isn't helpful
+                'jest/expect-expect': 'off',
+                // we import non-jest mocks from __mocks__ directories
+                'jest/no-mocks-import': 'off',
+                // I'll put expect whereever I want
+                'jest/no-standalone-expect': 'off',
+                // but it's helpful sometimes
+                'jest/no-export': 'off',
+                // also helpful sometimes, but not always
+                'jest/no-conditional-expect': 'warn',
+            },
+        },
+        {
+            files: ['**/*.cy.ts'],
+            env: {
+                ...env,
+                node: true,
+                'jest/globals': true,
+            },
+            plugins: ['jest'],
+            extends: ['plugin:jest/recommended'],
+            globals: {
+                ...globals,
+                given: 'readonly',
+            },
+            rules: {
+                // don't complain about unknown expect statements
+                'jest/valid-expect': 'off',
+                // don't warn about missing expect
+                'jest/expect-expect': 'off',
             },
         },
         {

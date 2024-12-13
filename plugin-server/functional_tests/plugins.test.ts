@@ -583,7 +583,7 @@ test.concurrent('plugins can use attachements', async () => {
         key: 'testAttachment',
         contents: 'test',
     })
-    await enablePluginConfig(teamId, plugin.id)
+    await enablePluginConfig(teamId, pluginConfig.id)
 
     await reloadPlugins()
 

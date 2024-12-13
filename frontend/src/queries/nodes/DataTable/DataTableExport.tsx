@@ -1,12 +1,12 @@
 import { IconDownload } from '@posthog/icons'
-import { LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import Papa from 'papaparse'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { urls } from 'scenes/urls'
 
 import {
     defaultDataTableColumns,
@@ -14,13 +14,16 @@ import {
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
 import { getPersonsEndpoint } from '~/queries/query'
-import { DataNode, DataTableNode, NodeKind } from '~/queries/schema'
+import { DataNode, DataTableNode } from '~/queries/schema'
 import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
 import { ExporterFormat } from '~/types'
 
 import { dataTableLogic, DataTableRow } from './dataTableLogic'
 
-export const EXPORT_MAX_LIMIT = 10000
+// Sync with posthog/hogql/constants.py
+export const MAX_SELECT_RETURNED_ROWS = 50000
+
+const columnDisallowList = ['person.$delete', '*']
 
 export async function startDownload(
     query: DataTableNode,
@@ -51,6 +54,11 @@ export async function startDownload(
                 removeExpressionComment(c) === 'person' ? 'email' : c
             )
         }
+        if (exportContext['columns'].includes('person')) {
+            exportContext['columns'] = exportContext['columns'].map((c: string) =>
+                c === 'person' ? 'person.distinct_ids.0' : c
+            )
+        }
         exportContext['columns'] = exportContext['columns'].filter((n: string) => !columnDisallowList.includes(n))
     }
     exportCall({
@@ -59,7 +67,6 @@ export async function startDownload(
     })
 }
 
-const columnDisallowList = ['person.$delete', '*']
 const getCsvTableData = (dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): string[][] => {
     if (isPersonsNode(query.source)) {
         const filteredColumns = columns.filter((n) => !columnDisallowList.includes(n))
@@ -188,16 +195,18 @@ interface DataTableExportProps {
 }
 
 export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
-    const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults, response } = useValues(dataTableLogic)
-    const { startExport } = useActions(exportsLogic)
+    const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults } = useValues(dataTableLogic)
+    const { startExport, createStaticCohort } = useActions(exportsLogic)
 
     const source: DataNode = query.source
     const filterCount =
         (isEventsQuery(source) || isPersonsNode(source) ? source.properties?.length || 0 : 0) +
         (isEventsQuery(source) && source.event ? 1 : 0) +
         (isPersonsNode(source) && source.search ? 1 : 0)
-    const canExportAllColumns = (isEventsQuery(source) && source.select.includes('*')) || isPersonsNode(source)
+    const canExportAllColumns =
+        (isEventsQuery(source) && source.select.includes('*')) || isPersonsNode(source) || isActorsQuery(source)
     const showExportClipboardButtons = isPersonsNode(source) || isEventsQuery(source) || isHogQLQuery(source)
+    const canSaveAsCohort = isActorsQuery(source)
 
     return (
         <LemonMenu
@@ -263,23 +272,36 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                         },
                     ],
                 },
-                queryWithDefaults.showOpenEditorButton && {
-                    label: 'Open table as a new insight',
-                    to: query ? urls.insightNew(undefined, undefined, JSON.stringify(query)) : undefined,
-                    'data-attr': 'open-json-editor-button',
-                },
-                response?.hogql && {
-                    label: 'Edit SQL directly',
-                    to: urls.insightNew(
-                        undefined,
-                        undefined,
-                        JSON.stringify({
-                            kind: NodeKind.DataTableNode,
-                            full: true,
-                            source: { kind: NodeKind.HogQLQuery, query: response.hogql },
-                        })
-                    ),
-                    'data-attr': 'open-sql-editor-button',
+                canSaveAsCohort && {
+                    label: 'Save as cohort',
+                    items: [
+                        {
+                            label: 'Save as static cohort',
+                            onClick: () => {
+                                LemonDialog.openForm({
+                                    title: 'Save as static cohort',
+                                    description: 'This will create a cohort with the current list of people.',
+                                    initialValues: {
+                                        name: '',
+                                    },
+                                    content: (
+                                        <LemonField name="name">
+                                            <LemonInput
+                                                type="text"
+                                                data-attr="insight-name"
+                                                placeholder="Name of the new cohort"
+                                                autoFocus
+                                            />
+                                        </LemonField>
+                                    ),
+                                    errors: {
+                                        name: (name) => (!name ? 'You must enter a name' : undefined),
+                                    },
+                                    onSubmit: async ({ name }) => createStaticCohort(name, source),
+                                })
+                            },
+                        },
+                    ],
                 },
             ].filter(Boolean)}
         >

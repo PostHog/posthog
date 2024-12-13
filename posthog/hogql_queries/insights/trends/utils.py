@@ -1,5 +1,5 @@
 from typing import Optional, Union
-from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, BreakdownType
+from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, BreakdownType, MultipleBreakdownType
 
 
 def series_event_name(series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
@@ -9,7 +9,7 @@ def series_event_name(series: Union[EventsNode, ActionsNode, DataWarehouseNode])
 
 
 def get_properties_chain(
-    breakdown_type: BreakdownType | None,
+    breakdown_type: BreakdownType | MultipleBreakdownType | None,
     breakdown_field: str,
     group_type_index: Optional[float | int],
 ) -> list[str | int]:
@@ -26,6 +26,9 @@ def get_properties_chain(
         raise Exception("group_type_index missing from params")
 
     if breakdown_type == "data_warehouse":
-        return [breakdown_field]
+        return [*breakdown_field.split(".")]
+
+    if breakdown_type == "data_warehouse_person_property":
+        return ["person", *breakdown_field.split(".")]
 
     return ["properties", breakdown_field]

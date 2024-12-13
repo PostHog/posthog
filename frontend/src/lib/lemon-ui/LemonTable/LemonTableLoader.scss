@@ -1,13 +1,12 @@
 .LemonTableLoader {
     position: absolute;
-    bottom: -1px;
     left: 0;
     z-index: 10;
     width: 100%;
     height: 0;
     padding: 0.05rem !important;
     overflow: hidden;
-    background: var(--primary-3000-highlight);
+    background: var(--primary-highlight);
     border: none !important;
     transition: height 200ms ease, top 200ms ease;
 

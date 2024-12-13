@@ -1,21 +1,25 @@
-import { IconInfo, IconPlus, IconWarning } from '@posthog/icons'
-import { LemonCheckbox, LemonTextArea } from '@posthog/lemon-ui'
+import { IconInfo, IconPlus } from '@posthog/icons'
+import { LemonBanner, LemonCheckbox, LemonDialog, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ActionHogFunctions } from 'scenes/actions/ActionHogFunctions'
+import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { ActionStepType, AvailableFeature } from '~/types'
+import { ActionStepType, FilterLogicalOperator, ReplayTabs } from '~/types'
 
 import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
@@ -26,12 +30,19 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
         action: loadedAction,
     }
     const logic = actionEditLogic(logicProps)
-    const { action, actionLoading, actionChanged } = useValues(logic)
-    const { submitAction, deleteAction } = useActions(logic)
+    const { action, actionLoading, actionChanged, migrationLoading, hasCohortFilters } = useValues(logic)
+    const { submitAction, deleteAction, migrateToHogFunction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { tags } = useValues(tagsModel)
+    const { canEnableNewDestinations: hasDataPipelinesAddon } = useValues(pipelineAccessLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const slackEnabled = currentTeam?.slack_incoming_webhook
+    const showWebhookDelivery =
+        (!hasDataPipelinesAddon && slackEnabled) ||
+        action.post_to_slack ||
+        featureFlags[FEATURE_FLAGS.LEGACY_ACTION_WEBHOOKS]
+    const showActionMigrationBanner = hasDataPipelinesAddon && action.post_to_slack
 
     const deleteButton = (): JSX.Element => (
         <LemonButton
@@ -59,7 +70,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
         </LemonButton>
     )
 
-    return (
+    const actionEditJSX = (
         <div className="action-edit-container">
             <Form logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
                 <PageHeader
@@ -92,7 +103,6 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                         className="action-description"
                                         compactButtons
                                         maxLength={600} // No limit on backend model, but enforce shortish description
-                                        paywallFeature={AvailableFeature.INGESTION_TAXONOMY}
                                     />
                                 )}
                             </LemonField>
@@ -114,20 +124,24 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                             {id ? (
                                 <LemonButton
                                     type="secondary"
-                                    to={
-                                        combineUrl(urls.replay(), {
-                                            filters: {
-                                                actions: [
-                                                    {
-                                                        id: id,
-                                                        type: 'actions',
-                                                        order: 0,
-                                                        name: action.name,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
-                                    }
+                                    to={urls.replay(ReplayTabs.Home, {
+                                        filter_group: {
+                                            type: FilterLogicalOperator.And,
+                                            values: [
+                                                {
+                                                    type: FilterLogicalOperator.And,
+                                                    values: [
+                                                        {
+                                                            id: id,
+                                                            type: 'actions',
+                                                            order: 0,
+                                                            name: action.name,
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    })}
                                     sideIcon={<IconPlayCircle />}
                                     data-attr="action-view-recordings"
                                 >
@@ -204,68 +218,101 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     </LemonField>
                 </div>
 
-                <div className="my-4 space-y-2">
-                    <h2 className="subtitle">Webhook delivery</h2>
-                    <LemonField name="post_to_slack">
-                        {({ value, onChange }) => (
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <LemonCheckbox
-                                    id="webhook-checkbox"
-                                    bordered
-                                    checked={action.bytecode_error ? false : !!value}
-                                    onChange={onChange}
-                                    disabledReason={
-                                        !slackEnabled
-                                            ? 'Configure webhooks in project settings'
-                                            : action.bytecode_error ?? null
-                                    }
-                                    label={
-                                        <>
-                                            <span>Post to webhook when this action is triggered.</span>
-                                            {action.bytecode_error ? (
-                                                <IconWarning className="text-warning text-xl ml-1" />
-                                            ) : null}
-                                        </>
-                                    }
-                                />
-                                <Link to={urls.settings('project-integrations', 'integration-webhooks')}>
-                                    {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
-                                </Link>
-                            </div>
-                        )}
-                    </LemonField>
-                    {action.post_to_slack && (
-                        <>
-                            {!action.bytecode_error && action.post_to_slack && (
-                                <>
-                                    <LemonField name="slack_message_format">
-                                        {({ value, onChange }) => (
+                {showWebhookDelivery ? (
+                    <div className="my-4 space-y-2">
+                        <h2 className="subtitle">Webhook delivery</h2>
+
+                        {showActionMigrationBanner ? (
+                            <LemonBanner
+                                type="error"
+                                action={{
+                                    children: 'Upgrade to new version',
+                                    onClick: () =>
+                                        LemonDialog.open({
+                                            title: 'Upgrade webhook',
+                                            width: '30rem',
+                                            description:
+                                                'This will create a new Destination in the upgraded system. The action will have its webhook disabled. There will be slight difference in the placeholder tags, so double check that everything works as expected.',
+                                            secondaryButton: {
+                                                type: 'secondary',
+                                                children: 'Cancel',
+                                            },
+                                            primaryButton: {
+                                                type: 'primary',
+                                                onClick: () => migrateToHogFunction(),
+                                                children: 'Upgrade',
+                                            },
+                                        }),
+                                    disabledReason: hasCohortFilters
+                                        ? 'Can not upgrade because action has a cohort filter.'
+                                        : migrationLoading
+                                        ? 'Loading...'
+                                        : actionChanged
+                                        ? 'Please save the action first'
+                                        : undefined,
+                                }}
+                            >
+                                Action Webhooks have been replaced by the new and improved <b>Pipeline Destinations</b>.{' '}
+                                {!hasCohortFilters && !actionChanged ? 'Click to upgrade.' : ''}
+                            </LemonBanner>
+                        ) : null}
+
+                        <LemonField name="post_to_slack">
+                            {({ value, onChange }) => (
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <LemonCheckbox
+                                        id="webhook-checkbox"
+                                        bordered
+                                        checked={!!value}
+                                        onChange={onChange}
+                                        disabledReason={!slackEnabled ? 'Configure webhooks in project settings' : null}
+                                        label={
                                             <>
-                                                <LemonLabel showOptional>Slack message format</LemonLabel>
-                                                <LemonTextArea
-                                                    placeholder="Default: [action.name] triggered by [person]"
-                                                    value={value}
-                                                    onChange={onChange}
-                                                    disabled={!slackEnabled || !action.post_to_slack}
-                                                    data-attr="edit-slack-message-format"
-                                                />
-                                                <small>
-                                                    <Link
-                                                        to="https://posthog.com/docs/webhooks#message-formatting"
-                                                        target="_blank"
-                                                    >
-                                                        See documentation on how to format webhook messages.
-                                                    </Link>
-                                                </small>
+                                                <span>Post to webhook when this action is triggered.</span>
                                             </>
-                                        )}
-                                    </LemonField>
-                                </>
+                                        }
+                                    />
+                                    <Link to={urls.settings('project-integrations', 'integration-webhooks')}>
+                                        {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
+                                    </Link>
+                                </div>
                             )}
-                        </>
-                    )}
-                </div>
+                        </LemonField>
+                        {action.post_to_slack && (
+                            <LemonField name="slack_message_format">
+                                {({ value, onChange }) => (
+                                    <>
+                                        <LemonLabel showOptional>Slack message format</LemonLabel>
+                                        <LemonTextArea
+                                            placeholder="Default: [action.name] triggered by [person]"
+                                            value={value}
+                                            onChange={onChange}
+                                            disabled={!slackEnabled || !action.post_to_slack}
+                                            data-attr="edit-slack-message-format"
+                                            maxLength={1200 /** Must be same as in posthog/models/action/action.py */}
+                                        />
+                                        <small>
+                                            <Link
+                                                to="https://posthog.com/docs/webhooks#message-formatting"
+                                                target="_blank"
+                                            >
+                                                See documentation on how to format webhook messages.
+                                            </Link>
+                                        </small>
+                                    </>
+                                )}
+                            </LemonField>
+                        )}
+                    </div>
+                ) : null}
             </Form>
         </div>
+    )
+
+    return (
+        <>
+            {actionEditJSX}
+            <ActionHogFunctions />
+        </>
     )
 }

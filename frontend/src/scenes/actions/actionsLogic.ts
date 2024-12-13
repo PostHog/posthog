@@ -1,7 +1,6 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
@@ -9,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { ActionType, Breadcrumb, ProductKey } from '~/types'
+import { ActionType, Breadcrumb } from '~/types'
 
 import type { actionsLogicType } from './actionsLogicType'
 
@@ -57,7 +56,7 @@ export const actionsLogic = kea<actionsLogicType>([
         actionsFiltered: [
             (s) => [s.actions, s.filterType, s.searchTerm, s.user],
             (actions, filterType, searchTerm, user) => {
-                let data = actions
+                let data: ActionType[] = actions
                 if (searchTerm) {
                     data = actionsFuse.search(searchTerm).map((result) => result.item)
                 }
@@ -81,15 +80,6 @@ export const actionsLogic = kea<actionsLogicType>([
                     path: urls.actions(),
                 },
             ],
-        ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user, s.featureFlags],
-            (user, featureFlags): boolean => {
-                return (
-                    !user?.has_seen_product_intro_for?.[ProductKey.ACTIONS] &&
-                    !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
-                )
-            },
         ],
         shouldShowEmptyState: [
             (s) => [s.actionsFiltered, s.actionsLoading, s.searchTerm],

@@ -8,6 +8,7 @@ import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
+import { EncryptedFields } from '../../cdp/encryption-utils'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
@@ -25,18 +26,20 @@ import {
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
-import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
 import { status } from '../status'
-import { createRedisPool, UUIDT } from '../utils'
+import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
+import { Celery } from './celery'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresRouter } from './postgres'
+import { createRedisPool } from './redis'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
@@ -74,7 +77,7 @@ export function createEventsToDropByToken(eventsToDropByTokenStr?: string): Map<
 export async function createHub(
     config: Partial<PluginsServerConfig> = {},
     capabilities: PluginServerCapabilities | null = null
-): Promise<[Hub, () => Promise<void>]> {
+): Promise<Hub> {
     status.info('ℹ️', `Connecting to all services:`)
 
     const serverConfig: PluginsServerConfig = {
@@ -86,10 +89,6 @@ export async function createHub(
     }
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     const instanceId = new UUIDT()
-
-    const conversionBufferEnabledTeams = new Set(
-        serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
-    )
 
     status.info('🤔', `Connecting to ClickHouse...`)
     const clickhouse = new ClickHouse({
@@ -122,7 +121,7 @@ export async function createHub(
     status.info('👍', `Postgres Router ready`)
 
     status.info('🤔', `Connecting to Redis...`)
-    const redisPool = createRedisPool(serverConfig)
+    const redisPool = createRedisPool(serverConfig, 'ingestion')
     status.info('👍', `Redis ready`)
 
     status.info('🤔', `Connecting to object storage...`)
@@ -146,15 +145,11 @@ export async function createHub(
     const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
-    const rustyHook = new RustyHook(
-        buildIntegerMatcher(serverConfig.RUSTY_HOOK_FOR_TEAMS, true),
-        serverConfig.RUSTY_HOOK_ROLLOUT_PERCENTAGE,
-        serverConfig.RUSTY_HOOK_URL,
-        serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
-    )
+    const rustyHook = new RustyHook(serverConfig)
 
     const actionManager = new ActionManager(postgres, serverConfig)
     const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
+    const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
         // NOTE: we use the producer directly here rather than using the wrapper
@@ -177,7 +172,7 @@ export async function createHub(
         })
     }
 
-    const hub: Partial<Hub> = {
+    const hub: Hub = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -189,13 +184,13 @@ export async function createHub(
         kafkaProducer,
         enqueuePluginJob,
         objectStorage: objectStorage,
+        groupTypeManager,
 
         plugins: new Map(),
         pluginConfigs: new Map(),
         pluginConfigsPerTeam: new Map(),
         pluginConfigSecrets: new Map(),
         pluginConfigSecretLookup: new Map(),
-
         pluginSchedule: null,
 
         teamManager,
@@ -205,37 +200,33 @@ export async function createHub(
         rustyHook,
         actionMatcher,
         actionManager,
-        conversionBufferEnabledTeams,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
-        poeEmbraceJoinForTeams: buildIntegerMatcher(process.env.POE_EMBRACE_JOIN_FOR_TEAMS, true),
-        poeWritesExcludeTeams: buildIntegerMatcher(process.env.POE_WRITES_EXCLUDE_TEAMS, false),
-        lazyPersonCreationTeams: buildIntegerMatcher(process.env.LAZY_PERSON_CREATION_TEAMS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
+        appMetrics: new AppMetrics(
+            kafkaProducer,
+            serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
+            serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+        ),
+        encryptedFields: new EncryptedFields(serverConfig),
+        celery: new Celery(serverConfig),
     }
 
-    // :TODO: This is only used on worker threads, not main
-    hub.eventsProcessor = new EventsProcessor(hub as Hub)
+    return hub as Hub
+}
 
-    hub.appMetrics = new AppMetrics(
-        kafkaProducer,
-        serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
-        serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-    )
+export const closeHub = async (hub: Hub): Promise<void> => {
+    if (!isTestEnv()) {
+        await hub.appMetrics?.flush()
+    }
+    await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
+    await hub.redisPool.clear()
 
-    const closeHub = async () => {
-        if (!isTestEnv()) {
-            await hub.appMetrics?.flush()
-        }
-        await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])
-        await redisPool.clear()
-
+    if (isTestEnv()) {
         // Break circular references to allow the hub to be GCed when running unit tests
         // TODO: change these structs to not directly reference the hub
-        hub.eventsProcessor = undefined
-        hub.appMetrics = undefined
+        ;(hub as any).eventsProcessor = undefined
+        ;(hub as any).appMetrics = undefined
     }
-
-    return [hub as Hub, closeHub]
 }
 
 export type KafkaConfig = {
@@ -249,6 +240,7 @@ export type KafkaConfig = {
     KAFKA_SASL_USER?: string
     KAFKA_SASL_PASSWORD?: string
     KAFKA_CLIENT_RACK?: string
+    KAFKA_CLIENT_ID?: string
 }
 
 export function createKafkaClient({
