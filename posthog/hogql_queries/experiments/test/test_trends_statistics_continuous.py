@@ -165,10 +165,29 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
         """Test with multiple variants, no clear winner"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", mean=100.0, exposure=1000)
-            test_a = create_variant("test_a", mean=98.0, exposure=1000)
-            test_b = create_variant("test_b", mean=102.0, exposure=1000)
-            test_c = create_variant("test_c", mean=101.0, exposure=1000)
+            control_absolute_exposure = 1000
+            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_a_absolute_exposure = 1000
+            test_a = create_variant(
+                "test_a",
+                mean=98.0,
+                exposure=test_a_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_a_absolute_exposure,
+            )
+            test_b_absolute_exposure = 1000
+            test_b = create_variant(
+                "test_b",
+                mean=102.0,
+                exposure=test_b_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_b_absolute_exposure,
+            )
+            test_c_absolute_exposure = 1000
+            test_c = create_variant(
+                "test_c",
+                mean=101.0,
+                exposure=test_c_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_c_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test_a, test_b, test_c])
             significance, p_value = are_results_significant(control, [test_a, test_b, test_c], probabilities)
@@ -201,10 +220,29 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
         """Test with multiple variants, one clear winner"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", mean=100.0, exposure=10000)
-            test_a = create_variant("test_a", mean=105.0, exposure=10000)
-            test_b = create_variant("test_b", mean=150.0, exposure=10000)
-            test_c = create_variant("test_c", mean=110.0, exposure=10000)
+            control_absolute_exposure = 10000
+            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_a_absolute_exposure = 10000
+            test_a = create_variant(
+                "test_a",
+                mean=105.0,
+                exposure=test_a_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_a_absolute_exposure,
+            )
+            test_b_absolute_exposure = 10000
+            test_b = create_variant(
+                "test_b",
+                mean=150.0,
+                exposure=test_b_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_b_absolute_exposure,
+            )
+            test_c_absolute_exposure = 10000
+            test_c = create_variant(
+                "test_c",
+                mean=110.0,
+                exposure=test_c_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_c_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test_a, test_b, test_c])
             significance, p_value = are_results_significant(control, [test_a, test_b, test_c], probabilities)
@@ -251,8 +289,15 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
         """Test with sample size below threshold"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", mean=100.0, exposure=50)
-            test = create_variant("test", mean=120.0, exposure=50)
+            control_absolute_exposure = 50
+            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 50
+            test = create_variant(
+                "test",
+                mean=120.0,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test])
             significance, p_value = are_results_significant(control, [test], probabilities)
@@ -290,8 +335,15 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
         """Test edge cases like zero means"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", mean=0.0, exposure=1000)
-            test = create_variant("test", mean=0.0, exposure=1000)
+            control_absolute_exposure = 1000
+            control = create_variant("control", mean=0.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 1000
+            test = create_variant(
+                "test",
+                mean=0.0,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test])
             significance, p_value = are_results_significant(control, [test], probabilities)
@@ -331,8 +383,20 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
             # Using very small positive values instead of exact zeros
-            control = create_variant("control", mean=0.0001, exposure=1000)
-            test = create_variant("test", mean=0.0001, exposure=1000)
+            control_absolute_exposure = 1000
+            control = create_variant(
+                "control",
+                mean=0.0001,
+                exposure=1,
+                absolute_exposure=control_absolute_exposure,
+            )
+            test_absolute_exposure = 1000
+            test = create_variant(
+                "test",
+                mean=0.0001,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test])
             significance, p_value = are_results_significant(control, [test], probabilities)
