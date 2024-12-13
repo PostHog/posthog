@@ -142,8 +142,22 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             const encodedUrl = encodeURIComponent(window.location.href)
             actions.persistConfig()
 
-            // TODO: Keep this in sync with the scopes in the backend
-            window.location.href = `${values.apiURL}/project/${values.posthog?.config.token}/client_authorization/?code=${values.authorization.authorizationCode}&redirect_url=${encodedUrl}&scopes=${TOOLBAR_REQUIRED_API_SCOPES}&client_id=toolbar`
+            const url = `${values.apiURL}/project/${values.posthog?.config.token}/client_authorization/?code=${values.authorization.authorizationCode}&redirect_url=${encodedUrl}&scopes=${TOOLBAR_REQUIRED_API_SCOPES}&client_id=toolbar`
+
+            const popupWidth = 600
+            const popupHeight = 700
+            const left = (window.screen.width - popupWidth) / 2
+            const top = (window.screen.height - popupHeight) / 2
+
+            // open the url in a little popup window
+            const popup = window.open(
+                url,
+                'authPopup',
+                `width=${popupWidth},height=${popupHeight},top=${top},left=${left},resizable=yes,scrollbars=yes`
+            )
+            popup?.focus()
+
+            // TODO: Start timer checking for the authorization to complete
         },
 
         checkAuthorizationSuccess: () => {

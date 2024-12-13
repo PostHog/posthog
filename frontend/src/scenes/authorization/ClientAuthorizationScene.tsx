@@ -30,8 +30,8 @@ export function ClientAuthorizationScene(): JSX.Element {
         }, {}) || {}
 
     return (
-        <div className="h-full flex items-center justify-center">
-            <div className="border rounded bg-accent-3000 p-4 w-120">
+        <div className="flex items-center justify-center m-10">
+            <div className="p-4 border rounded bg-accent-3000 w-120">
                 {completed ? (
                     <>
                         <h2>Authorization completed!</h2>
@@ -64,7 +64,7 @@ export function ClientAuthorizationScene(): JSX.Element {
                         <div className="my-2">
                             <h3>Requested scopes</h3>
 
-                            <div className="border rounded overflow-y-auto max-h-100 p-2">
+                            <div className="p-2 overflow-y-auto border rounded max-h-100">
                                 <ApiScopesList scopeValues={scopesObject} onlyShowListedValues />
                             </div>
                         </div>
