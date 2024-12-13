@@ -26,7 +26,7 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
     actions({ setThemes: (themes) => ({ themes }) }),
     loaders(({ props }) => ({
         themes: [
-            props.themes || (null as DataColorThemeModel[] | null),
+            (props.themes || null) as DataColorThemeModel[] | null,
             {
                 loadThemes: async () => await api.dataColorThemes.list(),
             },
