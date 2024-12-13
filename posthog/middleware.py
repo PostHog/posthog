@@ -677,7 +677,17 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
 
     init_time = get_or_set_session_cookie_created_at(request=request)
 
-    return datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
+    last_activity_time = request.session.get(settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY, init_time)
+
+    # If the last activity time is less than the idle timeout, we extend the session
+    if time.time() - last_activity_time < settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS:
+        last_activity_time = request.session[settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY] = time.time()
+        request.session.modified = True
+    else:
+        # If the idle timeout has passed then we return it instead of the total timeout
+        return datetime.fromtimestamp(init_time)
+
+    return datetime.fromtimestamp(last_activity_time) + timedelta(seconds=settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS)
 
 
 class AutoLogoutImpersonateMiddleware:

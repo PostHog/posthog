@@ -501,7 +501,8 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertNotIn("ph_current_project_name", response.cookies)
 
 
-@override_settings(IMPERSONATION_TIMEOUT_SECONDS=30)
+@override_settings(IMPERSONATION_TIMEOUT_SECONDS=120)
+@override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=30)
 class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
     other_user: User
 
@@ -538,21 +539,58 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         assert response.status_code == 200
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
 
-    def test_after_timeout_api_requests_401(self):
-        now = datetime.now()
+    def test_after_idle_timeout_api_requests_401(self):
+        now = datetime(2024, 1, 1, 12, 0, 0)
         with freeze_time(now):
             self.login_as_other_user()
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
+            assert res.json()["is_impersonated_until"] == "2024-01-01T12:00:30+00:00"
             assert self.client.session.get("session_created_at") == now.timestamp()
 
-        with freeze_time(now + timedelta(seconds=10)):
+        # Move forward by 20
+        now = now + timedelta(seconds=20)
+        with freeze_time(now):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
+            assert res.json()["is_impersonated_until"] == "2024-01-01T12:00:50+00:00"
 
-        with freeze_time(now + timedelta(seconds=35)):
+        # Past idle timeout
+        now = now + timedelta(seconds=35)
+
+        with freeze_time(now):
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 401
+
+    def test_after_total_timeout_api_requests_401(self):
+        now = datetime(2024, 1, 1, 12, 0, 0)
+        with freeze_time(now):
+            self.login_as_other_user()
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "other-user@posthog.com"
+            assert res.json()["is_impersonated_until"] == "2024-01-01T12:00:30+00:00"
+            assert self.client.session.get("session_created_at") == now.timestamp()
+
+        for _ in range(5):
+            # Move forward by 20 seconds 5 times
+            now = now + timedelta(seconds=20)
+            with freeze_time(now):
+                res = self.client.get("/api/users/@me")
+                assert res.status_code == 200
+                assert res.json()["email"] == "other-user@posthog.com"
+                # Format exactly like the date above
+                assert res.json()["is_impersonated_until"] == (now + timedelta(seconds=30)).strftime(
+                    "%Y-%m-%dT%H:%M:%S+00:00"
+                )
+
+        now = now + timedelta(
+            seconds=25
+        )  # Final time takes us past the total timeout, despite being under idle timeout
+
+        with freeze_time(now):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 401
 

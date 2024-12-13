@@ -376,7 +376,15 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 # Used only to display in the UI to inform users of allowlist options
 PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""))
 
+# The total time allowed for an impersonated session
 IMPERSONATION_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_TIMEOUT_SECONDS", 15 * 60, type_cast=int)
+# The time allowed for an impersonated session to be idle before it expires
+IMPERSONATION_IDLE_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_IDLE_TIMEOUT_SECONDS", 15 * 60, type_cast=int)
+# Impersonation cookie last activity key
+IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
+    "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
+)
+
 SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
 
 PROJECT_SWITCHING_TOKEN_ALLOWLIST = get_list(os.getenv("PROJECT_SWITCHING_TOKEN_ALLOWLIST", "sTMFPsFhdP1Ssg"))
