@@ -377,9 +377,9 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""))
 
 # The total time allowed for an impersonated session
-IMPERSONATION_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_TIMEOUT_SECONDS", 15 * 60, type_cast=int)
+IMPERSONATION_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_TIMEOUT_SECONDS", 60 * 60 * 2, type_cast=int)
 # The time allowed for an impersonated session to be idle before it expires
-IMPERSONATION_IDLE_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_IDLE_TIMEOUT_SECONDS", 15 * 60, type_cast=int)
+IMPERSONATION_IDLE_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_IDLE_TIMEOUT_SECONDS", 30 * 60, type_cast=int)
 # Impersonation cookie last activity key
 IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
     "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
