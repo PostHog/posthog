@@ -366,7 +366,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
 
     def test_gets_js_reuses_config_cache(self):
         with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
-            data = RemoteConfig.get_config_via_token(self.team.api_token)
+            RemoteConfig.get_config_via_token(self.team.api_token)
 
         with self.assertNumQueries(0):
             data = RemoteConfig.get_config_js_via_token(self.team.api_token)
