@@ -65,8 +65,6 @@ NON_RETRYABLE_ERROR_TYPES = [
     "NoSuchBucket",
     # Couldn't connect to custom S3 endpoint
     "EndpointConnectionError",
-    # Input contained an empty S3 endpoint URL
-    "EmptyS3EndpointURLError",
     # User provided an invalid S3 key
     "InvalidS3Key",
     # All consumers failed with non-retryable errors.
@@ -159,13 +157,6 @@ class IntermittentUploadPartTimeoutError(Exception):
         super().__init__(f"An intermittent `RequestTimeout` was raised while attempting to upload part {part_number}")
 
 
-class EmptyS3EndpointURLError(Exception):
-    """Exception raised when an S3 endpoint URL is empty string."""
-
-    def __init__(self):
-        super().__init__("Endpoint URL cannot be empty.")
-
-
 class InvalidS3EndpointError(Exception):
     """Exception raised when an S3 endpoint is invalid."""
 
@@ -222,7 +213,7 @@ class S3MultiPartUpload:
         self.pending_parts: list[Part] = []
 
         if self.endpoint_url == "":
-            raise EmptyS3EndpointURLError()
+            raise InvalidS3EndpointError("Endpoint URL is empty.")
 
     def to_state(self) -> S3MultiPartUploadState:
         """Produce state tuple that can be used to resume this S3MultiPartUpload."""
