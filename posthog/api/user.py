@@ -561,6 +561,7 @@ def redirect_to_site(request):
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
+    scopes = request.GET.get("scopes", "")
 
     if not app_url:
         return HttpResponse(status=404)
@@ -573,7 +574,7 @@ def redirect_to_site(request):
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
     code, verification = start_client_auth_flow()
-    confirm_client_auth_flow(code, verification, request.user, ["*"])
+    confirm_client_auth_flow(code, verification, request.user, scopes.split(" "))
 
     params = {
         "action": "ph_authorize",

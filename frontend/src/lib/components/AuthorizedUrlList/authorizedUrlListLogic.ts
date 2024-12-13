@@ -24,6 +24,7 @@ import { urls } from 'scenes/urls'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
+import { TOOLBAR_REQUIRED_API_SCOPES } from '~/toolbar/toolbarConfigLogic'
 import { ExperimentIdType, ToolbarParams, ToolbarUserIntent } from '~/types'
 
 import type { authorizedUrlListLogicType } from './authorizedUrlListLogicType'
@@ -95,7 +96,7 @@ export function appEditorUrl(
 ): string {
     // See https://github.com/PostHog/posthog-js/blob/f7119c/src/extensions/toolbar.ts#L52 for where these params
     // are passed. `appUrl` is an extra `redirect_to_site` param.
-    const params: ToolbarParams & { appUrl: string } = {
+    const params: ToolbarParams & { appUrl: string; scopes: string } = {
         userIntent:
             options?.userIntent ??
             (options?.actionId ? 'edit-action' : options?.experimentId ? 'edit-experiment' : 'add-action'),
@@ -105,6 +106,7 @@ export function appEditorUrl(
         // behind a proxy unless we register each domain with the OAuth2 client.
         apiURL: apiHostOrigin(),
         appUrl,
+        scopes: TOOLBAR_REQUIRED_API_SCOPES,
         ...(options?.actionId ? { actionId: options.actionId } : {}),
         ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
     }

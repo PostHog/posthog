@@ -11,6 +11,14 @@ import { LOCALSTORAGE_KEY } from './utils'
 
 export type ToolbarAuthorizationState = Pick<ToolbarProps, 'authorizationCode' | 'accessToken'>
 
+export const TOOLBAR_REQUIRED_API_SCOPES = [
+    'project:read',
+    'action:write',
+    'feature_flag:read',
+    'heatmaps:read',
+    'user:read',
+].join(' ')
+
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
     props({} as ToolbarProps),
