@@ -815,6 +815,15 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
+        self.team.test_account_filters = [
+            {
+                "key": "email",
+                "value": "@posthog.com",
+                "operator": "not_icontains",
+                "type": "person",
+            }
+        ]
+        self.team.save()
         count_query = TrendsQuery(
             series=[
                 DataWarehouseNode(
@@ -830,7 +839,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             filterTestAccounts=True,
         )
-        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
+        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")], filterTestAccounts=True)
 
         experiment_query = ExperimentTrendsQuery(
             experiment_id=experiment.id,
@@ -861,7 +870,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _create_person(
             team=self.team,
             distinct_ids=["internal_test_1"],
-            properties={"$email": "internal_test_1@posthog.com", "$user_id": "internal_test_1"},
+            properties={"email": "internal_test_1@posthog.com", "$user_id": "internal_test_1"},
         )
 
         _create_event(
