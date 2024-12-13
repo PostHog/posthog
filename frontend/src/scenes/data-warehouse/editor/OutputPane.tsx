@@ -158,6 +158,10 @@ export function OutputPane(): JSX.Element {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
                         },
+                        {
+                            key: OutputTab.Info,
+                            label: 'Info',
+                        },
                     ]}
                 />
                 <div className="flex gap-4">
@@ -219,7 +223,7 @@ export function OutputPane(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            <div className="flex flex-1 relative bg-dark justify-center items-center">
+            <div className="flex flex-1 relative bg-dark">
                 <Content />
             </div>
         </div>
