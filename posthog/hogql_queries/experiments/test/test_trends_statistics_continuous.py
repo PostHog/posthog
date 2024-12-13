@@ -72,11 +72,11 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
                 # Control: ~$100 mean with wide interval due to small sample
                 self.assertRange(intervals["control"][0], (80, 90))  # Lower bound
-                self.assertRange(intervals["control"][1], (110, 120))  # Upper bound
+                self.assertRange(intervals["control"][1], (100, 120))  # Upper bound
 
                 # Test: ~$105 mean with wide interval due to small sample
                 self.assertRange(intervals["test"][0], (85, 95))  # Lower bound
-                self.assertRange(intervals["test"][1], (115, 125))  # Upper bound
+                self.assertRange(intervals["test"][1], (105, 125))  # Upper bound
             else:
                 # Original implementation behavior for small sample
                 self.assertRange(probabilities[0], (0.3, 0.7))

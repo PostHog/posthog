@@ -53,7 +53,7 @@ def calculate_probabilities_v2_continuous(
 
     # Calculate posterior parameters for control
     log_control_mean = np.log(control_variant.count + EPSILON)  # Using count field to store mean value
-    log_variance = 0.25  # Assumed variance in log-space
+    log_variance = 2  # Assumed variance in log-space
 
     # Update parameters for control
     kappa_n_control = KAPPA_0 + control_variant.absolute_exposure
