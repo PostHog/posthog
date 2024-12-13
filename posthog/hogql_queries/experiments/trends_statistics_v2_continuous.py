@@ -11,6 +11,8 @@ KAPPA_0 = 1.0  # Prior strength for mean
 ALPHA_0 = 1.0  # Prior shape for variance
 BETA_0 = 1.0  # Prior scale for variance
 
+LOG_VARIANCE = 2
+
 SAMPLE_SIZE = 10000
 EPSILON = 1e-10  # Small epsilon value to handle zeros
 
@@ -53,13 +55,12 @@ def calculate_probabilities_v2_continuous(
 
     # Calculate posterior parameters for control
     log_control_mean = np.log(control_variant.count + EPSILON)  # Using count field to store mean value
-    log_variance = 2  # Assumed variance in log-space
 
     # Update parameters for control
     kappa_n_control = KAPPA_0 + control_variant.absolute_exposure
     mu_n_control = (KAPPA_0 * MU_0 + control_variant.absolute_exposure * log_control_mean) / kappa_n_control
     alpha_n_control = ALPHA_0 + control_variant.absolute_exposure / 2
-    beta_n_control = BETA_0 + 0.5 * control_variant.absolute_exposure * log_variance
+    beta_n_control = BETA_0 + 0.5 * control_variant.absolute_exposure * LOG_VARIANCE
 
     # Draw samples from control posterior
     control_posterior = t(
@@ -75,7 +76,7 @@ def calculate_probabilities_v2_continuous(
         kappa_n_test = KAPPA_0 + test.absolute_exposure
         mu_n_test = (KAPPA_0 * MU_0 + test.absolute_exposure * log_test_mean) / kappa_n_test
         alpha_n_test = ALPHA_0 + test.absolute_exposure / 2
-        beta_n_test = BETA_0 + 0.5 * test.absolute_exposure * log_variance
+        beta_n_test = BETA_0 + 0.5 * test.absolute_exposure * LOG_VARIANCE
 
         test_posterior = t(
             df=2 * alpha_n_test, loc=mu_n_test, scale=np.sqrt(beta_n_test / (kappa_n_test * alpha_n_test))
@@ -166,13 +167,12 @@ def calculate_credible_intervals_v2_continuous(variants, lower_bound=0.025, uppe
         try:
             # Log-transform the mean value, adding epsilon to handle zeros
             log_mean = np.log(variant.count + EPSILON)  # Using count field to store mean value
-            log_variance = 0.25
 
             # Calculate posterior parameters using absolute_exposure
             kappa_n = KAPPA_0 + variant.absolute_exposure
             mu_n = (KAPPA_0 * MU_0 + variant.absolute_exposure * log_mean) / kappa_n
             alpha_n = ALPHA_0 + variant.absolute_exposure / 2
-            beta_n = BETA_0 + 0.5 * variant.absolute_exposure * log_variance
+            beta_n = BETA_0 + 0.5 * variant.absolute_exposure * LOG_VARIANCE
 
             # Create posterior distribution
             posterior = t(df=2 * alpha_n, loc=mu_n, scale=np.sqrt(beta_n / (kappa_n * alpha_n)))

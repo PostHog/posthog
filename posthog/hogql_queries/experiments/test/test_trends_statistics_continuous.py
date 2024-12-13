@@ -58,18 +58,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertAlmostEqual(probabilities[0], 0.5, delta=0.1)
-                self.assertAlmostEqual(probabilities[1], 0.5, delta=0.1)
+                self.assertAlmostEqual(probabilities[0], 0.4, delta=0.1)
+                self.assertAlmostEqual(probabilities[1], 0.6, delta=0.1)
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
                 # Control: ~$100 mean with wide interval due to small sample
-                self.assertAlmostEqual(intervals["control"][0], 85, delta=5)  # Lower bound
-                self.assertAlmostEqual(intervals["control"][1], 110, delta=5)  # Upper bound
+                self.assertAlmostEqual(intervals["control"][0], 72, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["control"][1], 128, delta=5)  # Upper bound
 
                 # Test: ~$105 mean with wide interval due to small sample
-                self.assertAlmostEqual(intervals["test"][0], 90, delta=5)  # Lower bound
-                self.assertAlmostEqual(intervals["test"][1], 115, delta=5)  # Upper bound
+                self.assertAlmostEqual(intervals["test"][0], 75, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["test"][1], 130, delta=5)  # Upper bound
             else:
                 # Original implementation behavior for small sample
                 self.assertAlmostEqual(probabilities[0], 0.5, delta=0.2)
@@ -111,12 +111,12 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 0)
 
                 # Control: $100 mean with narrow interval due to large sample
-                self.assertAlmostEqual(intervals["control"][0], 100, delta=2)  # Lower bound
-                self.assertAlmostEqual(intervals["control"][1], 100, delta=2)  # Upper bound
+                self.assertAlmostEqual(intervals["control"][0], 97, delta=2)  # Lower bound
+                self.assertAlmostEqual(intervals["control"][1], 103, delta=2)  # Upper bound
 
                 # Test: $120 mean with narrow interval due to large sample
-                self.assertAlmostEqual(intervals["test"][0], 120, delta=2)  # Lower bound
-                self.assertAlmostEqual(intervals["test"][1], 120, delta=2)  # Upper bound
+                self.assertAlmostEqual(intervals["test"][0], 116, delta=2)  # Lower bound
+                self.assertAlmostEqual(intervals["test"][1], 124, delta=2)  # Upper bound
             else:
                 # Original implementation behavior for large sample
                 self.assertAlmostEqual(probabilities[1], 0.75, delta=0.25)
@@ -160,12 +160,12 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 0)
 
                 # Control: $100 mean
-                self.assertAlmostEqual(intervals["control"][0], 100, delta=2)  # Lower bound
-                self.assertAlmostEqual(intervals["control"][1], 100, delta=2)  # Upper bound
+                self.assertAlmostEqual(intervals["control"][0], 97, delta=2)  # Lower bound
+                self.assertAlmostEqual(intervals["control"][1], 103, delta=2)  # Upper bound
 
                 # Test: $150 mean, clearly higher than control
-                self.assertAlmostEqual(intervals["test"][0], 150, delta=3)  # Lower bound
-                self.assertAlmostEqual(intervals["test"][1], 150, delta=3)  # Upper bound
+                self.assertAlmostEqual(intervals["test"][0], 146, delta=3)  # Lower bound
+                self.assertAlmostEqual(intervals["test"][1], 154, delta=3)  # Upper bound
             else:
                 # Original implementation behavior for strongly significant case
                 self.assertTrue(probabilities[1] > 0.5)  # Test variant winning
@@ -219,20 +219,20 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
                 # All variants around $100 with overlapping intervals
                 # Control variant
-                self.assertAlmostEqual(intervals["control"][0], 95, delta=5)  # Lower bound
-                self.assertAlmostEqual(intervals["control"][1], 105, delta=5)  # Upper bound
+                self.assertAlmostEqual(intervals["control"][0], 90, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["control"][1], 110, delta=5)  # Upper bound
 
                 # Test A variant
-                self.assertAlmostEqual(intervals["test_a"][0], 95, delta=5)  # Lower bound
-                self.assertAlmostEqual(intervals["test_a"][1], 105, delta=5)  # Upper bound
+                self.assertAlmostEqual(intervals["test_a"][0], 90, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["test_a"][1], 110, delta=5)  # Upper bound
 
                 # Test B variant
-                self.assertAlmostEqual(intervals["test_b"][0], 95, delta=5)  # Lower bound
-                self.assertAlmostEqual(intervals["test_b"][1], 105, delta=5)  # Upper bound
+                self.assertAlmostEqual(intervals["test_b"][0], 90, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["test_b"][1], 110, delta=5)  # Upper bound
 
                 # Test C variant
-                self.assertAlmostEqual(intervals["test_c"][0], 95, delta=5)  # Lower bound
-                self.assertAlmostEqual(intervals["test_c"][1], 105, delta=5)  # Upper bound
+                self.assertAlmostEqual(intervals["test_c"][0], 90, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["test_c"][1], 110, delta=5)  # Upper bound
             else:
                 # Original implementation behavior for multiple variants with no clear winner
                 self.assertTrue(all(0.1 < p < 0.9 for p in probabilities))
@@ -299,20 +299,20 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 0)
 
                 # Control at $100
-                self.assertAlmostEqual(intervals["control"][0], 100, delta=2)
-                self.assertAlmostEqual(intervals["control"][1], 100, delta=2)
+                self.assertAlmostEqual(intervals["control"][0], 97, delta=1)
+                self.assertAlmostEqual(intervals["control"][1], 103, delta=1)
 
                 # Test A slightly higher at $105
-                self.assertAlmostEqual(intervals["test_a"][0], 105, delta=2)
-                self.assertAlmostEqual(intervals["test_a"][1], 105, delta=2)
+                self.assertAlmostEqual(intervals["test_a"][0], 102, delta=1)
+                self.assertAlmostEqual(intervals["test_a"][1], 108, delta=1)
 
                 # Test B clearly winning at $150
-                self.assertAlmostEqual(intervals["test_b"][0], 150, delta=3)
-                self.assertAlmostEqual(intervals["test_b"][1], 150, delta=3)
+                self.assertAlmostEqual(intervals["test_b"][0], 146, delta=1)
+                self.assertAlmostEqual(intervals["test_b"][1], 154, delta=1)
 
                 # Test C slightly higher at $110
-                self.assertAlmostEqual(intervals["test_c"][0], 110, delta=2)
-                self.assertAlmostEqual(intervals["test_c"][1], 110, delta=2)
+                self.assertAlmostEqual(intervals["test_c"][0], 106, delta=1)
+                self.assertAlmostEqual(intervals["test_c"][1], 114, delta=1)
             else:
                 # Original implementation behavior for multiple variants with clear winner
                 self.assertTrue(probabilities[2] > 0.5)  # test_b should be winning
@@ -353,11 +353,11 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 1.0)
 
                 # Both variants should have wide intervals due to small sample size
-                self.assertAlmostEqual(intervals["control"][0], 80, delta=10)
-                self.assertAlmostEqual(intervals["control"][1], 110, delta=10)
+                self.assertAlmostEqual(intervals["control"][0], 62, delta=10)
+                self.assertAlmostEqual(intervals["control"][1], 138, delta=10)
 
-                self.assertAlmostEqual(intervals["test"][0], 95, delta=10)
-                self.assertAlmostEqual(intervals["test"][1], 125, delta=10)
+                self.assertAlmostEqual(intervals["test"][0], 75, delta=10)
+                self.assertAlmostEqual(intervals["test"][1], 160, delta=10)
             else:
                 # Original implementation behavior for insufficient sample size
                 self.assertAlmostEqual(probabilities[0], 0.075, delta=0.025)
