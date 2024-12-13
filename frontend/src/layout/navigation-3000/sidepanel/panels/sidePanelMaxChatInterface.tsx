@@ -2,10 +2,25 @@ import { LemonButton, LemonCollapse, LemonDivider, LemonTextArea } from '@postho
 import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 
 import { sidePanelMaxAILogic } from './sidePanelMaxAILogic'
 import { ChatMessage } from './sidePanelMaxAILogic'
+
+const MemoizedMessageContent = memo(function MemoizedMessageContent({ content }: { content: string }) {
+    return (
+        <LemonMarkdown disableDocsRedirect>
+            {content
+                .replace(new RegExp('<thinking>.*?</thinking>', 's'), '')
+                .replace(new RegExp('<search_result_reflection>.*?</search_result_reflection>', 'gs'), '')
+                .replace(new RegExp('<search_quality_score>.*?</search_quality_score>', 's'), '')
+                .replace(new RegExp('<info_validation>.*?</info_validation>', 's'), '')
+                .replace(new RegExp('<url_validation>.*?</url_validation>', 's'), '')
+                .replace(new RegExp('<reply>|</reply>', 'g'), '')
+                .trim()}
+        </LemonMarkdown>
+    )
+})
 
 function extractThinkingBlock(content: string): Array<string> {
     const matches = Array.from(content.matchAll(new RegExp('<thinking>(.*?)</thinking>', 'gs')))
@@ -83,18 +98,22 @@ export function MaxChatInterface(): JSX.Element {
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const endButtonRef = useRef<HTMLDivElement>(null)
+    const prevMessageCountRef = useRef(currentMessages.length)
 
     useEffect(() => {
-        setTimeout(() => {
-            endButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-        }, 100)
+        if (prevMessageCountRef.current !== currentMessages.length) {
+            setTimeout(() => {
+                endButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+            }, 100)
+            prevMessageCountRef.current = currentMessages.length
+        }
     }, [currentMessages])
 
     const displayMessages = currentMessages.filter((message) => message.content !== '__GREETING__')
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex-1 overflow-y-auto p-3 space-y-4">
+            <div className="flex-1 overflow-y-auto p-3 space-y-4 [overflow-anchor:none]">
                 <div className="bg-bg-light dark:bg-bg-transparent rounded p-1">
                     <h4 className="mb-2">Tips for chatting with Max:</h4>
                     <ul className="list-disc pl-4 space-y-2 text-muted">
@@ -120,7 +139,7 @@ export function MaxChatInterface(): JSX.Element {
                             >
                                 {message.role === 'user' && <div className="text-sm text-muted mr-2 mt-2">You</div>}
 
-                                <div className={message.role === 'assistant' ? 'flex flex-col' : ''}>
+                                <div className={`${message.role === 'assistant' ? 'flex flex-col' : ''} max-w-full`}>
                                     {message.role === 'assistant' && <div className="text-sm text-muted mb-1">Max</div>}
                                     <div
                                         className={`p-2 rounded-lg min-w-[90%] whitespace-pre-wrap ${
@@ -140,40 +159,7 @@ export function MaxChatInterface(): JSX.Element {
                                                   <div>Max searched</div>
                                               ) : (
                                                   <>
-                                                      <LemonMarkdown disableDocsRedirect>
-                                                          {message.content
-                                                              .replace(new RegExp('<thinking>.*?</thinking>', 's'), '')
-                                                              .replace(
-                                                                  new RegExp(
-                                                                      '<search_result_reflection>.*?</search_result_reflection>',
-                                                                      'gs'
-                                                                  ),
-                                                                  ''
-                                                              )
-                                                              .replace(
-                                                                  new RegExp(
-                                                                      '<search_quality_score>.*?</search_quality_score>',
-                                                                      's'
-                                                                  ),
-                                                                  ''
-                                                              )
-                                                              .replace(
-                                                                  new RegExp(
-                                                                      '<info_validation>.*?</info_validation>',
-                                                                      's'
-                                                                  ),
-                                                                  ''
-                                                              )
-                                                              .replace(
-                                                                  new RegExp(
-                                                                      '<url_validation>.*?</url_validation>',
-                                                                      's'
-                                                                  ),
-                                                                  ''
-                                                              )
-                                                              .replace(new RegExp('<reply>|</reply>', 'g'), '')
-                                                              .trim()}
-                                                      </LemonMarkdown>
+                                                      <MemoizedMessageContent content={message.content} />
 
                                                       {/* Only show analysis for non-greeting messages */}
                                                       {idx === 0
