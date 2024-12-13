@@ -27,6 +27,7 @@ APIScopeObject = Literal[
     "export",
     "feature_flag",
     "group",
+    "heatmaps",
     "insight",
     "query",  # Covers query and events endpoints
     "notebook",
@@ -58,3 +59,7 @@ APIScopeObjectOrNotSupported = Literal[
 
 API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
 API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
+
+ALL_API_SCOPES: tuple[str, ...] = tuple(
+    f"{object}:{action}" for object in API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS
+)

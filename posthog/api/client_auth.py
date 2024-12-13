@@ -14,7 +14,7 @@ from posthog.models import User
 
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
-from posthog.models.api_scopes import ALL_API_SCOPES
+from posthog.models.scopes import ALL_API_SCOPES
 
 DEFAULT_CLIENT_AUTHENTICATION_TIME = timedelta(days=7)
 
