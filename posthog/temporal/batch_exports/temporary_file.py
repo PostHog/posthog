@@ -14,9 +14,11 @@ import typing
 
 import brotli
 import orjson
+import psycopg
 import pyarrow as pa
 import pyarrow.parquet as pq
 import structlog
+from psycopg import sql
 
 from posthog.temporal.batch_exports.heartbeat import DateRange
 
@@ -477,6 +479,7 @@ class WriterFormat(enum.StrEnum):
     JSONL = enum.auto()
     PARQUET = enum.auto()
     CSV = enum.auto()
+    REDSHIFT_INSERT = enum.auto()
 
     @staticmethod
     def from_str(format_str: str, destination: str):
@@ -487,6 +490,8 @@ class WriterFormat(enum.StrEnum):
                 return WriterFormat.PARQUET
             case "CSV":
                 return WriterFormat.CSV
+            case "REDSHIFT_INSERT":
+                return WriterFormat.REDSHIFT_INSERT
             case _:
                 raise UnsupportedFileFormatError(format_str, destination)
 
@@ -509,6 +514,13 @@ def get_batch_export_writer(writer_format: WriterFormat, flush_callable: FlushCa
 
         case WriterFormat.PARQUET:
             return ParquetBatchExportWriter(
+                max_bytes=max_bytes,
+                flush_callable=flush_callable,
+                **kwargs,
+            )
+
+        case WriterFormat.REDSHIFT_INSERT:
+            return RedshiftInsertBatchExportWriter(
                 max_bytes=max_bytes,
                 flush_callable=flush_callable,
                 **kwargs,
@@ -704,3 +716,145 @@ class ParquetBatchExportWriter(BatchExportWriter):
         """Write records to a temporary file as Parquet."""
 
         self.parquet_writer.write_batch(record_batch.select(self.parquet_writer.schema.names))
+
+
+def remove_escaped_whitespace_recursive(value):
+    """Remove all escaped whitespace characters from given value.
+
+    PostgreSQL supports constant escaped strings by appending an E' to each string that
+    contains whitespace in them (amongst other characters). See:
+    https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS-ESCAPE
+
+    However, Redshift does not support this syntax. So, to avoid any escaping by
+    underlying PostgreSQL library, we remove the whitespace ourselves as defined in the
+    translation table WHITESPACE_TRANSLATE.
+
+    This function is recursive just to be extremely careful and catch any whitespace that
+    may be sneaked in a dictionary key or sequence.
+    """
+    match value:
+        case str(s):
+            return " ".join(s.replace("\b", " ").split())
+
+        case bytes(b):
+            return remove_escaped_whitespace_recursive(b.decode("utf-8"))
+
+        case [*sequence]:
+            # mypy could be bugged as it's raising a Statement unreachable error.
+            # But we are definitely reaching this statement in tests; hence the ignore comment.
+            # Maybe: https://github.com/python/mypy/issues/16272.
+            return type(value)(remove_escaped_whitespace_recursive(sequence_value) for sequence_value in sequence)  # type: ignore
+
+        case set(elements):
+            return {remove_escaped_whitespace_recursive(element) for element in elements}
+
+        case {**mapping}:
+            return {k: remove_escaped_whitespace_recursive(v) for k, v in mapping.items()}
+
+        case value:
+            return value
+
+
+class RedshiftInsertBatchExportWriter(BatchExportWriter):
+    """A `BatchExportWriter` for Redshift INSERT queries.
+
+    Arguments:
+        max_bytes: Redshift's SQL statement size limit is 16MB, so anything more than
+            that will result in an error. However, setthing `max_bytes` too low can
+            significantly affect performance due to Redshift's poor handling of INSERTs.
+    """
+
+    def __init__(
+        self,
+        max_bytes: int,
+        flush_callable: FlushCallable,
+        schema: pa.Schema,
+        redshift_table: str,
+        redshift_schema: str | None,
+        table_columns: collections.abc.Sequence[str],
+        known_json_columns: collections.abc.Sequence[str],
+        use_super: bool,
+        redshift_client,
+    ):
+        super().__init__(
+            max_bytes=max_bytes,
+            flush_callable=flush_callable,
+            file_kwargs={"compression": None},
+        )
+        self.schema = schema
+        self.redshift_table = redshift_table
+        self.redshift_schema = redshift_schema
+        self.table_columns = table_columns
+        self.known_json_columns = known_json_columns
+        self.use_super = use_super
+        self.redshift_client = redshift_client
+        self._cursor: psycopg.AsyncClientCursor | None = None
+        self.first = True
+
+        placeholders: list[sql.Composable] = []
+        for column in table_columns:
+            if column in known_json_columns and use_super is True:
+                placeholders.append(sql.SQL("JSON_PARSE({placeholder})").format(placeholder=sql.Placeholder(column)))
+            else:
+                placeholders.append(sql.Placeholder(column))
+
+        self.template = sql.SQL("({})").format(sql.SQL(", ").join(placeholders))
+
+    def create_temporary_file(self) -> BatchExportTemporaryFile:
+        """On creating a temporary file, write first the start of a query."""
+        file = super().create_temporary_file()
+
+        if self.redshift_schema:
+            table_identifier = sql.Identifier(self.redshift_schema, self.redshift_table)
+        else:
+            table_identifier = sql.Identifier(self.redshift_table)
+
+        pre_query_encoded = asyncio.run(self.get_encoded_pre_query(table_identifier))
+        file.write(pre_query_encoded)
+
+        return file
+
+    async def get_encoded_pre_query(self, table_identifier: sql.Identifier) -> bytes:
+        """Encode and format the start of an INSERT INTO query."""
+        pre_query = sql.SQL("INSERT INTO {table} ({fields}) VALUES").format(
+            table=table_identifier,
+            fields=sql.SQL(", ").join(map(sql.Identifier, self.table_columns)),
+        )
+
+        async with self.redshift_client.async_client_cursor() as cursor:
+            return pre_query.as_string(cursor).encode("utf-8")
+
+    def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
+        """Write records to a temporary file as values in an INSERT query."""
+        for record_dict in record_batch.to_pylist():
+            if not record_dict:
+                continue
+
+            record = {}
+            for key, value in record_dict.items():
+                if key not in self.table_columns:
+                    continue
+
+                record[key] = value
+
+                if value is not None and key in self.known_json_columns:
+                    record[key] = json.dumps(remove_escaped_whitespace_recursive(record[key]), ensure_ascii=False)
+
+            encoded = asyncio.run(self.mogrify_record(record))
+
+            if self.first:
+                self.first = False
+            else:
+                self.batch_export_file.write(",")
+
+            self.batch_export_file.write(encoded)
+
+    async def mogrify_record(self, record: dict[str, typing.Any]) -> bytes:
+        """Produce encoded bytes from a record."""
+        async with self.redshift_client.async_client_cursor() as cursor:
+            return cursor.mogrify(self.template, record).encode("utf-8").replace(b" E'", b" '")
+
+    async def close_temporary_file(self):
+        """Ensure we mark next query as first after closing a file."""
+        await super().close_temporary_file()
+        self.first = True
