@@ -38,11 +38,6 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             calculate_credible_intervals=calculate_credible_intervals_v2_continuous,
         )
 
-    def assertRange(self, value, range: tuple[float, float]):
-        self.assertTrue(
-            range[0] <= value <= range[1], f"{value} is not in range {range} (stats version {self.stats_version})"
-        )
-
     def test_small_sample_two_variants_not_significant(self):
         """Test with small sample size, two variants, no clear winner"""
 
@@ -63,8 +58,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertRange(probabilities[0], (0.4, 0.6))  # Close to 50/50
-                self.assertRange(probabilities[1], (0.4, 0.6))  # Close to 50/50
+                self.assertAlmostEqual(probabilities[0], 0.5, delta=0.1)
+                self.assertAlmostEqual(probabilities[1], 0.5, delta=0.1)
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
@@ -77,8 +72,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test"][1], 115, delta=5)  # Upper bound
             else:
                 # Original implementation behavior for small sample
-                self.assertRange(probabilities[0], (0.3, 0.7))
-                self.assertRange(probabilities[1], (0.3, 0.7))
+                self.assertAlmostEqual(probabilities[0], 0.5, delta=0.2)
+                self.assertAlmostEqual(probabilities[1], 0.5, delta=0.2)
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
@@ -110,8 +105,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertRange(probabilities[1], (0.95, 1.0))  # Test variant strongly winning
-                self.assertRange(probabilities[0], (0.0, 0.05))  # Control variant strongly losing
+                self.assertAlmostEqual(probabilities[1], 1.0, delta=0.025)
+                self.assertAlmostEqual(probabilities[0], 0.0, delta=0.025)
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
                 self.assertEqual(p_value, 0)
 
@@ -124,12 +119,12 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test"][1], 120, delta=2)  # Upper bound
             else:
                 # Original implementation behavior for large sample
-                self.assertRange(probabilities[1], (0.5, 1.0))  # Test variant winning
-                self.assertRange(probabilities[0], (0.0, 0.5))  # Control variant losing
+                self.assertAlmostEqual(probabilities[1], 0.75, delta=0.25)
+                self.assertAlmostEqual(probabilities[0], 0.25, delta=0.25)
                 self.assertTrue(
                     significance in [ExperimentSignificanceCode.HIGH_P_VALUE, ExperimentSignificanceCode.SIGNIFICANT]
                 )
-                self.assertRange(p_value, (0, 0.3))
+                self.assertAlmostEqual(p_value, 0.15, delta=0.15)
 
                 # Original implementation returns intervals as ratios/multipliers of the mean
                 self.assertAlmostEqual(intervals["control"][0], 0.05, delta=0.05)  # Lower bound less than mean
@@ -159,8 +154,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertRange(probabilities[1], (0.99, 1.0))  # Test variant very strongly winning
-                self.assertRange(probabilities[0], (0.0, 0.01))  # Control variant very strongly losing
+                self.assertAlmostEqual(probabilities[1], 1.0, delta=0.005)
+                self.assertAlmostEqual(probabilities[0], 0.0, delta=0.005)
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
                 self.assertEqual(p_value, 0)
 
@@ -304,20 +299,20 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 0)
 
                 # Control at $100
-                self.assertRange(intervals["control"][0], (98, 102))
-                self.assertRange(intervals["control"][1], (98, 102))
+                self.assertAlmostEqual(intervals["control"][0], 100, delta=2)
+                self.assertAlmostEqual(intervals["control"][1], 100, delta=2)
 
                 # Test A slightly higher at $105
-                self.assertRange(intervals["test_a"][0], (103, 107))
-                self.assertRange(intervals["test_a"][1], (103, 107))
+                self.assertAlmostEqual(intervals["test_a"][0], 105, delta=2)
+                self.assertAlmostEqual(intervals["test_a"][1], 105, delta=2)
 
                 # Test B clearly winning at $150
-                self.assertRange(intervals["test_b"][0], (147, 153))
-                self.assertRange(intervals["test_b"][1], (147, 153))
+                self.assertAlmostEqual(intervals["test_b"][0], 150, delta=3)
+                self.assertAlmostEqual(intervals["test_b"][1], 150, delta=3)
 
                 # Test C slightly higher at $110
-                self.assertRange(intervals["test_c"][0], (108, 112))
-                self.assertRange(intervals["test_c"][1], (108, 112))
+                self.assertAlmostEqual(intervals["test_c"][0], 110, delta=2)
+                self.assertAlmostEqual(intervals["test_c"][1], 110, delta=2)
             else:
                 # Original implementation behavior for multiple variants with clear winner
                 self.assertTrue(probabilities[2] > 0.5)  # test_b should be winning
@@ -352,8 +347,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertRange(probabilities[0], (0.0, 0.5))  # Control has lower probability
-                self.assertRange(probabilities[1], (0.5, 1.0))  # Test has higher probability
+                self.assertAlmostEqual(probabilities[0], 0.25, delta=0.25)  # Control has lower probability
+                self.assertAlmostEqual(probabilities[1], 0.75, delta=0.25)  # Test has higher probability
                 self.assertEqual(significance, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
                 self.assertEqual(p_value, 1.0)
 
@@ -365,8 +360,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test"][1], 125, delta=10)
             else:
                 # Original implementation behavior for insufficient sample size
-                self.assertRange(probabilities[0], (0.05, 0.1))
-                self.assertRange(probabilities[1], (0.85, 1.0))
+                self.assertAlmostEqual(probabilities[0], 0.075, delta=0.025)
+                self.assertAlmostEqual(probabilities[1], 0.925, delta=0.075)
                 self.assertEqual(significance, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
                 self.assertEqual(p_value, 1.0)
 
@@ -398,8 +393,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertRange(probabilities[0], (0.4, 0.6))  # Should be close to 50/50
-                self.assertRange(probabilities[1], (0.4, 0.6))  # Should be close to 50/50
+                self.assertAlmostEqual(probabilities[0], 0.5, delta=0.1)  # Should be close to 50/50
+                self.assertAlmostEqual(probabilities[1], 0.5, delta=0.1)  # Should be close to 50/50
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
@@ -411,8 +406,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test"][1], 0, delta=0.05)
             else:
                 # Original implementation behavior for zero means
-                self.assertRange(probabilities[0], (0.4, 0.6))
-                self.assertRange(probabilities[1], (0.4, 0.6))
+                self.assertAlmostEqual(probabilities[0], 0.5, delta=0.1)
+                self.assertAlmostEqual(probabilities[1], 0.5, delta=0.1)
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
@@ -451,8 +446,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertRange(probabilities[0], (0.4, 0.6))  # Should be close to 50/50
-                self.assertRange(probabilities[1], (0.4, 0.6))  # Should be close to 50/50
+                self.assertAlmostEqual(probabilities[0], 0.5, delta=0.1)  # Should be close to 50/50
+                self.assertAlmostEqual(probabilities[1], 0.5, delta=0.1)  # Should be close to 50/50
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
@@ -465,8 +460,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test"][1], 0.0001, delta=0.00015)  # Upper bound
             else:
                 # Original implementation behavior for near-zero means
-                self.assertRange(probabilities[0], (0.4, 0.6))
-                self.assertRange(probabilities[1], (0.4, 0.6))
+                self.assertAlmostEqual(probabilities[0], 0.5, delta=0.1)
+                self.assertAlmostEqual(probabilities[1], 0.5, delta=0.1)
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
@@ -500,8 +495,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertRange(probabilities[0], (0.0, 0.1))
-                self.assertRange(probabilities[1], (0.9, 1.0))
+                self.assertAlmostEqual(probabilities[0], 0.05, delta=0.05)
+                self.assertAlmostEqual(probabilities[1], 0.95, delta=0.05)
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
                 self.assertEqual(p_value, 0)
 
@@ -514,8 +509,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test"][1], 120, delta=2)
             else:
                 # Original implementation behavior for different exposures
-                self.assertRange(probabilities[1], (0.4, 0.6))  # Close to 50/50
-                self.assertRange(probabilities[0], (0.4, 0.6))  # Close to 50/50
+                self.assertAlmostEqual(probabilities[1], 0.5, delta=0.1)  # Close to 50/50
+                self.assertAlmostEqual(probabilities[0], 0.5, delta=0.1)  # Close to 50/50
                 self.assertTrue(
                     significance
                     in [ExperimentSignificanceCode.LOW_WIN_PROBABILITY, ExperimentSignificanceCode.SIGNIFICANT]
