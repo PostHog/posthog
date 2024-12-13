@@ -1,4 +1,3 @@
-import collections.abc
 import contextlib
 import dataclasses
 import datetime as dt
@@ -35,7 +34,6 @@ from posthog.temporal.batch_exports.heartbeat import (
     DateRange,
     should_resume_from_activity_heartbeat,
 )
-from posthog.temporal.batch_exports.metrics import get_rows_exported_metric
 from posthog.temporal.batch_exports.postgres_batch_export import (
     Fields,
     PostgresInsertInputs,
@@ -52,49 +50,11 @@ from posthog.temporal.batch_exports.spmc import (
 from posthog.temporal.batch_exports.temporary_file import BatchExportTemporaryFile, WriterFormat
 from posthog.temporal.batch_exports.utils import (
     JsonType,
-    apeek_first_and_rewind,
     set_status_to_running_task,
 )
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
-
-
-def remove_escaped_whitespace_recursive(value):
-    """Remove all escaped whitespace characters from given value.
-
-    PostgreSQL supports constant escaped strings by appending an E' to each string that
-    contains whitespace in them (amongst other characters). See:
-    https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS-ESCAPE
-
-    However, Redshift does not support this syntax. So, to avoid any escaping by
-    underlying PostgreSQL library, we remove the whitespace ourselves as defined in the
-    translation table WHITESPACE_TRANSLATE.
-
-    This function is recursive just to be extremely careful and catch any whitespace that
-    may be sneaked in a dictionary key or sequence.
-    """
-    match value:
-        case str(s):
-            return " ".join(s.replace("\b", " ").split())
-
-        case bytes(b):
-            return remove_escaped_whitespace_recursive(b.decode("utf-8"))
-
-        case [*sequence]:
-            # mypy could be bugged as it's raising a Statement unreachable error.
-            # But we are definitely reaching this statement in tests; hence the ignore comment.
-            # Maybe: https://github.com/python/mypy/issues/16272.
-            return type(value)(remove_escaped_whitespace_recursive(sequence_value) for sequence_value in sequence)  # type: ignore
-
-        case set(elements):
-            return {remove_escaped_whitespace_recursive(element) for element in elements}
-
-        case {**mapping}:
-            return {k: remove_escaped_whitespace_recursive(v) for k, v in mapping.items()}
-
-        case value:
-            return value
 
 
 class RedshiftClient(PostgreSQLClient):
@@ -287,118 +247,6 @@ class RedshiftHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     """The Redshift batch export details included in every heartbeat."""
 
     pass
-
-
-async def insert_records_to_redshift(
-    records: collections.abc.AsyncGenerator[tuple[dict[str, typing.Any], dt.datetime], None],
-    redshift_client: RedshiftClient,
-    schema: str | None,
-    table: str,
-    heartbeater: Heartbeater,
-    heartbeat_details: RedshiftHeartbeatDetails,
-    data_interval_start: dt.datetime | None,
-    data_interval_end: dt.datetime,
-    batch_size: int = 100,
-    use_super: bool = False,
-    known_super_columns: list[str] | None = None,
-) -> int:
-    """Execute an INSERT query with given Redshift connection.
-
-    The recommended way to insert multiple values into Redshift is using a COPY statement (see:
-    https://docs.aws.amazon.com/redshift/latest/dg/r_COPY.html). However, Redshift cannot COPY from local
-    files like Postgres, but only from files in S3 or executing commands in SSH hosts. Setting that up would
-    add complexity and require more configuration from the user compared to the old Redshift export plugin.
-    For this reasons, we are going with basic INSERT statements for now, and we can migrate to COPY from S3
-    later if the need arises.
-
-    Arguments:
-        record: A dictionary representing the record to insert. Each key should correspond to a column
-            in the destination table.
-        redshift_connection: A connection to Redshift setup by psycopg2.
-        schema: The schema that contains the table where to insert the record.
-        table: The name of the table where to insert the record.
-        batch_size: Number of records to insert in batch. Setting this too high could
-            make us go OOM or exceed Redshift's SQL statement size limit (16MB). Setting this too low
-            can significantly affect performance due to Redshift's poor handling of INSERTs.
-    """
-    first_value, records_iterator = await apeek_first_and_rewind(records)
-    if first_value is None:
-        return 0
-
-    first_record_batch, _inserted_at = first_value
-    columns = first_record_batch.keys()
-
-    if schema:
-        table_identifier = sql.Identifier(schema, table)
-    else:
-        table_identifier = sql.Identifier(table)
-
-    pre_query = sql.SQL("INSERT INTO {table} ({fields}) VALUES").format(
-        table=table_identifier,
-        fields=sql.SQL(", ").join(map(sql.Identifier, columns)),
-    )
-    placeholders: list[sql.Composable] = []
-    for column in columns:
-        if use_super is True and known_super_columns is not None and column in known_super_columns:
-            placeholders.append(sql.SQL("JSON_PARSE({placeholder})").format(placeholder=sql.Placeholder(column)))
-        else:
-            placeholders.append(sql.Placeholder(column))
-
-    template = sql.SQL("({})").format(sql.SQL(", ").join(placeholders))
-    rows_exported = get_rows_exported_metric()
-
-    total_rows_exported = 0
-
-    async with redshift_client.connection.transaction():
-        async with redshift_client.async_client_cursor() as cursor:
-            batch = []
-            pre_query_str = pre_query.as_string(cursor).encode("utf-8")
-
-            async def flush_to_redshift(batch):
-                nonlocal total_rows_exported
-
-                values = b",".join(batch).replace(b" E'", b" '")
-                await cursor.execute(pre_query_str + values)
-                rows_exported.add(len(batch))
-                total_rows_exported += len(batch)
-                # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
-                # the byte size of each batch the way things are currently written. We can revisit this
-                # in the future if we decide it's useful enough.
-
-            batch_start_inserted_at = None
-            async for record, _inserted_at in records_iterator:
-                if batch_start_inserted_at is None:
-                    batch_start_inserted_at = _inserted_at
-
-                for column in columns:
-                    if known_super_columns is not None and column in known_super_columns:
-                        record[column] = json.dumps(record[column], ensure_ascii=False)
-
-                batch.append(cursor.mogrify(template, record).encode("utf-8"))
-                if len(batch) < batch_size:
-                    continue
-
-                await flush_to_redshift(batch)
-
-                last_date_range = (batch_start_inserted_at, _inserted_at)
-                heartbeat_details.track_done_range(last_date_range, data_interval_start)
-                heartbeater.set_from_heartbeat_details(heartbeat_details)
-
-                batch_start_inserted_at = None
-                batch = []
-
-            if len(batch) > 0 and batch_start_inserted_at:
-                await flush_to_redshift(batch)
-
-                last_date_range = (batch_start_inserted_at, _inserted_at)
-
-                heartbeat_details.track_done_range(last_date_range, data_interval_start)
-                heartbeater.set_from_heartbeat_details(heartbeat_details)
-
-    heartbeat_details.complete_done_ranges(data_interval_end)
-    heartbeater.set_from_heartbeat_details(heartbeat_details)
-
-    return total_rows_exported
 
 
 class RedshiftConsumer(Consumer):
