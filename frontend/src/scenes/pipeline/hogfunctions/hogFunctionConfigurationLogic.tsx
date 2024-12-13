@@ -454,6 +454,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : undefined,
+                    mappings:
+                        data.type === 'site_destination' && (!data.mappings || data.mappings.length === 0)
+                            ? 'You must add at least one mapping'
+                            : undefined,
                     ...(values.inputFormErrors as any),
                 }
             },
@@ -642,8 +646,26 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         matchingFilters: [
-            (s) => [s.configuration],
-            (configuration): PropertyGroupFilter => {
+            (s) => [s.configuration, s.useMapping],
+            (configuration, useMapping): PropertyGroupFilter => {
+                // We're using mappings, but none are provided, so match zero events.
+                if (useMapping && !configuration.mappings?.length) {
+                    return {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.HogQL,
+                                        key: 'false',
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                }
+
                 const seriesProperties: PropertyGroupFilterValue = {
                     type: FilterLogicalOperator.Or,
                     values: [],
@@ -812,7 +834,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return hogFunction?.template?.hog && hogFunction.template.hog !== configuration.hog
             },
         ],
-
         subTemplate: [
             (s) => [s.template, s.subTemplateId],
             (template, subTemplateId) => {
@@ -824,8 +845,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return subTemplate
             },
         ],
-
         forcedSubTemplateId: [() => [router.selectors.searchParams], ({ sub_template }) => !!sub_template],
+        mappingTemplates: [
+            (s) => [s.hogFunction, s.template],
+            (hogFunction, template) => template?.mapping_templates ?? hogFunction?.template?.mapping_templates ?? [],
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -868,6 +892,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 ...(cache.configFromUrl ?? {}),
             }
 
+            if (values.template?.mapping_templates) {
+                config.mappings = [
+                    ...(config.mappings ?? []),
+                    ...values.template.mapping_templates
+                        .filter((t) => t.include_by_default)
+                        .map((template) => ({
+                            ...template,
+                            inputs: template.inputs_schema?.reduce((acc, input) => {
+                                acc[input.key] = { value: input.default }
+                                return acc
+                            }, {} as Record<string, HogFunctionInputType>),
+                        })),
+                ]
+            }
             const paramsFromUrl = cache.paramsFromUrl ?? {}
             const unsavedConfigurationToApply =
                 (values.unsavedConfiguration?.timestamp ?? 0) > Date.now() - UNSAVED_CONFIGURATION_TTL

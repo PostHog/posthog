@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0529_hog_function_mappings"),
+        ("posthog", "0530_convert_dashboard_templates_to_queries"),
     ]
 
     operations = [

@@ -282,6 +282,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "filters": None,
             "masking": None,
             "mappings": None,
+            "mapping_templates": None,
             "sub_templates": response.json()["template"]["sub_templates"],
         }
 
