@@ -30,6 +30,7 @@ def create_variant_with_different_exposures(
 class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
     def run_test_for_both_implementations(self, test_fn):
         """Run the same test for both implementations"""
+        self.stats_version = 1
         # Run for original implementation
         test_fn(
             stats_version=1,
@@ -37,12 +38,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             are_results_significant=are_results_significant,
             calculate_credible_intervals=calculate_credible_intervals,
         )
+        self.stats_version = 2
         # Run for v2 implementation
         test_fn(
             stats_version=2,
             calculate_probabilities=calculate_probabilities_v2_continuous,
             are_results_significant=are_results_significant_v2_continuous,
             calculate_credible_intervals=calculate_credible_intervals_v2_continuous,
+        )
+
+    def assertRange(self, value, range: tuple[float, float]):
+        self.assertTrue(
+            range[0] <= value <= range[1], f"{value} is not in range {range} (stats version {self.stats_version})"
         )
 
     def test_small_sample_two_variants_not_significant(self):
@@ -58,30 +65,30 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertTrue(0.4 < probabilities[0] < 0.6)  # Close to 50/50
-                self.assertTrue(0.4 < probabilities[1] < 0.6)  # Close to 50/50
+                self.assertRange(probabilities[0], (0.4, 0.6))  # Close to 50/50
+                self.assertRange(probabilities[1], (0.4, 0.6))  # Close to 50/50
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
                 # Control: ~$100 mean with wide interval due to small sample
-                self.assertTrue(80 < intervals["control"][0] < 90)  # Lower bound
-                self.assertTrue(110 < intervals["control"][1] < 120)  # Upper bound
+                self.assertRange(intervals["control"][0], (80, 90))  # Lower bound
+                self.assertRange(intervals["control"][1], (110, 120))  # Upper bound
 
                 # Test: ~$105 mean with wide interval due to small sample
-                self.assertTrue(85 < intervals["test"][0] < 95)  # Lower bound
-                self.assertTrue(115 < intervals["test"][1] < 125)  # Upper bound
+                self.assertRange(intervals["test"][0], (85, 95))  # Lower bound
+                self.assertRange(intervals["test"][1], (115, 125))  # Upper bound
             else:
                 # Original implementation behavior for small sample
-                self.assertTrue(0.3 < probabilities[0] < 0.7)
-                self.assertTrue(0.3 < probabilities[1] < 0.7)
+                self.assertRange(probabilities[0], (0.3, 0.7))
+                self.assertRange(probabilities[1], (0.3, 0.7))
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
                 # Original implementation returns intervals as ratios/multipliers of the mean
-                self.assertTrue(intervals["control"][0] < 1)  # Lower bound is less than mean
-                self.assertTrue(intervals["control"][1] > 1)  # Upper bound is greater than mean
-                self.assertTrue(intervals["test"][0] < 1)
-                self.assertTrue(intervals["test"][1] > 1)
+                self.assertRange(intervals["control"][0], (0.8, 1.2))  # Lower bound is less than mean
+                self.assertRange(intervals["control"][1], (1.1, 1.3))  # Upper bound is greater than mean
+                self.assertRange(intervals["test"][0], (0.8, 1.2))
+                self.assertRange(intervals["test"][1], (1.1, 1.3))
 
         self.run_test_for_both_implementations(run_test)
 
@@ -98,18 +105,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertTrue(probabilities[1] > 0.95)  # Test variant strongly winning
-                self.assertTrue(probabilities[0] < 0.05)  # Control variant strongly losing
+                self.assertRange(probabilities[1], (0.95, 1.0))  # Test variant strongly winning
+                self.assertRange(probabilities[0], (0.0, 0.05))  # Control variant strongly losing
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
                 self.assertEqual(p_value, 0)
 
                 # Control: $100 mean with narrow interval due to large sample
-                self.assertTrue(98 < intervals["control"][0] < 102)  # Lower bound
-                self.assertTrue(98 < intervals["control"][1] < 102)  # Upper bound
+                self.assertRange(intervals["control"][0], (98, 102))  # Lower bound
+                self.assertRange(intervals["control"][1], (98, 102))  # Upper bound
 
                 # Test: $120 mean with narrow interval due to large sample
-                self.assertTrue(118 < intervals["test"][0] < 122)  # Lower bound
-                self.assertTrue(118 < intervals["test"][1] < 122)  # Upper bound
+                self.assertRange(intervals["test"][0], (118, 122))  # Lower bound
+                self.assertRange(intervals["test"][1], (118, 122))  # Upper bound
             else:
                 # Original implementation behavior for large sample
                 self.assertTrue(probabilities[1] > 0.5)  # Test variant winning
@@ -138,18 +145,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertTrue(probabilities[1] > 0.99)  # Test variant very strongly winning
-                self.assertTrue(probabilities[0] < 0.01)  # Control variant very strongly losing
+                self.assertRange(probabilities[1], (0.99, 1.0))  # Test variant very strongly winning
+                self.assertRange(probabilities[0], (0.0, 0.01))  # Control variant very strongly losing
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
                 self.assertEqual(p_value, 0)
 
                 # Control: $100 mean
-                self.assertTrue(98 < intervals["control"][0] < 102)  # Lower bound
-                self.assertTrue(98 < intervals["control"][1] < 102)  # Upper bound
+                self.assertRange(intervals["control"][0], (98, 102))  # Lower bound
+                self.assertRange(intervals["control"][1], (98, 102))  # Upper bound
 
                 # Test: $150 mean, clearly higher than control
-                self.assertTrue(147 < intervals["test"][0] < 153)  # Lower bound
-                self.assertTrue(147 < intervals["test"][1] < 153)  # Upper bound
+                self.assertRange(intervals["test"][0], (147, 153))  # Lower bound
+                self.assertRange(intervals["test"][1], (147, 153))  # Upper bound
             else:
                 # Original implementation behavior for strongly significant case
                 self.assertTrue(probabilities[1] > 0.5)  # Test variant winning
@@ -184,8 +191,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
                 # All variants around $100 with overlapping intervals
                 for variant_key in ["control", "test_a", "test_b", "test_c"]:
-                    self.assertTrue(90 < intervals[variant_key][0] < 95)  # Lower bounds
-                    self.assertTrue(105 < intervals[variant_key][1] < 110)  # Upper bounds
+                    self.assertRange(intervals[variant_key][0], (90, 95))  # Lower bounds
+                    self.assertRange(intervals[variant_key][1], (105, 110))  # Upper bounds
             else:
                 # Original implementation behavior for multiple variants with no clear winner
                 self.assertTrue(all(0.1 < p < 0.9 for p in probabilities))
@@ -221,20 +228,20 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 0)
 
                 # Control at $100
-                self.assertTrue(98 < intervals["control"][0] < 102)
-                self.assertTrue(98 < intervals["control"][1] < 102)
+                self.assertRange(intervals["control"][0], (98, 102))
+                self.assertRange(intervals["control"][1], (98, 102))
 
                 # Test A slightly higher at $105
-                self.assertTrue(103 < intervals["test_a"][0] < 107)
-                self.assertTrue(103 < intervals["test_a"][1] < 107)
+                self.assertRange(intervals["test_a"][0], (103, 107))
+                self.assertRange(intervals["test_a"][1], (103, 107))
 
                 # Test B clearly winning at $150
-                self.assertTrue(147 < intervals["test_b"][0] < 153)
-                self.assertTrue(147 < intervals["test_b"][1] < 153)
+                self.assertRange(intervals["test_b"][0], (147, 153))
+                self.assertRange(intervals["test_b"][1], (147, 153))
 
                 # Test C slightly higher at $110
-                self.assertTrue(108 < intervals["test_c"][0] < 112)
-                self.assertTrue(108 < intervals["test_c"][1] < 112)
+                self.assertRange(intervals["test_c"][0], (108, 112))
+                self.assertRange(intervals["test_c"][1], (108, 112))
             else:
                 # Original implementation behavior for multiple variants with clear winner
                 self.assertTrue(probabilities[2] > 0.5)  # test_b should be winning
@@ -262,29 +269,29 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertTrue(probabilities[0] < 0.5)  # Control has lower probability
-                self.assertTrue(probabilities[1] > 0.5)  # Test has higher probability
+                self.assertRange(probabilities[0], (0.0, 0.5))  # Control has lower probability
+                self.assertRange(probabilities[1], (0.5, 1.0))  # Test has higher probability
                 self.assertEqual(significance, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
                 self.assertEqual(p_value, 1.0)
 
                 # Both variants should have wide intervals due to small sample size
-                self.assertTrue(70 < intervals["control"][0] < 90)
-                self.assertTrue(100 < intervals["control"][1] < 120)
+                self.assertRange(intervals["control"][0], (70, 90))
+                self.assertRange(intervals["control"][1], (100, 120))
 
-                self.assertTrue(85 < intervals["test"][0] < 105)
-                self.assertTrue(115 < intervals["test"][1] < 135)
+                self.assertRange(intervals["test"][0], (85, 105))
+                self.assertRange(intervals["test"][1], (115, 135))
             else:
                 # Original implementation behavior for insufficient sample size
-                self.assertTrue(0.05 < probabilities[0] < 0.1)
-                self.assertTrue(0.85 < probabilities[1] < 1.0)
+                self.assertRange(probabilities[0], (0.05, 0.1))
+                self.assertRange(probabilities[1], (0.85, 1.0))
                 self.assertEqual(significance, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
                 self.assertEqual(p_value, 1.0)
 
                 # Original implementation returns intervals as ratios/multipliers of the mean
-                self.assertTrue(1.5 <= intervals["control"][0] < 1.8)
-                self.assertTrue(2.3 <= intervals["control"][1] < 2.6)
-                self.assertTrue(1.8 <= intervals["test"][0] < 2.1)
-                self.assertTrue(2.6 <= intervals["test"][1] < 2.9)
+                self.assertRange(intervals["control"][0], (1.5, 1.8))
+                self.assertRange(intervals["control"][1], (2.3, 2.6))
+                self.assertRange(intervals["test"][0], (1.8, 2.1))
+                self.assertRange(intervals["test"][1], (2.6, 2.9))
 
         self.run_test_for_both_implementations(run_test)
 
@@ -301,21 +308,21 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertTrue(abs(probabilities[0] - 0.5) < 0.1)  # Should be close to 50/50
-                self.assertTrue(abs(probabilities[1] - 0.5) < 0.1)  # Should be close to 50/50
+                self.assertRange(probabilities[0], (0.4, 0.6))  # Should be close to 50/50
+                self.assertRange(probabilities[1], (0.4, 0.6))  # Should be close to 50/50
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
                 # Both variants should have very small intervals near zero
-                self.assertTrue(0 <= intervals["control"][0] < 0.1)
-                self.assertTrue(0 <= intervals["control"][1] < 0.1)
+                self.assertRange(intervals["control"][0], (0, 0.1))
+                self.assertRange(intervals["control"][1], (0, 0.1))
 
-                self.assertTrue(0 <= intervals["test"][0] < 0.1)
-                self.assertTrue(0 <= intervals["test"][1] < 0.1)
+                self.assertRange(intervals["test"][0], (0, 0.1))
+                self.assertRange(intervals["test"][1], (0, 0.1))
             else:
                 # Original implementation behavior for zero means
-                self.assertTrue(0.4 < probabilities[0] < 0.6)
-                self.assertTrue(0.4 < probabilities[1] < 0.6)
+                self.assertRange(probabilities[0], (0.4, 0.6))
+                self.assertRange(probabilities[1], (0.4, 0.6))
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
@@ -342,32 +349,32 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertTrue(abs(probabilities[0] - 0.5) < 0.1)  # Should be close to 50/50
-                self.assertTrue(abs(probabilities[1] - 0.5) < 0.1)  # Should be close to 50/50
+                self.assertRange(probabilities[0], (0.4, 0.6))  # Should be close to 50/50
+                self.assertRange(probabilities[1], (0.4, 0.6))  # Should be close to 50/50
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
                 # Both variants should have intervals appropriate for their small means
                 # For a mean of 0.0001, expect intervals to be within an order of magnitude
-                self.assertTrue(0.00005 <= intervals["control"][0] <= 0.0002)  # Lower bound
-                self.assertTrue(0.00005 <= intervals["control"][1] <= 0.0002)  # Upper bound
+                self.assertRange(intervals["control"][0], (0.00005, 0.0002))  # Lower bound
+                self.assertRange(intervals["control"][1], (0.00005, 0.0002))  # Upper bound
 
-                self.assertTrue(0.00005 <= intervals["test"][0] <= 0.0002)  # Lower bound
-                self.assertTrue(0.00005 <= intervals["test"][1] <= 0.0002)  # Upper bound
+                self.assertRange(intervals["test"][0], (0.00005, 0.0002))  # Lower bound
+                self.assertRange(intervals["test"][1], (0.00005, 0.0002))  # Upper bound
             else:
                 # Original implementation behavior for near-zero means
-                self.assertTrue(0.4 < probabilities[0] < 0.6)
-                self.assertTrue(0.4 < probabilities[1] < 0.6)
+                self.assertRange(probabilities[0], (0.4, 0.6))
+                self.assertRange(probabilities[1], (0.4, 0.6))
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
                 # Original implementation returns intervals as ratios/multipliers of the mean
                 # For near-zero means, the intervals become very small ratios
                 # This is expected behavior when dealing with values close to zero
-                self.assertTrue(0 <= intervals["control"][0] <= 0.0001)  # Lower bound ratio
-                self.assertTrue(0 <= intervals["control"][1] <= 0.005)  # Upper bound ratio
-                self.assertTrue(0 <= intervals["test"][0] <= 0.0001)  # Lower bound ratio
-                self.assertTrue(0 <= intervals["test"][1] <= 0.005)  # Upper bound ratio
+                self.assertRange(intervals["control"][0], (0, 0.0001))  # Lower bound ratio
+                self.assertRange(intervals["control"][1], (0, 0.005))  # Upper bound ratio
+                self.assertRange(intervals["test"][0], (0, 0.0001))  # Lower bound ratio
+                self.assertRange(intervals["test"][1], (0, 0.005))  # Upper bound ratio
 
         self.run_test_for_both_implementations(run_test)
 
@@ -386,18 +393,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertTrue(probabilities[0] < 0.1)
-                self.assertTrue(0.9 < probabilities[1])
+                self.assertRange(probabilities[0], (0.0, 0.1))
+                self.assertRange(probabilities[1], (0.9, 1.0))
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
                 self.assertEqual(p_value, 0)
 
                 # Control at $100 mean
-                self.assertTrue(98 < intervals["control"][0] < 102)
-                self.assertTrue(98 < intervals["control"][1] < 102)
+                self.assertRange(intervals["control"][0], (98, 102))
+                self.assertRange(intervals["control"][1], (98, 102))
 
                 # Test at $120 mean
-                self.assertTrue(118 < intervals["test"][0] < 122)
-                self.assertTrue(118 < intervals["test"][1] < 122)
+                self.assertRange(intervals["test"][0], (118, 122))
+                self.assertRange(intervals["test"][1], (118, 122))
             else:
                 # Original implementation behavior for different exposures
                 self.assertTrue(probabilities[1] > 0.5)  # Test variant winning
