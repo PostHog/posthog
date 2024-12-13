@@ -501,11 +501,12 @@ class SnowflakeConsumer(Consumer):
         heartbeater: Heartbeater,
         heartbeat_details: SnowflakeHeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        writer_format: WriterFormat,
         snowflake_client: SnowflakeClient,
         snowflake_table: str,
         snowflake_table_stage_prefix: str,
     ):
-        super().__init__(heartbeater, heartbeat_details, data_interval_start)
+        super().__init__(heartbeater, heartbeat_details, data_interval_start, writer_format)
         self.heartbeat_details: SnowflakeHeartbeatDetails = heartbeat_details
         self.snowflake_table = snowflake_table
         self.snowflake_client = snowflake_client
@@ -729,6 +730,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     snowflake_client=snow_client,
                     snowflake_table=snow_stage_table if requires_merge else snow_table,
                     snowflake_table_stage_prefix=data_interval_end_str,
+                    multiple_files=True,
                 )
 
                 await snow_client.copy_loaded_files_to_snowflake_table(
