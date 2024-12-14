@@ -17,10 +17,8 @@ import {
     itemToMiniFilter,
 } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
 import { MiniFilterKey, miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
-import {
-    convertUniversalFiltersToRecordingsQuery,
-    MatchingEventsMatchType,
-} from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { convertUniversalFiltersToRecordingsQuery } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { PlayerInspectorLogicProps } from 'scenes/session-recordings/types'
 
 import {
     FilterableInspectorListItemTypes,
@@ -32,7 +30,7 @@ import {
 } from '~/types'
 
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
@@ -130,10 +128,6 @@ export type InspectorListItem =
     | InspectorListItemComment
     | InspectorListItemSummary
     | InspectorListItemInactivity
-
-export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
-    matchingEventsMatchType?: MatchingEventsMatchType
-}
 
 function _isCustomSnapshot(x: unknown): x is customEvent {
     return (x as customEvent).type === 5
@@ -244,7 +238,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
-            performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
+            performanceEventDataLogic(props),
             ['allPerformanceEvents'],
             sessionRecordingDataLogic(props),
             ['trackedWindow'],

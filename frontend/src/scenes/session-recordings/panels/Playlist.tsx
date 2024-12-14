@@ -30,9 +30,10 @@ export const PanelPlaylist = (): JSX.Element => {
         otherRecordings,
         activeSessionRecordingId,
         hasNext,
-    } = useValues(sessionRecordingsPlaylistLogic)
-    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, setShowOtherRecordings } =
-        useActions(sessionRecordingsPlaylistLogic)
+    } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
+    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, setShowOtherRecordings } = useActions(
+        sessionRecordingsPlaylistLogic({ updateSearchParams: true })
+    )
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -90,7 +91,7 @@ export const PanelPlaylist = (): JSX.Element => {
                     maybeLoadSessionRecordings('older')
                 }
             }}
-            activeItemId={activeSessionRecordingId}
+            activeItemId={activeSessionRecordingId ?? null}
             setActiveItemId={(item) => setSelectedRecordingId(item.id)}
             onChangeSections={(activeSections) => setShowOtherRecordings(activeSections.includes('other'))}
             emptyState={<ListEmptyState />}

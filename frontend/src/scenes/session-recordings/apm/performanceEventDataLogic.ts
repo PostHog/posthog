@@ -5,10 +5,8 @@ import {
     itemSizeInfo,
 } from 'scenes/session-recordings/apm/performance-event-utils'
 import { InspectorListItemBase } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import {
-    sessionRecordingDataLogic,
-    SessionRecordingDataLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { PerformanceEventDataLogicProps } from 'scenes/session-recordings/types'
 
 import { FilterableInspectorListItemTypes, PerformanceEvent, RecordingEventType } from '~/types'
 
@@ -17,10 +15,6 @@ import type { performanceEventDataLogicType } from './performanceEventDataLogicT
 export type InspectorListItemPerformance = InspectorListItemBase & {
     type: FilterableInspectorListItemTypes.NETWORK
     data: PerformanceEvent
-}
-
-export interface PerformanceEventDataLogicProps extends SessionRecordingDataLogicProps {
-    key?: string
 }
 
 /** it's pretty quick to sort an already sorted list */
@@ -101,7 +95,7 @@ function matchWebVitalsEvents(
 export const performanceEventDataLogic = kea<performanceEventDataLogicType>([
     path(['scenes', 'session-recordings', 'apm', 'performanceEventDataLogic']),
     props({} as PerformanceEventDataLogicProps),
-    key((props: PerformanceEventDataLogicProps) => `${props.key}-${props.sessionRecordingId}`),
+    key((props: PerformanceEventDataLogicProps) => props.sessionRecordingId),
     connect((props: PerformanceEventDataLogicProps) => ({
         actions: [],
         values: [sessionRecordingDataLogic(props), ['sessionPlayerData', 'webVitalsEvents']],

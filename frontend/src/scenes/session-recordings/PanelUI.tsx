@@ -1,63 +1,57 @@
 import './SessionReplay.scss'
 
 import clsx from 'clsx'
-import { BindLogic } from 'kea'
+import { useValues } from 'kea'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { PanelFilters } from './panels/Filters'
 import { PanelPlayback } from './panels/Playback'
 import { PanelPlaylist } from './panels/Playlist'
 import { PlayerInspector } from './player/inspector/PlayerInspector'
-import {
-    SessionRecordingPlaylistLogicProps,
-    sessionRecordingsPlaylistLogic,
-} from './playlist/sessionRecordingsPlaylistLogic'
 
 export function PanelsUI(): JSX.Element {
-    const logicProps: SessionRecordingPlaylistLogicProps = {
-        updateSearchParams: true,
-    }
+    const workspaceConfig = { overview: false, inspector: true }
 
-    const workspaceConfig = { overview: false, inspector: false }
+    const { activeSessionRecordingId } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
 
     return (
-        <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <PanelLayout className="SessionReplay__layout">
-                <PanelContainer primary={false} className="PanelLayout__secondary flex-col">
-                    <Panel primary={false}>
-                        <PanelFilters />
-                    </Panel>
-                    <Panel primary className="PanelLayout__playlist overflow-y-auto flex-1 border w-full">
-                        <PanelPlaylist />
-                    </Panel>
-                </PanelContainer>
+        <PanelLayout className="SessionReplay__layout">
+            <PanelContainer primary={false} className="PanelLayout__secondary flex-col">
+                <Panel primary={false}>
+                    <PanelFilters />
+                </Panel>
+                <Panel primary className="PanelLayout__playlist overflow-y-auto flex-1 border w-full">
+                    <PanelPlaylist />
+                </Panel>
+            </PanelContainer>
 
-                <PanelContainer primary className="PanelLayout__primary">
-                    {workspaceConfig.overview && (
-                        <PanelContainer primary={false} className="w-full">
-                            <Panel primary className="">
-                                <>
-                                    <p>This is a line</p>
-                                    <p>This is a line</p>
-                                    <p>This is a line</p>
-                                    <p>This is a line</p>
-                                    <p>This is a line</p>
-                                </>
-                            </Panel>
-                        </PanelContainer>
-                    )}
-                    <PanelContainer primary className="w-full PanelLayout__main">
-                        <Panel primary className="PanelLayout__playback">
-                            <PanelPlayback />
+            <PanelContainer primary className="PanelLayout__primary">
+                {workspaceConfig.overview && (
+                    <PanelContainer primary={false} className="w-full">
+                        <Panel primary className="">
+                            <>
+                                <p>This is a line</p>
+                                <p>This is a line</p>
+                                <p>This is a line</p>
+                                <p>This is a line</p>
+                                <p>This is a line</p>
+                            </>
                         </Panel>
-                        {workspaceConfig.inspector && (
-                            <Panel primary={false} className="PanelLayout__inspector flex flex-col">
-                                <PlayerInspector />
-                            </Panel>
-                        )}
                     </PanelContainer>
+                )}
+                <PanelContainer primary className="w-full PanelLayout__main">
+                    <Panel primary className="PanelLayout__playback">
+                        <PanelPlayback />
+                    </Panel>
+                    {workspaceConfig.inspector && (
+                        <Panel primary={false} className="PanelLayout__inspector flex flex-col">
+                            {/*TODO: this only works because we're not using a playerkey yet*/}
+                            <PlayerInspector sessionRecordingId={activeSessionRecordingId} />
+                        </Panel>
+                    )}
                 </PanelContainer>
-            </PanelLayout>
-        </BindLogic>
+            </PanelContainer>
+        </PanelLayout>
     )
 }
 

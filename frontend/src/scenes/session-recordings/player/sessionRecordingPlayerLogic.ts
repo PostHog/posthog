@@ -1,20 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { customEvent, EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
 import { captureException } from '@sentry/react'
-import {
-    actions,
-    afterMount,
-    beforeUnmount,
-    BuiltLogic,
-    connect,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-} from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
@@ -24,22 +11,17 @@ import { clamp, downloadFile, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
-import { RefObject } from 'react'
 import { Replayer } from 'rrweb'
 import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import {
-    sessionRecordingDataLogic,
-    SessionRecordingDataLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
-import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin } from './rrweb'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
@@ -78,18 +60,6 @@ export enum SessionRecordingPlayerMode {
     Sharing = 'sharing',
     Notebook = 'notebook',
     Preview = 'preview',
-}
-
-export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
-    playerKey: string
-    sessionRecordingData?: SessionPlayerData
-    matchingEventsMatchType?: MatchingEventsMatchType
-    playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
-    autoPlay?: boolean
-    mode?: SessionRecordingPlayerMode
-    playerRef?: RefObject<HTMLDivElement>
-    pinned?: boolean
-    setPinned?: (pinned: boolean) => void
 }
 
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>

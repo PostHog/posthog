@@ -15,8 +15,8 @@ import { DurationFilter } from '../filters/DurationFilter'
 import { sessionRecordingsPlaylistLogic } from '../playlist/sessionRecordingsPlaylistLogic'
 
 export const PanelFilters = (): JSX.Element => {
-    const { filters } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
+    const { setFilters } = useActions(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
 
     const durationFilter = filters.duration[0]
 

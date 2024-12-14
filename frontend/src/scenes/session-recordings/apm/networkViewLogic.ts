@@ -2,16 +2,12 @@ import { actions, afterMount, connect, kea, key, path, props, reducers, selector
 import { humanFriendlyMilliseconds } from 'lib/utils'
 import { performanceEventDataLogic } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { percentagesWithinEventRange } from 'scenes/session-recordings/apm/waterfall/TimingBar'
-import {
-    sessionRecordingDataLogic,
-    SessionRecordingDataLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { NetworkViewLogicProps } from 'scenes/session-recordings/types'
 
 import { PerformanceEvent } from '~/types'
 
 import type { networkViewLogicType } from './networkViewLogicType'
-
-export interface NetworkViewLogicProps extends SessionRecordingDataLogicProps {}
 
 export const networkViewLogic = kea<networkViewLogicType>([
     path(['scenes', 'session-recordings', 'apm', 'networkViewLogic']),
@@ -21,7 +17,7 @@ export const networkViewLogic = kea<networkViewLogicType>([
         values: [
             sessionRecordingDataLogic(props),
             ['sessionPlayerData', 'sessionPlayerMetaData', 'snapshotsLoading', 'sessionPlayerMetaDataLoading'],
-            performanceEventDataLogic({ key: props.sessionRecordingId, sessionRecordingId: props.sessionRecordingId }),
+            performanceEventDataLogic(props),
             ['allPerformanceEvents', 'sizeBreakdown'],
         ],
         actions: [sessionRecordingDataLogic(props), ['loadSnapshots', 'maybeLoadRecordingMeta']],

@@ -1,4 +1,4 @@
-import { useMountedLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 
 import { SessionRecordingType } from '~/types'
@@ -13,16 +13,16 @@ export const PanelPlayback = ({
     logicKey?: string
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }): JSX.Element => {
-    const playlistLogic = useMountedLogic(sessionRecordingsPlaylistLogic)
-    const { pinnedRecordings, matchingEventsMatchType, activeSessionRecordingId, activeSessionRecording } =
-        useValues(playlistLogic)
+    const { pinnedRecordings, matchingEventsMatchType, activeSessionRecordingId, activeSessionRecording } = useValues(
+        sessionRecordingsPlaylistLogic({ updateSearchParams: true })
+    )
 
     return activeSessionRecordingId ? (
         <SessionRecordingPlayer
             playerKey={logicKey ?? 'playlist'}
             sessionRecordingId={activeSessionRecordingId}
             matchingEventsMatchType={matchingEventsMatchType}
-            playlistLogic={playlistLogic}
+            playlistLogic={sessionRecordingsPlaylistLogic({ updateSearchParams: true })}
             noBorder
             noInspector
             pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecordingId)}

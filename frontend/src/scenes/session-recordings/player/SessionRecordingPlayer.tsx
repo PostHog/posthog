@@ -12,7 +12,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useMemo, useRef } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
-import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { MatchingEventsMatchType, SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/types'
 import { urls } from 'scenes/urls'
 
 import { NetworkView } from '../apm/NetworkView'
@@ -27,7 +27,6 @@ import {
     ONE_FRAME_MS,
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
