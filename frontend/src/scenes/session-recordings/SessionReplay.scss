@@ -5,8 +5,8 @@
             var(--session-recordings-tabs-height)
     );
     --panel-gap: 0.5rem;
-    --panel-playlist-min-width: 200px;
-    --panel-filters-min-width: 200px;
+    --panel-playlist-min-width: 350px;
+    --panel-filters-min-width: 350px;
     --panel-playback-min-width: 300px;
     --panel-inspector-min-width: 200px;
     --container-primary-min-width: max(var(--panel-playback-min-width), var(--panel-inspector-min-width));

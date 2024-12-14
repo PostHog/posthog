@@ -7,6 +7,7 @@ import {
     AuthorizedUrlListType,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
@@ -28,6 +29,7 @@ import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
 
 import { PanelsUI } from './PanelUI'
 import { createPlaylist } from './playlist/playlistUtils'
+import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
@@ -195,7 +197,16 @@ function MainPanel(): JSX.Element {
             {!tab ? (
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
-                <PanelsUI />
+                <>
+                    <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_PANELS_UI} match={true}>
+                        <PanelsUI />
+                    </FlaggedFeature>
+                    <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_PANELS_UI} match={false}>
+                        <div className="SessionRecordingPlaylistHeightWrapper">
+                            <SessionRecordingsPlaylist updateSearchParams />
+                        </div>
+                    </FlaggedFeature>
+                </>
             ) : tab === ReplayTabs.Playlists ? (
                 <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
             ) : tab === ReplayTabs.Templates ? (
