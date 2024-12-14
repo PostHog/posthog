@@ -1,69 +1,24 @@
-import { useValues, useActions } from 'kea'
+import { IconActivity, IconPencil } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
-import { InsightType } from '~/types'
+import { InsightType, TrendExperimentVariant } from '~/types'
 
-import { experimentLogic, getDefaultFilters, getDefaultFunnelsMetric } from '../experimentLogic'
-import { VariantTag } from './components'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import { IconArchive, IconCheck, IconPencil, IconPlus, IconX, IconHourglass } from '@posthog/icons'
-import { FEATURE_FLAGS } from 'lib/constants'
-
-const MAX_PRIMARY_METRICS = 10
-
-const BAR_HEIGHT = 8
-const BAR_PADDING = 10
-const TICK_PANEL_HEIGHT = 20
-const VIEW_BOX_WIDTH = 800
-const HORIZONTAL_PADDING = 20
-const CONVERSION_RATE_RECT_WIDTH = 2
-const TICK_FONT_SIZE = 9
-
-const COLORS = {
-    BOUNDARY_LINES: '#d0d0d0',
-    ZERO_LINE: '#666666',
-    BAR_NEGATIVE: '#F44435',
-    BAR_BEST: '#4DAF4F',
-    BAR_DEFAULT: '#d9d9d9',
-    BAR_CONTROL: 'rgba(217, 217, 217, 0.4)',
-    BAR_MIDDLE_POINT: 'black',
-    BAR_MIDDLE_POINT_CONTROL: 'rgba(0, 0, 0, 0.4)',
-}
-
-// Helper function to find nice round numbers for ticks
-export function getNiceTickValues(maxAbsValue: number): number[] {
-    // Round up maxAbsValue to ensure we cover all values
-    maxAbsValue = Math.ceil(maxAbsValue * 10) / 10
-
-    const magnitude = Math.floor(Math.log10(maxAbsValue))
-    const power = Math.pow(10, magnitude)
-
-    let baseUnit
-    const normalizedMax = maxAbsValue / power
-    if (normalizedMax <= 1) {
-        baseUnit = 0.2 * power
-    } else if (normalizedMax <= 2) {
-        baseUnit = 0.5 * power
-    } else if (normalizedMax <= 5) {
-        baseUnit = 1 * power
-    } else {
-        baseUnit = 2 * power
-    }
-
-    // Calculate how many baseUnits we need to exceed maxAbsValue
-    const unitsNeeded = Math.ceil(maxAbsValue / baseUnit)
-
-    // Determine appropriate number of decimal places based on magnitude
-    const decimalPlaces = Math.max(0, -magnitude + 1)
-
-    const ticks: number[] = []
-    for (let i = -unitsNeeded; i <= unitsNeeded; i++) {
-        // Round each tick value to avoid floating point precision issues
-        const tickValue = Number((baseUnit * i).toFixed(decimalPlaces))
-        ticks.push(tickValue)
-    }
-    return ticks
-}
+import { experimentLogic } from '../experimentLogic'
+import { VariantTag } from '../ExperimentView/components'
+import {
+    BAR_HEIGHT,
+    BAR_PADDING,
+    COLORS,
+    CONVERSION_RATE_RECT_WIDTH,
+    HORIZONTAL_PADDING,
+    TICK_FONT_SIZE,
+    TICK_PANEL_HEIGHT,
+    VIEW_BOX_WIDTH,
+} from './const'
+import { NoResultEmptyState } from './NoResultEmptyState'
 
 function formatTickValue(value: number): string {
     if (value === 0) {
@@ -87,107 +42,7 @@ function formatTickValue(value: number): string {
     return `${(value * 100).toFixed(decimals)}%`
 }
 
-export function DeltaViz(): JSX.Element {
-    const { experiment, getMetricType, metricResults, primaryMetricsResultErrors, credibleIntervalForVariant } =
-        useValues(experimentLogic)
-    const { setExperiment, openPrimaryMetricModal } = useActions(experimentLogic)
-
-    const variants = experiment.parameters.feature_flag_variants
-    const metrics = experiment.metrics || []
-
-    // Calculate the maximum absolute value across ALL metrics
-    const maxAbsValue = Math.max(
-        ...metrics.flatMap((_, metricIndex) => {
-            const result = metricResults?.[metricIndex]
-            return variants.flatMap((variant) => {
-                const interval = credibleIntervalForVariant(result, variant.key, getMetricType(metricIndex))
-                return interval ? [Math.abs(interval[0] / 100), Math.abs(interval[1] / 100)] : []
-            })
-        })
-    )
-
-    // Add padding to the range
-    const padding = Math.max(maxAbsValue * 0.05, 0.02)
-    const chartBound = maxAbsValue + padding
-
-    // Calculate tick values once for all charts
-    const commonTickValues = getNiceTickValues(chartBound)
-
-    return (
-        <div className="my-4">
-            <div className="flex">
-                <div className="w-1/2 pt-5">
-                    <div className="inline-flex space-x-2 mb-0">
-                        <h2 className="mb-1 font-semibold text-lg">Primary metrics</h2>
-                    </div>
-                </div>
-
-                <div className="w-1/2 flex flex-col justify-end">
-                    <div className="ml-auto">
-                        <div className="mb-2 mt-4 justify-end">
-                            <LemonButton
-                                icon={<IconPlus />}
-                                type="secondary"
-                                size="small"
-                                onClick={() => {
-                                    const newMetrics = [...experiment.metrics, getDefaultFunnelsMetric()]
-                                    setExperiment({
-                                        metrics: newMetrics,
-                                    })
-                                    openPrimaryMetricModal(newMetrics.length - 1)
-                                }}
-                                disabledReason={
-                                    metrics.length >= MAX_PRIMARY_METRICS
-                                        ? `You can only add up to ${MAX_PRIMARY_METRICS} primary metrics.`
-                                        : undefined
-                                }
-                            >
-                                Add metric
-                            </LemonButton>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div className="w-full overflow-x-auto">
-                <div className="min-w-[800px]">
-                    {metrics.map((metric, metricIndex) => {
-                        const result = metricResults?.[metricIndex]
-                        const isFirstMetric = metricIndex === 0
-
-                        return (
-                            <div
-                                key={metricIndex}
-                                className={`w-full border border-border bg-light ${
-                                    metrics.length === 1
-                                        ? 'rounded'
-                                        : isFirstMetric
-                                        ? 'rounded-t'
-                                        : metricIndex === metrics.length - 1
-                                        ? 'rounded-b'
-                                        : ''
-                                }`}
-                            >
-                                <Chart
-                                    result={result}
-                                    error={primaryMetricsResultErrors?.[metricIndex]}
-                                    variants={variants}
-                                    metricType={getMetricType(metricIndex)}
-                                    metricIndex={metricIndex}
-                                    isFirstMetric={isFirstMetric}
-                                    metric={metric}
-                                    tickValues={commonTickValues}
-                                    chartBound={chartBound}
-                                />
-                            </div>
-                        )
-                    })}
-                </div>
-            </div>
-        </div>
-    )
-}
-
-function Chart({
+export function DeltaChart({
     result,
     error,
     variants,
@@ -208,7 +63,14 @@ function Chart({
     tickValues: number[]
     chartBound: number
 }): JSX.Element {
-    const { credibleIntervalForVariant, conversionRateForVariant, experimentId } = useValues(experimentLogic)
+    const {
+        credibleIntervalForVariant,
+        conversionRateForVariant,
+        experimentId,
+        countDataForVariant,
+        exposureCountDataForVariant,
+        metricResultsLoading,
+    } = useValues(experimentLogic)
     const { openPrimaryMetricModal } = useActions(experimentLogic)
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
@@ -392,15 +254,63 @@ function Chart({
                             const interval = credibleIntervalForVariant(result, variant.key, metricType)
                             const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
 
-                            const variantRate = conversionRateForVariant(result, variant.key)
-                            const controlRate = conversionRateForVariant(result, 'control')
-                            const delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
+                            let delta: number
+                            if (metricType === InsightType.TRENDS) {
+                                const controlVariant = result.variants.find(
+                                    (v: TrendExperimentVariant) => v.key === 'control'
+                                ) as TrendExperimentVariant
+
+                                const variantData = result.variants.find(
+                                    (v: TrendExperimentVariant) => v.key === variant.key
+                                ) as TrendExperimentVariant
+
+                                if (
+                                    !variantData?.count ||
+                                    !variantData?.absolute_exposure ||
+                                    !controlVariant?.count ||
+                                    !controlVariant?.absolute_exposure
+                                ) {
+                                    delta = 0
+                                } else {
+                                    const controlMean = controlVariant.count / controlVariant.absolute_exposure
+                                    const variantMean = variantData.count / variantData.absolute_exposure
+                                    delta = (variantMean - controlMean) / controlMean
+                                }
+                            } else {
+                                // Original funnel logic
+                                const variantRate = conversionRateForVariant(result, variant.key)
+                                const controlRate = conversionRateForVariant(result, 'control')
+                                delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
+                            }
 
                             // Find the highest delta among all variants
                             const maxDelta = Math.max(
                                 ...variants.map((v) => {
+                                    if (metricType === InsightType.TRENDS) {
+                                        const controlVariant = result.variants.find(
+                                            (cv: TrendExperimentVariant) => cv.key === 'control'
+                                        ) as TrendExperimentVariant
+                                        const variantData = result.variants.find(
+                                            (vd: TrendExperimentVariant) => vd.key === v.key
+                                        ) as TrendExperimentVariant
+
+                                        if (
+                                            !variantData?.count ||
+                                            !variantData?.absolute_exposure ||
+                                            !controlVariant?.count ||
+                                            !controlVariant?.absolute_exposure
+                                        ) {
+                                            return 0
+                                        }
+
+                                        const controlMean = controlVariant.count / controlVariant.absolute_exposure
+                                        const variantMean = variantData.count / variantData.absolute_exposure
+                                        return (variantMean - controlMean) / controlMean
+                                    }
+
                                     const vRate = conversionRateForVariant(result, v.key)
-                                    return vRate && controlRate ? (vRate - controlRate) / controlRate : 0
+                                    const cRate = conversionRateForVariant(result, 'control')
+                                    return vRate && cRate ? (vRate - cRate) / cRate : 0
                                 })
                             )
 
@@ -463,8 +373,7 @@ function Chart({
                             )
                         })}
                     </svg>
-                ) : (
-                    // Empty state
+                ) : metricResultsLoading ? (
                     <svg
                         ref={chartSvgRef}
                         viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
@@ -490,8 +399,57 @@ function Chart({
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ fontSize: '10px', fontWeight: 400 }}
                             >
+                                <span>Results loading...</span>
+                            </div>
+                        </foreignObject>
+                    </svg>
+                ) : (
+                    <svg
+                        ref={chartSvgRef}
+                        viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
+                        preserveAspectRatio="xMidYMid meet"
+                    >
+                        <foreignObject
+                            x={VIEW_BOX_WIDTH / 2 - 100} // Center the 200px wide container
+                            y={chartHeight / 2 - 10} // Roughly center vertically
+                            width="250"
+                            height="20"
+                            onMouseEnter={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect()
+                                setTooltipPosition({
+                                    x: rect.left + rect.width / 2,
+                                    y: rect.top,
+                                })
+                                setEmptyStateTooltipVisible(true)
+                            }}
+                            onMouseLeave={() => setEmptyStateTooltipVisible(false)}
+                        >
+                            <div
+                                className="flex items-center justify-center text-muted cursor-default"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ fontSize: '10px', fontWeight: 400 }}
+                            >
                                 <span>Results not yet available</span>
-                                <IconHourglass style={{ marginLeft: 4, verticalAlign: 'middle' }} />
+                                {error?.statusCode === 400 ? (
+                                    <LemonTag size="small" type="highlight" className="ml-1">
+                                        <IconActivity className="mr-1" fontSize="1em" />
+                                        <span className="font-semibold">
+                                            {(() => {
+                                                try {
+                                                    const detail = JSON.parse(error.detail)
+                                                    return Object.values(detail).filter((v) => v === false).length
+                                                } catch {
+                                                    return '0'
+                                                }
+                                            })()}
+                                        </span>
+                                        /<span className="font-semibold">4</span>
+                                    </LemonTag>
+                                ) : (
+                                    <LemonTag type="danger" className="ml-1">
+                                        Error
+                                    </LemonTag>
+                                )}
                             </div>
                         </foreignObject>
                     </svg>
@@ -519,12 +477,51 @@ function Chart({
                     >
                         <div className="flex flex-col gap-1">
                             <VariantTag experimentId={experimentId} variantKey={tooltipData.variant} />
-                            <div className="flex justify-between items-center">
-                                <span className="text-muted font-semibold">Conversion rate:</span>
-                                <span className="font-semibold">
-                                    {conversionRateForVariant(result, tooltipData.variant)?.toFixed(2)}%
-                                </span>
-                            </div>
+                            {metricType === InsightType.TRENDS ? (
+                                <>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-muted font-semibold">Count:</span>
+                                        <span className="font-semibold">
+                                            {(() => {
+                                                const count = countDataForVariant(result, tooltipData.variant)
+                                                return count !== null ? humanFriendlyNumber(count) : '—'
+                                            })()}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-muted font-semibold">Exposure:</span>
+                                        <span className="font-semibold">
+                                            {(() => {
+                                                const exposure = exposureCountDataForVariant(
+                                                    result,
+                                                    tooltipData.variant
+                                                )
+                                                return exposure !== null ? humanFriendlyNumber(exposure) : '—'
+                                            })()}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-muted font-semibold">Mean:</span>
+                                        <span className="font-semibold">
+                                            {(() => {
+                                                const variant = result.variants.find(
+                                                    (v: TrendExperimentVariant) => v.key === tooltipData.variant
+                                                )
+                                                return variant?.count && variant?.absolute_exposure
+                                                    ? (variant.count / variant.absolute_exposure).toFixed(2)
+                                                    : '—'
+                                            })()}
+                                        </span>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="flex justify-between items-center">
+                                    <span className="text-muted font-semibold">Conversion rate:</span>
+                                    <span className="font-semibold">
+                                        {conversionRateForVariant(result, tooltipData.variant)?.toFixed(2)}%
+                                    </span>
+                                </div>
+                            )}
                             <div className="flex justify-between items-center">
                                 <span className="text-muted font-semibold">Delta:</span>
                                 <span className="font-semibold">
@@ -532,6 +529,37 @@ function Chart({
                                         <em className="text-muted">Baseline</em>
                                     ) : (
                                         (() => {
+                                            if (metricType === InsightType.TRENDS) {
+                                                const controlVariant = result.variants.find(
+                                                    (v: TrendExperimentVariant) => v.key === 'control'
+                                                )
+                                                const variant = result.variants.find(
+                                                    (v: TrendExperimentVariant) => v.key === tooltipData.variant
+                                                )
+
+                                                if (
+                                                    !variant?.count ||
+                                                    !variant?.absolute_exposure ||
+                                                    !controlVariant?.count ||
+                                                    !controlVariant?.absolute_exposure
+                                                ) {
+                                                    return '—'
+                                                }
+
+                                                const controlMean =
+                                                    controlVariant.count / controlVariant.absolute_exposure
+                                                const variantMean = variant.count / variant.absolute_exposure
+                                                const delta = (variantMean - controlMean) / controlMean
+                                                return delta ? (
+                                                    <span className={delta > 0 ? 'text-success' : 'text-danger'}>
+                                                        {`${delta > 0 ? '+' : ''}${(delta * 100).toFixed(2)}%`}
+                                                    </span>
+                                                ) : (
+                                                    '—'
+                                                )
+                                            }
+
+                                            // Original funnel logic
                                             const variantRate = conversionRateForVariant(result, tooltipData.variant)
                                             const controlRate = conversionRateForVariant(result, 'control')
                                             const delta =
@@ -591,106 +619,9 @@ function Chart({
                             minWidth: '200px',
                         }}
                     >
-                        <NoResultsEmptyState error={error} />
+                        <NoResultEmptyState error={error} />
                     </div>
                 )}
-            </div>
-        </div>
-    )
-}
-
-export function NoResultsEmptyState({ error }: { error: any }): JSX.Element {
-    if (!error) {
-        return <></>
-    }
-
-    type ErrorCode = 'no-events' | 'no-flag-info' | 'no-control-variant' | 'no-test-variant'
-
-    const { statusCode } = error
-
-    function ChecklistItem({ errorCode, value }: { errorCode: ErrorCode; value: boolean }): JSX.Element {
-        const failureText = {
-            'no-events': 'Metric events not received',
-            'no-flag-info': 'Feature flag information not present on the events',
-            'no-control-variant': 'Events with the control variant not received',
-            'no-test-variant': 'Events with at least one test variant not received',
-        }
-
-        const successText = {
-            'no-events': 'Experiment events have been received',
-            'no-flag-info': 'Feature flag information is present on the events',
-            'no-control-variant': 'Events with the control variant received',
-            'no-test-variant': 'Events with at least one test variant received',
-        }
-
-        return (
-            <div className="flex items-center space-x-2">
-                {value === false ? (
-                    <span className="flex items-center space-x-2">
-                        <IconCheck className="text-success" fontSize={16} />
-                        <span className="text-muted">{successText[errorCode]}</span>
-                    </span>
-                ) : (
-                    <span className="flex items-center space-x-2">
-                        <IconX className="text-danger" fontSize={16} />
-                        <span>{failureText[errorCode]}</span>
-                    </span>
-                )}
-            </div>
-        )
-    }
-
-    // Validation errors return 400 and are rendered as a checklist
-    if (statusCode === 400) {
-        let parsedDetail: Record<ErrorCode, boolean>
-        try {
-            parsedDetail = JSON.parse(error.detail)
-        } catch (error) {
-            return (
-                <div className="border rounded bg-bg-light p-4">
-                    <div className="font-semibold leading-tight text-base text-current">
-                        Experiment results could not be calculated
-                    </div>
-                    <div className="mt-2">{error}</div>
-                </div>
-            )
-        }
-
-        const checklistItems = []
-        for (const [errorCode, value] of Object.entries(parsedDetail)) {
-            checklistItems.push(<ChecklistItem key={errorCode} errorCode={errorCode as ErrorCode} value={value} />)
-        }
-
-        return <div>{checklistItems}</div>
-    }
-
-    if (statusCode === 504) {
-        return (
-            <div>
-                <div className="border rounded bg-bg-light py-10">
-                    <div className="flex flex-col items-center mx-auto text-muted space-y-2">
-                        <IconArchive className="text-4xl text-secondary-3000" />
-                        <h2 className="text-xl font-semibold leading-tight">Experiment results timed out</h2>
-                        <div className="text-sm text-center text-balance">
-                            This may occur when the experiment has a large amount of data or is particularly complex. We
-                            are actively working on fixing this. In the meantime, please try refreshing the experiment
-                            to retrieve the results.
-                        </div>
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
-    // Other unexpected errors
-    return (
-        <div>
-            <div className="border rounded bg-bg-light py-10">
-                <div className="flex flex-col items-center mx-auto text-muted space-y-2">
-                    <IconArchive className="text-4xl text-secondary-3000" />
-                    <h2 className="text-xl font-semibold leading-tight">Experiment results could not be calculated</h2>
-                    <div className="text-sm text-center text-balance">{error.detail}</div>
-                </div>
             </div>
         </div>
     )

@@ -648,6 +648,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     minimum_detectable_effect: minimumDetectableEffect,
                 },
             })
+            actions.closePrimaryMetricModal()
         },
         updateExperimentCollectionGoal: async () => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
@@ -677,7 +678,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         closePrimaryMetricModal: () => {
-            // actions.loadExperiment()
+            actions.loadExperiment()
         },
         resetRunningExperiment: async () => {
             actions.updateExperiment({ start_date: null, end_date: null, archived: false })

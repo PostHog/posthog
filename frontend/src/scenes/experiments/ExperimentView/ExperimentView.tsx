@@ -7,6 +7,7 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
+import { MetricsView } from '../MetricsView/MetricsView'
 import {
     ExperimentLoadingAnimation,
     LoadingState,
@@ -49,6 +50,7 @@ const ResultsTab = (): JSX.Element => {
                     )}
                 </>
             )}
+            <MetricsView />
             <SecondaryMetricsTable experimentId={experiment.id} />
         </div>
     )
