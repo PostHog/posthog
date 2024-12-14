@@ -29,6 +29,8 @@ anyio==4.6.2.post1
     #   openai
 appdirs==1.4.4
     # via ragas
+appnope==0.1.4
+    # via ipython
 argcomplete==2.0.0
     # via datamodel-code-generator
 asgiref==3.7.2
@@ -37,7 +39,9 @@ asgiref==3.7.2
     #   django
     #   django-stubs
 asttokens==2.4.1
-    # via inline-snapshot
+    # via
+    #   inline-snapshot
+    #   stack-data
 async-timeout==4.0.2
     # via
     #   -c requirements.txt
@@ -48,6 +52,8 @@ attrs==23.2.0
     #   aiohttp
     #   jsonschema
     #   referencing
+backcall==0.2.0
+    # via ipython
 black==23.9.1
     # via
     #   -r requirements-dev.in
@@ -94,6 +100,11 @@ datamodel-code-generator==0.26.1
     # via -r requirements-dev.in
 datasets==2.19.1
     # via ragas
+decorator==5.1.1
+    # via
+    #   -c requirements.txt
+    #   ipdb
+    #   ipython
 deepeval==1.5.5
     # via -r requirements-dev.in
 deprecated==1.2.15
@@ -137,7 +148,9 @@ email-validator==2.0.0.post2
 execnet==2.1.1
     # via pytest-xdist
 executing==2.0.1
-    # via inline-snapshot
+    # via
+    #   inline-snapshot
+    #   stack-data
 faker==17.5.0
     # via -r requirements-dev.in
 fakeredis==2.23.3
@@ -167,10 +180,6 @@ googleapis-common-protos==1.60.0
     # via
     #   -c requirements.txt
     #   opentelemetry-exporter-otlp-proto-grpc
-greenlet==3.1.1
-    # via
-    #   -c requirements.txt
-    #   sqlalchemy
 grpcio==1.63.2
     # via
     #   -c requirements.txt
@@ -211,8 +220,16 @@ iniconfig==1.1.1
     # via pytest
 inline-snapshot==0.12.1
     # via -r requirements-dev.in
+ipdb==0.13.13
+    # via -r requirements-dev.in
+ipython==8.15.0
+    # via
+    #   -r requirements-dev.in
+    #   ipdb
 isort==5.2.2
     # via datamodel-code-generator
+jedi==0.19.2
+    # via ipython
 jinja2==3.1.4
     # via datamodel-code-generator
 jiter==0.5.0
@@ -281,6 +298,8 @@ markupsafe==2.1.5
     # via jinja2
 marshmallow==3.23.1
     # via dataclasses-json
+matplotlib-inline==0.1.7
+    # via ipython
 mdurl==0.1.2
     # via markdown-it-py
 multidict==6.0.5
@@ -364,10 +383,16 @@ pandas==2.2.0
     #   datasets
 parameterized==0.9.0
     # via -r requirements-dev.in
+parso==0.8.4
+    # via jedi
 pathable==0.4.3
     # via jsonschema-path
 pathspec==0.12.1
     # via black
+pexpect==4.9.0
+    # via ipython
+pickleshare==0.7.5
+    # via ipython
 platformdirs==3.11.0
     # via
     #   -c requirements.txt
@@ -382,6 +407,10 @@ pprintpp==0.4.0
     # via pytest-icdiff
 prance==23.6.21.0
     # via -r requirements-dev.in
+prompt-toolkit==3.0.39
+    # via
+    #   -c requirements.txt
+    #   ipython
 propcache==0.2.1
     # via
     #   -c requirements.txt
@@ -393,6 +422,10 @@ protobuf==4.22.1
     #   deepeval
     #   googleapis-common-protos
     #   opentelemetry-proto
+ptyprocess==0.7.0
+    # via pexpect
+pure-eval==0.2.3
+    # via stack-data
 pyarrow==17.0.0
     # via
     #   -c requirements.txt
@@ -421,7 +454,9 @@ pydantic-core==2.23.4
 pydantic-settings==2.6.1
     # via langchain-community
 pygments==2.18.0
-    # via rich
+    # via
+    #   ipython
+    #   rich
 pysbd==0.3.4
     # via ragas
 pytest==8.0.2
@@ -575,6 +610,8 @@ sqlparse==0.4.4
     # via
     #   -c requirements.txt
     #   django
+stack-data==0.6.3
+    # via ipython
 syrupy==4.6.4
     # via -r requirements-dev.in
 tabulate==0.9.0
@@ -602,6 +639,10 @@ tqdm==4.64.1
     #   deepeval
     #   huggingface-hub
     #   openai
+traitlets==5.14.3
+    # via
+    #   ipython
+    #   matplotlib-inline
 typer==0.13.0
     # via deepeval
 types-awscrt==0.20.9
@@ -675,6 +716,10 @@ watchdog==2.1.8
     # via
     #   -r requirements-dev.in
     #   pytest-watch
+wcwidth==0.2.6
+    # via
+    #   -c requirements.txt
+    #   prompt-toolkit
 wrapt==1.15.0
     # via
     #   -c requirements.txt

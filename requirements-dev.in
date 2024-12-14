@@ -58,3 +58,5 @@ aioresponses==0.7.6
 prance==23.06.21.0
 openapi-spec-validator==0.7.1 # Needed for prance as a validation backend
 deepeval==1.5.5
+ipython==8.15.0
+ipdb==0.13.13
