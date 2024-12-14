@@ -9,11 +9,13 @@ export interface ChatMessage {
     content: string
     timestamp: string
     isRateLimited?: boolean
+    isError?: boolean
 }
 
 interface MaxResponse {
     content: string | { text: string; type: string }
     isRateLimited?: boolean
+    isError?: boolean
 }
 
 export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
@@ -25,6 +27,7 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
         appendAssistantMessage: (content: string) => ({ content }),
         setSearchingThinking: (isSearching: boolean) => ({ isSearching }),
         setRateLimited: (isLimited: boolean) => ({ isLimited }),
+        setServerError: (isError: boolean) => ({ isError }),
     }),
 
     reducers({
@@ -49,6 +52,9 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
                         content,
                         timestamp: new Date().toISOString(),
                         isRateLimited: content.includes('Rate limit exceeded') || content.includes('rate-limited'),
+                        isError:
+                            content.includes('connect to the Anthropic API') ||
+                            content.includes('status.anthropic.com'),
                     },
                 ],
                 clearChatHistory: () => [],
@@ -66,6 +72,12 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
                 setRateLimited: (_, { isLimited }) => isLimited,
             },
         ],
+        hasServerError: [
+            false,
+            {
+                setServerError: (_, { isError }) => isError,
+            },
+        ],
     }),
 
     loaders(({ actions, values }) => ({
@@ -75,6 +87,7 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
                 submitMessage: async ({ message }, breakpoint) => {
                     try {
                         actions.setSearchingThinking(true)
+                        actions.setServerError(false)
                         if (!values.isRateLimited) {
                             actions.setRateLimited(false)
                         }
@@ -85,8 +98,11 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
 
                         if (response.isRateLimited) {
                             actions.setRateLimited(true)
+                        } else if (response.isError) {
+                            actions.setServerError(true)
                         } else {
                             actions.setRateLimited(false)
+                            actions.setServerError(false)
                         }
 
                         actions.appendAssistantMessage(content)
@@ -97,12 +113,17 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
                             error &&
                             typeof error === 'object' &&
                             'message' in error &&
-                            typeof error.message === 'string' &&
-                            (error.message.includes('429') || error.message.includes('rate limit'))
+                            typeof error.message === 'string'
                         ) {
-                            actions.setRateLimited(true)
-                        } else {
-                            actions.setRateLimited(false)
+                            if (error.message.includes('429') || error.message.includes('rate limit')) {
+                                actions.setRateLimited(true)
+                            } else if (
+                                error.message.includes('500') ||
+                                error.message.includes('524') ||
+                                error.message.includes('529')
+                            ) {
+                                actions.setServerError(true)
+                            }
                         }
                         setTimeout(() => actions.setSearchingThinking(false), 100)
                         console.error('Error sending message:', error)

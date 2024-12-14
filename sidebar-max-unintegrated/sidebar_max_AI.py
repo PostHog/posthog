@@ -55,7 +55,6 @@ class RequestCounter:
 
 request_counter = RequestCounter()
 
-
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", handlers=[logging.StreamHandler()]
 )
@@ -110,6 +109,22 @@ def track_cache_performance(response):
         print("No usage information available in the response.")  # noqa: T201
 
 
+def get_message_content(message):
+    if not message or "content" not in message:
+        return ""
+
+    content = message["content"]
+    if isinstance(content, list):
+        for block in content:
+            if block.get("type") == "text":
+                return block.get("text", "")
+            elif block.get("type") == "tool_use":
+                return block.get("input", {}).get("query", "")
+    elif isinstance(content, str):
+        return content
+    return ""
+
+
 def send_message(system_prompt, messages, tools):
     headers = {
         "x-api-key": API_KEY,
@@ -137,9 +152,12 @@ def send_message(system_prompt, messages, tools):
         while retry_count <= max_retries:
             # Make the request
             req_count = request_counter.increment()
-            if should_simulate_rate_limit(req_count):
-                response = create_simulated_429_response()
-                logger.info("Simulating rate limit response")
+
+            # Check if we should use the mock for testing - only check the most recent message
+            current_message = get_message_content(messages[-1]) if messages else ""
+            if "__500__" in current_message:
+                response = mock_post(API_ENDPOINT, headers, data)
+                logger.info(f"Using mock response for 500 error test (request #{req_count})")
             else:
                 response = requests.post(API_ENDPOINT, headers=headers, json=data)
 
@@ -179,6 +197,16 @@ def send_message(system_prompt, messages, tools):
                         "content": "🫣 Uh-oh, I'm really popular today! I've hit my rate limit. I need to catch my breath, please try asking your question again after 30 seconds. 🦔",
                         "isRateLimited": True,
                     }
+
+            if response.status_code in [500, 524, 529]:
+                logger.info(f"Server error detected: {response.status_code}")
+                error_message = (
+                    "🫣 Uh-oh. I wasn't able to connect to the Anthropic API (my brain!) Please try sending your message again in about 1 minute?\n\n"
+                    "If this message is still recurring after 5 or 10 minutes, there may be info about the trouble available at [status.anthropic.com](https://status.anthropic.com)."
+                )
+
+                logger.info(f"Injecting error message: {error_message}")
+                return {"content": [{"type": "text", "text": error_message}], "isError": True}
 
             # For non-429 responses, ensure other error codes raise exceptions
             response.raise_for_status()
@@ -453,6 +481,27 @@ def chat():
             pass
         # Fall back to generic error handling
         return jsonify({"error": str(e)}), 500
+
+
+def mock_post(url, headers, json_data):
+    # Check if the message contains '__500__'
+    if any("__500__" in msg["content"][0]["text"] for msg in json_data["messages"]):
+        # Only return 500 error for the first request after seeing __500__
+        if not hasattr(mock_post, "has_returned_500"):
+            mock_post.has_returned_500 = True
+            mock_response = requests.Response()
+            mock_response.status_code = 500
+            mock_response._content = bytes(
+                '{"content": [{"type": "text", "text": "Mocked 500 error"}]}', encoding="utf-8"
+            )
+            return mock_response
+        else:
+            # Reset the flag and let the real API handle the response
+            delattr(mock_post, "has_returned_500")
+            return requests.post(url, headers=headers, json=json_data)
+
+    # For all other requests, use the real API
+    return requests.post(url, headers=headers, json=json_data)
 
 
 if __name__ == "__main__":
