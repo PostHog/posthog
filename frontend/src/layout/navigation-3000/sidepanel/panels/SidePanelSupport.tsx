@@ -1,5 +1,6 @@
 import {
     IconAI,
+    IconBook,
     IconChevronDown,
     IconDatabase,
     IconDecisionTree,
@@ -38,6 +39,8 @@ import { MaxChatInterface } from './sidePanelMaxChatInterface'
 {
     /*import { SIDE_PANEL_TABS } from '../SidePanel'*/
 }
+import { LemonCollapse } from '@posthog/lemon-ui'
+
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import { sidePanelStatusLogic } from './sidePanelStatusLogic'
 
@@ -97,8 +100,27 @@ const PRODUCTS = [
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
     return (
         <section className="mb-6">
-            <h3>{title}</h3>
-            {children}
+            {title === 'Explore the docs' ? (
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'docs',
+                            header: (
+                                <div className="flex items-center gap-1.5">
+                                    <IconBook className="text-warning h-5 w-5" />
+                                    <span>{title}</span>
+                                </div>
+                            ),
+                            content: children,
+                        },
+                    ]}
+                />
+            ) : (
+                <>
+                    <h3>{title}</h3>
+                    {children}
+                </>
+            )}
         </section>
     )
 }
