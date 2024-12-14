@@ -7,8 +7,8 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background-color: var(--bg-light);
-    border: 1px solid var(--border);
+    background-color: var(--background-primary);
+    border: 1px solid var(--border-tertiary);
     border-radius: var(--radius);
 
     &--no-border {
@@ -22,7 +22,7 @@
         min-width: 1px;
         height: 100%;
         overflow: hidden;
-        background-color: var(--bg-light);
+        background-color: var(--background-primary);
     }
 
     .SessionRecordingPlayer__main {
@@ -34,7 +34,7 @@
         inset: 0;
         z-index: var(--z-modal);
         overflow-y: auto;
-        background-color: var(--bg-light);
+        background-color: var(--background-primary);
         border: none;
         border-radius: 0;
 

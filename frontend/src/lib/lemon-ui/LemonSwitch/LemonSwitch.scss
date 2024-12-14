@@ -28,8 +28,8 @@
         min-height: calc(2.125rem + 3px); // Medium size button height + button shadow height
         padding: 0 0.75rem;
         line-height: 1.4;
-        background: var(--bg-light);
-        border: 1px solid var(--border);
+        background: var(--background-primary);
+        border: 1px solid var(--border-tertiary);
         border-radius: var(--radius);
 
         &.LemonSwitch--small {
@@ -83,7 +83,7 @@
     transition: background-color 100ms ease;
 
     .LemonSwitch--checked & {
-        background-color: var(--primary-3000);
+        background-color: var(--background-brand);
     }
 }
 
@@ -112,7 +112,7 @@
 
     .LemonSwitch--checked & {
         background-color: #fff;
-        border-color: var(--primary-3000);
+        border-color: var(--border-brand);
         transform: var(--lemon-switch-active-translate);
     }
 

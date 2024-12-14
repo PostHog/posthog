@@ -8,7 +8,7 @@
     justify-content: flex-start;
     height: 100%;
     overflow: hidden;
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-tertiary);
     border-radius: var(--radius);
 
     .Playlist__list {
@@ -59,10 +59,10 @@
     border-left: 3px solid transparent;
 
     &--active {
-        border-left-color: var(--primary-3000);
+        border-left-color: var(--border-brand);
     }
 
     &:hover {
-        background-color: var(--primary-highlight);
+        background-color: var(--background-brand);
     }
 }

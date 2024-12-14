@@ -37,7 +37,7 @@
                 font-family: var(--font-sans);
                 font-size: 0.75rem;
                 font-weight: 500;
-                fill: var(--text-3000);
+                fill: var(--content-primary);
             }
         }
 
@@ -61,7 +61,7 @@
          * Bars
          */
         g#bars {
-            fill: var(--primary-3000);
+            fill: var(--background-brand);
         }
 
         g#labels {
@@ -75,6 +75,7 @@
 
                 &.outside {
                     fill: #0f0f0f;
+                    fill: var(--content-primary);
                 }
             }
         }

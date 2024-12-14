@@ -10,8 +10,8 @@
     overflow: hidden;
     font-size: 0.8125rem;
     pointer-events: none;
-    background: var(--bg-light);
-    border: 1px solid var(--border);
+    background: var(--background-primary);
+    border: 1px solid var(--border-tertiary);
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation-3000);
 
@@ -32,7 +32,7 @@
         border-bottom-left-radius: 0;
 
         &:not(:last-child) {
-            border-bottom: 1px solid var(--border);
+            border-bottom: 1px solid var(--border-tertiary);
         }
 
         .insights-label {
@@ -81,7 +81,7 @@
         font-size: 0.75rem;
         color: var(--muted);
         text-align: center;
-        background-color: var(--bg-light);
+        background-color: var(--background-primary);
 
         .table-subtext-truncated {
             margin-bottom: 4px;
@@ -92,7 +92,7 @@
             align-items: center;
             justify-content: center;
             font-weight: 600;
-            color: var(--text-3000);
+            color: var(--content-primary);
             white-space: nowrap;
         }
     }

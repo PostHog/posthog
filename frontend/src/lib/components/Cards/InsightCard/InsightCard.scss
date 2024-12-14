@@ -6,14 +6,14 @@
     min-width: 0;
     max-width: 100%;
     height: 30rem;
-    background: var(--bg-light);
-    border: 1px solid var(--border);
+    background: var(--background-primary);
+    border: 1px solid var(--border-tertiary);
     border-radius: var(--radius);
     transition: border 200ms ease;
 
     &--highlighted {
-        border-color: var(--primary-3000);
-        outline: 1px solid var(--primary-3000);
+        border-color: var(--border-brand);
+        outline: 1px solid var(--border-brand);
     }
 
     .ErrorBoundary {
@@ -139,7 +139,7 @@
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1rem;
-    color: var(--text-3000);
+    color: var(--content-primary);
     vertical-align: middle;
     background: var(--primary-highlight);
     border-radius: var(--radius);
@@ -158,7 +158,7 @@
             line-height: 1rem;
             color: var(--bg-light);
             text-align: center;
-            background: var(--primary-3000);
+            background: var(--background-brand);
             border-radius: var(--radius);
         }
     }

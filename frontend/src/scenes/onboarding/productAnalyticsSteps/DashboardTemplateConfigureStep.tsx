@@ -62,7 +62,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                 }}
                 prefix={
                     <span className="-mr-2 flex items-center">
-                        <div className="bg-bg-3000 rounded">
+                        <div className="background-primary rounded">
                             <LemonInputSelect
                                 mode="single"
                                 value={[browserUrl || 'my-website.com']}

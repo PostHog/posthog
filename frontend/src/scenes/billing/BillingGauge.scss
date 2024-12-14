@@ -10,8 +10,8 @@
         font-size: 0.8rem;
         line-height: 1rem;
         white-space: nowrap;
-        background: var(--bg-light);
-        border-left: 1px solid var(--border);
+        background: var(--background-primary);
+        border-left: 1px solid var(--border-tertiary);
 
         &--bottom {
             top: 100%;

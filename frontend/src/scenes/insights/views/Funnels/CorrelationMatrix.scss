@@ -3,14 +3,14 @@
         margin: 0 auto;
         border-spacing: 0;
         border-collapse: separate;
-        border: 1px solid var(--border);
+        border: 1px solid var(--border-tertiary);
         border-radius: var(--radius);
 
         td {
             padding: 0.5rem 1rem;
             text-align: center;
-            border-top: 1px solid var(--border);
-            border-left: 1px solid var(--border);
+            border-top: 1px solid var(--border-tertiary);
+            border-left: 1px solid var(--border-tertiary);
 
             .percentage {
                 padding-bottom: 0.25rem;

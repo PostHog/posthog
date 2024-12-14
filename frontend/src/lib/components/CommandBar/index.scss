@@ -8,11 +8,13 @@
 
 .SearchBarTab {
     &:hover {
-        border-left: 2px solid var(--border-3000);
+        // border-left: 2px solid var(--border-tertiary);
+        background-color: var(--background-secondary);
     }
 
     &.SearchBarTab__active {
-        border-color: var(--primary-3000);
+        background-color: var(--background-secondary);
+        border-color: var(--border-brand);
     }
 }
 

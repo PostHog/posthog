@@ -1,5 +1,5 @@
 .Spinner {
-    --spinner-color: var(--primary-3000);
+    --spinner-color: var(--content-brand);
 
     display: inline-block; // Same as .LemonIcon
     flex-shrink: 0;
@@ -70,7 +70,7 @@
         position: absolute;
         inset: 0;
         content: '';
-        background: var(--bg-light);
+        background: var(--background-primary);
         opacity: 0.5;
     }
 

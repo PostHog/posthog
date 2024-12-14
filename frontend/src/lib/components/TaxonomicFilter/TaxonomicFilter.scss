@@ -3,7 +3,7 @@
     flex-direction: column;
     width: 550px;
     max-width: calc(100vw - 40px);
-    background: var(--bg-light);
+    background: var(--background-primary);
 
     &.force-minimum-width {
         min-width: 300px;

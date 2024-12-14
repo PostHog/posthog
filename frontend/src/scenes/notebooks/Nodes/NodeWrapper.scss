@@ -7,7 +7,7 @@
 
     .NotebookNode__box {
         overflow: hidden;
-        background-color: var(--bg-light);
+        background-color: var(--background-primary);
         border: 1px solid var(--border-color);
         border-radius: var(--radius);
         transition: border 150ms linear, margin-bottom 150ms linear;
@@ -23,11 +23,11 @@
             font-size: 0.875rem;
             font-weight: 500;
             color: var(--primary-alt);
-            border-bottom: 1px solid var(--border);
+            border-bottom: 1px solid var(--border-tertiary);
         }
 
         .NotebookNode__settings {
-            border-bottom: 1px solid var(--border);
+            border-bottom: 1px solid var(--border-tertiary);
         }
 
         .NotebookNode__content {
@@ -70,7 +70,7 @@
             z-index: var(--z-popover);
             pointer-events: none;
             visibility: hidden;
-            background-color: var(--bg-light);
+            background-color: var(--background-primary);
         }
 
         .Notebook--editable & {

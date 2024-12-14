@@ -16,11 +16,11 @@
 
     &.LemonRow--status-highlighted {
         font-weight: 600;
-        color: var(--text-3000);
+        color: var(--content-primary);
         background: var(--primary-highlight);
 
         .LemonRow__icon {
-            color: var(--primary-3000);
+            color: var(--content-brand);
         }
     }
 
@@ -68,7 +68,7 @@
 }
 
 .LemonRow--outlined {
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-tertiary);
 }
 
 .LemonRow--full-width {

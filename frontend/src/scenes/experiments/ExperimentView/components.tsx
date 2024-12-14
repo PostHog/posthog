@@ -747,7 +747,7 @@ export function ActionBanner(): JSX.Element {
                         <span
                             className="border rounded px-2"
                             // eslint-disable-next-line react/forbid-dom-props
-                            style={{ backgroundColor: 'var(--bg-table)' }}
+                            style={{ backgroundColor: 'var(--background-primary)' }}
                         >
                             <VariantTag experimentId={experiment.id} variantKey={shippedVariant.key} />
                         </span>

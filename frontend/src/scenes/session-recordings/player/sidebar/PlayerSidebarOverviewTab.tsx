@@ -17,7 +17,7 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
     const { sessionPerson, sessionPlayerMetaDataLoading } = useValues(playerMetaLogic(logicProps))
 
     return (
-        <div className="flex flex-col overflow-auto bg-bg-3000">
+        <div className="flex flex-col overflow-auto background-primary">
             <PlayerSidebarOverviewGrid />
             <PlayerSidebarSessionSummary />
             <div className="font-bold background-primary px-2 border-b py-3">

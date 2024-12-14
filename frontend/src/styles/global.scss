@@ -25,7 +25,8 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     // DO NOT USE PRIMITIVE COLORS DIRECTLY.
     // Use the semantic colors instead.
     --primary-black: #000;
-    --primary-black-50: #00000080;
+    --primary-black-25: hsl(0deg 0% 0% / 25.1%);
+    --primary-black-50: hsl(0deg 0% 0% / 50.2%);
     --primary-white: #fff;
     --primary-white-50: #ffffff80;
 
@@ -92,16 +93,19 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --neutral-cool-900: #16171d;
     --neutral-cool-950: #0b0c0f;
 
+    // change this to theme
+    --brand-hue: 19;
+
     // Brand colors
-    --brand-100: #fddccc;
-    --brand-200: #fbb899;
-    --brand-300: #f99567;
-    --brand-400: #f77134;
-    --brand-500: #f54e01;
-    --brand-600: #c43e01;
-    --brand-700: #932f01;
-    --brand-800: #621f00;
-    --brand-900: #311000;
+    --brand-100: hsl(var(--brand-hue), 92%, 90%);
+    --brand-200: hsl(var(--brand-hue), 92%, 79%);
+    --brand-300: hsl(var(--brand-hue), 92%, 69%);
+    --brand-400: hsl(var(--brand-hue), 92%, 59%);
+    --brand-500: hsl(var(--brand-hue), 99%, 48%);
+    --brand-600: hsl(var(--brand-hue), 99%, 39%);
+    --brand-700: hsl(var(--brand-hue), 99%, 29%);
+    --brand-800: hsl(var(--brand-hue), 100%, 19%);
+    --brand-900: hsl(var(--brand-hue), 100%, 10%);
 
     // Blue colors
     --blue-100: #d2dcfd;
@@ -212,22 +216,28 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --content-primary: var(--neutral-950);
     --content-primary-inverse: var(--primary-white);
     --background-primary: var(--primary-white);
+    --background-primary-inverse: var(--neutral-950);
 
     // Secondary
     --content-secondary: var(--neutral-800);
     --content-secondary-inverse: var(--neutral-100);
     --background-secondary: var(--neutral-warm-50);
+    --background-secondary-inverse: var(--neutral-800);
 
     // Tertiary
     --content-tertiary: var(--neutral-700);
     --content-tertiary-inverse: var(--neutral-300);
     --background-tertiary: var(--neutral-warm-100);
+    --background-tertiary-inverse: var(--neutral-700);
 
     // Brand
     --content-brand: var(--brand-500);
+    --content-brand-hover: var(--brand-500);
+    --content-brand-active: var(--brand-500);
     --background-brand: var(--brand-500);
     --background-brand-pressed: var(--brand-700);
     --border-brand: var(--brand-500);
+    --border-brand-hover: var(--brand-500);
 
     // Warning
     --content-warning: var(--orange-400);
@@ -247,14 +257,15 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --background-success-subtle: var(--green-50);
 
     // Border colors
-    --border-primary: var(--neutral-warm-600);
-    --border-secondary: var(--neutral-warm-400);
-    --border-tertiary: var(--neutral-warm-200);
-    --border-disabled: var(--neutral-warm-200);
+    --border-primary: var(--neutral-600);
+    --border-secondary: var(--neutral-400);
+    --border-tertiary: var(--neutral-200);
+    --border-disabled: var(--neutral-200);
     --border-inverse: var(--primary-white);
     --border-focus: var(--blue-500);
 
     // Overlays
+    --overlay-25: var(--primary-black-25);
     --overlay-50: var(--primary-black-50);
     --overlay-50-inverse: var(--primary-white-50);
 
@@ -366,7 +377,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 *,
 *::before,
 *::after {
-    border-color: var(--border); // Tailwind's default is currentColor, but --border is more useful
+    border-color: var(--border-tertiary); // Tailwind's default is currentColor, but --border is more useful
 }
 
 input[type='radio'] {
@@ -439,7 +450,7 @@ mark {
 
 hr {
     margin: 1em 0;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--border-tertiary);
 }
 
 // Vendor-specific adjustments
@@ -498,7 +509,7 @@ input::-ms-clear {
     font-size: 0.875rem;
     font-weight: 500;
     line-height: 1.25rem;
-    color: var(--text-3000);
+    color: var(--content-primary);
 
     b,
     strong {
@@ -568,6 +579,7 @@ input::-ms-clear {
     font-weight: bold;
     pointer-events: none;
     border: 2px solid var(--text-3000);
+    border: 2px solid red;
     border-radius: 50%;
 
     // variants
@@ -576,7 +588,7 @@ input::-ms-clear {
         height: 23px;
         font-size: unset;
         color: var(--primary-alt);
-        background-color: var(--bg-light);
+        background-color: var(--background-primary);
         border-color: var(--border);
     }
 }
@@ -682,9 +694,9 @@ textarea::placeholder {
 body {
     font-size: 14px;
     line-height: 1.5715;
-    color: var(--text-3000);
+    color: var(--content-primary);
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
-    background: var(--bg-3000);
+    background: var(--background-secondary);
 
     &[theme='light'] {
         @include light-mode-3000-variables;
@@ -697,7 +709,10 @@ body {
         --content-secondary: var(--neutral-cool-200);
         --content-tertiary: var(--neutral-cool-300);
         --content-tertiary-inverse: var(--neutral-cool-700);
+        --content-disabled: var(--neutral-300);
         --content-link: var(--yellow-500);
+        --content-link-hover: var(--yellow-400);
+        --content-link-pressed: var(--yellow-600);
         --background-primary: var(--neutral-cool-950);
         --background-secondary: var(--neutral-cool-900);
         --background-tertiary: var(--neutral-cool-850);
@@ -776,7 +791,7 @@ body {
     h2,
     h3,
     h4 {
-        color: var(--text-3000);
+        color: var(--content-primary);
     }
 
     h1 {
@@ -796,7 +811,7 @@ body {
         font-size: 0.6875rem;
         font-weight: 600;
         line-height: 1.5rem;
-        color: var(--muted-alt);
+        color: var(--content-tertiary);
         text-transform: uppercase;
         letter-spacing: 0.075em;
     }
@@ -808,18 +823,18 @@ body {
     }
 
     dialog {
-        background-color: var(--bg-3000);
+        background-color: var(--background-secondary);
     }
 
     .LemonButton,
     .Link {
         .text-link {
-            color: var(--text-3000) !important;
+            color: var(--content-primary) !important;
         }
 
         &:hover {
             .text-link {
-                color: var(--primary-3000) !important;
+                color: var(--content-brand) !important;
             }
         }
     }
@@ -828,7 +843,7 @@ body {
 }
 
 a {
-    color: var(--link);
+    color: var(--content-link);
     text-decoration: none;
 }
 

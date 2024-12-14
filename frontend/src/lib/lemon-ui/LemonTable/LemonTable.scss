@@ -1,7 +1,7 @@
 .LemonTable {
     --row-base-height: auto;
     --row-horizontal-padding: 1rem;
-    --lemon-table-background-color: var(--bg-table);
+    --lemon-table-background-color: var(--background-primary);
 
     position: relative;
     flex: 1;
@@ -9,14 +9,14 @@
     overflow: hidden;
     font-size: 13px;
     background: var(--lemon-table-background-color);
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-tertiary);
     border-radius: var(--radius);
 
     .WebAnalyticsDashboard &,
     .Insight &,
     .InsightCard__viz & {
         // Special override for scenes where the table is primarily next to insights
-        --lemon-table-background-color: var(--bg-light);
+        --lemon-table-background-color: var(--background-primary);
     }
 
     .WebAnalyticsDashboard &,
@@ -92,14 +92,14 @@
     .PaginationControl {
         height: var(--row-base-height);
         padding: 0.5rem;
-        border-top: 1px solid var(--border);
+        border-top: 1px solid var(--border-tertiary);
     }
 
     a.Link {
-        color: var(--text-3000);
+        color: var(--content-primary);
 
         &:not(:disabled):hover {
-            color: var(--primary-3000-hover);
+            color: var(--content-brand-hover);
         }
     }
 }
@@ -141,7 +141,7 @@
     > tbody {
         > tr {
             &:not(:first-child) {
-                border-top: 1px solid var(--border);
+                border-top: 1px solid var(--border-tertiary);
             }
 
             &.LemonTable__expansion {
@@ -156,7 +156,7 @@
 
             &.LemonTable__row--status-highlighted {
                 font-weight: 600;
-                color: var(--text-3000);
+                color: var(--content-primary);
 
                 > td:not(.LemonTable__cell--sticky) {
                     background: var(--primary-highlight);
@@ -176,7 +176,7 @@
             > td {
                 padding-top: 0.3125rem;
                 padding-bottom: 0.3125rem;
-                color: var(--text-secondary-3000);
+                color: var(--content-secondary);
 
                 // Cancel the vertical margin for CodeSnippet actions
                 // This is annoyingly specific, but really needed for CodeSnippet to look good in expanded table rows
@@ -209,7 +209,7 @@
                 }
 
                 &.LemonTable__boundary:not(:first-of-type) {
-                    border-left: 1px solid var(--border);
+                    border-left: 1px solid var(--border-tertiary);
                 }
 
                 &.LemonTable__toggle {
@@ -257,7 +257,7 @@
     cursor: default;
 
     .LemonTable__header-content {
-        color: var(--text-secondary-3000);
+        color: var(--content-secondary);
     }
 
     &.LemonTable__header--actionable {
@@ -266,14 +266,14 @@
         &:hover {
             &:not(:has(.LemonTable__header--no-hover:hover)) {
                 .LemonTable__header-content {
-                    color: var(--text-3000);
+                    color: var(--content-primary);
                 }
             }
         }
 
         &:active {
             .LemonTable__header-content {
-                color: var(--text-3000);
+                color: var(--content-primary);
             }
         }
     }
@@ -292,7 +292,7 @@
 
 .LemonTable__footer {
     cursor: default;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--border-tertiary);
 }
 
 // NOTE: this is outside of the storybook check for 3000 selective styling

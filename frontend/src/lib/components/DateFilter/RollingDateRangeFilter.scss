@@ -7,7 +7,7 @@
     font-size: 0.875rem;
     font-weight: normal;
     line-height: 1.375em;
-    color: var(--text-3000);
+    color: var(--content-primary);
     cursor: pointer;
     transition: background 0.3s ease;
 
@@ -41,8 +41,8 @@
     margin-right: 0.25rem;
     margin-left: 0.25rem;
     line-height: 1.5rem;
-    background-color: var(--bg-light);
-    border: 1px solid var(--border);
+    background-color: var(--background-primary);
+    border: 1px solid var(--border-tertiary);
     border-radius: var(--radius);
 
     .LemonInput {

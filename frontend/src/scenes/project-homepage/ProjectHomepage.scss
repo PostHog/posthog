@@ -13,10 +13,10 @@
             align-items: center;
 
             a {
-                color: var(--text-3000);
+                color: var(--content-primary);
 
                 &:hover {
-                    color: var(--primary-3000);
+                    color: var(--content-brand);
                 }
             }
         }

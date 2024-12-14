@@ -452,7 +452,7 @@ interface TableFieldNodeProps {
 
 function TableFieldNode({ nodeRef, rowsRefs, fixedFields, joinedFields, tableName }: TableFieldNodeProps): JSX.Element {
     return (
-        <div ref={nodeRef} className="w-[500px] bg-bg-3000 border border-black border-2 rounded-lg">
+        <div ref={nodeRef} className="w-[500px] background-primary border border-black border-2 rounded-lg">
             <TableFields
                 fixedFields={fixedFields}
                 joinedFields={joinedFields}

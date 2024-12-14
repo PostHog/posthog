@@ -156,7 +156,7 @@ export function HTMLElementsDisplay({
             {editable && !!parsedElements.length && (
                 <div className="flex flex-col gap-2 mb-2">
                     <div>Selector:</div>
-                    <div className="w-full border rounded bg-bg-3000 px-4 py-2 select-text">
+                    <div className="w-full border rounded background-primary px-4 py-2 select-text">
                         <pre className={clsx('m-0', size === 'xsmall' ? 'text-xxs' : 'text-sm')}>{chosenSelector}</pre>
                     </div>
                 </div>
@@ -171,7 +171,7 @@ export function HTMLElementsDisplay({
                     )}
                 </LemonBanner>
             )}
-            <div className="px-4 rounded bg-bg-3000">
+            <div className="px-4 rounded background-primary">
                 {parsedElements.length ? (
                     <>
                         {elementsToShowDepth ? (

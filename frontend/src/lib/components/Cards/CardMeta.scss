@@ -42,7 +42,7 @@
     flex-shrink: 0;
     width: 100%;
     max-height: calc(100% - 2rem);
-    background: var(--bg-light);
+    background: var(--background-primary);
     border-radius: var(--radius);
 
     &--with-details {
@@ -93,7 +93,7 @@
         max-height: 24rem;
         margin-top: -1px; // To cause overlap with the divider when closed
         overflow-y: auto;
-        background: var(--bg-light);
+        background: var(--background-primary);
         border-bottom-width: 1px;
         transition: box-shadow 200ms ease, height 200ms ease, margin 200ms ease;
 

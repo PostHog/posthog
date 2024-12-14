@@ -81,7 +81,7 @@ export function DataCollection(): JSX.Element {
                     }% complete`}</div>
                     <LemonProgress
                         className="w-full border"
-                        bgColor="var(--bg-table)"
+                        bgColor="var(--background-primary)"
                         size="large"
                         percent={experimentProgressPercent}
                     />

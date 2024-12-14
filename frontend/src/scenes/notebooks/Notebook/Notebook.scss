@@ -117,8 +117,8 @@
 
         .Backlink {
             padding: 0.125rem 0.25rem;
-            background-color: var(--bg-light);
-            border: 1px solid var(--border);
+            background-color: var(--background-primary);
+            border: 1px solid var(--border-tertiary);
             border-radius: var(--radius);
 
             &:hover {
@@ -126,17 +126,17 @@
             }
 
             & svg {
-                color: var(--text-3000);
+                color: var(--content-primary);
             }
 
             &.Backlink--selected {
-                border-color: var(--primary-3000);
+                border-color: var(--border-brand);
             }
 
             &.Backlink--active {
                 color: var(--white);
-                background: var(--primary-3000);
-                border: 1px solid var(--primary-3000);
+                background: var(--background-brand);
+                border: 1px solid var(--border-brand);
 
                 & .Backlink__label,
                 & svg {
@@ -292,7 +292,7 @@
             inset: 0;
             z-index: -1;
             content: '';
-            background: var(--primary-3000);
+            background: var(--background-brand);
             opacity: var(--notebook-comment-background-opacity);
         }
     }

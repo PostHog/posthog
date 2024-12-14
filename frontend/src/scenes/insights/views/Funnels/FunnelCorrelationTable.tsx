@@ -207,7 +207,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
     return steps.length > 1 ? (
         <VisibilitySensor id={correlationPropKey} offset={152}>
             <div className="FunnelCorrelationTable mt-4 border rounded overflow-hidden">
-                <span className="flex px-2 py-1 bg-[var(--bg-table)]">
+                <span className="flex px-2 py-1 bg-[var(--background-primary)]">
                     <span className="flex items-center text-xs font-bold">
                         <IconSelectEvents className="mr-1 text-2xl opacity-50" />
                         CORRELATED EVENTS

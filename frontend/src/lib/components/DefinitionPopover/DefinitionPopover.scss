@@ -55,7 +55,7 @@
                 font-size: 1.5rem;
 
                 &.taxonomy-icon-muted {
-                    color: var(--muted-alt);
+                    color: var(--content-tertiary);
                 }
 
                 &.taxonomy-icon-verified {
@@ -63,7 +63,7 @@
                 }
 
                 &.taxonomy-icon-built-in {
-                    color: var(--primary-3000);
+                    color: var(--content-brand);
                 }
             }
         }

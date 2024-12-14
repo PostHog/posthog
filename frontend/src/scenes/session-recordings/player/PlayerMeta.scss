@@ -56,7 +56,7 @@
             z-index: 1;
             width: 100%;
             max-width: 40rem;
-            border-right: 1px solid var(--border);
+            border-right: 1px solid var(--border-tertiary);
             transition: 200ms transform ease-out;
 
             &--enter {
@@ -79,10 +79,10 @@
     }
 
     .Link {
-        color: var(--text-3000);
+        color: var(--content-primary);
 
         &:hover {
-            color: var(--primary-3000);
+            color: var(--content-brand);
         }
     }
 }

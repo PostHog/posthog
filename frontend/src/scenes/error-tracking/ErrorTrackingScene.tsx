@@ -72,7 +72,7 @@ const ErrorTrackingActions = (): JSX.Element => {
     const { mergeIssues } = useActions(errorTrackingDataNodeLogic)
 
     return (
-        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-bg-3000 flex space-x-1">
+        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 background-primary flex space-x-1">
             <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>
                 Unselect all
             </LemonButton>

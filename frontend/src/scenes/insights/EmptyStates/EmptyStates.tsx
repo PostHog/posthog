@@ -148,7 +148,7 @@ export function InsightLoadingState({
                         </>
                     )}
                 </p>
-                <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
+                <div className="flex items-center p-4 rounded background-primary gap-x-3 max-w-120">
                     {currentTeam?.modifiers?.personsOnEventsMode === 'person_id_override_properties_joined' ? (
                         <>
                             <IconWarning className="text-xl shrink-0 text-warning" />
@@ -201,7 +201,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                     </div>
                     <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
                 </>
-                <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
+                <div className="flex items-center p-4 rounded background-primary gap-x-3 max-w-120">
                     <IconInfo className="text-xl shrink-0" />
                     <p className="text-xs m-0">
                         <>

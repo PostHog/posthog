@@ -2,7 +2,7 @@
     .metrics-selection {
         width: 100%;
         padding-top: 1rem;
-        border-top: 1px solid var(--border);
+        border-top: 1px solid var(--border-tertiary);
     }
 
     .person-selection {
@@ -10,12 +10,12 @@
         justify-content: space-between;
         width: 100%;
         padding-top: 1rem;
-        border-top: 1px solid var(--border);
+        border-top: 1px solid var(--border-tertiary);
     }
 
     .experiment-preview {
         margin-bottom: 1rem;
-        border-bottom: 1px solid var(--border);
+        border-bottom: 1px solid var(--border-tertiary);
     }
 
     .variants {
@@ -36,7 +36,7 @@
             display: flex;
             align-items: center;
             padding: 0.5rem;
-            background: var(--bg-light);
+            background: var(--background-primary);
             border-color: var(--border);
             border-width: 1px;
             border-top-style: solid;
@@ -69,14 +69,14 @@
         padding-top: 1rem;
         margin-top: 1rem;
         margin-bottom: 1rem;
-        border-top: 1px solid var(--border);
+        border-top: 1px solid var(--border-tertiary);
     }
 }
 
 .view-experiment {
     .draft-header {
         margin-bottom: 1rem;
-        border-bottom: 1px solid var(--border);
+        border-bottom: 1px solid var(--border-tertiary);
     }
 
     .exp-description {
@@ -125,7 +125,7 @@
         margin-top: 1rem;
         font-size: 24px;
         background-color: var(--bg-3000);
-        border: 1px solid var(--border);
+        border: 1px solid var(--border-tertiary);
     }
 
     .computation-time-and-sampling-notice {
@@ -136,7 +136,7 @@
 .experiment-preview-row {
     padding-bottom: 1rem;
     margin-bottom: 1rem;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-tertiary);
 
     &:last-child {
         padding-bottom: 0;
@@ -149,7 +149,7 @@
     flex: 1;
     padding: 8px 8px 8px 16px;
     margin-left: 0.5rem;
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-tertiary);
     border-radius: var(--radius);
 }
 

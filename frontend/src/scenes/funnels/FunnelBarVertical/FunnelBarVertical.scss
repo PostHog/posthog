@@ -19,7 +19,7 @@
         > tbody {
             > tr {
                 &:first-child {
-                    border-bottom: 1px solid var(--border);
+                    border-bottom: 1px solid var(--border-tertiary);
 
                     > td {
                         padding-top: var(--bar-padding-top);
@@ -42,7 +42,7 @@
     align-items: flex-end;
     height: calc(var(--bar-row-height) - var(--bar-padding-top) - var(--bar-padding-bottom));
     padding: 0 1rem;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-tertiary);
 
     &:not(.StepBars--first) {
         border-left: 1px dashed var(--border);
@@ -170,7 +170,7 @@
 .StepLegend {
     height: 100%;
     white-space: nowrap;
-    border-left: 1px solid var(--border);
+    border-left: 1px solid var(--border-tertiary);
 
     > .LemonRow {
         min-height: 1.5rem;

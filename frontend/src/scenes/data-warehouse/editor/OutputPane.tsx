@@ -108,7 +108,7 @@ export function OutputPane(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col w-full flex-1 bg-bg-3000">
+        <div className="flex flex-col w-full flex-1 background-primary">
             {variablesForInsight.length > 0 && (
                 <div className="py-2 px-4">
                     <VariablesForInsight />

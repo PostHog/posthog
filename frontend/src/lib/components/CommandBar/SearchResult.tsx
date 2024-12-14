@@ -42,8 +42,8 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
     return (
         <div
             className={clsx(
-                'w-full px-2 hover:bg-bg-3000 border-l-4 border-r border-b cursor-pointer',
-                focused ? 'bg-bg-3000 border-l-primary-3000' : 'background-primary'
+                'w-full px-2 hover:background-secondary border-l-4 border-r border-b cursor-pointer',
+                focused ? 'background-secondary border-l-brand' : 'background-primary'
             )}
             onClick={() => {
                 openResult(resultIndex)

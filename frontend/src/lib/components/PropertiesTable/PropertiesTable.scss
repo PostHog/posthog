@@ -29,7 +29,7 @@
         border-radius: calc(var(--radius) * 0.75);
 
         &:hover {
-            background: var(--bg-light);
+            background: var(--background-primary);
             border: 1px solid var(--border-light);
         }
     }

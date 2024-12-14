@@ -253,7 +253,7 @@ function List<
         <div className="flex flex-col w-full background-primary overflow-hidden border-r h-full">
             <DraggableToNotebook href={notebooksHref}>
                 <div className="flex flex-col gap-1">
-                    <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                    <div className="shrink-0 background-primary relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                         <TitleWithCount title={title} count={itemsCount} onClickCollapse={onClickCollapse} />
                         {headerActions}
                     </div>

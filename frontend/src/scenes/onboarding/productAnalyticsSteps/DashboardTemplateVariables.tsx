@@ -69,7 +69,7 @@ function VariableSelector({
                 </LemonBanner>
             )}
             {variable.touched && !activeVariableCustomEventName && (
-                <div className="flex justify-between items-center bg-bg-3000-light p-2 pl-3 rounded mb-4">
+                <div className="flex justify-between items-center background-primary-light p-2 pl-3 rounded mb-4">
                     <div>
                         <p className="mb-2">
                             <IconCheckCircle className="text-success font-bold" />{' '}

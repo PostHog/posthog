@@ -27,7 +27,7 @@
             color: var(--muted-alt);
             text-align: center;
             pointer-events: none;
-            background-color: var(--bg-light);
+            background-color: var(--background-primary);
             opacity: 0.75;
             transition: all 150ms;
         }
@@ -41,7 +41,7 @@
 
         &--active {
             height: 8rem;
-            border-color: var(--primary-3000);
+            border-color: var(--border-brand);
 
             .NotebookPanelDropzone__message {
                 opacity: 1;

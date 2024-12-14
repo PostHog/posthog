@@ -3,7 +3,7 @@
     flex-direction: column;
     align-items: stretch;
     overflow: hidden;
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-tertiary);
     border-radius: var(--radius);
 
     &--embedded {
@@ -26,7 +26,7 @@
     min-height: 2.875rem !important;
     padding: 0.5rem 0.75rem !important; // Override reduced side padding
     font-weight: 500 !important; // Override status="stealth"'s font-weight
-    background: var(--bg-light);
+    background: var(--background-primary);
     border-radius: 0 !important;
 
     &.LemonButton:active {

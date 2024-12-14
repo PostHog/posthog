@@ -6,9 +6,9 @@
     font-size: 0.75rem;
     font-weight: var(--font-medium);
     line-height: 1rem;
-    color: var(--text-3000);
+    color: var(--content-primary);
     white-space: nowrap;
-    background: var(--border);
+    background: var(--border-tertiary);
     border-radius: var(--radius-sm);
 
     &.LemonTag--normal {
@@ -25,14 +25,14 @@
     }
 
     &.LemonTag--primary {
-        color: var(--primary-3000);
+        color: var(--content-brand);
         background: none;
-        border-color: var(--primary-3000);
+        border-color: var(--border-brand);
     }
 
     &.LemonTag--option {
-        color: var(--primary-3000);
-        background-color: var(--accent-3000);
+        color: var(--content-brand);
+        background-color: var(--background-secondary);
     }
 
     &.LemonTag--highlight {
@@ -72,8 +72,8 @@
     }
 
     &.LemonTag--muted {
-        color: var(--muted);
-        background-color: var(--accent-3000);
+        color: var(--content-tertiary);
+        background-color: var(--background-secondary);
     }
 
     &.LemonTag--none {
@@ -85,7 +85,7 @@
         font-size: 14px;
         font-weight: 400;
         line-height: 16px;
-        color: var(--primary-alt);
+        color: var(--content-primary);
         vertical-align: bottom;
         background-color: var(--primary-highlight);
         border-radius: 40px;

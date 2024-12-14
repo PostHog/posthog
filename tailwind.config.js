@@ -9,6 +9,7 @@ const config = {
             // CSS vars in lots of stylesheets
 
             purple: '#B62AD9',
+            brand: "--var(--brand-500)"
         },
         fontFamily: {
             sans: [

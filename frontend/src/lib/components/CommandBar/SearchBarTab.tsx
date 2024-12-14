@@ -20,7 +20,7 @@ export const SearchBarTab = ({ tab, inputRef }: SearchBarTabProps): JSX.Element 
     return (
         <div
             className={`SearchBarTab flex items-center px-4 py-2 cursor-pointer text-xs whitespace-nowrap border-l-2 ${
-                isActive ? 'SearchBarTab__active font-bold border-primary-3000' : 'border-transparent'
+                isActive ? 'SearchBarTab__active font-bold border-brand' : 'border-transparent'
             } ${tab === Tab.All ? 'h-9' : ''}`}
             onClick={() => {
                 setActiveTab(tab)
@@ -48,7 +48,6 @@ const Count = ({ tab }: CountProps): JSX.Element | null => {
         return <Spinner className="ml-0.5" />
     } else if (!isLoading && tabsCount[tab] != null) {
         return <span className="ml-1 text-xxs text-muted-3000">{tabsCount[tab]}</span>
-    } else {
-        return null
     }
+    return null
 }

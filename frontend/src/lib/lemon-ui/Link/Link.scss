@@ -1,7 +1,8 @@
 .Link {
     padding: 0;
     line-height: inherit;
-    color: var(--link);
+
+    // color: var(--content-brand);
     text-align: left;
     cursor: pointer;
     background: none;
@@ -11,12 +12,13 @@
 
     &:not(:disabled) {
         &:hover {
-            color: var(--primary-3000-hover);
+            // color: var(--content-brand-hover);
+            text-decoration: underline;
         }
 
-        &:active {
-            color: var(--primary-3000-active);
-        }
+        // &:active {
+        //     // color: var(--content-brand-active);
+        // }
     }
 
     &:disabled {
@@ -29,10 +31,10 @@
     }
 
     &--subtle {
-        color: var(--text-3000);
+        color: var(--content-primary);
 
         &:not(:disabled):hover {
-            color: var(--primary-3000-hover);
+            color: var(--content-brand-hover);
         }
     }
 }

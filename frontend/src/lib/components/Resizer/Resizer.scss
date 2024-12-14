@@ -61,12 +61,12 @@
         }
 
         &::before {
-            background: var(--border);
+            background: var(--border-tertiary);
             transition: 100ms ease transform;
         }
 
         &::after {
-            background: var(--text-3000);
+            background: var(--background-primary-inverse);
             opacity: 0;
             transition: 100ms ease transform;
         }

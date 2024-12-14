@@ -89,7 +89,7 @@
     flex-shrink: 0;
     align-items: center;
     overflow: hidden;
-    color: var(--muted);
+    color: var(--content-tertiary);
     white-space: pre;
     cursor: default;
 
@@ -104,14 +104,14 @@
 
     .LemonTag--default {
         font-weight: 600; // Aligning with breadcrumb font-weightq
-        text-transform: uppercase; // Increase readability at tiny size
-        border-color: var(--muted); // The default is --border, which is invisible on the top bar's background
+        text-transform: uppercase; // Increase readability at tiny size // The default is --border, which is invisible on the top bar's background
+        border-color: var(--border-tertiary); // The default is --border, which is invisible on the top bar's background
         opacity: 0.5;
     }
 
     &.TopBar3000__breadcrumb--here {
         flex-shrink: 1;
-        color: var(--text-3000);
+        color: var(--content-primary);
         cursor: default;
 
         .TopBar3000--full & {
@@ -130,7 +130,7 @@
 
         &:hover,
         &.TopBar3000__breadcrumb--open {
-            color: var(--text-3000);
+            color: var(--content-primary);
 
             .LemonTag--default {
                 opacity: 1;

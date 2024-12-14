@@ -136,6 +136,8 @@
     &:hover:not([aria-disabled='true']),
     &:not([aria-disabled='true']):active {
         --lemon-button-icon-opacity: 0.75;
+
+        text-decoration: none;
     }
 
     &.LemonButton--full-width {
@@ -347,7 +349,7 @@
 
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
-                --lemon-button-color: var(--content-secondary);
+                --lemon-button-color: var(--content-primary);
                 --lemon-button-bg-color: transparent;
                 --lemon-button-inside-border-color: var(--border-secondary);
                 --lemon-button-outside-border-color: var(--border-secondary);

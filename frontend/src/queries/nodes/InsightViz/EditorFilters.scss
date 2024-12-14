@@ -4,11 +4,11 @@
     --editor-panel-group-min-width: 24rem;
 
     flex-shrink: 0;
-    background: var(--bg-light);
+    background: var(--background-primary);
 
     &:not(.EditorFiltersWrapper--embedded) {
         padding: 1rem;
-        border: 1px solid var(--border);
+        border: 1px solid var(--border-tertiary);
         border-radius: var(--radius);
     }
 

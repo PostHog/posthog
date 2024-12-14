@@ -2,10 +2,10 @@
     .LemonCollapsePanel__header {
         min-height: 1.875rem !important;
         padding: 0 !important;
-        background-color: var(--accent-3000);
+        background-color: var(--background-secondary);
 
         &--disabled:hover {
-            background-color: var(--accent-3000) !important;
+            background-color: var(--background-secondary) !important;
         }
     }
 }

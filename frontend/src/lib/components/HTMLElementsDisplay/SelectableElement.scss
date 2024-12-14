@@ -4,14 +4,14 @@
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease;
 
     &.SelectableElement--selected {
-        background: var(--primary-3000);
+        background: var(--background-brand);
     }
 
     &:hover {
-        background: var(--primary-3000-hover);
+        background: var(--background-brand);
     }
 
     &:active {
-        background: var(--primary-3000-active);
+        background: var(--background-brand);
     }
 }
