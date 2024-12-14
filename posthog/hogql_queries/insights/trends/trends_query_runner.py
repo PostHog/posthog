@@ -219,7 +219,10 @@ class TrendsQueryRunner(QueryRunner):
                 for value in self.query.breakdownFilter.breakdown:
                     if value != "all" and str(value) != "0":
                         res_breakdown.append(
-                            BreakdownItem(label=Cohort.objects.get(pk=int(value), team=self.team).name, value=value)
+                            BreakdownItem(
+                                label=Cohort.objects.get(pk=int(value), team__project_id=self.team.project_id).name,
+                                value=value,
+                            )
                         )
                     else:
                         res_breakdown.append(BreakdownItem(label="all users", value="all"))

@@ -134,6 +134,7 @@ class TestDataImportPipeline(APIBaseTest):
             ) as mock_validate_schema_and_update_table,
             patch("posthog.temporal.data_imports.pipelines.pipeline_sync.get_delta_tables"),
             patch("posthog.temporal.data_imports.pipelines.pipeline_sync.update_last_synced_at_sync"),
+            patch("posthog.temporal.data_imports.pipelines.pipeline_sync.save_last_incremental_value"),
             override_settings(
                 BUCKET_URL=f"s3://{BUCKET_NAME}",
                 AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,

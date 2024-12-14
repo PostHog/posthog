@@ -33,6 +33,7 @@ import {
     EarlyAccessFeatureType,
     FeatureFlagGroupType,
     FeatureFlagRollbackConditions,
+    FeatureFlagStatusResponse,
     FeatureFlagType,
     FilterLogicalOperator,
     FilterType,
@@ -43,6 +44,7 @@ import {
     MultivariateFlagVariant,
     NewEarlyAccessFeatureType,
     OrganizationFeatureFlag,
+    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     QueryBasedInsightModel,
@@ -269,6 +271,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['updateFlag', 'deleteFlag'],
             sidePanelStateLogic,
             ['closeSidePanel'],
+            teamLogic,
+            ['addProductIntent'],
         ],
     })),
     actions({
@@ -562,6 +566,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         if (values.roleBasedAccessEnabled && savedFlag.id) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
                         }
+                        actions.addProductIntent({ product_type: ProductKey.FEATURE_FLAGS })
                     } else {
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
@@ -751,6 +756,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
+        flagStatus: [
+            null as FeatureFlagStatusResponse | null,
+            {
+                loadFeatureFlagStatus: () => {
+                    const { currentTeamId } = values
+                    if (currentTeamId && props.id && props.id !== 'new' && props.id !== 'link') {
+                        return api.featureFlags.getStatus(currentTeamId, props.id)
+                    }
+                    return null
+                },
+            },
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
@@ -1036,8 +1053,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.setFeatureFlag(formatPayloadsWithFlag)
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
+            actions.loadFeatureFlagStatus()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
+            actions.loadFeatureFlagStatus()
         }
     }),
 ])

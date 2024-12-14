@@ -10,10 +10,12 @@ import {
 import { PageHeader } from 'lib/components/PageHeader'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -140,7 +142,10 @@ function Warnings(): JSX.Element {
         type: AuthorizedUrlListType.RECORDING_DOMAINS,
     })
     const { suggestions, authorizedUrls } = useValues(theAuthorizedUrlsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const mightBeRefusingRecordings = suggestions.length > 0 && authorizedUrls.length > 0
+    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <>
@@ -156,7 +161,7 @@ function Warnings(): JSX.Element {
                         children: 'Configure',
                     }}
                 >
-                    Session recordings are currently disabled for this project.
+                    Session recordings are currently disabled for this {settingLevel}.
                 </LemonBanner>
             ) : null}
 

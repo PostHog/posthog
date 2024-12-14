@@ -43,6 +43,7 @@ class PropertyDefinition(UUIDModel):
         related_name="property_definitions",
         related_query_name="team",
     )
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     name = models.CharField(max_length=400)
     is_numerical = models.BooleanField(
         default=False
@@ -69,6 +70,8 @@ class PropertyDefinition(UUIDModel):
 
     class Meta:
         indexes = [
+            # Index on project_id foreign key
+            models.Index(fields=["project"], name="posthog_prop_proj_id_d3eb982d"),
             # This indexes the query in api/property_definition.py
             # :KLUDGE: django ORM typing is off here
             models.Index(
@@ -79,9 +82,18 @@ class PropertyDefinition(UUIDModel):
                 F("name").asc(),
                 name="index_property_def_query",
             ),
+            models.Index(
+                F("project_id"),
+                F("type"),
+                Coalesce(F("group_type_index"), -1),
+                F("query_usage_30_day").desc(nulls_last=True),
+                F("name").asc(),
+                name="index_property_def_query_proj",
+            ),
             # creates an index pganalyze identified as missing
             # https://app.pganalyze.com/servers/i35ydkosi5cy5n7tly45vkjcqa/checks/index_advisor/missing_index/15282978
             models.Index(fields=["team_id", "type", "is_numerical"]),
+            models.Index(fields=["project_id", "type", "is_numerical"], name="posthog_pro_project_3583d2_idx"),
             GinIndex(
                 name="index_property_definition_name",
                 fields=["name"],

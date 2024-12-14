@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,6 +18,8 @@ export interface VariablesLogicProps {
     readOnly: boolean
     /** Dashboard ID for the current dashboard if we're viewing one */
     dashboardId?: DashboardType['id']
+
+    queryInput?: string
 }
 
 const convertValueToCorrectType = (value: string, type: VariableType): number | string | boolean => {
@@ -59,6 +61,11 @@ export const variablesLogic = kea<variablesLogicType>([
         setEditorQuery: (query: string) => ({ query }),
         updateSourceQuery: true,
     })),
+    propsChanged(({ props, actions }, oldProps) => {
+        if (oldProps.queryInput !== props.queryInput) {
+            actions.setEditorQuery(props.queryInput ?? '')
+        }
+    }),
     reducers({
         internalSelectedVariables: [
             [] as HogQLVariable[],
@@ -167,7 +174,6 @@ export const variablesLogic = kea<variablesLogicType>([
                     }, {} as Record<string, HogQLVariable>),
                 },
             }
-
             const queryVarsHaveChanged = haveVariablesOrFiltersChanged(query.source, values.query.source)
             if (!queryVarsHaveChanged) {
                 return

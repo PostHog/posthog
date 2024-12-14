@@ -107,6 +107,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "inputs",
             "filters",
             "masking",
+            "mappings",
             "icon_url",
             "template",
             "template_id",
@@ -153,6 +154,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
             # Without the addon, they cannot deviate from the template
             attrs["inputs_schema"] = template.inputs_schema
+            attrs["mappings"] = template.mappings
             attrs["hog"] = template.hog
 
         if "type" not in attrs:
@@ -163,41 +165,55 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             attrs["filters"] = attrs.get("filters") or {}
             attrs["inputs_schema"] = attrs.get("inputs_schema") or []
             attrs["inputs"] = attrs.get("inputs") or {}
+            attrs["mappings"] = attrs.get("mappings") or None
 
-        if "inputs_schema" in attrs:
-            attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
+        # Used for both top level input validation, and mappings input validation
+        def validate_input_and_filters(attrs: dict, type: str):
+            if "inputs_schema" in attrs:
+                attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
 
-        if "inputs" in attrs:
-            inputs = attrs["inputs"] or {}
-            existing_encrypted_inputs = None
+            if "inputs" in attrs:
+                inputs = attrs["inputs"] or {}
+                existing_encrypted_inputs = None
 
-            if instance and instance.encrypted_inputs:
-                existing_encrypted_inputs = instance.encrypted_inputs
+                if instance and instance.encrypted_inputs:
+                    existing_encrypted_inputs = instance.encrypted_inputs
 
-            attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
-            attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs, attrs["type"])
+                attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
+                attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs, type)
 
-        if "filters" in attrs:
-            if attrs["type"] in TYPES_WITH_COMPILED_FILTERS:
-                attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
-            elif attrs["type"] in TYPES_WITH_TRANSPILED_FILTERS:
-                compiler = JavaScriptCompiler()
-                code = compiler.visit(compile_filters_expr(attrs["filters"], team))
-                attrs["filters"]["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
-                if "bytecode" in attrs["filters"]:
-                    del attrs["filters"]["bytecode"]
+            if "filters" in attrs:
+                if type in TYPES_WITH_COMPILED_FILTERS:
+                    attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
+                elif type in TYPES_WITH_TRANSPILED_FILTERS:
+                    compiler = JavaScriptCompiler()
+                    code = compiler.visit(compile_filters_expr(attrs["filters"], team))
+                    attrs["filters"]["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
+                    if "bytecode" in attrs["filters"]:
+                        del attrs["filters"]["bytecode"]
+
+        validate_input_and_filters(attrs, attrs["type"])
+
+        if attrs.get("mappings", None) is not None:
+            if attrs["type"] != "site_destination":
+                raise serializers.ValidationError({"mappings": "Mappings are only allowed for site destinations."})
+            for mapping in attrs["mappings"]:
+                validate_input_and_filters(mapping, attrs["type"])
 
         if "hog" in attrs:
             if attrs["type"] in TYPES_WITH_JAVASCRIPT_SOURCE:
-                # Upon creation, this code will be run before the model has an "id".
-                # If that's the case, the code just makes sure transpilation doesn't throw. We'll re-transpile after creation.
-                id = str(instance.id) if instance else "__"
                 try:
+                    # Validate transpilation using the model instance
                     attrs["transpiled"] = get_transpiled_function(
-                        id, attrs["hog"], attrs["filters"], attrs["inputs"], team
+                        HogFunction(
+                            team=team,
+                            hog=attrs["hog"],
+                            filters=attrs["filters"],
+                            inputs=attrs["inputs"],
+                        )
                     )
                 except TranspilerError:
-                    raise serializers.ValidationError({"hog": f"Error in TypeScript code"})
+                    raise serializers.ValidationError({"hog": "Error in TypeScript code"})
                 attrs["bytecode"] = None
             else:
                 attrs["bytecode"] = compile_hog(attrs["hog"])
@@ -231,11 +247,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
         hog_function = super().create(validated_data=validated_data)
-        if validated_data.get("type") in TYPES_WITH_JAVASCRIPT_SOURCE:
-            # Re-run the transpilation now that we have an ID
-            hog_function.transpiled = get_transpiled_function(
-                str(hog_function.id), hog_function.hog, hog_function.filters, hog_function.inputs, hog_function.team
-            )
+
         return hog_function
 
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:

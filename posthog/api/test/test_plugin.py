@@ -1201,6 +1201,14 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, 200)
 
+    def test_retrieving_plugin_config_logs_empty(self, mock_get, mock_reload):
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, enabled=True, team=self.team, order=0)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/plugin_configs/{plugin_config.id}/logs/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"count": 0, "next": None, "previous": None, "results": []})
+
     def test_delete_plugin_config_auth(self, mock_get, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/",

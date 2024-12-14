@@ -1470,7 +1470,15 @@
             "type": "string"
         },
         "BaseMathType": {
-            "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session", "first_time_for_user"],
+            "enum": [
+                "total",
+                "dau",
+                "weekly_active",
+                "monthly_active",
+                "unique_session",
+                "first_time_for_user",
+                "first_matching_event_for_user"
+            ],
             "type": "string"
         },
         "BinCountValue": {
@@ -2245,6 +2253,9 @@
                 },
                 "significant": {
                     "type": "boolean"
+                },
+                "stats_version": {
+                    "type": "integer"
                 },
                 "timezone": {
                     "type": "string"
@@ -4585,6 +4596,9 @@
                                 "significant": {
                                     "type": "boolean"
                                 },
+                                "stats_version": {
+                                    "type": "integer"
+                                },
                                 "variants": {
                                     "items": {
                                         "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
@@ -6090,6 +6104,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendsQueryResponse"
+                },
+                "stats_version": {
+                    "type": "integer"
                 }
             },
             "required": ["count_query", "kind"],
@@ -6139,6 +6156,9 @@
                 },
                 "significant": {
                     "type": "boolean"
+                },
+                "stats_version": {
+                    "type": "integer"
                 },
                 "variants": {
                     "items": {
@@ -9855,6 +9875,9 @@
                         "significant": {
                             "type": "boolean"
                         },
+                        "stats_version": {
+                            "type": "integer"
+                        },
                         "variants": {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
@@ -10482,6 +10505,9 @@
                         },
                         "significant": {
                             "type": "boolean"
+                        },
+                        "stats_version": {
+                            "type": "integer"
                         },
                         "variants": {
                             "items": {
@@ -12666,6 +12692,17 @@
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range"
                 },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Whether we should be comparing against a specific conversion goal"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
@@ -13110,8 +13147,15 @@
         "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
-                "compare": {
-                    "type": "boolean"
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "conversionGoal": {
                     "anyOf": [
@@ -13241,6 +13285,16 @@
             "properties": {
                 "breakdownBy": {
                     "$ref": "#/definitions/WebStatsBreakdown"
+                },
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "conversionGoal": {
                     "anyOf": [

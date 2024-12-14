@@ -1,1 +1,1 @@
-0527_project_name_sync
+0530_convert_dashboard_templates_to_queries

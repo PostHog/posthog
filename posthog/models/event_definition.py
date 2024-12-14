@@ -13,6 +13,7 @@ class EventDefinition(UUIDModel):
         related_name="event_definitions",
         related_query_name="team",
     )
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     name = models.CharField(max_length=400)
     created_at = models.DateTimeField(default=timezone.now, null=True)
     last_seen_at = models.DateTimeField(default=None, null=True)
@@ -28,11 +29,13 @@ class EventDefinition(UUIDModel):
     class Meta:
         unique_together = ("team", "name")
         indexes = [
+            # Index on project_id foreign key
+            models.Index(fields=["project"], name="posthog_eve_proj_id_f93fcbb0"),
             GinIndex(
                 name="index_event_definition_name",
                 fields=["name"],
                 opclasses=["gin_trgm_ops"],
-            )  # To speed up DB-based fuzzy searching
+            ),  # To speed up DB-based fuzzy searching
         ]
 
     def __str__(self) -> str:

@@ -21,7 +21,7 @@ on:
 jobs:
     build:
         name: Build Codespaces image
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
 
         # Build on master and PRs with the label 'codespaces-build' only
         if: ${{ github.ref == 'refs/heads/master' || contains(github.event.pull_request.labels.*.name, 'codespaces-build')  }}

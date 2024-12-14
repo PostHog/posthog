@@ -2,6 +2,7 @@ import {
     IconCursorClick,
     IconDashboard,
     IconDatabase,
+    IconFeatures,
     IconGraph,
     IconHome,
     IconLive,
@@ -426,6 +427,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         label: 'Max AI',
                         icon: <IconSparkles />,
                         to: urls.max(),
+                    })
+                }
+
+                if (featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]) {
+                    sectionOne.splice(4, 0, {
+                        identifier: Scene.FeatureManagement,
+                        label: 'Features',
+                        icon: <IconFeatures />,
+                        logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
+                        to: isUsingSidebar ? undefined : urls.featureManagement(),
                     })
                 }
 

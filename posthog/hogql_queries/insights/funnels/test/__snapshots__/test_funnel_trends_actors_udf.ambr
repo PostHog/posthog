@@ -1,15 +1,16 @@
 # serializer version: 1
 # name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_returns_recordings
   '''
-  SELECT persons.id,
-         persons.id AS id,
+  SELECT source.id,
+         source.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT aggregation_target AS actor_id,
-            matching_events AS matching_events
+            matching_events AS matching_events,
+            actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_trends_v3(0, 2, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
+               arrayJoin(aggregate_funnel_array_trends_v4(0, 2, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
                                                                                                                                                                                                        and isNull(x_before.5)), ifNull(equals(x.5, x_after.5), isNull(x.5)
                                                                                                                                                                                                                                        and isNull(x_after.5)), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
@@ -43,15 +44,11 @@
                                              date_time_input_format='best_effort')
      WHERE and(ifNull(equals(success_bool, 1), 0), ifNull(equals(entrance_period_start, toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), 0))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -77,15 +74,16 @@
 # ---
 # name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_drop_off
   '''
-  SELECT persons.id,
-         persons.id AS id,
+  SELECT source.id,
+         source.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT aggregation_target AS actor_id,
-            matching_events AS matching_events
+            matching_events AS matching_events,
+            actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_trends_v3(0, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
+               arrayJoin(aggregate_funnel_array_trends_v4(0, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
                                                                                                                                                                                                        and isNull(x_before.5)), ifNull(equals(x.5, x_after.5), isNull(x.5)
                                                                                                                                                                                                                                        and isNull(x_after.5)), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
@@ -119,15 +117,11 @@
                                              date_time_input_format='best_effort')
      WHERE and(ifNull(notEquals(success_bool, 1), 1), ifNull(equals(entrance_period_start, toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), 0))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -153,15 +147,16 @@
 # ---
 # name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_no_to_step
   '''
-  SELECT persons.id,
-         persons.id AS id,
+  SELECT source.id,
+         source.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT aggregation_target AS actor_id,
-            matching_events AS matching_events
+            matching_events AS matching_events,
+            actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_trends_v3(0, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
+               arrayJoin(aggregate_funnel_array_trends_v4(0, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
                                                                                                                                                                                                        and isNull(x_before.5)), ifNull(equals(x.5, x_after.5), isNull(x.5)
                                                                                                                                                                                                                                        and isNull(x_after.5)), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
@@ -195,15 +190,11 @@
                                              date_time_input_format='best_effort')
      WHERE and(ifNull(equals(success_bool, 1), 0), ifNull(equals(entrance_period_start, toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), 0))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,

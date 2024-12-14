@@ -97,6 +97,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2021-05-01",
                 "date_to": "2021-05-10",
             },
+            self.team.pk,
         )
 
         insert_cohort_from_insight_filter(cohort_id, params)

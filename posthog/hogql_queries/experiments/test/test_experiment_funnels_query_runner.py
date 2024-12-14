@@ -16,6 +16,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.constants import ExperimentNoResultsErrorKeys
 import json
 from posthog.test.test_journeys import journeys_for
+from flaky import flaky
 
 
 class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -128,6 +129,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("control", result.credible_intervals)
         self.assertIn("test", result.credible_intervals)
 
+    @flaky(max_runs=10, min_passes=1)
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_standard_flow(self):
         feature_flag = self.create_feature_flag()

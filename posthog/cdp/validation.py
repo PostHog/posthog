@@ -56,7 +56,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
         choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field", "email"]
     )
     key = serializers.CharField()
-    label = serializers.CharField(required=False)  # type: ignore
+    label = serializers.CharField(required=False, allow_blank=True)  # type: ignore
     choices = serializers.ListField(child=serializers.DictField(), required=False)
     required = serializers.BooleanField(default=False)  # type: ignore
     default = serializers.JSONField(required=False)
@@ -65,6 +65,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     integration = serializers.CharField(required=False)
     integration_key = serializers.CharField(required=False)
     integration_field = serializers.ChoiceField(choices=["slack_channel"], required=False)
+    requiredScopes = serializers.CharField(required=False)
 
     # TODO Validate choices if type=choice
 

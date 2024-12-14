@@ -185,7 +185,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                 onClick: () => {
                                     multitabEditorLogic({
                                         key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                    }).actions.createTab(savedQuery.query.query, savedQuery)
+                                    }).actions.editView(savedQuery.query.query, savedQuery)
                                 },
                             },
                             {

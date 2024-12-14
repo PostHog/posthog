@@ -1,6 +1,10 @@
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 
-from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_enabled_materialized_columns
+from posthog.clickhouse.materialized_columns import (
+    MaterializedColumn,
+    TablesWithMaterializedColumns,
+    get_materialized_column_for_property,
+)
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -258,7 +262,7 @@ class PropertySwapper(CloningVisitor):
 
         message = f"{property_type.capitalize()} property '{property_name}' is of type '{field_type}'."
         if self.context.debug:
-            if materialized_column:
+            if materialized_column is not None:
                 message += " This property is materialized ⚡️."
             else:
                 message += " This property is not materialized 🐢."
@@ -277,6 +281,7 @@ class PropertySwapper(CloningVisitor):
 
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> Optional[str]:
-        materialized_columns = get_enabled_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
-        return materialized_columns.get((property_name, field_name), None)
+    ) -> MaterializedColumn | None:
+        return get_materialized_column_for_property(
+            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
+        )

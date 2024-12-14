@@ -98,11 +98,14 @@
 # name: TestCohort.test_async_deletion_of_cohort.3
   '''
   /* user_id:0 celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
-  SELECT count()
+  SELECT team_id,
+         count() AS stale_people_count
   FROM cohortpeople
-  WHERE team_id = 99999
+  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
     AND cohort_id = 99999
     AND version < 1
+  GROUP BY team_id
+  HAVING stale_people_count > 0
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.4
@@ -163,11 +166,14 @@
 # name: TestCohort.test_async_deletion_of_cohort.7
   '''
   /* user_id:0 celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
-  SELECT count()
+  SELECT team_id,
+         count() AS stale_people_count
   FROM cohortpeople
-  WHERE team_id = 99999
+  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
     AND cohort_id = 99999
     AND version < 2
+  GROUP BY team_id
+  HAVING stale_people_count > 0
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.8

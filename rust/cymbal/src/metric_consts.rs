@@ -11,6 +11,7 @@ pub const STORE_CACHE_MISSES: &str = "cymbal_store_cache_misses";
 pub const STORE_CACHED_BYTES: &str = "cymbal_store_cached_bytes";
 pub const STORE_CACHE_SIZE: &str = "cymbal_store_cache_size";
 pub const STORE_CACHE_EVICTIONS: &str = "cymbal_store_cache_evictions";
+pub const STORE_CACHE_EVICTION_RUNS: &str = "cymbal_store_cache_eviction_runs";
 pub const MAIN_LOOP_TIME: &str = "cymbal_main_loop_time";
 pub const PER_FRAME_TIME: &str = "cymbal_per_frame_time";
 pub const PER_STACK_TIME: &str = "cymbal_per_stack_time";

@@ -86,14 +86,29 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             return
 
         account_id = source.job_inputs.get("account_id")
-        user = source.job_inputs.get("user")
-        password = source.job_inputs.get("password")
         database = source.job_inputs.get("database")
         warehouse = source.job_inputs.get("warehouse")
         sf_schema = source.job_inputs.get("schema")
         role = source.job_inputs.get("role")
 
-        sql_schemas = get_snowflake_schemas(account_id, database, warehouse, user, password, sf_schema, role)
+        auth_type = source.job_inputs.get("auth_type", "password")
+        auth_type_username = source.job_inputs.get("user")
+        auth_type_password = source.job_inputs.get("password")
+        auth_type_passphrase = source.job_inputs.get("passphrase")
+        auth_type_private_key = source.job_inputs.get("private_key")
+
+        sql_schemas = get_snowflake_schemas(
+            account_id=account_id,
+            database=database,
+            warehouse=warehouse,
+            user=auth_type_username,
+            password=auth_type_password,
+            schema=sf_schema,
+            role=role,
+            auth_type=auth_type,
+            passphrase=auth_type_passphrase,
+            private_key=auth_type_private_key,
+        )
 
         schemas_to_sync = list(sql_schemas.keys())
     else:

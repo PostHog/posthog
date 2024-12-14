@@ -20,6 +20,7 @@ import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilter
 import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
@@ -51,6 +52,7 @@ import {
     FunnelVizType,
     InsightType,
     MultivariateFlagVariant,
+    ProductKey,
     PropertyMathType,
     SecondaryMetricResults,
     SignificanceCode,
@@ -164,6 +166,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentReleaseConditionsViewed',
                 'reportExperimentHoldoutAssigned',
             ],
+            teamLogic,
+            ['addProductIntent'],
         ],
     })),
     actions({
@@ -534,7 +538,10 @@ export const experimentLogic = kea<experimentLogicType>([
                         },
                         ...(!draft && { start_date: dayjs() }),
                     })
-                    response && actions.reportExperimentCreated(response)
+                    if (response) {
+                        actions.reportExperimentCreated(response)
+                        actions.addProductIntent({ product_type: ProductKey.EXPERIMENTS })
+                    }
                 }
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to create experiment')
@@ -821,6 +828,12 @@ export const experimentLogic = kea<experimentLogicType>([
                             const queryWithExperimentId = {
                                 ...values.experiment.metrics[0],
                                 experiment_id: values.experimentId,
+                            }
+                            if (
+                                queryWithExperimentId.kind === NodeKind.ExperimentTrendsQuery &&
+                                values.featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2]
+                            ) {
+                                queryWithExperimentId.stats_version = 2
                             }
 
                             const response = await performQuery(queryWithExperimentId, undefined, refresh)

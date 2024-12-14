@@ -214,7 +214,9 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         elif use_dashboard:
             try:
-                existing_dashboard = Dashboard.objects.get(id=use_dashboard, team_id=team_id)
+                existing_dashboard = Dashboard.objects.get(
+                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
+                )
                 existing_tiles = (
                     DashboardTile.objects.filter(dashboard=existing_dashboard)
                     .exclude(deleted=True)

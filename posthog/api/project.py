@@ -191,7 +191,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
-        return GroupTypeMapping.objects.filter(team_id=project.id).exists()
+        return GroupTypeMapping.objects.filter(project_id=project.id).exists()
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)
