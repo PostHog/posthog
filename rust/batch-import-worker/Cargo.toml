@@ -1,0 +1,24 @@
+[package]
+name = "batch-import-worker"
+version = "0.0.1"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+common-kafka = { path = "../common/kafka" }
+common-alloc = { path = "../common/alloc" }
+health = { path = "../common/health" }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.8"
