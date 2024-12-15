@@ -3,6 +3,7 @@ resolver = "2"
 
 members = [
     "property-defs-rs",
+    "batch-import-worker",
     "capture",
     "common/health",
     "common/metrics",

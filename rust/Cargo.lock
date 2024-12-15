@@ -977,6 +977,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "batch-import-worker"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "common-alloc",
+ "common-kafka",
+ "health",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "better_scoped_tls"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
