@@ -46,7 +46,7 @@ export function onEvent({ inputs }) {
         }
     };
     console.log('SNAP: onEvent/end', eventProperties);
-    snaptr('track', 'PAGE_VIEW', eventProperties);
+    snaptr('track', inputs.eventType, eventProperties);
 }
 """.strip(),
     inputs_schema=[
@@ -78,189 +78,262 @@ export function onEvent({ inputs }) {
             "default": {
                 "price": "{toFloat(event.properties.price or event.properties.value or event.properties.revenue)}",
                 "currency": "{event.properties.currency}",
+                "item_ids": "{event.properties.item_ids}",
                 "item_category": "{event.properties.category}",
                 "description": "{event.properties.description}",
                 "search_string": "{event.properties.search_string}",
                 "number_items": "{toInt(event.properties.number_items or event.properties.quantity)}",
                 "payment_info_available": "{toInt(event.properties.payment_info_available)}",
                 "sign_up_method": "{event.properties.sign_up_method}",
+                "brands": "{event.properties.brands}",
                 "success": "{toInt(event.properties.success) in (0, 1) ? toInt(event.properties.success) : null}",
-                "payment_info_available": "{toInt(event.properties.payment_info_available) in (0, 1) ? toInt(event.properties.payment_info_available) : null}",
-                "client_deduplication_id": "{event.uuid}",
+                "transaction_id": "{event.properties.orderId ?? event.properties.transactionId ?? event.properties.transaction_id}",
+                "client_dedup_id": "{event.uuid}",
             },
             "secret": False,
             "required": False,
         },
-        {
-            "key": "itemIds",
-            "type": "string",
-            "label": "Item IDs",
-            "description": "Array of item IDs, for events that require it.",
-            "default": "{event.properties.item_ids}",
-            "required": True,
-        },
-        {
-            "key": "transactionId",
-            "type": "string",
-            "label": "Transaction ID",
-            "description": "Unique key for this transaction, for events that require it",
-            "default": "{event.properties.orderId ?? event.properties.transactionId ?? event.properties.transaction_id ?? event.uuid}",
-            "required": True,
-        },
     ],
     mapping_templates=[
         HogFunctionMappingTemplate(
-            name="Order completed",
+            name="Page viewed",
             include_by_default=True,
-            filters={"events": [{"id": "Order completed", "type": "events"}]},
+            filters={"events": [{"id": "$pageview", "name": "Pageview", "type": "events"}]},
             inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "Check out this page for possible event types: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+                    "default": "PAGE_VIEW",
+                    "required": True,
+                },
                 {
                     "key": "additionalProperties",
                     "type": "dictionary",
                     "description": "Additional properties to add for this event type",
                     "label": "Additional parameters",
-                    "default": {
-                        "item_ids": "{inputs.itemIds}",
-                        "transaction_id": "{inputs.transactionId}",
-                    },
+                    "default": {},
+                },
+            ],
+        ),
+        HogFunctionMappingTemplate(
+            name="Order completed",
+            include_by_default=True,
+            filters={"events": [{"id": "Order Completed", "type": "events"}]},
+            inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "Check out this page for possible event types: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+                    "default": "PURCHASE",
+                    "required": True,
+                },
+                {
+                    "key": "additionalProperties",
+                    "type": "dictionary",
+                    "description": "Additional properties to add for this event type",
+                    "label": "Additional parameters",
+                    "default": {},
                 },
             ],
         ),
         HogFunctionMappingTemplate(
             name="Checkout started",
-            filters={"events": [{"id": "Checkout started", "type": "events"}]},
+            include_by_default=True,
+            filters={"events": [{"id": "Checkout Started", "type": "events"}]},
             inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "Check out this page for possible event types: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+                    "default": "START_CHECKOUT",
+                    "required": True,
+                },
                 {
                     "key": "additionalProperties",
                     "type": "dictionary",
                     "description": "Additional properties to add for this event type",
                     "label": "Additional parameters",
-                    "default": {
-                        "item_ids": "{inputs.itemIds}",
-                        "transaction_id": "{inputs.transactionId}",
-                    },
+                    "default": {},
                 },
             ],
         ),
         HogFunctionMappingTemplate(
             name="Product added",
-            filters={"events": [{"id": "Product added", "type": "events"}]},
+            include_by_default=True,
+            filters={"events": [{"id": "Product Added", "type": "events"}]},
             inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "Check out this page for possible event types: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+                    "default": "ADD_CART",
+                    "required": True,
+                },
                 {
                     "key": "additionalProperties",
                     "type": "dictionary",
                     "description": "Additional properties to add for this event type",
                     "label": "Additional parameters",
-                    "default": {
-                        "item_ids": "{inputs.itemIds}",
-                    },
+                    "default": {},
                 },
             ],
         ),
         HogFunctionMappingTemplate(
             name="Payment info entered",
-            filters={"events": [{"id": "Payment info entered", "type": "events"}]},
+            include_by_default=True,
+            filters={"events": [{"id": "Payment Info Entered", "type": "events"}]},
             inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "Check out this page for possible event types: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+                    "default": "ADD_BILLING",
+                    "required": True,
+                },
                 {
                     "key": "additionalProperties",
                     "type": "dictionary",
                     "description": "Additional properties to add for this event type",
                     "label": "Additional parameters",
-                    "default": {
-                        "item_ids": "{inputs.itemIds}",
-                        "transaction_id": "{inputs.transactionId}",
-                    },
+                    "default": {},
                 },
             ],
         ),
         HogFunctionMappingTemplate(
             name="Promotion clicked",
-            filters={"events": [{"id": "Promotion clicked", "type": "events"}]},
+            include_by_default=True,
+            filters={"events": [{"id": "Promotion Clicked", "type": "events"}]},
             inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "Check out this page for possible event types: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+                    "default": "AD_CLICK",
+                    "required": True,
+                },
                 {
                     "key": "additionalProperties",
                     "type": "dictionary",
                     "description": "Additional properties to add for this event type",
                     "label": "Additional parameters",
-                    "default": {
-                        "item_ids": "{inputs.itemIds}",
-                    },
+                    "default": {},
                 },
             ],
         ),
         HogFunctionMappingTemplate(
             name="Promotion viewed",
-            filters={"events": [{"id": "Promotion viewed", "type": "events"}]},
+            include_by_default=True,
+            filters={"events": [{"id": "Promotion Viewed", "type": "events"}]},
             inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "Check out this page for possible event types: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+                    "default": "AD_VIEW",
+                    "required": True,
+                },
                 {
                     "key": "additionalProperties",
                     "type": "dictionary",
                     "description": "Additional properties to add for this event type",
                     "label": "Additional parameters",
-                    "default": {
-                        "item_ids": "{inputs.itemIds}",
-                    },
+                    "default": {},
                 },
             ],
         ),
         HogFunctionMappingTemplate(
             name="Product added to wishlist",
-            filters={"events": [{"id": "Product added to wishlist", "type": "events"}]},
+            include_by_default=True,
+            filters={"events": [{"id": "Product Added To Wishlist", "type": "events"}]},
             inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "Check out this page for possible event types: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+                    "default": "ADD_TO_WISHLIST",
+                    "required": True,
+                },
                 {
                     "key": "additionalProperties",
                     "type": "dictionary",
                     "description": "Additional properties to add for this event type",
                     "label": "Additional parameters",
-                    "default": {
-                        "item_ids": "{inputs.itemIds}",
-                    },
+                    "default": {},
                 },
             ],
         ),
         HogFunctionMappingTemplate(
             name="Product viewed",
-            filters={"events": [{"id": "Product viewed", "type": "events"}]},
+            include_by_default=True,
+            filters={"events": [{"id": "Product Viewed", "type": "events"}]},
             inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "Check out this page for possible event types: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+                    "default": "VIEW_CONTENT",
+                    "required": True,
+                },
                 {
                     "key": "additionalProperties",
                     "type": "dictionary",
                     "description": "Additional properties to add for this event type",
                     "label": "Additional parameters",
-                    "default": {
-                        "item_ids": "{inputs.itemIds}",
-                    },
+                    "default": {},
                 },
             ],
         ),
         HogFunctionMappingTemplate(
             name="Product list viewed",
-            filters={"events": [{"id": "Product list viewed", "type": "events"}]},
+            include_by_default=True,
+            filters={"events": [{"id": "Product List Viewed", "type": "events"}]},
             inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "Check out this page for possible event types: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+                    "default": "VIEW_CONTENT",
+                    "required": True,
+                },
                 {
                     "key": "additionalProperties",
                     "type": "dictionary",
                     "description": "Additional properties to add for this event type",
                     "label": "Additional parameters",
-                    "default": {
-                        "item_ids": "{inputs.itemIds}",
-                    },
+                    "default": {},
                 },
             ],
         ),
         HogFunctionMappingTemplate(
             name="Products searched",
-            filters={"events": [{"id": "Products searched", "type": "events"}]},
+            include_by_default=True,
+            filters={"events": [{"id": "Products Searched", "type": "events"}]},
             inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "Check out this page for possible event types: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+                    "default": "SEARCH",
+                    "required": True,
+                },
                 {
                     "key": "additionalProperties",
                     "type": "dictionary",
                     "description": "Additional properties to add for this event type",
                     "label": "Additional parameters",
-                    "default": {
-                        "item_ids": "{inputs.itemIds}",
-                        "search_string": "{event.properties.query}",
-                    },
+                    "default": {},
                 },
             ],
         ),
