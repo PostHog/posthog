@@ -1,5 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { largeRecordingJSONL } from 'scenes/session-recordings/__mocks__/large_recording_blob_one'
 import largeRecordingEventsJson from 'scenes/session-recordings/__mocks__/large_recording_load_events_one.json'
@@ -7,7 +7,6 @@ import largeRecordingMetaJson from 'scenes/session-recordings/__mocks__/large_re
 import largeRecordingWebVitalsEventsPropertiesJson from 'scenes/session-recordings/__mocks__/large_recording_web_vitals_props.json'
 import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -76,15 +75,12 @@ const BasicTemplate: StoryFn<typeof PlayerInspector> = () => {
 
     return (
         <div className="flex flex-col gap-2 min-w-96 min-h-120">
-            <BindLogic
-                logic={sessionRecordingPlayerLogic}
-                props={{
+            <PlayerInspector
+                {...{
                     sessionRecordingId: '12345',
                     playerKey: 'story-template',
                 }}
-            >
-                <PlayerInspector />
-            </BindLogic>
+            />
         </div>
     )
 }
