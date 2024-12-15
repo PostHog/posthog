@@ -1,4 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { sanitizeString } from 'utils/db/utils'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PipelineEvent } from '../../../types'
@@ -42,6 +43,9 @@ export async function populateTeamDataStep(
     } else if (event.team_id) {
         team = await runner.hub.teamManager.fetchTeam(event.team_id)
     } else if (event.token) {
+        // HACK: we've had null bytes end up in the token in the ingest pipeline before, for some reason. We should try to
+        // prevent this generally, but if it happens, we should at least simply fail to lookup the team, rather than crashing
+        event.token = sanitizeString(event.token)
         team = await runner.hub.teamManager.getTeamByToken(event.token)
     }
 
