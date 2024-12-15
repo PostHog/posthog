@@ -1,8 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { sanitizeString } from 'utils/db/utils'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PipelineEvent } from '../../../types'
+import { sanitizeString } from '../../../utils/db/utils'
 import { UUID } from '../../../utils/utils'
 import { captureIngestionWarning } from '../utils'
 import { tokenOrTeamPresentCounter } from './metrics'
