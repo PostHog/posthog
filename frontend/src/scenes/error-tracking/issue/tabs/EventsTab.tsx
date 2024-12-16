@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import PanelLayout from 'lib/components/PanelLayout/PanelLayout'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 
@@ -17,7 +16,7 @@ export const EventsTab = (): JSX.Element => {
                 </PanelLayout.Panel>
                 {activeEvent && (
                     <PanelLayout.Panel primary={false} title="Stacktrace">
-                        <ErrorDisplay eventProperties={activeEvent.properties} />
+                        {/* <ErrorDisplay eventProperties={activeEvent.properties} /> */}
                     </PanelLayout.Panel>
                 )}
                 {/* <PanelLayout.Panel primary={false} title='Recording'>Recording</PanelLayout.Panel> */}

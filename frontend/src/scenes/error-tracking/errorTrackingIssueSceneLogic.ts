@@ -158,6 +158,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
 
         activeEvent: [(s) => [s.events, s.activeEventUUID], (events, uuid) => events.find((e) => e.uuid === uuid)],
+        issueProperties: [(s) => [s.issue], (issue) => (issue ? JSON.parse(issue.earliest) : {})],
     }),
 
     actionToUrl(({ values }) => ({

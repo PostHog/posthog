@@ -1,4 +1,4 @@
-import { getExceptionPropertiesFrom } from 'lib/components/Errors/ErrorDisplay'
+import { getExceptionProperties } from 'scenes/error-tracking/utils'
 
 describe('Error Display', () => {
     it('can read sentry stack trace when $exception_list is not present', () => {
@@ -47,7 +47,7 @@ describe('Error Display', () => {
             $exception_personURL: 'https://app.posthog.com/person/f6kW3HXaha6dAvHZiOmgrcAXK09682P6nNPxvfjqM9c',
             $exception_type: 'Error',
         }
-        const result = getExceptionPropertiesFrom(eventProperties)
+        const result = getExceptionProperties(eventProperties)
         expect(result).toEqual({
             $active_feature_flags: ['feature1,feature2'],
             $browser: 'Chrome',
