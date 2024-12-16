@@ -55,7 +55,16 @@ export function SeriesColumnItem({
     return (
         <div
             className="series-name-wrapper-col space-x-1"
-            onClick={showCustomizationIcon ? () => openModal(item) : undefined}
+            onClick={
+                showCustomizationIcon
+                    ? (e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+
+                          openModal(item)
+                      }
+                    : undefined
+            }
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}
         >
