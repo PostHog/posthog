@@ -21,6 +21,7 @@ from .alert import AlertConfiguration
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from .batch_imports import BatchImport
 from .cohort import Cohort, CohortPeople
 from .comment import Comment
 from .dashboard import Dashboard
@@ -97,6 +98,7 @@ __all__ = [
     "BatchExportBackfill",
     "BatchExportDestination",
     "BatchExportRun",
+    "BatchImport",
     "Cohort",
     "CohortPeople",
     "Dashboard",
