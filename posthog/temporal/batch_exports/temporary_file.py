@@ -429,7 +429,7 @@ class BatchExportWriter(abc.ABC):
             self.end_at_since_last_flush = raw_end_at
 
         column_names = record_batch.column_names
-        column_names.pop(column_names.index("_inserted_at"))
+        # column_names.pop(column_names.index("_inserted_at"))
 
         await asyncio.to_thread(self._write_record_batch, record_batch.select(column_names))
 

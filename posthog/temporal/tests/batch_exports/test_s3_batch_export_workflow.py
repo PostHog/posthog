@@ -251,9 +251,9 @@ async def assert_clickhouse_records_in_s3(
         for record in record_batch.to_pylist():
             expected_record = {}
             for k, v in record.items():
-                if k not in schema_column_names or k == "_inserted_at":
-                    # _inserted_at is not exported, only used for tracking progress.
-                    continue
+                # if k not in schema_column_names or k == "_inserted_at":
+                #     # _inserted_at is not exported, only used for tracking progress.
+                #     continue
 
                 if k in json_columns and v is not None:
                     expected_record[k] = json.loads(v)
