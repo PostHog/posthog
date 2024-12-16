@@ -321,6 +321,11 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: VariationCell(),
             align: 'right',
         },
+        unique_conversions: {
+            title: <span className="pr-5">Unique Conversions</span>,
+            render: VariationCell(),
+            align: 'right',
+        },
         conversion_rate: {
             title: <span className="pr-5">Conversion Rate</span>,
             render: VariationCell({ isPercentage: true }),

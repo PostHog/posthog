@@ -1,1 +1,1 @@
-0528_project_field_in_taxonomy
+0532_taxonomy_unique_on_project

@@ -199,8 +199,8 @@ export function SessionRecordingPreview({
                 )}
                 onClick={() => onClick?.()}
             >
-                <div className="grow overflow-hidden space-y-0.5">
-                    <div className="flex items-center justify-between gap-0.5">
+                <div className="grow overflow-hidden space-y-1">
+                    <div className="flex items-center justify-between space-x-0.5">
                         <div className="flex overflow-hidden font-medium text-link ph-no-capture">
                             <span className="truncate">{asDisplay(recording.person)}</span>
                         </div>
@@ -218,8 +218,8 @@ export function SessionRecordingPreview({
                         )}
                     </div>
 
-                    <div className="flex justify-between items-center gap-0.5">
-                        <div className="flex space-x-2 text-muted text-xs">
+                    <div className="flex justify-between items-center space-x-0.5">
+                        <div className="flex space-x-2 text-muted text-sm">
                             <PropertyIcons
                                 recordingProperties={iconProperties}
                                 iconClassNames={iconClassNames}
@@ -259,7 +259,7 @@ export function SessionRecordingPreview({
 
                 <div
                     className={clsx(
-                        'min-w-6 flex flex-col gap-0.5 items-center',
+                        'min-w-6 flex flex-col space-x-0.5 items-center',
                         // need different margin if the first item is an icon
                         recording.ongoing || pinned ? 'mt-1' : 'mt-2'
                     )}

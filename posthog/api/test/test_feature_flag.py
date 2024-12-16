@@ -1463,73 +1463,91 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(tiles), 2)
         self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
         self.assertEqual(
-            tiles[0].insight.filters,
+            tiles[0].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_flag_called",
-                        "name": "$feature_flag_called",
-                        "type": "events",
-                    }
-                ],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$feature_flag_response",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
-                        }
-                    ],
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "name": "$feature_flag_called", "event": "$feature_flag_called"}],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "breakdown_type": "event",
-                "filter_test_accounts": False,
             },
         )
         self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
         self.assertEqual(
-            tiles[1].insight.filters,
+            tiles[1].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_flag_called",
-                        "math": "dau",
-                        "name": "$feature_flag_called",
-                        "type": "events",
-                    }
-                ],
-                "display": "ActionsTable",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$feature_flag_response",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
                         {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "$feature_flag_called",
+                            "event": "$feature_flag_called",
                         }
                     ],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsTable",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "breakdown_type": "event",
-                "filter_test_accounts": False,
             },
         )
 
@@ -1557,153 +1575,191 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(tiles), 4)
         self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
         self.assertEqual(
-            tiles[0].insight.filters,
+            tiles[0].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_flag_called",
-                        "name": "$feature_flag_called",
-                        "type": "events",
-                    }
-                ],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$feature_flag_response",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
-                        }
-                    ],
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "name": "$feature_flag_called", "event": "$feature_flag_called"}],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "breakdown_type": "event",
-                "filter_test_accounts": False,
             },
         )
         self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
         self.assertEqual(
-            tiles[1].insight.filters,
+            tiles[1].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_flag_called",
-                        "math": "dau",
-                        "name": "$feature_flag_called",
-                        "type": "events",
-                    }
-                ],
-                "display": "ActionsTable",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$feature_flag_response",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
                         {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "$feature_flag_called",
+                            "event": "$feature_flag_called",
                         }
                     ],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsTable",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "breakdown_type": "event",
-                "filter_test_accounts": False,
             },
         )
 
         # enriched insights
         self.assertEqual(tiles[2].insight.name, "Feature Interaction Total Volume")
         self.assertEqual(
-            tiles[2].insight.filters,
+            tiles[2].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_interaction",
-                        "name": "Feature Interaction - Total",
-                        "type": "events",
-                    },
-                    {
-                        "id": "$feature_interaction",
-                        "math": "dau",
-                        "name": "Feature Interaction - Unique users",
-                        "type": "events",
-                    },
-                ],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "name": "Feature Interaction - Total", "event": "$feature_interaction"},
                         {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
-                        }
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "Feature Interaction - Unique users",
+                            "event": "$feature_interaction",
+                        },
                     ],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "filter_test_accounts": False,
             },
         )
         self.assertEqual(tiles[3].insight.name, "Feature Viewed Total Volume")
         self.assertEqual(
-            tiles[3].insight.filters,
+            tiles[3].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_view",
-                        "name": "Feature View - Total",
-                        "type": "events",
-                    },
-                    {
-                        "id": "$feature_view",
-                        "math": "dau",
-                        "name": "Feature View - Unique users",
-                        "type": "events",
-                    },
-                ],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "name": "Feature View - Total", "event": "$feature_view"},
                         {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
-                        }
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "Feature View - Unique users",
+                            "event": "$feature_view",
+                        },
                     ],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "filter_test_accounts": False,
             },
         )
 
@@ -6284,6 +6340,30 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         self.create_feature_flag_called_event(multivariate_flag_rolled_out_variant_no_rolled_out_release.key)
         self.assert_expected_response(
             multivariate_flag_rolled_out_variant_no_rolled_out_release.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
+        # Request status for multivariate flag with a variant set to 100% but no release condition set to 100%
+        multivariate_flag_rolled_out_release_condition_half_variant = FeatureFlag.objects.create(
+            name="Multivariate flag with release condition set to 100%, but variants still 50%",
+            key="multivariate-rolled-out-release-half-variant-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "var1key", "name": "test", "rollout_percentage": 50},
+                        {"key": "var2key", "name": "control", "rollout_percentage": 50},
+                    ],
+                },
+                "groups": [
+                    {"variant": None, "properties": [], "rollout_percentage": 100},
+                ],
+            },
+        )
+        self.create_feature_flag_called_event(multivariate_flag_rolled_out_release_condition_half_variant.key)
+        self.assert_expected_response(
+            multivariate_flag_rolled_out_release_condition_half_variant.id,
             FeatureFlagStatus.ACTIVE,
         )
 

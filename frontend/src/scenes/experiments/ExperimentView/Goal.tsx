@@ -250,6 +250,12 @@ export function Goal(): JSX.Element {
     const [isModalOpen, setIsModalOpen] = useState(false)
     const metricType = getMetricType(0)
 
+    // :FLAG: CLEAN UP AFTER MIGRATION
+    const isDataWarehouseMetric =
+        featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] &&
+        metricType === InsightType.TRENDS &&
+        (experiment.metrics[0] as ExperimentTrendsQuery).count_query?.series[0].kind === NodeKind.DataWarehouseNode
+
     return (
         <div>
             <div>
@@ -322,16 +328,18 @@ export function Goal(): JSX.Element {
                             Change goal
                         </LemonButton>
                     </div>
-                    {metricType === InsightType.TRENDS && !experimentMathAggregationForTrends() && (
-                        <>
-                            <LemonDivider className="" vertical />
-                            <div className="">
-                                <div className="mt-auto ml-auto">
-                                    <ExposureMetric experimentId={experimentId} />
+                    {metricType === InsightType.TRENDS &&
+                        !experimentMathAggregationForTrends() &&
+                        !isDataWarehouseMetric && (
+                            <>
+                                <LemonDivider className="" vertical />
+                                <div className="">
+                                    <div className="mt-auto ml-auto">
+                                        <ExposureMetric experimentId={experimentId} />
+                                    </div>
                                 </div>
-                            </div>
-                        </>
-                    )}
+                            </>
+                        )}
                 </div>
             )}
             <PrimaryMetricModal

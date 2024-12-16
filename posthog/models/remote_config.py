@@ -4,6 +4,7 @@ from typing import Any, Optional
 from collections.abc import Callable
 from django.conf import settings
 from django.db import models
+from django.http import HttpRequest
 from django.utils import timezone
 from prometheus_client import Counter
 from sentry_sdk import capture_exception
@@ -65,6 +66,24 @@ def cache_key_for_team_token(team_token: str, suffix: str) -> str:
     return f"remote_config/{team_token}/{suffix}"
 
 
+def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] = None) -> dict:
+    from posthog.api.utils import on_permitted_recording_domain
+
+    # Remove domains from session recording
+    if config.get("sessionRecording"):
+        if "domains" in config["sessionRecording"]:
+            domains = config["sessionRecording"].pop("domains")
+
+            # Empty list of domains means always permitted
+            if request and domains:
+                if not on_permitted_recording_domain(domains, request=request):
+                    config["sessionRecording"] = False
+
+    # Remove site apps JS
+    config.pop("siteAppsJS", None)
+    return config
+
+
 class RemoteConfig(UUIDModel):
     """
     RemoteConfig is a helper model. There is one per team and stores a highly cacheable JSON object
@@ -113,8 +132,10 @@ class RemoteConfig(UUIDModel):
                 if team.autocapture_exceptions_opt_in
                 else False
             ),
-            "analytics": {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT},
         }
+
+        if str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):
+            config["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
         if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
             config["elementsChainAsString"] = True
@@ -124,9 +145,13 @@ class RemoteConfig(UUIDModel):
 
         # TODO: Support the domain based check for recordings (maybe do it client side)?
         if team.session_recording_opt_in:
-            sample_rate = team.session_recording_sample_rate or None
+            capture_console_logs = True if team.capture_console_log_opt_in else False
+            sample_rate = str(team.session_recording_sample_rate) if team.session_recording_sample_rate else None
+
             if sample_rate == "1.00":
                 sample_rate = None
+
+            minimum_duration = team.session_recording_minimum_duration_milliseconds or None
 
             linked_flag = None
             linked_flag_config = team.session_recording_linked_flag or None
@@ -138,17 +163,30 @@ class RemoteConfig(UUIDModel):
                 else:
                     linked_flag = linked_flag_key
 
+            rrweb_script_config = None
+
+            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
+                "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
+                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
+            ):
+                rrweb_script_config = {
+                    "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
+                }
+
             session_recording_config_response = {
                 "endpoint": "/s/",
-                "consoleLogRecordingEnabled": True if team.capture_console_log_opt_in else False,
+                "consoleLogRecordingEnabled": capture_console_logs,
                 "recorderVersion": "v2",
-                "sampleRate": str(sample_rate) if sample_rate else None,
-                "minimumDurationMilliseconds": team.session_recording_minimum_duration_milliseconds or None,
+                "sampleRate": sample_rate,
+                "minimumDurationMilliseconds": minimum_duration,
                 "linkedFlag": linked_flag,
                 "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
+                "scriptConfig": rrweb_script_config,
+                # NOTE: This is cached but stripped out at the api level depending on the caller
+                "domains": team.recording_domains or [],
             }
 
             if isinstance(team.session_replay_config, dict):
@@ -161,6 +199,7 @@ class RemoteConfig(UUIDModel):
                         "canvasQuality": "0.4" if record_canvas else None,
                     }
                 )
+
         config["sessionRecording"] = session_recording_config_response
 
         # MARK: Quota limiting
@@ -185,11 +224,7 @@ class RemoteConfig(UUIDModel):
         if surveys_response["survey_config"]:
             config["survey_config"] = surveys_response["survey_config"]
 
-        try:
-            default_identified_only = team.pk >= int(settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN)
-        except Exception:
-            default_identified_only = False
-        config["defaultIdentifiedOnly"] = bool(default_identified_only)
+        config["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 
         # MARK: Site apps - we want to eventually inline the JS but that will come later
         site_apps = []
@@ -202,9 +237,12 @@ class RemoteConfig(UUIDModel):
 
         config["siteApps"] = site_apps
 
+        # Array of JS objects to be included when building the final JS
+        config["siteAppsJS"] = self._build_site_apps_js()
+
         return config
 
-    def build_js_config(self):
+    def _build_site_apps_js(self):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
@@ -220,10 +258,11 @@ class RemoteConfig(UUIDModel):
                     f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback();\n  }}\n}}"
                 )
             )
-
-        site_functions = HogFunction.objects.filter(
-            team=self.team, enabled=True, type__in=("site_destination", "site_app")
-        ).all()
+        site_functions = (
+            HogFunction.objects.select_related("team")
+            .filter(team=self.team, enabled=True, type__in=("site_destination", "site_app"))
+            .all()
+        )
 
         site_functions_js = []
 
@@ -242,16 +281,12 @@ class RemoteConfig(UUIDModel):
                 logger.exception(f"Failed to build JS for site function {site_function.id}")
                 pass
 
-        js_content = f"""(function() {{
-  window._POSTHOG_CONFIG = {json.dumps(self.config)};
-  window._POSTHOG_JS_APPS = [{','.join(site_apps_js + site_functions_js)}];
-}})();
-        """.strip()
-
-        return js_content
+        return site_apps_js + site_functions_js
 
     @classmethod
-    def _get_via_cache(cls, token: str, suffix: str, fn: Callable[["RemoteConfig"], dict | str]) -> Any:
+    def _get_via_cache(
+        cls, token: str, suffix: str, fn: Callable[["RemoteConfig"], dict | str], timeout: int = CACHE_TIMEOUT
+    ) -> Any:
         key = cache_key_for_team_token(token, suffix)
 
         data = cache.get(key)
@@ -267,34 +302,45 @@ class RemoteConfig(UUIDModel):
         try:
             remote_config = cls.objects.select_related("team").get(team__api_token=token)
         except cls.DoesNotExist:
-            cache.set(key, "404", timeout=CACHE_TIMEOUT)
+            cache.set(key, "404", timeout=timeout)
             REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
             raise
 
         data = fn(remote_config)
-        cache.set(key, data, timeout=CACHE_TIMEOUT)
+        cache.set(key, data, timeout=timeout)
 
         return data
 
     @classmethod
-    def get_config_via_token(cls, token: str) -> dict:
-        return cls._get_via_cache(token, "config", lambda remote_config: remote_config.build_config())
+    def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
+        config = cls._get_via_cache(token, "config", lambda remote_config: remote_config.build_config())
+        config = sanitize_config_for_public_cdn(config, request=request)
+
+        return config
 
     @classmethod
-    def get_config_js_via_token(cls, token: str) -> str:
-        return cls._get_via_cache(token, "config.js", lambda remote_config: remote_config.build_js_config())
+    def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
+        config = cls._get_via_cache(token, "config", lambda remote_config: remote_config.build_config())
+        # Get the site apps JS so we can render it in the JS
+        site_apps_js = config.pop("siteAppsJS", None)
+        # We don't want to include the minimal site apps content as we have the JS now
+        config.pop("siteApps", None)
+        config = sanitize_config_for_public_cdn(config, request=request)
+
+        js_content = f"""(function() {{
+  window._POSTHOG_CONFIG = {json.dumps(config)};
+  window._POSTHOG_JS_APPS = [{','.join(site_apps_js)}];
+}})();
+        """.strip()
+
+        return js_content
 
     @classmethod
-    @classmethod
-    def get_array_js_via_token(cls, token: str) -> str:
+    def get_array_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
         # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
-        data = cls.get_config_js_via_token(token)
+        js_content = cls.get_config_js_via_token(token, request=request)
 
-        return f"""
-        {get_array_js_content()}
-
-        {data}
-        """
+        return f"""{get_array_js_content()}\n\n{js_content}"""
 
     def sync(self):
         """
@@ -308,11 +354,6 @@ class RemoteConfig(UUIDModel):
             self.config = config
 
             cache.set(cache_key_for_team_token(self.team.api_token, "config"), config, timeout=CACHE_TIMEOUT)
-            cache.set(
-                cache_key_for_team_token(self.team.api_token, "config.js"),
-                self.build_js_config(),
-                timeout=CACHE_TIMEOUT,
-            )
 
             # TODO: Invalidate caches - in particular this will be the Cloudflare CDN cache
             self.synced_at = timezone.now()
@@ -353,7 +394,7 @@ def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
 
 @receiver(post_save, sender=HogFunction)
 def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
-    if instance.enabled and instance.type in ("site_destination", "site_app") and instance.transpiled:
+    if instance.enabled and instance.type in ("site_destination", "site_app"):
         _update_team_remote_config(instance.team_id)
 
 

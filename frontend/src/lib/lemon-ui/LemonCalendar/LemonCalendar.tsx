@@ -81,7 +81,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                 return (
                     <table className="LemonCalendar__month" key={month} data-attr="lemon-calendar-month">
                         <thead>
-                            <tr>
+                            <tr className="LemonCalendar__month-header">
                                 <th className="relative">
                                     {showLeftMonth && (
                                         <LemonButton

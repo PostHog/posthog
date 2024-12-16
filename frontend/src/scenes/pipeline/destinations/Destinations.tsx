@@ -19,7 +19,7 @@ import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { AppMetricSparkLineV2 } from '../metrics/AppMetricsV2Sparkline'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
-import { Destination, PipelineBackend, SiteApp } from '../types'
+import { Destination, PipelineBackend, SiteApp, Transformation } from '../types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
 import { DestinationsFilters } from './DestinationsFilters'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
@@ -58,12 +58,7 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
                     caption="Run custom scripts on your website."
                     buttons={<NewButton stage={PipelineStage.SiteApp} />}
                 />
-            ) : (
-                <PageHeader
-                    caption="Run custom scripts on your website or send your data in real time or in batches to destinations outside of PostHog."
-                    buttons={<NewButton stage={PipelineStage.SiteApp} />}
-                />
-            )}
+            ) : null}
 
             <DestinationsTable types={types} />
             <div className="mt-4" />
@@ -72,7 +67,9 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
                     ? 'New destinations'
                     : types.includes('site_app')
                     ? 'New site app'
-                    : 'New Hog function'}
+                    : types.includes('transformation')
+                    ? 'New transformation'
+                    : 'New'}
             </h2>
             <DestinationOptionsTable types={types} />
             {/* Old site-apps until we migrate everyone onto the new ones */}
@@ -169,7 +166,7 @@ export function DestinationsTable({
                                   render: function RenderFrequency(_, destination) {
                                       return 'interval' in destination ? destination.interval : null
                                   },
-                              } as LemonTableColumn<Destination | SiteApp, any>,
+                              } as LemonTableColumn<Destination | Transformation | SiteApp, any>,
                           ]
                         : []),
                     ...(showFrequencyHistory
@@ -193,10 +190,10 @@ export function DestinationsTable({
                                           </Link>
                                       )
                                   },
-                              } as LemonTableColumn<Destination | SiteApp, any>,
+                              } as LemonTableColumn<Destination | Transformation | SiteApp, any>,
                           ]
                         : []),
-                    updatedAtColumn() as LemonTableColumn<Destination | SiteApp, any>,
+                    updatedAtColumn() as LemonTableColumn<Destination | Transformation | SiteApp, any>,
                     {
                         title: 'Status',
                         key: 'enabled',

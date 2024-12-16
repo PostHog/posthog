@@ -26,7 +26,9 @@ export function hogFunctionUrl(type: HogFunctionTypeType | PipelineStage, id?: s
 }
 
 // Supports both hog function types and pipeline stages themselves as input
-export function hogFunctionTypeToPipelineStage(type: string): PipelineStage {
+export function hogFunctionTypeToPipelineStage(
+    type: string
+): PipelineStage.Destination | PipelineStage.Transformation | PipelineStage.SiteApp {
     switch (type) {
         case 'site_destination':
             return PipelineStage.Destination
@@ -38,6 +40,8 @@ export function hogFunctionTypeToPipelineStage(type: string): PipelineStage {
             return PipelineStage.SiteApp
         case 'site-app':
             return PipelineStage.SiteApp
+        case 'transformation':
+            return PipelineStage.Transformation
         default:
             return PipelineStage.Destination
     }

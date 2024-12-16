@@ -4,6 +4,7 @@ import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import { LemonBadge, LemonButton, LemonModal, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -14,6 +15,8 @@ import { urls } from 'scenes/urls'
 import { PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
 import { AppMetricSparkLine } from './AppMetricSparkLine'
+import { TRANSFORMATION_TYPES } from './destinations/constants'
+import { Destinations } from './destinations/Destinations'
 import { NewButton } from './NewButton'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { PluginImage } from './PipelinePluginImage'
@@ -61,7 +64,13 @@ export function Transformations(): JSX.Element {
                     </div>
                 </>
             )}
+
             <TransformationsTable />
+
+            <FlaggedFeature flag="hog-transformations">
+                <h2 className="mt-4">Experimental transformations</h2>
+                <Destinations types={TRANSFORMATION_TYPES} />
+            </FlaggedFeature>
         </>
     )
 }
@@ -238,7 +247,7 @@ const MinimalAppView = ({ transformation, order }: { transformation: Transformat
     return (
         <div
             ref={setNodeRef}
-            className="flex gap-2 cursor-move border rounded p-2 items-center background-primary relative"
+            className="relative flex items-center gap-2 p-2 border rounded cursor-move background-primary"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 transform: CSS.Transform.toString(transform),

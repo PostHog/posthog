@@ -37,6 +37,7 @@ class HogFunctionType(models.TextChoices):
     DESTINATION = "destination"
     SITE_DESTINATION = "site_destination"
     SITE_APP = "site_app"
+    TRANSFORMATION = "transformation"
     EMAIL = "email"
     SMS = "sms"
     PUSH = "push"
@@ -45,7 +46,7 @@ class HogFunctionType(models.TextChoices):
     BROADCAST = "broadcast"
 
 
-TYPES_THAT_RELOAD_PLUGIN_SERVER = (HogFunctionType.DESTINATION, HogFunctionType.EMAIL)
+TYPES_THAT_RELOAD_PLUGIN_SERVER = (HogFunctionType.DESTINATION, HogFunctionType.EMAIL, HogFunctionType.TRANSFORMATION)
 TYPES_WITH_COMPILED_FILTERS = (HogFunctionType.DESTINATION,)
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
@@ -81,6 +82,7 @@ class HogFunction(UUIDModel):
     encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
 
     filters = models.JSONField(null=True, blank=True)
+    mappings = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
 

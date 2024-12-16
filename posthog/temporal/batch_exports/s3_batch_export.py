@@ -51,9 +51,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
     WriterFormat,
 )
-from posthog.temporal.batch_exports.utils import (
-    set_status_to_running_task,
-)
+from posthog.temporal.batch_exports.utils import set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -67,12 +65,12 @@ NON_RETRYABLE_ERROR_TYPES = [
     "NoSuchBucket",
     # Couldn't connect to custom S3 endpoint
     "EndpointConnectionError",
-    # Input contained an empty S3 endpoint URL
-    "EmptyS3EndpointURLError",
     # User provided an invalid S3 key
     "InvalidS3Key",
     # All consumers failed with non-retryable errors.
     "RecordBatchConsumerNonRetryableExceptionGroup",
+    # Invalid S3 endpoint URL
+    "InvalidS3EndpointError",
 ]
 
 FILE_FORMAT_EXTENSIONS = {
@@ -159,11 +157,11 @@ class IntermittentUploadPartTimeoutError(Exception):
         super().__init__(f"An intermittent `RequestTimeout` was raised while attempting to upload part {part_number}")
 
 
-class EmptyS3EndpointURLError(Exception):
-    """Exception raised when an S3 endpoint URL is empty string."""
+class InvalidS3EndpointError(Exception):
+    """Exception raised when an S3 endpoint is invalid."""
 
-    def __init__(self):
-        super().__init__("Endpoint URL cannot be empty.")
+    def __init__(self, message: str = "Endpoint URL is invalid."):
+        super().__init__(message)
 
 
 Part = dict[str, str | int]
@@ -215,7 +213,7 @@ class S3MultiPartUpload:
         self.pending_parts: list[Part] = []
 
         if self.endpoint_url == "":
-            raise EmptyS3EndpointURLError()
+            raise InvalidS3EndpointError("Endpoint URL is empty.")
 
     def to_state(self) -> S3MultiPartUploadState:
         """Produce state tuple that can be used to resume this S3MultiPartUpload."""
@@ -240,14 +238,19 @@ class S3MultiPartUpload:
     async def s3_client(self):
         """Asynchronously yield an S3 client."""
 
-        async with self._session.client(
-            "s3",
-            region_name=self.region_name,
-            aws_access_key_id=self.aws_access_key_id,
-            aws_secret_access_key=self.aws_secret_access_key,
-            endpoint_url=self.endpoint_url,
-        ) as client:
-            yield client
+        try:
+            async with self._session.client(
+                "s3",
+                region_name=self.region_name,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+                endpoint_url=self.endpoint_url,
+            ) as client:
+                yield client
+        except ValueError as err:
+            if "Invalid endpoint" in str(err):
+                raise InvalidS3EndpointError(str(err)) from err
+            raise
 
     async def start(self) -> str:
         """Start this S3MultiPartUpload."""
@@ -466,9 +469,10 @@ class S3Consumer(Consumer):
         heartbeater: Heartbeater,
         heartbeat_details: S3HeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        writer_format: WriterFormat,
         s3_upload: S3MultiPartUpload,
     ):
-        super().__init__(heartbeater, heartbeat_details, data_interval_start)
+        super().__init__(heartbeater, heartbeat_details, data_interval_start, writer_format)
         self.heartbeat_details: S3HeartbeatDetails = heartbeat_details
         self.s3_upload = s3_upload
 

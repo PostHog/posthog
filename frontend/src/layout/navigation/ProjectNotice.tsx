@@ -1,4 +1,5 @@
 import { IconGear, IconPlus } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -23,17 +24,29 @@ interface ProjectNoticeBlueprint {
     closeable?: boolean
 }
 
-function CountDown({ datetime }: { datetime: dayjs.Dayjs }): JSX.Element {
+function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
     const [now, setNow] = useState(dayjs())
+
+    // Format the time difference as 00:00:00
+    const duration = dayjs.duration(datetime.diff(now))
+    const pastCountdown = duration.seconds() < 0
+
+    const countdown = pastCountdown
+        ? 'Expired'
+        : duration.hours() > 0
+        ? duration.format('HH:mm:ss')
+        : duration.format('mm:ss')
 
     useEffect(() => {
         const interval = setInterval(() => setNow(dayjs()), 1000)
         return () => clearInterval(interval)
     }, [])
 
-    // Format the time difference as 00:00:00
-    const duration = dayjs.duration(datetime.diff(now))
-    const countdown = duration.hours() > 0 ? duration.format('HH:mm:ss') : duration.format('mm:ss')
+    useEffect(() => {
+        if (pastCountdown) {
+            callback?.()
+        }
+    }, [pastCountdown])
 
     return <>{countdown}</>
 }
@@ -41,8 +54,8 @@ function CountDown({ datetime }: { datetime: dayjs.Dayjs }): JSX.Element {
 export function ProjectNotice(): JSX.Element | null {
     const { projectNoticeVariant } = useValues(navigationLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { logout } = useActions(userLogic)
-    const { user } = useValues(userLogic)
+    const { logout, loadUser } = useActions(userLogic)
+    const { user, userLoading } = useValues(userLogic)
     const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
@@ -125,7 +138,14 @@ export function ProjectNotice(): JSX.Element | null {
                     You are currently logged in as a customer.{' '}
                     {user?.is_impersonated_until && (
                         <>
-                            Expires in <CountDown datetime={dayjs(user.is_impersonated_until)} />
+                            Expires in <CountDown datetime={dayjs(user.is_impersonated_until)} callback={loadUser} />
+                            {userLoading ? (
+                                <Spinner />
+                            ) : (
+                                <Link className="ml-2" onClick={() => loadUser()}>
+                                    Refresh
+                                </Link>
+                            )}
                         </>
                     )}
                 </>
