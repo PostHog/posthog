@@ -1,3 +1,4 @@
+from typing import Optional
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -48,18 +49,20 @@ def join_with_person_distinct_ids_table(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,
     node: SelectQuery,
+    override_source_table_key: Optional[str] = None,
 ):
     from posthog.hogql import ast
 
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from person_distinct_ids")
+    source_table_key = override_source_table_key or "distinct_id"
     join_expr = ast.JoinExpr(table=select_from_person_distinct_ids_table(join_to_add.fields_accessed))
     join_expr.join_type = "INNER JOIN"
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[join_to_add.from_table, "distinct_id"]),
+            left=ast.Field(chain=[join_to_add.from_table, source_table_key]),
             right=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
         ),
         constraint_type="ON",
