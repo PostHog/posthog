@@ -89,3 +89,14 @@ class ConversationCheckpointWrite(UUIDModel):
                 name="unique_checkpoint_write",
             )
         ]
+
+
+class CoreMemory(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    text = models.TextField(default="", help_text="Dumped core memory where facts are separated by newlines.")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team_id", "user_id"], name="unique_core_memory"),
+        ]
