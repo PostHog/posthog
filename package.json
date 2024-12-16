@@ -66,6 +66,7 @@
         "mypy-baseline-sync": "mypy -p posthog | mypy-baseline sync"
     },
     "dependencies": {
+        "@anthropic-ai/sdk": "^0.18.0",
         "@babel/runtime": "^7.24.0",
         "@dnd-kit/core": "^6.0.8",
         "@dnd-kit/modifiers": "^6.0.1",
@@ -186,7 +187,8 @@
         "ts-pattern": "~4.3.0",
         "use-debounce": "^9.0.3",
         "use-resize-observer": "^8.0.0",
-        "zxcvbn": "^4.4.2"
+        "zxcvbn": "^4.4.2",
+        "@posthog/lemon-ui": "^0.6.0"
     },
     "devDependencies": {
         "@babel/core": "^7.22.10",

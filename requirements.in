@@ -62,7 +62,7 @@ multidict==6.0.5 # Not used by us directly, but code won't run on Ubuntu 24.04 u
 natsort==8.4.0
 nanoid==2.0.0
 nh3==0.2.14
-numpy==1.23.3
+numpy==1.26.4
 openai==1.51.2
 openpyxl==3.1.2
 orjson==3.10.7
@@ -118,3 +118,7 @@ zstd==1.5.5.1
 zxcvbn==4.4.28
 grpcio~=1.63.2 # Version constrained so that `deepeval` can be installed in in dev
 tenacity~=8.4.2  # Version constrained so that `deepeval` can be installed in in dev
+Flask==3.1.0  # Required by Max (PostHog Support AI)
+Flask-Cors==5.0.0  # Required by Max (PostHog Support AI)
+httpx==0.28.1  # Required by Max (PostHog Support AI)
+jiter==0.8.2  # Required by Max (PostHog Support AI)
