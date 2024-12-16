@@ -122,14 +122,21 @@ export const errorTrackingIssueQuery = ({
     dateRange,
     filterTestAccounts,
     filterGroup,
+    sparklineSelectedPeriod,
 }: {
     issueId: string
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
+} & {
+    sparklineSelectedPeriod: string
 }): ErrorTrackingQuery => {
+    const { value, displayAs, offsetHours } = parseSparklineSelection(sparklineSelectedPeriod)
+    const { labels, data } = generateSparklineProps({ value, displayAs, offsetHours })
+
     return {
         kind: NodeKind.ErrorTrackingQuery,
+        select: [`<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as volume`],
         issueId: issueId,
         dateRange: dateRange,
         filterGroup: filterGroup as PropertyGroupFilter,

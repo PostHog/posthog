@@ -8,8 +8,6 @@
     justify-content: flex-start;
     height: 100%;
     overflow: hidden;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
 
     .Playlist__list {
         position: relative;
@@ -19,7 +17,7 @@
         height: 100%;
         overflow: hidden;
 
-        &:not(.Playlist__list--collapsed) {
+        &.Playlist__list--with-content:not(.Playlist__list--collapsed) {
             width: 25%;
             min-width: 285px;
             max-width: 320px;

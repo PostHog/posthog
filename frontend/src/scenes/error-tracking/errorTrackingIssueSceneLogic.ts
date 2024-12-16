@@ -31,6 +31,7 @@ export interface ErrorTrackingIssueSceneLogicProps {
 
 export enum IssueTab {
     Overview = 'overview',
+    Events = 'events',
     Breakdowns = 'breakdowns',
 }
 
@@ -76,6 +77,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
                             filterGroup: values.filterGroup,
+                            sparklineSelectedPeriod: '7d',
                         }),
                         {},
                         undefined,
@@ -97,16 +99,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             [] as ErrorTrackingEvent[],
             {
                 loadEvents: async () => {
-                    const response = await api.query(
-                        errorTrackingIssueEventsQuery({
-                            select: ['uuid', 'properties', 'timestamp', 'person'],
-                            issueId: props.id,
-                            dateRange: values.dateRange,
-                            filterTestAccounts: values.filterTestAccounts,
-                            filterGroup: values.filterGroup,
-                            offset: values.events.length,
-                        })
-                    )
+                    const response = await api.query(values.eventsQuery)
 
                     const newResults = response.results.map((r) => ({
                         uuid: r[0],
@@ -150,6 +143,21 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 ]
             },
         ],
+
+        eventsQuery: [
+            (s, p) => [p.id, s.dateRange, s.filterTestAccounts, s.filterGroup, s.events],
+            (id, dateRange, filterTestAccounts, filterGroup, events) =>
+                errorTrackingIssueEventsQuery({
+                    select: ['uuid', 'properties', 'timestamp', 'person'],
+                    issueId: id,
+                    dateRange: dateRange,
+                    filterTestAccounts: filterTestAccounts,
+                    filterGroup: filterGroup,
+                    offset: events.length,
+                }),
+        ],
+
+        activeEvent: [(s) => [s.events, s.activeEventUUID], (events, uuid) => events.find((e) => e.uuid === uuid)],
     }),
 
     actionToUrl(({ values }) => ({

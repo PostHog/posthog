@@ -86,7 +86,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
     )
 }
 
-export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element => {
+export const Options = (): JSX.Element => {
     const { dateRange, assignee, hasGroupActions } = useValues(errorTrackingLogic)
     const { setDateRange, setAssignee } = useActions(errorTrackingLogic)
     const { orderBy } = useValues(errorTrackingSceneLogic)
@@ -106,42 +106,40 @@ export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element
                         size="small"
                     />
                 </div>
-                {!isGroup && (
-                    <div className="flex items-center gap-1">
-                        <span>Sort by:</span>
-                        <LemonSelect
-                            onSelect={setOrderBy}
-                            onChange={setOrderBy}
-                            value={orderBy}
-                            options={[
-                                {
-                                    value: 'last_seen',
-                                    label: 'Last seen',
-                                },
-                                {
-                                    value: 'first_seen',
-                                    label: 'First seen',
-                                },
-                                {
-                                    value: 'occurrences',
-                                    label: 'Occurrences',
-                                },
-                                {
-                                    value: 'users',
-                                    label: 'Users',
-                                },
-                                {
-                                    value: 'sessions',
-                                    label: 'Sessions',
-                                },
-                            ]}
-                            size="small"
-                        />
-                    </div>
-                )}
+                <div className="flex items-center gap-1">
+                    <span>Sort by:</span>
+                    <LemonSelect
+                        onSelect={setOrderBy}
+                        onChange={setOrderBy}
+                        value={orderBy}
+                        options={[
+                            {
+                                value: 'last_seen',
+                                label: 'Last seen',
+                            },
+                            {
+                                value: 'first_seen',
+                                label: 'First seen',
+                            },
+                            {
+                                value: 'occurrences',
+                                label: 'Occurrences',
+                            },
+                            {
+                                value: 'users',
+                                label: 'Users',
+                            },
+                            {
+                                value: 'sessions',
+                                label: 'Sessions',
+                            },
+                        ]}
+                        size="small"
+                    />
+                </div>
             </div>
             <div className="flex items-center gap-1">
-                {hasGroupActions && !isGroup && (
+                {hasGroupActions && (
                     <>
                         <span>Assigned to:</span>
                         <MemberSelect

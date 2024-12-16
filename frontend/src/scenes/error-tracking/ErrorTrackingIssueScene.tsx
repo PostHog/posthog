@@ -10,8 +10,9 @@ import { ErrorTrackingIssue } from '~/queries/schema'
 
 import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
-import { OverviewTab } from './groups/OverviewTab'
+import { errorTrackingIssueSceneLogic, IssueTab } from './errorTrackingIssueSceneLogic'
+import { EventsTab } from './issue/tabs/EventsTab'
+import { OverviewTab } from './issue/tabs/OverviewTab'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -27,8 +28,8 @@ const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading, hasGroupActions } = useValues(errorTrackingIssueSceneLogic)
-    const { updateIssue, loadIssue } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, hasGroupActions, tab } = useValues(errorTrackingIssueSceneLogic)
+    const { updateIssue, loadIssue, setTab } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
         // don't like doing this but scene logics do not unmount after being loaded
@@ -79,16 +80,22 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         )
                     }
                 />
-                {/* <ErrorTrackingFilters.FilterGroup />
-            <LemonDivider className="mt-2" />
-            <ErrorTrackingFilters.Options isGroup /> */}
-
                 <LemonTabs
-                    activeKey="overview"
+                    activeKey={tab}
                     tabs={[
-                        { key: 'overview', label: 'Overview', content: <OverviewTab /> },
-                        { key: 'events', label: 'Events', content: <OverviewTab /> },
+                        {
+                            key: IssueTab.Overview,
+                            label: 'Overview',
+                            content: <OverviewTab />,
+                        },
+
+                        {
+                            key: IssueTab.Events,
+                            label: 'Events',
+                            content: <EventsTab />,
+                        },
                     ]}
+                    onChange={setTab}
                 />
             </>
         </AlphaAccessScenePrompt>

@@ -26,7 +26,7 @@ export type PlaylistSection<T> = {
 export type PlaylistProps<T> = {
     sections: PlaylistSection<T>[]
     listEmptyState: JSX.Element
-    content: (({ activeItem }: { activeItem: T | null }) => JSX.Element) | null
+    content?: (({ activeItem }: { activeItem: T | null }) => JSX.Element) | null
     title?: string
     notebooksHref?: string
     embedded?: boolean
@@ -41,6 +41,7 @@ export type PlaylistProps<T> = {
     'data-attr'?: string
     activeItemId?: string
     isCollapsed?: boolean
+    showHeader?: boolean
 }
 
 const CounterBadge = ({
@@ -81,6 +82,7 @@ export function Playlist<
     onSelect,
     onChangeSections,
     isCollapsed = false,
+    showHeader = true,
     'data-attr': dataAttr,
 }: PlaylistProps<T>): JSX.Element {
     const [controlledActiveItemId, setControlledActiveItemId] = useState<T['id'] | null>(
@@ -121,7 +123,14 @@ export function Playlist<
                 'Playlist--embedded': embedded,
             })}
         >
-            <div ref={playlistListRef} className={clsx('Playlist__list', listCollapsed && 'Playlist__list--collapsed')}>
+            <div
+                ref={playlistListRef}
+                className={clsx(
+                    'Playlist__list',
+                    listCollapsed && 'Playlist__list--collapsed',
+                    !!content && 'Playlist__list--with-content'
+                )}
+            >
                 {listCollapsed ? (
                     <CollapsedList onClickOpen={() => setListCollapsed(false)} />
                 ) : (
@@ -138,16 +147,19 @@ export function Playlist<
                         setActiveItemId={onChangeActiveItem}
                         onChangeSections={onChangeSections}
                         emptyState={listEmptyState}
+                        showHeader={showHeader}
                     />
                 )}
-                <Resizer
-                    logicKey="playlist-list"
-                    placement="right"
-                    containerRef={playlistListRef}
-                    closeThreshold={100}
-                    onToggleClosed={(value) => setListCollapsed(value)}
-                    onDoubleClick={() => setListCollapsed(!listCollapsed)}
-                />
+                {content && (
+                    <Resizer
+                        logicKey="playlist-list"
+                        placement="right"
+                        containerRef={playlistListRef}
+                        closeThreshold={100}
+                        onToggleClosed={(value) => setListCollapsed(value)}
+                        onDoubleClick={() => setListCollapsed(!listCollapsed)}
+                    />
+                )}
             </div>
             {content && <div className="Playlist__main">{content({ activeItem })}</div>}
         </div>
@@ -210,6 +222,7 @@ function List<
     onScrollListEdge,
     loading,
     emptyState,
+    showHeader,
 }: {
     title?: string
     notebooksHref: PlaylistProps<T>['notebooksHref']
@@ -223,6 +236,7 @@ function List<
     onScrollListEdge: PlaylistProps<T>['onScrollListEdge']
     loading: PlaylistProps<T>['loading']
     emptyState: PlaylistProps<T>['listEmptyState']
+    showHeader: PlaylistProps<T>['showHeader']
 }): JSX.Element {
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -251,15 +265,17 @@ function List<
 
     return (
         <div className="flex flex-col w-full bg-bg-light overflow-hidden border-r h-full">
-            <DraggableToNotebook href={notebooksHref}>
-                <div className="flex flex-col gap-1">
-                    <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
-                        <TitleWithCount title={title} count={itemsCount} onClickCollapse={onClickCollapse} />
-                        {headerActions}
+            {showHeader && (
+                <DraggableToNotebook href={notebooksHref}>
+                    <div className="flex flex-col gap-1">
+                        <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                            <TitleWithCount title={title} count={itemsCount} onClickCollapse={onClickCollapse} />
+                            {headerActions}
+                        </div>
+                        <LemonTableLoader loading={loading} />
                     </div>
-                    <LemonTableLoader loading={loading} />
-                </div>
-            </DraggableToNotebook>
+                </DraggableToNotebook>
+            )}
 
             <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
                 {sections.flatMap((s) => s.items).length ? (
