@@ -53,13 +53,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     )
 
     if use_remote_config:
-        response = RemoteConfig.get_config_via_token(token)
-
-        if _session_recording_domain_not_allowed(team, request):
-            # Fallback for sessionRecording domain check - new endpoint will be used differently
-            response["sessionRecording"] = False
-
-        return response
+        return RemoteConfig.get_config_via_token(token)
 
     response = {
         "config": {"enable_collect_everything": True},
