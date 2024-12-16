@@ -178,9 +178,10 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         # 1. If math aggregation is used, we construct an implicit exposure query: unique users for the count event
         uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(self.query.count_query)
+        prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
 
         if uses_math_aggregation:
-            prepared_exposure_query = TrendsQuery(**self.query.count_query.model_dump())
+            prepared_exposure_query = prepared_count_query
             prepared_exposure_query.dateRange = self._get_insight_date_range()
             prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
 
@@ -226,7 +227,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                     raise ValueError("Expected first series item to have an 'event' attribute")
 
         # 2. Otherwise, if an exposure query is provided, we use it as is, adapting the date range and breakdown
-        elif self.query.exposure_query:
+        elif self.query.exposure_query and not self._is_data_warehouse_query(prepared_count_query):
             prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
             prepared_exposure_query.dateRange = self._get_insight_date_range()
             prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)

@@ -382,10 +382,11 @@ class UserViewSet(
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
 
-    @action(methods=["POST"], detail=True, permission_classes=[AllowAny])
+    @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
         user_uuid = request.data["uuid"]
+
         if not token:
             raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
 
@@ -421,7 +422,7 @@ class UserViewSet(
 
     @action(
         methods=["POST"],
-        detail=True,
+        detail=False,
         permission_classes=[AllowAny],
         throttle_classes=[UserEmailVerificationThrottle],
     )

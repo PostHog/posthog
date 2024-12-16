@@ -14,8 +14,7 @@ from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.api.utils import (
     get_project_id,
     get_token,
-    hostname_in_allowed_url_list,
-    parse_domain,
+    on_permitted_recording_domain,
 )
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import (
@@ -45,24 +44,6 @@ FLAG_EVALUATION_COUNTER = Counter(
     "Successful decide requests per team.",
     labelnames=[LABEL_TEAM_ID, "errors_computing", "has_hash_key_override"],
 )
-
-
-def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
-    origin = parse_domain(request.headers.get("Origin"))
-    referer = parse_domain(request.headers.get("Referer"))
-    user_agent = request.META.get("HTTP_USER_AGENT")
-
-    is_authorized_web_client: bool = hostname_in_allowed_url_list(
-        team.recording_domains, origin
-    ) or hostname_in_allowed_url_list(team.recording_domains, referer)
-    # TODO this is a short term fix for beta testers
-    # TODO we will match on the app identifier in the origin instead and allow users to auth those
-    is_authorized_mobile_client: bool = user_agent is not None and any(
-        keyword in user_agent
-        for keyword in ["posthog-android", "posthog-ios", "posthog-react-native", "posthog-flutter"]
-    )
-
-    return is_authorized_web_client or is_authorized_mobile_client
 
 
 def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
@@ -361,7 +342,7 @@ def get_decide(request: HttpRequest):
 
 
 def _session_recording_domain_not_allowed(team: Team, request: HttpRequest) -> bool:
-    return team.recording_domains and not on_permitted_recording_domain(team, request)
+    return team.recording_domains and not on_permitted_recording_domain(team.recording_domains, request)
 
 
 def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:

@@ -128,8 +128,16 @@ class Command(BaseCommand):
                 last_incremental_value = incremental.get("last_value")
             except Exception as e:
                 print(f"Cant get last_incremental_value for schema: {schema.pk}. ERROR: {e}")  # noqa: T201
+                pipeline.drop()
                 continue
 
-            schema.update_incremental_field_last_value(last_incremental_value)
+            try:
+                schema.update_incremental_field_last_value(last_incremental_value)
+            except Exception as e:
+                print(  # noqa: T201
+                    f"Cant update_incremental_field_last_value for schema: {schema.pk}. With last_incremental_value={last_incremental_value}. ERROR: {e}"
+                )
+                pipeline.drop()
+                continue
 
             pipeline.drop()
