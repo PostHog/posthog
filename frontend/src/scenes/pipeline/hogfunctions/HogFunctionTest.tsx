@@ -102,16 +102,14 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                 </LemonButton>
                             ) : (
                                 <>
-                                    {type === 'destination' ? (
-                                        <LemonButton
-                                            type="secondary"
-                                            onClick={loadSampleGlobals}
-                                            loading={sampleGlobalsLoading}
-                                            tooltip="Find the last event matching filters, and use it to populate the globals below."
-                                        >
-                                            Refresh globals
-                                        </LemonButton>
-                                    ) : null}
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={loadSampleGlobals}
+                                        loading={sampleGlobalsLoading}
+                                        tooltip="Find the last event matching filters, and use it to populate the globals below."
+                                    >
+                                        Refresh globals
+                                    </LemonButton>
                                     <LemonField name="mock_async_functions">
                                         {({ value, onChange }) => (
                                             <LemonSwitch

@@ -1155,6 +1155,45 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"results": []}
 
+    def test_get_matching_events_with_query(self) -> None:
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        # the matching session
+        session_id = f"test_get_matching_events-1-{uuid.uuid4()}"
+        self.produce_replay_summary("user", session_id, base_time)
+        event_id = _create_event(
+            event="$pageview",
+            properties={"$session_id": session_id},
+            team=self.team,
+            distinct_id=uuid.uuid4(),
+        )
+
+        # a non-matching session
+        non_matching_session_id = f"test_get_matching_events-2-{uuid.uuid4()}"
+        self.produce_replay_summary("user", non_matching_session_id, base_time)
+        _create_event(
+            event="$pageview",
+            properties={"$session_id": non_matching_session_id},
+            team=self.team,
+            distinct_id=uuid.uuid4(),
+        )
+
+        flush_persons_and_events()
+        # data needs time to settle :'(
+        time.sleep(1)
+
+        query_params = [
+            f'{SESSION_RECORDINGS_FILTER_IDS}=["{session_id}"]',
+            'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
+        ]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}&as_query=true"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": [event_id]}
+
     def test_get_matching_events(self) -> None:
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
 
