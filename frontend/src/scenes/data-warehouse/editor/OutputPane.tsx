@@ -1,7 +1,7 @@
 import 'react-data-grid/lib/styles.css'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
@@ -9,12 +9,13 @@ import { Animation } from 'lib/components/Animation/Animation'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useMemo } from 'react'
 import DataGrid from 'react-data-grid'
-import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
@@ -40,12 +41,12 @@ export function OutputPane(): JSX.Element {
     const { editingView, sourceQuery, exportContext, isValidView, error, editorKey } = useValues(multitabEditorLogic)
     const { saveAsInsight, saveAsView, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { response, responseLoading, responseError } = useValues(dataNodeLogic)
+    const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
     const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { visualizationType, queryCancelled } = useValues(dataVisualizationLogic)
 
-    const vizKey = `SQLEditorScene`
+    const vizKey = useMemo(() => `SQLEditorScene`, [])
 
     const columns = useMemo(() => {
         return (
@@ -69,74 +70,6 @@ export function OutputPane(): JSX.Element {
             return rowObject
         })
     }, [response])
-
-    const ErrorState = useMemo((): JSX.Element | null => {
-        return (
-            <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
-                <InsightErrorState
-                    query={sourceQuery}
-                    excludeDetail
-                    title={
-                        queryCancelled
-                            ? 'The query was cancelled'
-                            : response && 'error' in response
-                            ? (response as any).error
-                            : responseError
-                    }
-                />
-            </div>
-        )
-    }, [responseError, sourceQuery, queryCancelled, response])
-
-    const Content = (): JSX.Element | null => {
-        if (activeTab === OutputTab.Results) {
-            if (responseError) {
-                return ErrorState
-            }
-
-            return responseLoading ? (
-                <Spinner className="text-3xl" />
-            ) : !response ? (
-                <span className="text-muted mt-3">Query results will appear here</span>
-            ) : (
-                <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
-                    <DataGrid
-                        className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
-                        columns={columns}
-                        rows={rows}
-                    />
-                </div>
-            )
-        }
-
-        if (activeTab === OutputTab.Visualization) {
-            if (responseError) {
-                return ErrorState
-            }
-
-            return !response ? (
-                <span className="text-muted mt-3">Query be results will be visualized here</span>
-            ) : (
-                <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
-                    <InternalDataTableVisualization
-                        uniqueKey={vizKey}
-                        query={sourceQuery}
-                        setQuery={setSourceQuery}
-                        context={{}}
-                        cachedResults={undefined}
-                        exportContext={exportContext}
-                        onSaveInsight={saveAsInsight}
-                    />
-                </div>
-            )
-        }
-
-        if (activeTab === OutputTab.Info) {
-            return <InfoTab codeEditorKey={editorKey} />
-        }
-
-        return null
-    }
 
     return (
         <div className="flex flex-col w-full flex-1 bg-bg-3000">
@@ -223,8 +156,28 @@ export function OutputPane(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            <div className="flex flex-1 relative bg-dark">
-                <Content />
+            <div className="flex flex-1 relative bg-dark justify-center items-center">
+                <Content
+                    activeTab={activeTab}
+                    responseError={responseError}
+                    responseLoading={responseLoading}
+                    response={response}
+                    sourceQuery={sourceQuery}
+                    queryCancelled={queryCancelled}
+                    columns={columns}
+                    rows={rows}
+                    isDarkModeOn={isDarkModeOn}
+                    vizKey={vizKey}
+                    setSourceQuery={setSourceQuery}
+                    exportContext={exportContext}
+                    saveAsInsight={saveAsInsight}
+                    queryId={queryId}
+                    pollResponse={pollResponse}
+                    editorKey={editorKey}
+                />
+            </div>
+            <div className="flex justify-end pr-2 border-t">
+                <ElapsedTime />
             </div>
         </div>
     )
@@ -311,4 +264,107 @@ function InternalDataTableVisualization(
             </div>
         </div>
     )
+}
+
+const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
+    return (
+        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
+            <InsightErrorState
+                query={sourceQuery}
+                excludeDetail
+                title={
+                    queryCancelled
+                        ? 'The query was cancelled'
+                        : response && 'error' in response
+                        ? response.error
+                        : responseError
+                }
+            />
+        </div>
+    )
+}
+
+const Content = ({
+    activeTab,
+    responseError,
+    responseLoading,
+    response,
+    sourceQuery,
+    queryCancelled,
+    columns,
+    rows,
+    isDarkModeOn,
+    vizKey,
+    setSourceQuery,
+    exportContext,
+    saveAsInsight,
+    queryId,
+    pollResponse,
+    editorKey,
+}: any): JSX.Element | null => {
+    if (activeTab === OutputTab.Results) {
+        if (responseError) {
+            return (
+                <ErrorState
+                    responseError={responseError}
+                    sourceQuery={sourceQuery}
+                    queryCancelled={queryCancelled}
+                    response={response}
+                />
+            )
+        }
+
+        return responseLoading ? (
+            <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
+        ) : !response ? (
+            <span className="text-muted mt-3">Query results will appear here</span>
+        ) : (
+            <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
+                <DataGrid
+                    className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
+                    columns={columns}
+                    rows={rows}
+                />
+            </div>
+        )
+    }
+
+    if (activeTab === OutputTab.Visualization) {
+        if (responseError) {
+            return (
+                <ErrorState
+                    responseError={responseError}
+                    sourceQuery={sourceQuery}
+                    queryCancelled={queryCancelled}
+                    response={response}
+                />
+            )
+        }
+
+        return !response ? (
+            <span className="text-muted mt-3">Query be results will be visualized here</span>
+        ) : (
+            <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
+                <InternalDataTableVisualization
+                    uniqueKey={vizKey}
+                    query={sourceQuery}
+                    setQuery={setSourceQuery}
+                    context={{}}
+                    cachedResults={undefined}
+                    exportContext={exportContext}
+                    onSaveInsight={saveAsInsight}
+                />
+            </div>
+        )
+    }
+
+    if (activeTab === OutputTab.Info) {
+        return (
+            <div className="flex flex-1 relative bg-dark">
+                <InfoTab codeEditorKey={editorKey} />
+            </div>
+        )
+    }
+
+    return null
 }
