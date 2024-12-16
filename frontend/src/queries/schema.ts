@@ -819,7 +819,7 @@ interface InsightVizNodeViewProps {
 /** Base class for insight query nodes. Should not be used directly. */
 export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> extends Node<R> {
     /** Date range for the query */
-    dateRange?: InsightDateRange
+    dateRange?: DateRange
     /**
      * Exclude internal and test users by applying the respective filters
      *
@@ -1004,31 +1004,11 @@ export type AssistantGroupPropertyFilter = AssistantBasePropertyFilter & {
 
 export type AssistantPropertyFilter = AssistantGenericPropertyFilter | AssistantGroupPropertyFilter
 
-export interface AssistantInsightDateRange {
-    /**
-     * Start date. The value can be:
-     * - a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-1w` for 1 week ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.
-     * - an absolute ISO 8601 date string.
-     * a constant `yStart` for the current year start.
-     * a constant `mStart` for the current month start.
-     * a constant `dStart` for the current day start.
-     * Prefer using relative dates.
-     * @default -7d
-     */
-    date_from?: string | null
-
-    /**
-     * Right boundary of the date range. Use `null` for the current date. You can not use relative dates here.
-     * @default null
-     */
-    date_to?: string | null
-}
-
 export interface AssistantInsightsQueryBase {
     /**
      * Date range for the query
      */
-    dateRange?: AssistantInsightDateRange
+    dateRange?: DateRange
 
     /**
      * Exclude internal and test users by applying the respective filters
@@ -2310,17 +2290,6 @@ export type HogQLExpression = string
 // Various utility types below
 
 export interface DateRange {
-    date_from?: string | null
-    date_to?: string | null
-    /** Whether the date_from and date_to should be used verbatim. Disables
-     * rounding to the start and end of period.
-     * @default false
-     * */
-    explicitDate?: boolean | null
-}
-
-export interface InsightDateRange {
-    /** @default -7d */
     date_from?: string | null
     date_to?: string | null
     /** Whether the date_from and date_to should be used verbatim. Disables

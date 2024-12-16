@@ -32,7 +32,7 @@ from posthog.schema import (
     FunnelVizType,
     GroupPropertyFilter,
     HogQLPropertyFilter,
-    InsightDateRange,
+    DateRange,
     Key,
     LifecycleFilter,
     LifecycleQuery,
@@ -971,7 +971,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
-        assert isinstance(query.dateRange, InsightDateRange)
+        assert isinstance(query.dateRange, DateRange)
         self.assertEqual(query.dateRange.date_from, "-14d")
         self.assertEqual(query.dateRange.date_to, "-7d")
 
@@ -980,7 +980,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
-        assert isinstance(query.dateRange, InsightDateRange)
+        assert isinstance(query.dateRange, DateRange)
         self.assertEqual(query.dateRange.date_from, "-14d")
         self.assertEqual(query.dateRange.date_to, "-7d")
         self.assertEqual(query.dateRange.explicitDate, True)
@@ -1605,7 +1605,7 @@ class TestFilterToQuery(BaseTest):
                     filterTestAccounts=True,
                     funnelsFilter=FunnelsFilter(funnelVizType=FunnelVizType.STEPS, exclusions=[]),
                     breakdownFilter=BreakdownFilter(),
-                    dateRange=InsightDateRange(),
+                    dateRange=DateRange(),
                 ),
                 funnelStep=2,
             ),
