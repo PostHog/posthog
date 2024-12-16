@@ -42,8 +42,8 @@
     "repository": "https://github.com/PostHog/posthog-plugin-server",
     "license": "MIT",
     "dependencies": {
-        "@aws-sdk/client-s3": "^3.315.0",
-        "@aws-sdk/lib-storage": "^3.315.0",
+        "@aws-sdk/client-s3": "^3.709.0",
+        "@aws-sdk/lib-storage": "^3.709.0",
         "@babel/core": "^7.18.10",
         "@babel/plugin-transform-react-jsx": "^7.18.10",
         "@babel/preset-env": "^7.18.10",

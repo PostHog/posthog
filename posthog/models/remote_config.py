@@ -74,7 +74,8 @@ def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] 
         if "domains" in config["sessionRecording"]:
             domains = config["sessionRecording"].pop("domains")
 
-            if request:
+            # Empty list of domains means always permitted
+            if request and domains:
                 if not on_permitted_recording_domain(domains, request=request):
                     config["sessionRecording"] = False
 
