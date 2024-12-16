@@ -148,13 +148,22 @@ def get_table_names(select_query: ast.SelectQuery | ast.SelectSetQuery) -> list[
     # Don't need types, we're only interested in the table names as passed in
     collector = TableCollector()
     collector.visit(select_query)
-    return list(collector.table_names)
+    return list(collector.table_names - collector.ctes)
 
 
 class TableCollector(TraversingVisitor):
     def __init__(self):
         self.table_names = set()
+        self.ctes = set()
+
+    def visit_cte(self, node: ast.CTE):
+        self.ctes.add(node.name)
+        super().visit(node.expr)
 
     def visit_join_expr(self, node: ast.JoinExpr):
         if isinstance(node.table, ast.Field):
             self.table_names.add(node.table.chain[0])
+        else:
+            self.visit(node.table)
+
+        self.visit(node.next_join)

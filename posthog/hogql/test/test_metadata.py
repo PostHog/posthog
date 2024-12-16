@@ -464,3 +464,52 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "errors": [],
             },
         )
+
+    def test_table_collector_basic_select(self):
+        metadata = self._select("SELECT event FROM events")
+        self.assertEqual(metadata.table_names, ["events"])
+
+    def test_table_collector_multiple_tables(self):
+        metadata = self._select(
+            "SELECT events.event, persons.name FROM events JOIN persons ON events.person_id = persons.id"
+        )
+        self.assertEqual(set(metadata.table_names), {"events", "persons"})
+
+    def test_table_collector_with_cte(self):
+        metadata = self._select("""
+            WITH events_count AS (
+                SELECT count(*) as count FROM events
+            )
+            SELECT * FROM events_count
+        """)
+        self.assertEqual(set(metadata.table_names), {"events"})
+
+    def test_table_collector_subquery(self):
+        metadata = self._select("""
+            SELECT * FROM (
+                SELECT event FROM events
+                UNION ALL
+                SELECT event FROM events_summary
+            )
+        """)
+        self.assertEqual(set(metadata.table_names), {"events", "events_summary"})
+
+    def test_table_in_filter(self):
+        metadata = self._select("SELECT * FROM events WHERE event IN (SELECT event FROM events_summary)")
+        self.assertEqual(set(metadata.table_names), {"events", "events_summary"})
+
+    def test_table_collector_complex_query(self):
+        metadata = self._select("""
+            WITH user_counts AS (
+                SELECT person_id, count(*) as count
+                FROM events
+                GROUP BY person_id
+            )
+            SELECT
+                p.name,
+                uc.count
+            FROM persons p
+            LEFT JOIN user_counts uc ON p.id = uc.person_id
+            LEFT JOIN cohorts c ON p.cohort_id = c.id
+        """)
+        self.assertEqual(set(metadata.table_names), {"events", "persons", "cohorts"})

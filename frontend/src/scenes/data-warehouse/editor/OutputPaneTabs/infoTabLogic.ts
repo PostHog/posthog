@@ -1,4 +1,4 @@
-import { connect, kea, path, props, selectors } from 'kea'
+import { connect, kea, key, path, props, selectors } from 'kea'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
@@ -19,6 +19,7 @@ interface InfoTabLogicProps {
 export const infoTabLogic = kea<infoTabLogicType>([
     path(['data-warehouse', 'editor', 'outputPaneTabs', 'infoTabLogic']),
     props({} as InfoTabLogicProps),
+    key((props) => props.codeEditorKey),
     connect((props: InfoTabLogicProps) => ({
         values: [
             multitabEditorLogic({ key: props.codeEditorKey }),
