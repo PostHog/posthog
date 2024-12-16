@@ -69,11 +69,11 @@ export function ResultCustomizationsModal(): JSX.Element | null {
                         Results are assigned by{' '}
                         {resultCustomizationBy === ResultCustomizationBy.Position ? (
                             <>
-                                their <strong>position</strong> in the dataset
+                                their <strong>rank</strong> in the dataset
                             </>
                         ) : (
                             <>
-                                their <strong>values</strong> in the dataset
+                                their <strong>name</strong> in the dataset
                             </>
                         )}
                         . You can change this in insight settings.

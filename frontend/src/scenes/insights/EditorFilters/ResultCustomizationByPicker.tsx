@@ -19,8 +19,8 @@ export function ResultCustomizationByPicker(): JSX.Element | null {
             onChange={(value) => updateInsightFilter({ resultCustomizationBy: value as ResultCustomizationBy })}
             value={resultCustomizationBy || RESULT_CUSTOMIZATION_DEFAULT}
             options={[
-                { value: ResultCustomizationBy.Value, label: 'By value' },
-                { value: ResultCustomizationBy.Position, label: 'By position' },
+                { value: ResultCustomizationBy.Value, label: 'By name' },
+                { value: ResultCustomizationBy.Position, label: 'By rank' },
             ]}
             size="small"
             fullWidth
