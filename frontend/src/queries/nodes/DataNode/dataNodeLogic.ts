@@ -191,6 +191,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         if (cache.localResults[stringifiedQuery] && !refresh) {
                             return cache.localResults[stringifiedQuery]
                         }
+
+                        if (!query.query) {
+                            return null
+                        }
                     }
 
                     if (!values.currentTeamId) {
@@ -337,6 +341,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        isRefresh: [
+            false,
+            {
+                loadData: (_, { refresh }) => !!refresh,
+            },
+        ],
         dataLoading: [
             false,
             {
@@ -474,8 +484,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (variablesOverride) => !!variablesOverride,
         ],
         isShowingCachedResults: [
-            () => [(_, props) => props.cachedResults ?? null, (_, props) => props.query],
-            (cachedResults: AnyResponseType | null, query: DataNode): boolean => {
+            (s) => [(_, props) => props.cachedResults ?? null, (_, props) => props.query, s.isRefresh],
+            (cachedResults: AnyResponseType | null, query: DataNode, isRefresh): boolean => {
+                if (isRefresh) {
+                    return false
+                }
+
                 return (
                     !!cachedResults ||
                     (cache.localResults && 'query' in query && JSON.stringify(query.query) in cache.localResults)

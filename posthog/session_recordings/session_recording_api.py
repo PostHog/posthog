@@ -21,6 +21,7 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 
+import posthog.session_recordings.queries.session_recording_list_from_query
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -360,31 +361,54 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     )
     @action(methods=["GET"], detail=False)
     def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
-        filter = SessionRecordingsFilter(request=request, team=self.team)
+        use_query_type = (request.GET.get("as_query", "False")).lower() == "true"
 
-        if not filter.session_ids or len(filter.session_ids) != 1:
-            raise exceptions.ValidationError(
-                "Must specify exactly one session_id",
+        if use_query_type:
+            data_dict = query_as_params_to_dict(request.GET.dict())
+            query = RecordingsQuery.model_validate(data_dict)
+
+            # a little duplication for now
+            if not query.session_ids or len(query.session_ids) != 1:
+                raise exceptions.ValidationError(
+                    "Must specify exactly one session_id",
+                )
+
+            if not query.events and not query.actions:
+                raise exceptions.ValidationError(
+                    "Must specify at least one event or action filter",
+                )
+
+            distinct_id = str(cast(User, request.user).distinct_id)
+            modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
+            results, _, timings = (
+                posthog.session_recordings.queries.session_recording_list_from_query.ReplayFiltersEventsSubQuery(
+                    query=query, team=self.team, hogql_query_modifiers=modifiers
+                ).get_event_ids_for_session()
             )
+        else:
+            filter = SessionRecordingsFilter(request=request, team=self.team)
 
-        if not filter.events and not filter.actions:
-            raise exceptions.ValidationError(
-                "Must specify at least one event or action filter",
-            )
+            if not filter.session_ids or len(filter.session_ids) != 1:
+                raise exceptions.ValidationError(
+                    "Must specify exactly one session_id",
+                )
 
-        distinct_id = str(cast(User, request.user).distinct_id)
-        modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
-        matching_events_query_response = ReplayFiltersEventsSubQuery(
-            filter=filter, team=self.team, hogql_query_modifiers=modifiers
-        ).get_event_ids_for_session()
+            if not filter.events and not filter.actions:
+                raise exceptions.ValidationError(
+                    "Must specify at least one event or action filter",
+                )
 
-        response = JsonResponse(data={"results": matching_events_query_response.results})
+            distinct_id = str(cast(User, request.user).distinct_id)
+            modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
+            results, _, timings = ReplayFiltersEventsSubQuery(
+                filter=filter, team=self.team, hogql_query_modifiers=modifiers
+            ).get_event_ids_for_session()
+
+        response = JsonResponse(data={"results": results})
 
         response.headers["Server-Timing"] = ", ".join(
             f"{key};dur={round(duration, ndigits=2)}"
-            for key, duration in _generate_timings(
-                matching_events_query_response.timings, ServerTimingsGathered()
-            ).items()
+            for key, duration in _generate_timings(timings, ServerTimingsGathered()).items()
         )
         return response
 
