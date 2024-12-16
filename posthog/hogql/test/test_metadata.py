@@ -473,7 +473,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         metadata = self._select(
             "SELECT events.event, persons.name FROM events JOIN persons ON events.person_id = persons.id"
         )
-        self.assertEqual(sorted(metadata.table_names), sorted(["events", "persons"]))
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "persons"]))
 
     def test_table_collector_with_cte(self):
         metadata = self._select("""
@@ -482,7 +482,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             )
             SELECT * FROM events_count
         """)
-        self.assertEqual(sorted(metadata.table_names), sorted(["events"]))
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events"]))
 
     def test_table_collector_subquery(self):
         metadata = self._select("""
@@ -492,11 +492,11 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 SELECT event FROM events_summary
             )
         """)
-        self.assertEqual(sorted(metadata.table_names), sorted(["events", "events_summary"]))
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "events_summary"]))
 
     def test_table_in_filter(self):
         metadata = self._select("SELECT * FROM events WHERE event IN (SELECT event FROM events_summary)")
-        self.assertEqual(sorted(metadata.table_names), sorted(["events", "events_summary"]))
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "events_summary"]))
 
     def test_table_collector_complex_query(self):
         metadata = self._select("""
@@ -512,4 +512,4 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             LEFT JOIN user_counts uc ON p.id = uc.person_id
             LEFT JOIN cohorts c ON p.cohort_id = c.id
         """)
-        self.assertEqual(sorted(metadata.table_names), sorted(["events", "persons", "cohorts"]))
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "persons", "cohorts"]))
