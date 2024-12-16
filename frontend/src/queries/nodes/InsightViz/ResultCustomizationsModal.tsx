@@ -4,7 +4,7 @@ import { LemonButton, LemonButtonProps, LemonModal } from '@posthog/lemon-ui'
 import assert from 'assert'
 import { useActions, useValues } from 'kea'
 import { DataColorToken } from 'lib/colors'
-import { InsightLabel } from 'lib/components/InsightLabel'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { ColorGlyph } from 'lib/components/SeriesGlyph'
 import { hexToRGB } from 'lib/utils'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
@@ -15,7 +15,6 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 import { ResultCustomizationBy } from '~/queries/schema'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
-import { formatCompareLabel } from '../../../scenes/insights/views/InsightsTable/columns/SeriesColumn'
 import { resultCustomizationsModalLogic } from './resultCustomizationsModalLogic'
 
 export function ResultCustomizationsModal(): JSX.Element | null {
@@ -39,7 +38,7 @@ export function ResultCustomizationsModal(): JSX.Element | null {
         <LemonModal
             data-attr="legend-entry-modal"
             isOpen={modalVisible}
-            title="Customize result data"
+            title="Customize result color"
             width={520}
             footer={
                 <>
@@ -87,17 +86,28 @@ type TrendsInfoProps = {
 }
 
 function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.Element {
+    const breakdownValues = Array.isArray(dataset.breakdown_value) ? dataset.breakdown_value : [dataset.breakdown_value]
+
     return (
         <>
-            <p className="mb-2">You are customizing the appearance of results for:</p>
-            <InsightLabel
-                className="inline-block bg-bg-light ml-4 mb-3 px-1 py-0.5 rounded mx-1 border border-dashed"
-                action={dataset?.action}
-                showEventName
-                breakdownValue={dataset.breakdown_value === '' ? 'None' : dataset.breakdown_value?.toString()}
-                hideIcon
-                compareValue={dataset.compare ? formatCompareLabel(dataset) : undefined}
-            />
+            {breakdownValues ? (
+                <p className="mb-2">
+                    You are customizing the appearance of series{' '}
+                    <b>
+                        <EntityFilterInfo filter={dataset.action} allowWrap={true} showSingleName={true} />
+                    </b>{' '}
+                    for the breakdown <b>{breakdownValues.join('::')}</b>.
+                </p>
+            ) : (
+                <p className="mb-2">
+                    You are customizing the appearance of series{' '}
+                    <b>
+                        <EntityFilterInfo filter={dataset.action} allowWrap={true} showSingleName={true} />
+                    </b>
+                    .
+                </p>
+            )}
+
             <p>
                 Results are assigned by{' '}
                 {resultCustomizationBy === ResultCustomizationBy.Position ? (
@@ -122,7 +132,15 @@ type FunnelsInfoProps = {
 function FunnelsInfo({ dataset }: FunnelsInfoProps): JSX.Element {
     return (
         <>
-            You are customizing the appearch of results for the <b>{dataset.breakdown_value?.[0]}</b> breakdown.
+            You are customizing the appearch of the{' '}
+            {dataset.breakdown_value?.[0] === 'Baseline' ? (
+                <b>Baseline</b>
+            ) : (
+                <>
+                    <b>{dataset.breakdown_value?.[0]}</b> breakdown
+                </>
+            )}
+            .
         </>
     )
 }
