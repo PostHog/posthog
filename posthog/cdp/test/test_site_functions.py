@@ -72,7 +72,7 @@ function onLoad() {
 };return exports;})();
     let processEvent = undefined;
     if ('onEvent' in source) {
-        processEvent = function processEvent(globals) {
+        processEvent = function processEvent(globals, posthog) {
             if (!('onEvent' in source)) { return; };
             const inputs = buildInputs(globals);
             const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
@@ -99,7 +99,7 @@ function onLoad() {
         }
 
         return {
-            processEvent: processEvent
+            processEvent: (globals) => processEvent(globals, posthog)
         }
     }
 
@@ -135,7 +135,7 @@ function onLoad() {
 
         result = self.compile_and_run()
 
-        assert "console.log(event.event);" in result
+        assert "console.log(globals);" in result
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
         assert "const filterMatches = !!(!!((__getGlobal" in result
@@ -259,7 +259,7 @@ function onLoad() {
 
         result = self.compile_and_run()
 
-        assert "console.log(event.event);" in result
+        assert "console.log(globals);" in result
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
         assert "https://example.com" in result

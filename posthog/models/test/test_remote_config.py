@@ -677,7 +677,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         const source = (function () {let exports={};"use strict";;return exports;})();
             let processEvent = undefined;
             if ('onEvent' in source) {
-                processEvent = function processEvent(globals) {
+                processEvent = function processEvent(globals, posthog) {
                     if (!('onEvent' in source)) { return; };
                     const inputs = buildInputs(globals);
                     const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
@@ -704,7 +704,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                 }
         
                 return {
-                    processEvent: processEvent
+                    processEvent: (globals) => processEvent(globals, posthog)
                 }
             }
         
@@ -723,7 +723,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         const source = (function () {let exports={};"use strict";;return exports;})();
             let processEvent = undefined;
             if ('onEvent' in source) {
-                processEvent = function processEvent(globals) {
+                processEvent = function processEvent(globals, posthog) {
                     if (!('onEvent' in source)) { return; };
                     const inputs = buildInputs(globals);
                     const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
@@ -750,7 +750,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                 }
         
                 return {
-                    processEvent: processEvent
+                    processEvent: (globals) => processEvent(globals, posthog)
                 }
             }
         
