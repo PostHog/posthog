@@ -1,16 +1,11 @@
-import { decideResponse } from '../fixtures/api/decide'
+import { setupFeatureFlags } from '../support/decide'
 
 describe('Onboarding', () => {
     beforeEach(() => {
         cy.intercept('/api/billing/', { fixture: 'api/billing/billing-unsubscribed.json' })
-
-        cy.intercept('**/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'product-intro-pages': 'test',
-                })
-            )
-        )
+        setupFeatureFlags({
+            'product-intro-pages': 'test',
+        })
     })
 
     it('Navigate between /products to /onboarding to a product intro page', () => {
