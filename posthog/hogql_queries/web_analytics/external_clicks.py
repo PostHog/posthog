@@ -50,7 +50,7 @@ FROM (
         any(person_id) AS filtered_person_id,
         count() AS filtered_click_count,
         {url_expr} AS url,
-        MIN(timestamp) AS start_timestamp
+        MIN(session.$timestamp) AS start_timestamp
     FROM events
     WHERE and(
         events.event == '$autocapture',
