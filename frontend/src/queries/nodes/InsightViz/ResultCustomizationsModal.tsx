@@ -60,7 +60,9 @@ export function ResultCustomizationsModal(): JSX.Element | null {
                 <strong>meaningful appearance for you and your team members</strong>. The customizations are also shown
                 on dashboards.
             </p>
-            {isTrends && <TrendsInfo dataset={dataset} resultCustomizationBy={resultCustomizationBy} />}
+            {isTrends && (
+                <TrendsInfo dataset={dataset as IndexedTrendResult} resultCustomizationBy={resultCustomizationBy} />
+            )}
             {isFunnels && <FunnelsInfo dataset={dataset as FlattenedFunnelStepByBreakdown} />}
 
             <h3 className="l4 mt-2 mb-2">Color</h3>
