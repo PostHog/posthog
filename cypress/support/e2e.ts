@@ -4,7 +4,7 @@ import 'cypress-axe'
 
 import { urls } from 'scenes/urls'
 
-import { decideResponse } from '../fixtures/api/decide'
+import { setupFeatureFlags } from './decide'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -86,14 +86,7 @@ beforeEach(() => {
     Cypress.env('POSTHOG_PROPERTY_GITHUB_ACTION_RUN_URL', process.env.GITHUB_ACTION_RUN_URL)
     cy.useSubscriptionStatus('subscribed')
 
-    cy.intercept('**/decide/*', (req) =>
-        req.reply(
-            decideResponse({
-                // Feature flag to be treated as rolled out in E2E tests, e.g.:
-                // 'toolbar-launch-side-action': true,
-            })
-        )
-    )
+    setupFeatureFlags({})
 
     // un-intercepted sometimes this doesn't work and the page gets stuck on the SpinnerOverlay
     cy.intercept(/app.posthog.com\/api\/projects\/@current\/feature_flags\/my_flags.*/, (req) => req.reply([]))
