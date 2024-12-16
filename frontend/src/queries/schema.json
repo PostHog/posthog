@@ -5399,6 +5399,9 @@
                 "description": {
                     "type": ["string", "null"]
                 },
+                "earliest": {
+                    "type": "string"
+                },
                 "first_seen": {
                     "format": "date-time",
                     "type": "string"
@@ -5408,6 +5411,9 @@
                 },
                 "last_seen": {
                     "format": "date-time",
+                    "type": "string"
+                },
+                "latest": {
                     "type": "string"
                 },
                 "name": {
@@ -5437,6 +5443,8 @@
                 "users",
                 "first_seen",
                 "last_seen",
+                "earliest",
+                "latest",
                 "assignee",
                 "status"
             ],
