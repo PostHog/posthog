@@ -88,8 +88,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
     We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
     """
 
-    use_remote_config = False
-
     def setUp(self, *args):
         cache.clear()
 
@@ -120,18 +118,15 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert_num_queries: Optional[int] = None,
         simulate_database_timeout: bool = False,
     ):
-        if self.use_remote_config:
-            # We test a lot with settings changes so the idea is to refresh the remote config
-            remote_config = RemoteConfig.objects.get(team=self.team)
-            remote_config.sync()
+        # We test a lot with settings changes so the idea is to refresh the remote config
+        remote_config = RemoteConfig.objects.get(team=self.team)
+        remote_config.sync()
 
         if groups is None:
             groups = {}
 
         def do_request():
             url = f"/decide/?v={api_version}"
-            if self.use_remote_config:
-                url += "&use_remote_config=true"
             return self.client.post(
                 url,
                 {
@@ -691,7 +686,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions in the above mean fewer queries
         # 3 of these queries are just for setting transaction scope
-        response = self._post_decide(assert_num_queries=0 if self.use_remote_config else 4)
+        response = self._post_decide(assert_num_queries=0)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         injected = response.json()["siteApps"]
         self.assertEqual(len(injected), 1)
@@ -715,7 +710,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.team.refresh_from_db()
         self.assertTrue(self.team.inject_web_apps)
-        response = self._post_decide(assert_num_queries=1 if self.use_remote_config else 5)
+        response = self._post_decide(assert_num_queries=1)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         injected = response.json()["siteApps"]
         self.assertEqual(len(injected), 1)
@@ -3585,44 +3580,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 200)
         self.assertTrue("defaultIdentifiedOnly" in response.json())
         self.assertTrue(response.json()["defaultIdentifiedOnly"])
-
-
-class TestDecideRemoteConfig(TestDecide):
-    use_remote_config = True
-
-    def test_definitely_loads_via_remote_config(self, *args):
-        # NOTE: This is a sanity check test that we aren't just using the old decide logic
-
-        with patch.object(
-            RemoteConfig, "get_config_via_token", wraps=RemoteConfig.get_config_via_token
-        ) as wrapped_get_config_via_token:
-            response = self._post_decide(api_version=3)
-            wrapped_get_config_via_token.assert_called_once()
-
-        # NOTE: If this changes it indicates something is wrong as we should keep this exact format
-        # for backwards compatibility
-        assert response.json() == snapshot(
-            {
-                "supportedCompression": ["gzip", "gzip-js"],
-                "captureDeadClicks": False,
-                "capturePerformance": {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-                "autocapture_opt_out": False,
-                "autocaptureExceptions": False,
-                "analytics": {"endpoint": "/i/v0/e/"},
-                "elementsChainAsString": True,
-                "sessionRecording": False,
-                "heatmaps": False,
-                "surveys": False,
-                "defaultIdentifiedOnly": True,
-                "siteApps": [],
-                "isAuthenticated": False,
-                "toolbarParams": {},
-                "config": {"enable_collect_everything": True},
-                "featureFlags": {},
-                "errorsWhileComputingFlags": False,
-                "featureFlagPayloads": {},
-            }
-        )
 
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
