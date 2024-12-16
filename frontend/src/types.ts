@@ -4670,6 +4670,7 @@ export type HogFunctionTypeType =
     | 'destination'
     | 'site_destination'
     | 'site_app'
+    | 'transformation'
     | 'email'
     | 'sms'
     | 'push'

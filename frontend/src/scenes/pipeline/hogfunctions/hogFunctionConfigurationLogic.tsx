@@ -37,6 +37,7 @@ import {
     HogFunctionSubTemplateType,
     HogFunctionTemplateType,
     HogFunctionType,
+    HogFunctionTypeType,
     PersonType,
     PropertyFilterType,
     PropertyGroupFilter,
@@ -64,6 +65,8 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     hog: "print('Hello, world!');",
     status: 'stable',
 }
+
+export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     function sanitizeInputs(
@@ -395,7 +398,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as HogFunctionInvocationGlobals | null,
             {
                 loadSampleGlobals: async (_, breakpoint) => {
-                    if (!values.lastEventQuery || values.type !== 'destination') {
+                    if (!values.lastEventQuery) {
                         return values.sampleGlobals
                     }
                     const errorMessage =
@@ -799,7 +802,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         lastEventQuery: [
             (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.type],
             (configuration, matchingFilters, groupTypes, type): EventsQuery | null => {
-                if (type !== 'destination') {
+                if (!TYPES_WITH_GLOBALS.includes(type)) {
                     return null
                 }
                 const query: EventsQuery = {
