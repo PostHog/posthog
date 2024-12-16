@@ -1,9 +1,10 @@
-import { IconGear } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { isURL } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownType } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -11,6 +12,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 import { BreakdownFilter } from '~/queries/schema'
 
 import { resultCustomizationsModalLogic } from '../../../../../queries/nodes/InsightViz/resultCustomizationsModalLogic'
+import { CustomizationIcon } from './SeriesColumn'
 
 interface BreakdownColumnTitleProps {
     breakdownFilter: BreakdownFilter
@@ -34,6 +36,7 @@ type BreakdownColumnItemProps = {
 }
 
 export function BreakdownColumnItem({ item, formatItemBreakdownLabel }: BreakdownColumnItemProps): JSX.Element {
+    const [isHovering, setIsHovering] = useState(false)
     const { insightProps } = useValues(insightLogic)
     const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
@@ -42,7 +45,12 @@ export function BreakdownColumnItem({ item, formatItemBreakdownLabel }: Breakdow
     const formattedLabel = stringWithWBR(breakdownLabel, 20)
 
     return (
-        <div className="flex">
+        <div
+            className={clsx('flex justify-between items-center', { 'cursor-pointer': hasInsightColors })}
+            onClick={hasInsightColors ? () => openModal(item) : undefined}
+            onMouseEnter={() => setIsHovering(true)}
+            onMouseLeave={() => setIsHovering(false)}
+        >
             {breakdownLabel && (
                 <>
                     {isURL(breakdownLabel) ? (
@@ -55,19 +63,7 @@ export function BreakdownColumnItem({ item, formatItemBreakdownLabel }: Breakdow
                         </div>
                     )}
 
-                    {hasInsightColors && (
-                        <Link
-                            className="align-middle"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-
-                                openModal(item)
-                            }}
-                        >
-                            <IconGear fontSize={16} />
-                        </Link>
-                    )}
+                    <CustomizationIcon isVisible={isHovering} />
                 </>
             )}
         </div>
