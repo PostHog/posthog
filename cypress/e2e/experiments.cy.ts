@@ -1,4 +1,4 @@
-import { decideResponse } from '../fixtures/api/decide'
+import { setupFeatureFlags } from '../support/decide'
 
 describe('Experiments', () => {
     let randomNum
@@ -47,13 +47,10 @@ describe('Experiments', () => {
     })
 
     const createExperimentInNewUi = (): void => {
-        cy.intercept('**/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'new-experiments-ui': true,
-                })
-            )
-        )
+        setupFeatureFlags({
+            'new-experiments-ui': true,
+        })
+
         cy.visit('/experiments')
 
         // Name, flag key, description
