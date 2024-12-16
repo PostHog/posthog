@@ -792,6 +792,13 @@ class BaseTestMigrations(QueryMatchingTest):
     def setUpBeforeMigration(self, apps):
         pass
 
+    def tearDown(self):
+        super().tearDown()
+        executor = MigrationExecutor(connection)  # Reset Django's migration state
+        targets = executor.loader.graph.leaf_nodes()
+        executor.migrate(targets)  # Migrate to the latest migration
+        executor.loader.build_graph()  # Reload.
+
 
 class TestMigrations(BaseTestMigrations, BaseTest):
     """
