@@ -27,6 +27,9 @@ import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { summarizeInsight } from './summarizeInsight'
 
+const NEW_INSIGHT = 'new' as const
+export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
+
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect(() => ({
@@ -77,7 +80,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     }),
     reducers({
         insightId: [
-            null as null | 'new' | InsightShortId,
+            null as null | InsightId,
             {
                 setSceneState: (_, { insightId }) => insightId,
             },
