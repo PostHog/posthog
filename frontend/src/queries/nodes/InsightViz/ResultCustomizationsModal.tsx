@@ -58,9 +58,7 @@ export function ResultCustomizationsModal(): JSX.Element | null {
                 <strong>meaningful appearance for you and your team members</strong>. The customizations are also shown
                 on dashboards.
             </p>
-            {isTrends && (
-                <TrendsInfo dataset={dataset as IndexedTrendResult} resultCustomizationBy={resultCustomizationBy} />
-            )}
+            {isTrends && <TrendsInfo dataset={dataset} resultCustomizationBy={resultCustomizationBy} />}
             {isFunnels && <FunnelsInfo dataset={dataset as FlattenedFunnelStepByBreakdown} />}
 
             <h3 className="l4 mt-2 mb-2">Color</h3>
@@ -104,11 +102,11 @@ function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.El
                 Results are assigned by{' '}
                 {resultCustomizationBy === ResultCustomizationBy.Position ? (
                     <>
-                        their <strong>position</strong> in the dataset
+                        their <strong>rank</strong> in the dataset
                     </>
                 ) : (
                     <>
-                        their <strong>values</strong> in the dataset
+                        their <strong>name</strong> in the dataset
                     </>
                 )}
                 . You can change this in insight settings.
