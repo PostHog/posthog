@@ -4429,6 +4429,20 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # classic and udf funnels handle no events differently
             assert len(results) == 0 or results[0]["count"] == 0
 
+            _create_event(
+                team=self.team,
+                event="event2",
+                distinct_id="user_1",
+                timestamp="2024-03-19T13:00:00Z",
+                properties={"property": "woah"},
+            )
+            query.series[0].math = FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS
+            assert query.dateRange is not None
+            query.dateRange.date_from = "2024-03-19"
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            self.assertEqual(results[0]["count"], 1)
+            self.assertEqual(results[1]["count"], 1)
+
         def test_funnel_personless_events_are_supported(self):
             user_id = uuid.uuid4()
             _create_event(

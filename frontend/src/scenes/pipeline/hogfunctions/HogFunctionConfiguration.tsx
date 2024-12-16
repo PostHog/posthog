@@ -152,14 +152,13 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
-    const showFilters = type === 'destination' || type === 'site_destination' || type === 'broadcast'
-    const showExpectedVolume = type === 'destination' || type === 'site_destination'
-    const showStatus = type === 'destination' || type === 'email'
-    const showEnabled = type === 'destination' || type === 'email' || type === 'site_destination' || type === 'site_app'
-    const canEditSource =
-        type === 'destination' || type === 'email' || type === 'site_destination' || type === 'site_app'
-    const showPersonsCount = type === 'broadcast'
-    const showTesting = type === 'destination' || type === 'broadcast' || type === 'email'
+    const showFilters = ['destination', 'site_destination', 'broadcast', 'transformation'].includes(type)
+    const showExpectedVolume = ['destination', 'site_destination'].includes(type)
+    const showStatus = ['destination', 'email', 'transformation'].includes(type)
+    const showEnabled = ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
+    const canEditSource = ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
+    const showPersonsCount = ['broadcast'].includes(type)
+    const showTesting = ['destination', 'transformation', 'broadcast', 'email'].includes(type)
 
     return (
         <div className="space-y-3">
@@ -195,10 +194,10 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                     formKey="configuration"
                     className="space-y-3"
                 >
-                    <div className="flex flex-wrap gap-4 items-start">
-                        <div className="flex flex-col gap-4 flex-1 min-w-100">
-                            <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <div className="flex flex-row gap-2 min-h-16 items-center">
+                    <div className="flex flex-wrap items-start gap-4">
+                        <div className="flex flex-col flex-1 gap-4 min-w-100">
+                            <div className="p-3 space-y-2 border rounded bg-bg-light">
+                                <div className="flex flex-row items-center gap-2 min-h-16">
                                     <LemonField name="icon_url">
                                         {({ value, onChange }) => (
                                             <HogFunctionIconEditable
@@ -209,7 +208,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                         )}
                                     </LemonField>
 
-                                    <div className="flex flex-col items-start py-1 flex-1 justify-start">
+                                    <div className="flex flex-col items-start justify-start flex-1 py-1">
                                         <span className="font-semibold">{configuration.name}</span>
                                         {template && <DestinationTag status={template.status} />}
                                     </div>
@@ -244,14 +243,14 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                     <LemonDropdown
                                         showArrow
                                         overlay={
-                                            <div className="max-w-120 p-1">
+                                            <div className="p-1 max-w-120">
                                                 <p>
                                                     This function was built from the template{' '}
                                                     <b>{hogFunction.template.name}</b>. If the template is updated, this
                                                     function is not affected unless you choose to update it.
                                                 </p>
 
-                                                <div className="flex flex-1 gap-2 items-center border-t pt-2">
+                                                <div className="flex items-center flex-1 gap-2 pt-2 border-t">
                                                     <div className="flex-1">
                                                         <LemonButton>Close</LemonButton>
                                                     </div>
@@ -272,8 +271,8 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                             </div>
                                         }
                                     >
-                                        <div className="border border-dashed rounded text-muted-alt text-xs">
-                                            <Link subtle className="flex items-center gap-1 flex-wrap p-2">
+                                        <div className="text-xs border border-dashed rounded text-muted-alt">
+                                            <Link subtle className="flex flex-wrap items-center gap-1 p-2">
                                                 Built from template:
                                                 <span className="font-semibold">{hogFunction?.template.name}</span>
                                                 <DestinationTag status={hogFunction.template.status} />
@@ -289,7 +288,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                             {showFilters && <HogFunctionFilters />}
 
                             {showPersonsCount && (
-                                <div className="relative border bg-bg-light rounded p-3 space-y-2">
+                                <div className="relative p-3 space-y-2 border rounded bg-bg-light">
                                     <div>
                                         <LemonLabel>Matching persons</LemonLabel>
                                     </div>
@@ -319,7 +318,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                             )}
 
                             {showExpectedVolume && (
-                                <div className="relative border bg-bg-light rounded p-3 space-y-2">
+                                <div className="relative p-3 space-y-2 border rounded bg-bg-light">
                                     <LemonLabel>Expected volume</LemonLabel>
                                     {sparkline && !sparklineLoading ? (
                                         <>
@@ -359,10 +358,10 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                             )}
                         </div>
 
-                        <div className="flex-2 min-w-100 space-y-4">
+                        <div className="space-y-4 flex-2 min-w-100">
                             {!forcedSubTemplateId && template?.sub_templates && (
                                 <>
-                                    <div className="border bg-bg-light rounded p-3 space-y-2">
+                                    <div className="p-3 space-y-2 border rounded bg-bg-light">
                                         <div className="flex items-center gap-2">
                                             <LemonLabel className="flex-1">Choose template</LemonLabel>
                                             <LemonSelect
@@ -376,9 +375,9 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                                         value: subTemplate.id,
                                                         label: subTemplate.name,
                                                         labelInMenu: (
-                                                            <div className="max-w-120 space-y-1 my-1">
+                                                            <div className="my-1 space-y-1 max-w-120">
                                                                 <div className="font-semibold">{subTemplate.name}</div>
-                                                                <div className="text-muted font-sans text-xs">
+                                                                <div className="font-sans text-xs text-muted">
                                                                     {subTemplate.description}
                                                                 </div>
                                                             </div>
@@ -395,7 +394,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                 </>
                             )}
 
-                            <div className="border bg-bg-light rounded p-3 space-y-2">
+                            <div className="p-3 space-y-2 border rounded bg-bg-light">
                                 <div className="space-y-2">
                                     <HogFunctionInputs
                                         configuration={configuration}
@@ -434,7 +433,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                         showSource ? 'bg-bg-light' : 'bg-accent-3000'
                                     )}
                                 >
-                                    <div className="flex items-center gap-2 justify-end">
+                                    <div className="flex items-center justify-end gap-2">
                                         <div className="flex-1 space-y-2">
                                             <h2 className="mb-0">Edit source</h2>
                                             {!showSource ? <p>Click here to edit the function's source code</p> : null}
@@ -507,7 +506,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                     <HogFunctionTest id={id} />
                                 )
                             ) : null}
-                            <div className="flex gap-2 justify-end">{saveButtons}</div>
+                            <div className="flex justify-end gap-2">{saveButtons}</div>
                         </div>
                     </div>
                 </Form>
