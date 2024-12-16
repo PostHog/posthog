@@ -24,6 +24,10 @@
         width: var(--lemon-calendar-day-width);
     }
 
+    .lemon-calendar-month-header {
+        height: var(--lemon-calendar-time-button-height);
+    }
+
     .LemonCalendar__month tr {
         .LemonButton {
             &.rounded-none {
