@@ -174,6 +174,7 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
 
             if (!warning && sdkVersions && latestAvailableVersion) {
                 const diff = diffVersions(latestAvailableVersion, latestUsedVersion)
+
                 if (diff && diff.diff > 0) {
                     // there's a difference between the latest used version and the latest available version
 
@@ -194,8 +195,8 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                         level = numVersionsBehind >= 40 ? 'warning' : undefined
                     }
 
-                    if (level === undefined && numVersionsBehind > 50) {
-                        level = 'warning'
+                    if (level === undefined && numVersionsBehind >= 50) {
+                        level = 'error'
                     }
 
                     // we check if there is a "latest user version string" to avoid returning odd data in unexpected cases
