@@ -907,11 +907,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             # Assert the expected join condition in the clickhouse SQL
             expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_8)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_9)s, 6, %(hogql_val_10)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_11)s, 6, %(hogql_val_12)s))))) AS e__events ON"
-            self.assertIn(
-                expected_join_condition,
-                str(response.clickhouse),
-                "Please make sure the timestamp statements are included in the ASOF LEFT JOIN select statement. The assertion may also fail if the hogql_val_* numbers have changed.",
-            )
+            self.assertIn(expected_join_condition, str(response.clickhouse))
 
             result = query_runner.calculate()
 
@@ -1008,11 +1004,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             # Assert the expected join condition in the clickhouse SQL
             expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_7)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_8)s, 6, %(hogql_val_9)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_10)s, 6, %(hogql_val_11)s))))) AS e__events ON"
-            self.assertIn(
-                expected_join_condition,
-                str(response.clickhouse),
-                "Please make sure the timestamp statements are included in the ASOF LEFT JOIN select statement. The assertion may also fail if the hogql_val_* numbers have changed.",
-            )
+            self.assertIn(expected_join_condition, str(response.clickhouse))
 
             result = query_runner.calculate()
 
