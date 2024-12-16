@@ -7,6 +7,7 @@ from django.db import models
 from django.http import HttpRequest
 from django.utils import timezone
 from prometheus_client import Counter
+import requests
 from sentry_sdk import capture_exception
 import structlog
 
@@ -354,6 +355,8 @@ class RemoteConfig(UUIDModel):
 
             cache.set(cache_key_for_team_token(self.team.api_token, "config"), config, timeout=CACHE_TIMEOUT)
 
+            self._purge_cdn()
+
             # TODO: Invalidate caches - in particular this will be the Cloudflare CDN cache
             self.synced_at = timezone.now()
             self.save()
@@ -364,6 +367,31 @@ class RemoteConfig(UUIDModel):
             logger.exception(f"Failed to sync RemoteConfig for team {self.team_id}", exception=str(e))
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="failure").inc()
             raise
+
+    def _purge_cdn(self):
+        if (
+            not settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT
+            or not settings.REMOTE_CONFIG_CDN_PURGE_TOKEN
+            or not settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS
+        ):
+            return
+
+        logger.info(f"Purging CDN for team {self.team_id}")
+
+        data = {"files": []}
+
+        for domain in settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS:
+            # Check if the domain starts with https:// and if not add it
+            full_domain = domain if domain.startswith("https://") else f"https://{domain}"
+            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config"})
+            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config.js"})
+            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/array.js"})
+
+        requests.post(
+            settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
+            headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
+            data=data,
+        )
 
     def __str__(self):
         return f"RemoteConfig {self.team_id}"
