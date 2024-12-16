@@ -25,10 +25,13 @@ amqp==5.1.1
     # via kombu
 annotated-types==0.7.0
     # via pydantic
+anthropic==0.40.0
+    # via -r requirements.in
 antlr4-python3-runtime==4.13.1
     # via -r requirements.in
 anyio==4.6.2.post1
     # via
+    #   anthropic
     #   httpx
     #   langfuse
     #   openai
@@ -56,6 +59,8 @@ backoff==2.2.1
     #   posthoganalytics
 bcrypt==4.1.3
     # via paramiko
+beautifulsoup4==4.12.3
+    # via -r requirements.in
 billiard==4.1.0
     # via celery
 boto3==1.28.16
@@ -137,7 +142,9 @@ defusedxml==0.6.0
 deltalake==0.19.1
     # via dlt
 distro==1.9.0
-    # via openai
+    # via
+    #   anthropic
+    #   openai
 dj-database-url==0.5.0
     # via -r requirements.in
 django==4.2.15
@@ -221,7 +228,9 @@ drf-spectacular==0.27.2
 et-xmlfile==1.1.0
     # via openpyxl
 filelock==3.12.0
-    # via snowflake-connector-python
+    # via
+    #   huggingface-hub
+    #   snowflake-connector-python
 frozenlist==1.4.1
     # via
     #   aiohttp
@@ -229,6 +238,7 @@ frozenlist==1.4.1
 fsspec==2023.10.0
     # via
     #   dlt
+    #   huggingface-hub
     #   s3fs
 future==0.18.3
     # via lzstring
@@ -269,8 +279,6 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-greenlet==3.1.1
-    # via sqlalchemy
 grpcio==1.63.2
     # via
     #   -r requirements.in
@@ -293,9 +301,14 @@ httpcore==1.0.2
     # via httpx
 httpx==0.26.0
     # via
+    #   anthropic
     #   langfuse
     #   langsmith
     #   openai
+huggingface-hub==0.26.5
+    # via
+    #   -r requirements.in
+    #   tokenizers
 humanize==4.9.0
     # via dlt
 idna==3.10
@@ -319,7 +332,9 @@ isodate==0.6.1
     #   python3-saml
     #   zeep
 jiter==0.5.0
-    # via openai
+    # via
+    #   anthropic
+    #   openai
 jmespath==1.0.0
     # via
     #   boto3
@@ -435,6 +450,7 @@ packaging==24.1
     #   aiokafka
     #   dlt
     #   google-cloud-bigquery
+    #   huggingface-hub
     #   langchain-core
     #   langfuse
     #   snowflake-connector-python
@@ -511,6 +527,7 @@ pycparser==2.20
 pydantic==2.9.2
     # via
     #   -r requirements.in
+    #   anthropic
     #   langchain
     #   langchain-core
     #   langfuse
@@ -550,8 +567,10 @@ python-dateutil==2.8.2
     #   pandas
     #   pendulum
     #   posthoganalytics
-python-dotenv==0.21.0
-    # via webdriver-manager
+python-dotenv==1.0.1
+    # via
+    #   -r requirements.in
+    #   webdriver-manager
 python-statsd==2.1.0
     # via django-statsd
 python3-openid==3.1.0
@@ -574,6 +593,7 @@ pyyaml==6.0.1
     # via
     #   dlt
     #   drf-spectacular
+    #   huggingface-hub
     #   langchain
     #   langchain-core
 qrcode==7.4.2
@@ -596,6 +616,7 @@ requests==2.32.0
     #   geoip2
     #   google-api-core
     #   google-cloud-bigquery
+    #   huggingface-hub
     #   infi-clickhouse-orm
     #   langchain
     #   langsmith
@@ -668,6 +689,7 @@ smmap==5.0.1
     # via gitdb
 sniffio==1.3.1
     # via
+    #   anthropic
     #   anyio
     #   httpx
     #   openai
@@ -688,6 +710,8 @@ sortedcontainers==2.4.0
     # via
     #   snowflake-connector-python
     #   trio
+soupsieve==2.6
+    # via beautifulsoup4
 sqlalchemy==2.0.31
     # via
     #   -r requirements.in
@@ -728,6 +752,8 @@ tiktoken==0.8.0
     #   sentry-sdk
 token-bucket==0.3.0
     # via -r requirements.in
+tokenizers==0.21.0
+    # via -r requirements.in
 tomlkit==0.12.3
     # via
     #   dlt
@@ -735,7 +761,9 @@ tomlkit==0.12.3
 toronado==0.1.0
     # via -r requirements.in
 tqdm==4.64.1
-    # via openai
+    # via
+    #   huggingface-hub
+    #   openai
 trio==0.26.0
     # via
     #   selenium
@@ -748,7 +776,9 @@ types-setuptools==69.0.0.0
     # via requirements-parser
 typing-extensions==4.12.2
     # via
+    #   anthropic
     #   dlt
+    #   huggingface-hub
     #   langchain-core
     #   openai
     #   psycopg
