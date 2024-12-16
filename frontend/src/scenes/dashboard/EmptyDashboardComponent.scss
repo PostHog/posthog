@@ -11,7 +11,7 @@
         overflow: hidden;
 
         &::after {
-            --bg-light: var(--bg-3000); // Make the fade blend in with the 3000 background smoothly
+            --bg-light: var(--background-secondary); // Make the fade blend in with the 3000 background smoothly
 
             width: 100%;
             height: 150px;

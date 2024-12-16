@@ -95,7 +95,7 @@
 
     &.LemonBadge--active {
         z-index: var(--z-raised); // In croweded badge situation, show active ones above the rest
-        outline: calc(var(--lemon-badge-font-size) / 5) solid var(--border-brand);
+        outline: calc(var(--lemon-badge-font-size) / 5) solid var(--border-accent);
         outline-offset: 2px;
     }
 

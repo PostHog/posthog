@@ -105,7 +105,7 @@
         flex-direction: column;
         justify-content: space-between;
         overflow-y: auto;
-        background: var(--background-tertiary);
+        background: var(--accent-3000);
 
         .LemonButton__chrome {
             --lemon-button-padding-horizontal: 0.25rem !important;
@@ -158,13 +158,13 @@
             left: 0;
             font-size: 1.25rem;
             line-height: 0.5625rem;
-            color: var(--content-primary);
+            color: var(--text-3000);
             text-align: center;
             content: '•';
         }
 
         .LemonButton__icon {
-            color: var(--content-primary);
+            color: var(--text-3000);
             transform: translateY(-0.25rem);
         }
     }
@@ -176,7 +176,7 @@
     --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
     --sidebar-row-height: 2.5rem;
-    --sidebar-background: var(--background-secondary);
+    --sidebar-background: var(--bg-3000);
 
     position: relative;
     box-sizing: content-box;
@@ -187,9 +187,9 @@
     // Hidden when the sidebar is closed
     border-right: min(1px, var(--sidebar-width)) solid transparent;
 
-    // [theme='dark'] & {
-    //     --sidebar-background: var(--accent-3000);
-    // }
+    [theme='dark'] & {
+        --sidebar-background: var(--accent-3000);
+    }
 
     &.Sidebar3000--resizing {
         will-change: flex-basis;
@@ -201,7 +201,7 @@
         margin: 0;
         overflow: hidden;
         line-height: inherit;
-        color: var(--content-primary);
+        color: var(--text-3000);
         text-overflow: ellipsis;
     }
 
@@ -317,7 +317,7 @@
     }
 
     &::after {
-        background: var(--background-primary-inverse);
+        background: var(--text-3000);
         opacity: 0;
         transition: 100ms ease transform;
     }
@@ -351,7 +351,7 @@
     --accordion-arrow-size: 1rem;
     --accordion-row-height: 1.75rem;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--background-secondary);
+    --accordion-header-background: var(--accent-3000);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -361,7 +361,7 @@
     min-height: var(--accordion-row-height);
 
     [theme='dark'] & {
-        --accordion-header-background: var(--background-secondary);
+        --accordion-header-background: var(--bg-3000);
     }
 
     &[aria-expanded] {
@@ -420,14 +420,14 @@
 }
 
 .SidebarListItem {
-    --sidebar-list-item-status-color: var(--content-tertiary);
+    --sidebar-list-item-status-color: var(--muted);
     --sidebar-list-item-fold-size: 0.5rem;
     --sidebar-list-item-ribbon-width: 0.1875rem;
     --sidebar-list-item-background: var(--sidebar-background);
 
     position: relative;
     line-height: 1.125rem;
-    color: var(--content-tertiary);
+    color: var(--muted);
     list-style: none;
     background: var(--sidebar-list-item-background);
     border-bottom-width: 1px;
@@ -570,14 +570,14 @@
 
 .SidebarListItem__rename {
     // Pseudo-elements don't work on inputs, so we use a wrapper div
-    background: var(--background-primary);
+    background: var(--bg-light);
 
     input {
         width: 100%;
         height: 100%;
         padding: 0 calc(var(--sidebar-horizontal-padding) + 2.5rem) 0 var(--sidebar-list-item-inset);
         font-size: 0.75rem;
-        color: var(--content-primary);
+        color: var(--text-3000);
         background: none;
         outline: none;
     }
@@ -587,7 +587,7 @@
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--border-tertiary);
+        border: 1px solid var(--border);
 
         .SidebarListItem[aria-invalid='true'] & {
             border-color: var(--danger);

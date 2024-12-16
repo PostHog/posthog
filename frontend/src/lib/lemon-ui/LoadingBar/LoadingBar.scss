@@ -17,7 +17,7 @@
     position: absolute;
     left: 0;
     height: 100%;
-    background: var(--background-brand);
+    background: var(--background-accent);
 
     .storybook-test-runner & {
         // When taking UI snapshots, we hard-code progress width to 50%

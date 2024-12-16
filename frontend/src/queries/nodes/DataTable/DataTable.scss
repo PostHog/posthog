@@ -13,12 +13,12 @@
         font-weight: 600;
         color: var(--muted);
         text-align: center;
-        background-color: var(--bg-3000);
+        background-color: var(--background-secondary);
     }
 
     @keyframes DataTable__highlight {
         0% {
-            background-color: var(--mark);
+            background-color: var(--background-accent-subtle-08);
         }
 
         100% {

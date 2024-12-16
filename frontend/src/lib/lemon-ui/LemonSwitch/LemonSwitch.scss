@@ -83,7 +83,7 @@
     transition: background-color 100ms ease;
 
     .LemonSwitch--checked & {
-        background-color: var(--background-brand);
+        background-color: var(--background-accent);
     }
 }
 
@@ -112,7 +112,7 @@
 
     .LemonSwitch--checked & {
         background-color: #fff;
-        border-color: var(--border-brand);
+        border-color: var(--border-accent);
         transform: var(--lemon-switch-active-translate);
     }
 

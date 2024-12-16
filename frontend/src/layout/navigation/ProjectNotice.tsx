@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useState } from 'react'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
@@ -157,6 +158,8 @@ export function ProjectNotice(): JSX.Element | null {
             onClose={relevantNotice.closeable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >
             {relevantNotice.message}
+
+            <LemonProgress percent={50} />
         </LemonBanner>
     )
 }

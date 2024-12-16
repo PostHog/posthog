@@ -9,7 +9,7 @@
     white-space: nowrap;
     cursor: default;
     background: var(--border);
-    border: 1px solid var(--secondary-3000-button-border);
+    border: 1px solid var(--border-tertiary);
     border-radius: 99rem;
     outline: 0;
 
@@ -20,7 +20,10 @@
 
     &:hover:not([aria-disabled='true']),
     &:focus {
-        border-color: var(--secondary-3000-button-border-hover);
+        border: 1px solid var(--border-secondary);
+
+        // TODO: focus outline is not working
+        // outline: 1px solid var(--border-focus);
     }
 
     &:not(.PropertyFilterButton--clickable) {

@@ -403,7 +403,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             : rowClassName
                                     const rowRibbonColorDetermined =
                                         typeof rowRibbonColor === 'function'
-                                            ? rowRibbonColor(record, rowIndex) || 'var(--border-light)'
+                                            ? rowRibbonColor(record, rowIndex) || 'var(--border-tertiary)'
                                             : rowRibbonColor
                                     const rowStatusDetermined =
                                         typeof rowStatus === 'function' ? rowStatus(record, rowIndex) : rowStatus

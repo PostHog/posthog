@@ -26,11 +26,11 @@
     font-weight: 500;
     line-height: 1.25rem;
     color: var(--background-primary);
-    background: var(--background-brand);
+    background: var(--background-accent);
     border-radius: var(--radius);
 
     &::selection {
-        background: var(--background-brand); // Default selection background is invisible on primary
+        background: var(--background-accent); // Default selection background is invisible on primary
     }
 
     .Spinner {
@@ -78,7 +78,7 @@
     left: 0;
     width: calc(100% - var(--timeline-seekbar-arrow-width));
     height: var(--timeline-seekbar-thickness);
-    background: var(--background-brand);
+    background: var(--background-accent);
 }
 
 .TimelineSeekbar__line-start,
@@ -92,7 +92,7 @@
         height: var(--timeline-seekbar-arrow-height);
         margin: calc(var(--timeline-seekbar-thickness) + 0.125rem) 0;
         content: '';
-        background: var(--background-brand);
+        background: var(--background-accent);
     }
 }
 

@@ -22,7 +22,7 @@ body[theme=dark] {
     --border: rgba(0, 255, 1, 0.5);
     --link: #00FF01;
     --border-bold: #00FF01;
-    --bg-3000: #111;
+    --background-secondary: #111;
     --glass-bg-3000: #111;
     --bg-light: #222;
     --bg-table: #222;
@@ -54,7 +54,7 @@ body[theme=light] {
     --border-3000: #ff409f;
     --link: #E306AD;
     --border-bold: rgba(255, 105, 180, 0.8);
-    --bg-3000: #FED9E9;
+    --background-secondary: #FED9E9;
     --glass-bg-3000: rgba(255, 192, 203, 0.8);
     --bg-light: #FFF0F5;
     --bg-table: #F8BBD0;

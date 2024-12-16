@@ -4,7 +4,7 @@
 
 .SurveyForm {
     .LemonCollapsePanel__header {
-        background: var(--border-light);
+        background: var(--border-tertiary);
     }
 }
 
@@ -14,7 +14,7 @@
     left: 6px;
     padding: 0 5px;
     font-size: 10px;
-    background-color: var(--bg-3000);
+    background-color: var(--background-secondary);
 }
 
 .SurveyQuestionDragHandle {

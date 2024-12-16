@@ -26,7 +26,7 @@
         }
 
         .text-link {
-            color: var(--text-3000) !important;
+            color: var(--content-primary) !important;
         }
     }
 
@@ -59,10 +59,10 @@
     border-left: 3px solid transparent;
 
     &--active {
-        border-left-color: var(--border-brand);
+        border-left-color: var(--border-accent);
     }
 
     &:hover {
-        background-color: var(--background-brand);
+        background-color: var(--background-accent);
     }
 }

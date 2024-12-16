@@ -15,7 +15,7 @@
 
     label {
         --tick-length: 12.73; // Approximation of tick length, which is (3 + 6) * sqrt(2)
-        --box-color: var(--background-brand);
+        --box-color: var(--background-accent);
 
         display: flex;
         gap: 0.5rem;
@@ -64,19 +64,19 @@
             --box-color: var(background-brand);
 
             .LemonCheckbox__box {
-                border-color: var(--border-brand);
+                border-color: var(--border-accent);
             }
         }
     }
 
     &.LemonCheckbox:not(.LemonCheckbox--disabled):active label {
-        --box-color: var(--background-brand);
+        --box-color: var(--background-accent);
     }
 
     &.LemonCheckbox--checked {
         label {
             .LemonCheckbox__box {
-                background: var(--background-brand);
+                background: var(--background-accent);
                 border-color: transparent;
 
                 path {

@@ -1,5 +1,5 @@
 .Spinner {
-    --spinner-color: var(--content-brand);
+    --spinner-color: var(--content-accent);
 
     display: inline-block; // Same as .LemonIcon
     flex-shrink: 0;
@@ -79,6 +79,6 @@
     }
 
     &.SpinnerOverlay--scene-level::before {
-        background: var(--bg-3000);
+        background: var(--background-secondary);
     }
 }

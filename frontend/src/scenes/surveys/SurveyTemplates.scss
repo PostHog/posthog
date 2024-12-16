@@ -11,11 +11,11 @@
 
     &:hover {
         cursor: pointer;
-        border-color: var(--border-brand-hover);
+        border-color: var(--border-accent-hover);
     }
 
     &:focus {
-        border-color: var(--border-brand-hover);
+        border-color: var(--border-accent-hover);
         outline: none;
     }
 

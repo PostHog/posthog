@@ -92,7 +92,7 @@ const ListItemException = ({
         <div
             className={clsx(
                 'cursor-pointer p-2 space-y-1 border-l-4',
-                isActive ? 'border-brand' : 'border-transparent'
+                isActive ? 'border-accent' : 'border-transparent'
             )}
         >
             <div className="flex justify-between items-center space-x-3">

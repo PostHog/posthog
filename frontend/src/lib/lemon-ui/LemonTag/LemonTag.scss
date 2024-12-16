@@ -25,13 +25,13 @@
     }
 
     &.LemonTag--primary {
-        color: var(--content-brand);
+        color: var(--content-accent);
         background: none;
-        border-color: var(--border-brand);
+        border-color: var(--border-accent);
     }
 
     &.LemonTag--option {
-        color: var(--content-brand);
+        color: var(--content-accent);
         background-color: var(--background-secondary);
     }
 
@@ -87,7 +87,7 @@
         line-height: 16px;
         color: var(--content-primary);
         vertical-align: bottom;
-        background-color: var(--primary-highlight);
+        background-color: var(--background-accent-subtle-08);
         border-radius: 40px;
     }
 

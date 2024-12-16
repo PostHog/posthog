@@ -8,7 +8,7 @@
     .PlayerMetaPersonProperties {
         padding: 0.5rem;
         overflow: auto;
-        background: var(--bg-3000);
+        background: var(--background-secondary);
         border-bottom: 1px solid transparent;
     }
 
@@ -82,7 +82,7 @@
         color: var(--content-primary);
 
         &:hover {
-            color: var(--content-brand);
+            color: var(--content-accent);
         }
     }
 }

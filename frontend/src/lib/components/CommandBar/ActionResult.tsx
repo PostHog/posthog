@@ -23,10 +23,10 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
     }, [focused])
 
     return (
-        <div className={clsx('border-l-4', focused ? 'border-brand' : !isExecutable ? 'border-transparent' : null)}>
+        <div className={clsx('border-l-4', focused ? 'border-accent' : !isExecutable ? 'border-transparent' : null)}>
             <div
-                className={`flex items-center w-full px-2 hover:background-secondary ${
-                    focused ? 'background-secondary' : 'background-primary'
+                className={`flex items-center w-full px-2 hover:background-tertiary ${
+                    focused ? 'background-tertiary' : 'background-primary'
                 } border-b cursor-pointer`}
                 onClick={() => {
                     if (isExecutable) {

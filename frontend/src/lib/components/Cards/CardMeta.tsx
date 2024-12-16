@@ -80,7 +80,7 @@ export function CardMeta({
                                 >
                                     <IconPieChart
                                         className="ml-1.5 text-base align-[-0.25em]"
-                                        style={{ color: 'var(--content-brand)' }}
+                                        style={{ color: 'var(--content-accent)' }}
                                     />
                                 </Tooltip>
                             )}

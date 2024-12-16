@@ -6,7 +6,7 @@
     height: 0;
     padding: 0.05rem !important;
     overflow: hidden;
-    background: var(--primary-highlight);
+    background: var(--background-accent-subtle-08);
     border: none !important;
     transition: height 200ms ease, top 200ms ease;
 
@@ -17,7 +17,7 @@
         width: 50%;
         height: 100%;
         content: '';
-        background: var(--background-brand);
+        background: var(--background-accent);
         animation: LemonTableLoader__swooping 1.5s linear infinite;
     }
 

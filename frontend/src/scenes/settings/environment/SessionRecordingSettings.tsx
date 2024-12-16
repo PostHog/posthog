@@ -34,7 +34,7 @@ function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
     const node = (
         <div
             className={clsx(
-                props.supported ? 'bg-success-highlight' : 'bg-danger-highlight',
+                props.supported ? 'bg-success-highlight' : 'background-danger-subtle',
                 'px-1 py-0.5',
                 props.note && 'cursor-pointer'
             )}

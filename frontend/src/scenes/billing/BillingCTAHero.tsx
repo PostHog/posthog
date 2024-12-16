@@ -24,10 +24,10 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
     const { toggleIsPlanComparisonModalOpen, setBillingProductLoading } = useActions(billingProductLogic({ product }))
 
     return (
-        <div className="flex relative justify-between items-center rounded-lg bg-mark" ref={billingHeroRef}>
+        <div className="flex relative justify-between items-center rounded-lg" ref={billingHeroRef}>
             <div className="p-4">
                 <h1 className="mb-0">Get the whole hog.</h1>
-                <h1 className="text-danger">Only pay for what you use.</h1>
+                <h1 className="content-accent">Only pay for what you use.</h1>
                 <div className="mt-2 mb-0 max-w-xl">
                     <p>PostHog comes with all product features on every plan.</p>
                     <p>
@@ -41,7 +41,6 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                         <BillingUpgradeCTA
                             className="mt-4 inline-block"
                             type="primary"
-                            status="alt"
                             data-attr="billing-page-core-upgrade-cta"
                             disableClientSideRouting
                             loading={!!billingProductLoading}
@@ -54,7 +53,6 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                             className="mt-4 inline-block"
                             to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
                             type="primary"
-                            status="alt"
                             data-attr="billing-page-core-upgrade-cta"
                             disableClientSideRouting
                             loading={!!billingProductLoading}
@@ -66,7 +64,7 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                     <LemonButton
                         className="mt-4 inline-block"
                         onClick={() => toggleIsPlanComparisonModalOpen()}
-                        type="primary"
+                        type="secondary"
                     >
                         Compare plans
                     </LemonButton>

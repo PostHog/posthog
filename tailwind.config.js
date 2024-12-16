@@ -62,6 +62,9 @@ const config = {
             fontSize: {
                 xxs: ['0.625rem', '0.75rem'], // 10px (12px of line height)
             },
+            colors: {
+                accent: 'var(--border-accent)',
+            },
             spacing: {
                 // Some additional larger widths for compatibility with our pre-Tailwind system
                 // Don't add new ones here, in new code just use the `w-[32rem]` style for arbitrary values

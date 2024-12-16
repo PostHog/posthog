@@ -16,7 +16,7 @@
                 color: var(--content-primary);
 
                 &:hover {
-                    color: var(--content-brand);
+                    color: var(--content-accent);
                 }
             }
         }
@@ -38,6 +38,6 @@
         justify-content: center;
         width: 100%;
         padding: 4rem;
-        background-color: var(--bg-3000);
+        background-color: var(--background-secondary);
     }
 }

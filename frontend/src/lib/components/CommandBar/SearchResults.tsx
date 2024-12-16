@@ -27,7 +27,7 @@ export const SearchResults = (): JSX.Element => {
                 <div className="overflow-hidden overscroll-contain flex h-full">
                     <div
                         className={clsx(
-                            'border-r background-primary overscroll-contain overflow-y-scroll grow-0 shrink-0 w-full',
+                            'border-r overscroll-contain overflow-y-scroll grow-0 shrink-0 w-full',
                             size !== 'small' && 'max-w-80'
                         )}
                     >

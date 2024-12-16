@@ -11,6 +11,6 @@
     width: calc(100% + var(--file-drop-target-padding) * 2);
     height: calc(100% + var(--file-drop-target-padding) * 2);
     content: '';
-    border: 3px dashed var(--border-brand);
+    border: 3px dashed var(--border-accent);
     border-radius: var(--radius);
 }

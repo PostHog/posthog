@@ -19,17 +19,17 @@
     }
 
     &.LemonBanner--warning {
-        color: var(--content-warning-bold);
+        color: var(--content-warning);
         background-color: var(--background-warning-subtle);
     }
 
     &.LemonBanner--error {
-        color: var(--content-danger-bold);
+        color: var(--content-danger);
         background-color: var(--background-danger-subtle);
     }
 
     &.LemonBanner--success {
-        color: var(--content-success-bold);
+        color: var(--content-success);
         background-color: var(--background-success-subtle);
     }
 

@@ -122,7 +122,7 @@
             border-radius: var(--radius);
 
             &:hover {
-                background-color: var(--bg-3000);
+                background-color: var(--background-secondary);
             }
 
             & svg {
@@ -130,13 +130,13 @@
             }
 
             &.Backlink--selected {
-                border-color: var(--border-brand);
+                border-color: var(--border-accent);
             }
 
             &.Backlink--active {
                 color: var(--white);
-                background: var(--background-brand);
-                border: 1px solid var(--border-brand);
+                background: var(--background-accent);
+                border: 1px solid var(--border-accent);
 
                 & .Backlink__label,
                 & svg {
@@ -292,7 +292,7 @@
             inset: 0;
             z-index: -1;
             content: '';
-            background: var(--background-brand);
+            background: var(--background-accent);
             opacity: var(--notebook-comment-background-opacity);
         }
     }

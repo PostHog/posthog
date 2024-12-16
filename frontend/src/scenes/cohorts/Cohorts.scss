@@ -8,12 +8,12 @@
 .cohort-csv-dragger {
     height: 155px !important;
     margin-top: 1rem;
-    border-color: var(--border-brand);
+    border-color: var(--border-accent);
     border-style: dashed;
     border-width: 2px;
     border-radius: var(--radius);
 
     &:hover {
-        border-color: var(--border-brand-hover);
+        border-color: var(--border-accent-hover);
     }
 }

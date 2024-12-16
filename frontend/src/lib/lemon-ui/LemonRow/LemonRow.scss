@@ -17,10 +17,10 @@
     &.LemonRow--status-highlighted {
         font-weight: 600;
         color: var(--content-primary);
-        background: var(--primary-highlight);
+        background: var(--background-accent-subtle-08);
 
         .LemonRow__icon {
-            color: var(--content-brand);
+            color: var(--content-accent);
         }
     }
 
@@ -43,7 +43,7 @@
     }
 
     &.LemonRow--status-muted {
-        background: var(--bg-3000);
+        background: var(--background-secondary);
     }
 
     &.LemonRow--disabled {
