@@ -45,7 +45,7 @@ const VariationCell = (
     { isPercentage, reverseColors }: VariationCellProps = { isPercentage: false, reverseColors: false }
 ): QueryContextColumnComponent => {
     const formatNumber = (value: number): string =>
-        isPercentage ? `${(value * 100).toFixed(1)}%` : value.toLocaleString()
+        isPercentage ? `${(value * 100).toFixed(1)}%` : value?.toLocaleString() ?? '(empty)'
 
     return function Cell({ value }) {
         const { compareFilter } = useValues(webAnalyticsLogic)
