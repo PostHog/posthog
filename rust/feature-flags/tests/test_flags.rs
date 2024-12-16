@@ -61,7 +61,7 @@ async fn it_sends_flag_request() -> Result<()> {
     assert_json_include!(
         actual: json_data,
         expected: json!({
-            "errorWhileComputingFlags": false,
+            "errorsWhileComputingFlags": false,
             "featureFlags": {
                 "test-flag": true
             }
@@ -299,7 +299,7 @@ async fn it_handles_multivariate_flags() -> Result<()> {
     assert_json_include!(
         actual: json_data,
         expected: json!({
-            "errorWhileComputingFlags": false,
+            "errorsWhileComputingFlags": false,
             "featureFlags": {
                 "multivariate-flag": "test_b"
             }
@@ -367,7 +367,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     assert_json_include!(
         actual: json_data,
         expected: json!({
-            "errorWhileComputingFlags": false,
+            "errorsWhileComputingFlags": false,
             "featureFlags": {
                 "property-flag": true
             }
@@ -390,7 +390,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     assert_json_include!(
         actual: json_data,
         expected: json!({
-            "errorWhileComputingFlags": false,
+            "errorsWhileComputingFlags": false,
             "featureFlags": {
                 "property-flag": false
             }
@@ -464,7 +464,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     assert_json_include!(
         actual: json_data,
         expected: json!({
-            "errorWhileComputingFlags": false,
+            "errorsWhileComputingFlags": false,
             "featureFlags": {
                 "group-flag": true
             }
@@ -492,7 +492,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     assert_json_include!(
         actual: json_data,
         expected: json!({
-            "errorWhileComputingFlags": false,
+            "errorsWhileComputingFlags": false,
             "featureFlags": {
                 "group-flag": false
             }
@@ -677,7 +677,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         assert_json_include!(
             actual: json_data,
             expected: json!({
-                "errorWhileComputingFlags": false,
+                "errorsWhileComputingFlags": false,
                 "featureFlags": {
                     "default-no-prop-group-flag": false, // if we don't specify any groups in the request, the flags should be false
                     "groups-flag": false
@@ -704,7 +704,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         assert_json_include!(
             actual: json_data,
             expected: json!({
-                "errorWhileComputingFlags": false,
+                "errorsWhileComputingFlags": false,
                 "featureFlags": {
                     "default-no-prop-group-flag": true,
                     "groups-flag": false
@@ -731,7 +731,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         assert_json_include!(
             actual: json_data,
             expected: json!({
-                "errorWhileComputingFlags": false,
+                "errorsWhileComputingFlags": false,
                 "featureFlags": {
                     "default-no-prop-group-flag": true,
                     "groups-flag": true

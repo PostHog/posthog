@@ -263,7 +263,7 @@ fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagE
 
 /// Evaluate feature flags for a given distinct_id
 /// - Returns a map of feature flag keys to their values
-/// - If an error occurs while evaluating a flag, we'll set `error_while_computing_flags` to true be logged,
+/// - If an error occurs while evaluating a flag, we'll set `errors_while_computing_flags` to true be logged,
 ///   and that flag will be omitted from the result (we will still attempt to evaluate other flags)
 // TODO: it could be a cool idea to store the errors as a tuple instead of top-level, so that users can see
 // which flags failed to evaluate
@@ -460,7 +460,7 @@ mod tests {
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
-        assert!(!result.error_while_computing_flags);
+        assert!(!result.errors_while_computing_flags);
         assert!(result.feature_flags.contains_key("test_flag"));
         assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
     }
@@ -620,7 +620,7 @@ mod tests {
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
-        assert!(!result.error_while_computing_flags);
+        assert!(!result.errors_while_computing_flags);
         assert_eq!(result.feature_flags["flag_1"], FlagValue::Boolean(true));
         assert_eq!(result.feature_flags["flag_2"], FlagValue::Boolean(false));
     }
@@ -723,7 +723,7 @@ mod tests {
         let result = evaluate_feature_flags(evaluation_context).await;
 
         assert!(
-            !result.error_while_computing_flags,
+            !result.errors_while_computing_flags,
             "Error while computing flags"
         );
         assert!(
@@ -784,7 +784,7 @@ mod tests {
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
-        assert!(!result.error_while_computing_flags);
+        assert!(!result.errors_while_computing_flags);
         assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
     }
 
