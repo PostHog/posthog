@@ -528,6 +528,12 @@ export enum PluginLogLevel {
     Critical = 4, // only error type and system source
 }
 
+export enum CookielessServerHashMode {
+    Disabled = 0,
+    Stateless = 1,
+    Stateful = 2,
+}
+
 export interface PluginLogEntry {
     id: string
     team_id: number
@@ -640,7 +646,7 @@ export interface Team {
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null
-    cookieless_server_hash_opt_in: boolean
+    cookieless_server_hash_mode?: CookielessServerHashMode
     timezone: string
 }
 

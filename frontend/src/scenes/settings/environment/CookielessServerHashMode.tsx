@@ -4,17 +4,27 @@ import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
-const bounceRatePageViewModeOptions: LemonRadioOption<1 | 0>[] = [
+import { CookielessServerHashMode } from '~/types'
+
+const options: LemonRadioOption<CookielessServerHashMode>[] = [
     {
-        value: 1,
+        value: CookielessServerHashMode.Stateful,
         label: (
             <>
-                <div>Enabled</div>
+                <div>Stateless</div>
             </>
         ),
     },
     {
-        value: 0,
+        value: CookielessServerHashMode.Stateless,
+        label: (
+            <>
+                <div>Stateless</div>
+            </>
+        ),
+    },
+    {
+        value: CookielessServerHashMode.Disabled,
         label: (
             <>
                 <div>Disabled</div>
@@ -27,11 +37,11 @@ export function CookielessServerHashModeSetting(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
-    const savedSetting = currentTeam?.cookieless_server_hash_opt_in ? 1 : 0
-    const [setting, setSetting] = useState<1 | 0>(savedSetting)
+    const savedSetting = currentTeam?.cookieless_server_hash_mode ?? CookielessServerHashMode.Disabled
+    const [setting, setSetting] = useState<CookielessServerHashMode>(savedSetting)
 
-    const handleChange = (newSetting: 1 | 0): void => {
-        updateCurrentTeam({ cookieless_server_hash_opt_in: !!newSetting })
+    const handleChange = (newSetting: CookielessServerHashMode): void => {
+        updateCurrentTeam({ cookieless_server_hash_mode: newSetting })
     }
 
     return (
@@ -40,7 +50,7 @@ export function CookielessServerHashModeSetting(): JSX.Element {
                 Use a cookieless server-side hash mode to hash user data. This is an experimental feature preview and
                 may result in dropped events.
             </p>
-            <LemonRadio value={setting} onChange={setSetting} options={bounceRatePageViewModeOptions} />
+            <LemonRadio value={setting} onChange={setSetting} options={options} />
             <div className="mt-4">
                 <LemonButton
                     type="primary"

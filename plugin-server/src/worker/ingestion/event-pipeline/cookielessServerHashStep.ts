@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import * as siphashDouble from 'siphash/lib/siphash-double'
 import { getDomain } from 'tldts'
 
+import { CookielessServerHashMode } from '../../../types'
 import { ConcurrencyController } from '../../../utils/concurrencyController'
 import { DB } from '../../../utils/db/db'
 import { now } from '../../../utils/now'
@@ -43,7 +44,7 @@ const SALT_TTL_SECONDS =
 const SESSION_TTL_SECONDS = 60 * 60 * 24
 const IDENTIFIES_TTL_SECONDS = 60 * 60 * 24
 const DELETE_EXPIRED_SALTS_INTERVAL_MS = 60 * 60 * 1000
-const DO_SIMPLE_PIPELINE_STEP = true
+const FORCE_STATELESS_COOKIELESS_MODE = true // TODO env var
 
 export async function cookielessServerHashStep(
     runner: EventPipelineRunner,
@@ -56,7 +57,7 @@ export async function cookielessServerHashStep(
 
     // if the team isn't allowed to use this mode, drop the event
     const team = await runner.hub.teamManager.getTeamForEvent(event)
-    if (!team?.cookieless_server_hash_opt_in) {
+    if (!team?.cookieless_server_hash_mode) {
         // TODO log
         return [undefined]
     }
@@ -92,9 +93,9 @@ export async function cookielessServerHashStep(
         return [undefined]
     }
 
-    if (DO_SIMPLE_PIPELINE_STEP) {
+    if (team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless || FORCE_STATELESS_COOKIELESS_MODE) {
         if (event.event === '$identify' || event.distinct_id !== COOKIELESS_SENTINEL_VALUE) {
-            // identifies and post-identify events are not valid in the simple mode, drop the event
+            // identifies and post-identify events are not valid in the stateless mode, drop the event
             return [undefined]
         }
 
