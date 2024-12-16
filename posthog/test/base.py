@@ -793,7 +793,7 @@ class BaseTestMigrations(QueryMatchingTest):
         pass
 
     def tearDown(self):
-        super().tearDown()
+        super().tearDown()  # type: ignore
         executor = MigrationExecutor(connection)  # Reset Django's migration state
         targets = executor.loader.graph.leaf_nodes()
         executor.migrate(targets)  # Migrate to the latest migration
