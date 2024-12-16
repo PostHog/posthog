@@ -979,6 +979,65 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [0.0, 500.0, 1250.0, 1250.0, 1250.0, 2050.0, 2050.0, 2050.0, 2050.0, 2050.0],
         )
 
+        # Run the query again with filter_test_accounts=False
+        # as a point of comparison to above
+        count_query = TrendsQuery(
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    distinct_id_field="userid",
+                    id_field="id",
+                    table_name=table_name,
+                    timestamp_field="ds",
+                    math="avg",
+                    math_property="usage",
+                    math_property_type="data_warehouse_properties",
+                )
+            ],
+            filterTestAccounts=False,
+        )
+        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")], filterTestAccounts=False)
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=exposure_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        with freeze_time("2023-01-07"):
+            result = query_runner.calculate()
+
+        trend_result = cast(ExperimentTrendsQueryResponse, result)
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_result = next(variant for variant in trend_result.variants if variant.key == "control")
+        test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+
+        control_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "control")
+        test_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "test")
+
+        self.assertEqual(control_result.count, 1000)
+        self.assertEqual(test_result.count, 102050)
+        self.assertEqual(control_result.absolute_exposure, 1)
+        self.assertEqual(test_result.absolute_exposure, 4)
+
+        self.assertEqual(
+            control_insight["data"][:10],
+            [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0],
+        )
+        self.assertEqual(
+            test_insight["data"][:10],
+            [0.0, 500.0, 1250.0, 101250.0, 101250.0, 102050.0, 102050.0, 102050.0, 102050.0, 102050.0],
+        )
+
     def test_query_runner_with_data_warehouse_series_expected_query(self):
         table_name = self.create_data_warehouse_table_with_payments()
 
