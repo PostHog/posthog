@@ -1,8 +1,8 @@
 import functools
-import os
 from collections.abc import Generator
 
 import pytest
+from django.conf import settings
 from django.test import override_settings
 from langchain_core.runnables import RunnableConfig
 
@@ -19,14 +19,15 @@ def retry_test_only(max_retries=3):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            last_error = None
+            last_error: Exception | None = None
             for attempt in range(max_retries):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
                     last_error = e
                     print(f"\nRetrying test (attempt {attempt + 1}/{max_retries})...")  # noqa
-            raise last_error
+            if last_error:
+                raise last_error
 
         return wrapper
 
@@ -37,7 +38,7 @@ def retry_test_only(max_retries=3):
 def pytest_collection_modifyitems(items):
     for item in items:
         item.add_marker(
-            pytest.mark.skipif(os.environ.get("DEEPEVAL") != "YES", reason="Only runs for the assistant evaluation")
+            pytest.mark.skipif(not settings.IN_EVAL_TESTING, reason="Only runs for the assistant evaluation")
         )
         # Apply our custom retry decorator to the test function
         item.obj = retry_test_only(max_retries=3)(item.obj)

@@ -119,7 +119,7 @@ def reset_clickhouse_tables():
             """,
         )
         # Using `ON CLUSTER` takes x20 more time to drop the tables: https://github.com/ClickHouse/ClickHouse/issues/15473.
-        TABLES_TO_CREATE_DROP = +[f"DROP TABLE {table[0]}" for table in kafka_tables]
+        TABLES_TO_CREATE_DROP += [f"DROP TABLE {table[0]}" for table in kafka_tables]
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)
 
