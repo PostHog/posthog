@@ -16,7 +16,6 @@ from posthog.api.utils import (
     get_token,
     on_permitted_recording_domain,
 )
-from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
@@ -30,8 +29,6 @@ from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.remote_config import RemoteConfig
-from posthog.models.utils import execute_with_timeout
-from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import (
     get_ip_address,
     label_for_team_id_to_track,
@@ -46,102 +43,18 @@ FLAG_EVALUATION_COUNTER = Counter(
 )
 
 
-def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
-    # Check for query param "use_remote_config"
-    use_remote_config = request.GET.get("use_remote_config") == "true" or token in (
-        settings.DECIDE_TOKENS_FOR_REMOTE_CONFIG or []
-    )
+def get_base_config(token: str, request: HttpRequest) -> dict:
+    response = RemoteConfig.get_config_via_token(token, request=request)
 
-    if use_remote_config:
-        response = RemoteConfig.get_config_via_token(token, request=request)
+    # Add in a bunch of backwards compatibility stuff
+    response["isAuthenticated"] = False
+    response["toolbarParams"] = {}
+    response["config"] = {"enable_collect_everything": True}
+    response["surveys"] = True if len(response["surveys"]) > 0 else False
 
-        # Add in a bunch of backwards compatibility stuff
-        response["isAuthenticated"] = False
-        response["toolbarParams"] = {}
-        response["config"] = {"enable_collect_everything": True}
-        response["surveys"] = True if len(response["surveys"]) > 0 else False
-
-        # Remove some stuff that is specific to the new RemoteConfig
-        del response["hasFeatureFlags"]
-        del response["token"]
-
-        return response
-
-    response = {
-        "config": {"enable_collect_everything": True},
-        "toolbarParams": {},
-        "isAuthenticated": False,
-        # gzip and gzip-js are aliases for the same compression algorithm
-        "supportedCompression": ["gzip", "gzip-js"],
-        "featureFlags": [],
-        "sessionRecording": False,
-    }
-
-    response["captureDeadClicks"] = True if team.capture_dead_clicks else False
-
-    capture_network_timing = True if team.capture_performance_opt_in else False
-    capture_web_vitals = True if team.autocapture_web_vitals_opt_in else False
-    autocapture_web_vitals_allowed_metrics = None
-    if capture_web_vitals:
-        autocapture_web_vitals_allowed_metrics = team.autocapture_web_vitals_allowed_metrics
-    response["capturePerformance"] = (
-        {
-            "network_timing": capture_network_timing,
-            "web_vitals": capture_web_vitals,
-            "web_vitals_allowed_metrics": autocapture_web_vitals_allowed_metrics,
-        }
-        if capture_network_timing or capture_web_vitals
-        else False
-    )
-
-    response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
-    response["autocaptureExceptions"] = (
-        {
-            "endpoint": "/e/",
-        }
-        if team.autocapture_exceptions_opt_in
-        else False
-    )
-
-    # this not settings.DEBUG check is a lazy workaround because
-    # NEW_ANALYTICS_CAPTURE_ENDPOINT doesn't currently work in DEBUG mode
-    if not settings.DEBUG and str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):
-        response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
-
-    if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
-        response["elementsChainAsString"] = True
-
-    response["sessionRecording"] = _session_recording_config_response(request, team)
-
-    if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
-        from ee.billing.quota_limiting import (
-            QuotaLimitingCaches,
-            QuotaResource,
-            list_limited_team_attributes,
-        )
-
-        limited_tokens_recordings = list_limited_team_attributes(
-            QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        )
-
-        if token in limited_tokens_recordings:
-            response["quotaLimited"] = ["recordings"]
-            response["sessionRecording"] = False
-
-    response["surveys"] = True if team.surveys_opt_in else False
-    response["heatmaps"] = True if team.heatmaps_opt_in else False
-    response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
-
-    site_apps = []
-    # errors mean the database is unavailable, bail in this case
-    if team.inject_web_apps and not skip_db:
-        try:
-            with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
-                site_apps = get_decide_site_apps(team, using_database=DATABASE_FOR_FLAG_MATCHING)
-        except Exception:
-            pass
-
-    response["siteApps"] = site_apps
+    # Remove some stuff that is specific to the new RemoteConfig
+    del response["hasFeatureFlags"]
+    del response["token"]
 
     return response
 
@@ -314,7 +227,7 @@ def get_decide(request: HttpRequest):
             flags_response["featureFlags"] = {}
 
         # NOTE: Changed code - everything not feature flags goes in here
-        response = get_base_config(token, team, request, skip_db=errors)
+        response = get_base_config(token, request)
         response.update(flags_response)
 
         # NOTE: Whenever you add something to decide response, update this test:
