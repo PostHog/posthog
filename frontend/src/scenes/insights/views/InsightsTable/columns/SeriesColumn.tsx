@@ -23,16 +23,8 @@ export const CustomizationIcon = ({ isVisible }: CustomizationIconProps): JSX.El
         return null
     }
 
-    return (
-        <>
-            {isVisible ? (
-                <IconPencil fontSize={14} />
-            ) : (
-                /* spacer for icon, so that hovering doesn't result in layout shifts */
-                <div className="w-4 h-4" />
-            )}
-        </>
-    )
+    // we always render a spacer so that hovering doesn't result in layout shifts
+    return <div className="w-4 h-4">{isVisible && <IconPencil fontSize={14} />}</div>
 }
 
 type SeriesColumnItemProps = {
