@@ -21,7 +21,7 @@ import {
     IconVideoCamera,
     IconWarning,
 } from '@posthog/icons'
-import { LemonSelectOptions, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
@@ -53,10 +53,11 @@ import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Node, NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema'
 import { isNodeWithSource } from '~/queries/utils'
 import { ActivityScope, InsightType, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
+import { ReloadInsight } from './ReloadInsight'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 
 interface NewInsightButtonProps {
@@ -605,18 +606,6 @@ export function SavedInsights(): JSX.Element {
         },
     ]
 
-    const draftQueryLocalStorage = localStorage.getItem('draft-query')
-    let draftQuery: { query: Node<Record<string, any>>; timestamp: number } | null = null
-    if (draftQueryLocalStorage) {
-        try {
-            draftQuery = JSON.parse(draftQueryLocalStorage)
-        } catch (e) {
-            // If the draft query is invalid, remove it
-            console.error('Error parsing draft query', e)
-            localStorage.removeItem('draft-query')
-        }
-    }
-
     return (
         <div className="saved-insights">
             <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
@@ -683,13 +672,7 @@ export function SavedInsights(): JSX.Element {
                         <SavedInsightsEmptyState />
                     ) : (
                         <>
-                            {draftQuery?.query && (
-                                <div className="text-muted-alt mb-4">
-                                    You have an unsaved insight from {new Date(draftQuery.timestamp).toLocaleString()}.{' '}
-                                    <Link to={urls.insightNew(undefined, null, draftQuery.query)}>Click here</Link> to
-                                    view it.
-                                </div>
-                            )}
+                            <ReloadInsight />
                             {layoutView === LayoutView.List ? (
                                 <LemonTable
                                     loading={insightsLoading}

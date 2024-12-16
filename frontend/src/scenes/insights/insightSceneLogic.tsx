@@ -73,6 +73,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             unmount,
         }),
         setOpenedWithQuery: (query: Node | null) => ({ query }),
+        setFreshQuery: (freshQuery: boolean) => ({ freshQuery }),
     }),
     reducers({
         insightId: [
@@ -150,6 +151,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         openedWithQuery: [null as Node | null, { setOpenedWithQuery: (_, { query }) => query }],
+        freshQuery: [false, { setFreshQuery: (_, { freshQuery }) => freshQuery }],
     }),
     selectors(() => ({
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
@@ -272,7 +274,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             { shortId, mode, itemId }, // url params
             { dashboard, alert_id, ...searchParams }, // search params
             { insight: insightType, q }, // hash params
-            { method }, // "location changed" event payload
+            { method, initial }, // "location changed" event payload
             { searchParams: previousSearchParams } // previous location
         ) => {
             const insightMode =
@@ -335,8 +337,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 queryFromUrl = getDefaultQuery(insightType, values.filterTestAccountsDefault)
             }
 
+            actions.setFreshQuery(false)
+
             // reset the insight's state if we have to
-            if (queryFromUrl && method !== 'REPLACE') {
+            if (initial || queryFromUrl || method === 'PUSH') {
                 if (insightId === 'new') {
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
                     values.insightLogicRef?.logic.actions.setInsight(
@@ -350,6 +354,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             overrideQuery: true,
                         }
                     )
+
+                    if (!queryFromUrl) {
+                        actions.setFreshQuery(true)
+                    }
 
                     actions.setOpenedWithQuery(query)
 

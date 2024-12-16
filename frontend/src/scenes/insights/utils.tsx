@@ -437,6 +437,6 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
 
 export function isQueryTooLarge(query: Node<Record<string, any>>): boolean {
     // Chrome has a 2MB limit for the HASH params, limit ours at 1MB
-    const queryLength = JSON.stringify(query).length
+    const queryLength = encodeURI(JSON.stringify(query)).split(/%..|./).length - 1
     return queryLength > 1024 * 1024
 }
