@@ -384,7 +384,7 @@ class RemoteConfig(UUIDModel):
 
         logger.info(f"Purging CDN for team {self.team_id}")
 
-        data = {"files": []}
+        data: dict[str, Any] = {"files": []}
 
         for domain in settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS:
             # Check if the domain starts with https:// and if not add it
