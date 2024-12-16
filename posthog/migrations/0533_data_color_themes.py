@@ -36,7 +36,7 @@ def remove_default_themes(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0531_alter_hogfunction_type")]
+    dependencies = [("posthog", "0532_taxonomy_unique_on_project")]
 
     operations = [
         migrations.CreateModel(
