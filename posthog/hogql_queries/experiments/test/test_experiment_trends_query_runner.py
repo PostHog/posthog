@@ -246,15 +246,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             field_name="events",
             configuration={"experiments_optimized": True, "experiments_timestamp_key": "ds"},
         )
-
-        DataWarehouseJoin.objects.create(
-            team=self.team,
-            source_table_name=table_name,
-            source_table_key="userid",
-            joining_table_name="persons",
-            joining_table_key="properties.$user_id",
-            field_name="person",
-        )
         return table_name
 
     @freeze_time("2020-01-01T12:00:00Z")
