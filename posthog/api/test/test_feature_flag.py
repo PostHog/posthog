@@ -2,7 +2,6 @@ import datetime
 import json
 from typing import Optional
 from unittest.mock import call, patch
-from dateutil.relativedelta import relativedelta
 
 from django.core.cache import cache
 from django.db import connection
@@ -41,7 +40,6 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     FuzzyInt,
     QueryMatchingTest,
-    _create_event,
     _create_person,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
@@ -6130,18 +6128,6 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         if expected_reason is not None:
             self.assertEqual(response_data.get("reason"), expected_reason)
 
-    def create_feature_flag_called_event(
-        self, feature_flag_key: str, response: Optional[bool] = True, datetime: Optional[datetime.datetime] = None
-    ):
-        timestamp = datetime or now() - relativedelta(hours=12)
-        _create_event(
-            event="$feature_flag_called",
-            distinct_id="person1",
-            properties={"$feature_flag": feature_flag_key, "$feature_flag_response": response},
-            team=self.team,
-            timestamp=timestamp,
-        )
-
     def test_flag_status_reasons(self):
         FeatureFlag.objects.all().delete()
 
@@ -6165,7 +6151,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             active=False,
         )
-        self.create_feature_flag_called_event(disabled_flag.key)
+
         self.assert_expected_response(disabled_flag.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for flag that has super group rolled out to <100%
@@ -6176,7 +6162,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             active=True,
             filters={"super_groups": [{"rollout_percentage": 50, "properties": []}]},
         )
-        self.create_feature_flag_called_event(fifty_percent_super_group_flag.key)
+
         self.assert_expected_response(fifty_percent_super_group_flag.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for flag that has super group rolled out to 100% and specific properties
@@ -6201,7 +6187,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ]
             },
         )
-        self.create_feature_flag_called_event(fully_rolled_out_super_group_flag_with_properties.key)
+
         self.assert_expected_response(fully_rolled_out_super_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for flag that has super group rolled out to 100% and has no specific properties
@@ -6231,7 +6217,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             active=True,
             filters={"holdout_groups": [{"rollout_percentage": 50, "properties": []}]},
         )
-        self.create_feature_flag_called_event(fifty_percent_holdout_group_flag.key)
+
         self.assert_expected_response(fifty_percent_holdout_group_flag.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for flag that has holdout group rolled out to 100% and specific properties
@@ -6256,7 +6242,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ]
             },
         )
-        self.create_feature_flag_called_event(fully_rolled_out_holdout_group_flag_with_properties.key)
+
         self.assert_expected_response(fully_rolled_out_holdout_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for flag that has holdout group rolled out to 100% and has no specific properties
@@ -6293,7 +6279,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 }
             },
         )
-        self.create_feature_flag_called_event(multivariate_flag_no_rolled_out_variants.key)
+
         self.assert_expected_response(multivariate_flag_no_rolled_out_variants.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for multivariate flag with no variants set to 100%
@@ -6337,7 +6323,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ],
             },
         )
-        self.create_feature_flag_called_event(multivariate_flag_rolled_out_variant_no_rolled_out_release.key)
+
         self.assert_expected_response(
             multivariate_flag_rolled_out_variant_no_rolled_out_release.id,
             FeatureFlagStatus.ACTIVE,
@@ -6361,7 +6347,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ],
             },
         )
-        self.create_feature_flag_called_event(multivariate_flag_rolled_out_release_condition_half_variant.key)
+
         self.assert_expected_response(
             multivariate_flag_rolled_out_release_condition_half_variant.id,
             FeatureFlagStatus.ACTIVE,
@@ -6396,7 +6382,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ],
             },
         )
-        self.create_feature_flag_called_event(multivariate_flag_rolled_out_variant_rolled_out_filtered_release.key)
+
         self.assert_expected_response(
             multivariate_flag_rolled_out_variant_rolled_out_filtered_release.id,
             FeatureFlagStatus.ACTIVE,
@@ -6431,7 +6417,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ],
             },
         )
-        self.create_feature_flag_called_event(multivariate_flag_filtered_rolled_out_release_with_override.key)
+
         self.assert_expected_response(
             multivariate_flag_filtered_rolled_out_release_with_override.id,
             FeatureFlagStatus.ACTIVE,
@@ -6509,7 +6495,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ],
             },
         )
-        self.create_feature_flag_called_event(boolean_flag_no_rolled_out_release_conditions.key)
+
         self.assert_expected_response(
             boolean_flag_no_rolled_out_release_conditions.id,
             FeatureFlagStatus.ACTIVE,
@@ -6570,39 +6556,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 ],
             },
         )
-        self.create_feature_flag_called_event(boolean_flag_no_rolled_out_release_condition_recently_evaluated.key)
+
         self.assert_expected_response(
             boolean_flag_no_rolled_out_release_condition_recently_evaluated.id, FeatureFlagStatus.ACTIVE
-        )
-
-        # Request status for a boolean flag with no rolled out release conditions, and has
-        # been called, but not recently
-        boolean_flag_rolled_out_release_condition_not_recently_evaluated = FeatureFlag.objects.create(
-            name="Boolean flag with a release condition set to 100%",
-            key="boolean-not-recently-evaluated-flag",
-            team=self.team,
-            active=True,
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "name",
-                                "type": "person",
-                                "value": ["Smith"],
-                                "operator": "contains",
-                            }
-                        ],
-                        "rollout_percentage": 50,
-                    },
-                ],
-            },
-        )
-        self.create_feature_flag_called_event(
-            boolean_flag_rolled_out_release_condition_not_recently_evaluated.key, True, now() - relativedelta(days=31)
-        )
-        self.assert_expected_response(
-            boolean_flag_rolled_out_release_condition_not_recently_evaluated.id,
-            FeatureFlagStatus.INACTIVE,
-            "Flag has not been evaluated recently",
         )
