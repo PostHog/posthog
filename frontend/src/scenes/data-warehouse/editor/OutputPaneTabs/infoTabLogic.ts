@@ -12,7 +12,7 @@ export interface InfoTableRow {
     last_run_at?: string
 }
 
-interface InfoTabLogicProps {
+export interface InfoTabLogicProps {
     codeEditorKey: string
 }
 
@@ -32,23 +32,22 @@ export const infoTabLogic = kea<infoTabLogicType>([
     })),
     selectors({
         sourceTableItems: [
-            (s) => [s.metadata, s.dataWarehouseTablesMap, s.posthogTablesMap, s.dataWarehouseSavedQueryMap],
-            (metadata, dataWarehouseTablesMap, posthogTablesMap, dataWarehouseSavedQueryMap) => {
+            (s) => [s.metadata, s.dataWarehouseSavedQueryMap],
+            (metadata, dataWarehouseSavedQueryMap) => {
                 if (!metadata) {
                     return []
                 }
-                return metadata.table_names.map((table_name) => {
-                    let table = dataWarehouseSavedQueryMap[table_name]
-                    if (table) {
+                return metadata.table_names?.map((table_name) => {
+                    const view = dataWarehouseSavedQueryMap[table_name]
+                    if (view) {
                         return {
                             name: table_name,
                             type: 'table',
-                            status: table.status,
-                            last_run_at: table.last_run_at || 'never',
+                            status: view.status,
+                            last_run_at: view.last_run_at || 'never',
                         }
                     }
 
-                    table = dataWarehouseTablesMap[table_name] || posthogTablesMap[table_name]
                     return {
                         name: table_name,
                         type: 'source',

@@ -272,7 +272,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                       },
                                   ],
                               })),
-                          },
+                          } as SidebarCategory,
                       ]
                     : []),
             ],
