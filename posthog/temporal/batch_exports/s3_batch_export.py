@@ -1,9 +1,11 @@
 import asyncio
+import collections.abc
 import contextlib
 import dataclasses
 import datetime as dt
 import io
 import json
+import operator
 import posixpath
 import typing
 
@@ -29,29 +31,60 @@ from posthog.temporal.batch_exports.batch_exports import (
     default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    iter_model_records,
     start_batch_export_run,
+    wait_for_delta_past_data_interval_end,
 )
-from posthog.temporal.batch_exports.metrics import (
-    get_bytes_exported_metric,
-    get_rows_exported_metric,
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
+    HeartbeatParseError,
+    should_resume_from_activity_heartbeat,
+)
+from posthog.temporal.batch_exports.spmc import (
+    Consumer,
+    Producer,
+    RecordBatchQueue,
+    run_consumer_loop,
+    wait_for_schema_or_producer,
 )
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
-    BatchExportWriter,
-    FlushCallable,
-    JSONLBatchExportWriter,
-    ParquetBatchExportWriter,
-    UnsupportedFileFormatError,
+    WriterFormat,
 )
-from posthog.temporal.batch_exports.utils import (
-    apeek_first_and_rewind,
-    cast_record_batch_json_columns,
-    set_status_to_running_task,
-)
+from posthog.temporal.batch_exports.utils import set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
+
+NON_RETRYABLE_ERROR_TYPES = [
+    # S3 parameter validation failed.
+    "ParamValidationError",
+    # This error usually indicates credentials are incorrect or permissions are missing.
+    "ClientError",
+    # An S3 bucket doesn't exist.
+    "NoSuchBucket",
+    # Couldn't connect to custom S3 endpoint
+    "EndpointConnectionError",
+    # User provided an invalid S3 key
+    "InvalidS3Key",
+    # All consumers failed with non-retryable errors.
+    "RecordBatchConsumerNonRetryableExceptionGroup",
+    # Invalid S3 endpoint URL
+    "InvalidS3EndpointError",
+]
+
+FILE_FORMAT_EXTENSIONS = {
+    "Parquet": "parquet",
+    "JSONLines": "jsonl",
+}
+
+COMPRESSION_EXTENSIONS = {
+    "gzip": "gz",
+    "snappy": "sz",
+    "brotli": "br",
+    "ztsd": "zst",
+    "lz4": "lz4",
+}
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:
@@ -68,20 +101,6 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
         "data_interval_end": inputs.data_interval_end,
         "table": inputs.batch_export_model.name if inputs.batch_export_model is not None else "events",
     }
-
-
-FILE_FORMAT_EXTENSIONS = {
-    "Parquet": "parquet",
-    "JSONLines": "jsonl",
-}
-
-COMPRESSION_EXTENSIONS = {
-    "gzip": "gz",
-    "snappy": "sz",
-    "brotli": "br",
-    "ztsd": "zst",
-    "lz4": "lz4",
-}
 
 
 def get_s3_key(inputs) -> str:
@@ -103,6 +122,13 @@ def get_s3_key(inputs) -> str:
         key = posixpath.relpath(key, "/")
 
     return key
+
+
+class InvalidS3Key(Exception):
+    """Exception raised when an invalid S3 key is provided."""
+
+    def __init__(self, err):
+        super().__init__(f"An invalid S3 key was provided: {err}")
 
 
 class UploadAlreadyInProgressError(Exception):
@@ -131,11 +157,11 @@ class IntermittentUploadPartTimeoutError(Exception):
         super().__init__(f"An intermittent `RequestTimeout` was raised while attempting to upload part {part_number}")
 
 
-class EmptyS3EndpointURLError(Exception):
-    """Exception raised when an S3 endpoint URL is empty string."""
+class InvalidS3EndpointError(Exception):
+    """Exception raised when an S3 endpoint is invalid."""
 
-    def __init__(self):
-        super().__init__("Endpoint URL cannot be empty.")
+    def __init__(self, message: str = "Endpoint URL is invalid."):
+        super().__init__(message)
 
 
 Part = dict[str, str | int]
@@ -184,9 +210,10 @@ class S3MultiPartUpload:
         self.kms_key_id = kms_key_id
         self.upload_id: str | None = None
         self.parts: list[Part] = []
+        self.pending_parts: list[Part] = []
 
         if self.endpoint_url == "":
-            raise EmptyS3EndpointURLError()
+            raise InvalidS3EndpointError("Endpoint URL is empty.")
 
     def to_state(self) -> S3MultiPartUploadState:
         """Produce state tuple that can be used to resume this S3MultiPartUpload."""
@@ -199,7 +226,7 @@ class S3MultiPartUpload:
     @property
     def part_number(self):
         """Return the current part number."""
-        return len(self.parts)
+        return len(self.parts) + len(self.pending_parts)
 
     def is_upload_in_progress(self) -> bool:
         """Whether this S3MultiPartUpload is in progress or not."""
@@ -211,14 +238,19 @@ class S3MultiPartUpload:
     async def s3_client(self):
         """Asynchronously yield an S3 client."""
 
-        async with self._session.client(
-            "s3",
-            region_name=self.region_name,
-            aws_access_key_id=self.aws_access_key_id,
-            aws_secret_access_key=self.aws_secret_access_key,
-            endpoint_url=self.endpoint_url,
-        ) as client:
-            yield client
+        try:
+            async with self._session.client(
+                "s3",
+                region_name=self.region_name,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+                endpoint_url=self.endpoint_url,
+            ) as client:
+                yield client
+        except ValueError as err:
+            if "Invalid endpoint" in str(err):
+                raise InvalidS3EndpointError(str(err)) from err
+            raise
 
     async def start(self) -> str:
         """Start this S3MultiPartUpload."""
@@ -257,12 +289,13 @@ class S3MultiPartUpload:
         if self.is_upload_in_progress() is False:
             raise NoUploadInProgressError()
 
+        sorted_parts = sorted(self.parts, key=operator.itemgetter("PartNumber"))
         async with self.s3_client() as s3_client:
             response = await s3_client.complete_multipart_upload(
                 Bucket=self.bucket_name,
                 Key=self.key,
                 UploadId=self.upload_id,
-                MultipartUpload={"Parts": self.parts},
+                MultipartUpload={"Parts": sorted_parts},
             )
 
         self.upload_id = None
@@ -296,6 +329,8 @@ class S3MultiPartUpload:
     ):
         """Upload a part of this multi-part upload."""
         next_part_number = self.part_number + 1
+        part = {"PartNumber": next_part_number, "ETag": ""}
+        self.pending_parts.append(part)
 
         if rewind is True:
             body.rewind()
@@ -320,7 +355,9 @@ class S3MultiPartUpload:
         finally:
             reader.detach()  # BufferedReader closes the file otherwise.
 
-        self.parts.append({"PartNumber": next_part_number, "ETag": etag})
+        self.pending_parts.pop(self.pending_parts.index(part))
+        part["ETag"] = etag
+        self.parts.append(part)
 
     async def upload_part_retryable(
         self,
@@ -379,22 +416,98 @@ class S3MultiPartUpload:
         return False
 
 
-class HeartbeatDetails(typing.NamedTuple):
+@dataclasses.dataclass
+class S3HeartbeatDetails(BatchExportRangeHeartbeatDetails):
     """This tuple allows us to enforce a schema on the Heartbeat details.
 
     Attributes:
-        last_uploaded_part_timestamp: The timestamp of the last part we managed to upload.
         upload_state: State to continue a S3MultiPartUpload when activity execution resumes.
     """
 
-    last_uploaded_part_timestamp: str
-    upload_state: S3MultiPartUploadState
+    upload_state: S3MultiPartUploadState | None = None
 
     @classmethod
-    def from_activity_details(cls, details):
-        last_uploaded_part_timestamp = details[0]
-        upload_state = S3MultiPartUploadState(*details[1])
-        return cls(last_uploaded_part_timestamp, upload_state)
+    def deserialize_details(cls, details: collections.abc.Sequence[typing.Any]) -> dict[str, typing.Any]:
+        """Attempt to initialize HeartbeatDetails from an activity's details."""
+        upload_state = None
+        remaining = super().deserialize_details(details)
+
+        if len(remaining["_remaining"]) == 0:
+            return {"upload_state": upload_state, **remaining}
+
+        first_detail = remaining["_remaining"][0]
+        remaining["_remaining"] = remaining["_remaining"][1:]
+
+        if first_detail is None:
+            return {"upload_state": None, **remaining}
+
+        try:
+            upload_state = S3MultiPartUploadState(*first_detail)
+        except (TypeError, ValueError) as e:
+            raise HeartbeatParseError("upload_state") from e
+
+        return {"upload_state": upload_state, **remaining}
+
+    def serialize_details(self) -> tuple[typing.Any, ...]:
+        """Attempt to initialize HeartbeatDetails from an activity's details."""
+        serialized_parent_details = super().serialize_details()
+        return (*serialized_parent_details[:-1], self.upload_state, self._remaining)
+
+    def append_upload_state(self, upload_state: S3MultiPartUploadState):
+        if self.upload_state is None:
+            self.upload_state = upload_state
+
+        current_parts = {part["PartNumber"] for part in self.upload_state.parts}
+        for part in upload_state.parts:
+            if part["PartNumber"] not in current_parts:
+                self.upload_state.parts.append(part)
+
+
+class S3Consumer(Consumer):
+    def __init__(
+        self,
+        heartbeater: Heartbeater,
+        heartbeat_details: S3HeartbeatDetails,
+        data_interval_start: dt.datetime | str | None,
+        writer_format: WriterFormat,
+        s3_upload: S3MultiPartUpload,
+    ):
+        super().__init__(heartbeater, heartbeat_details, data_interval_start, writer_format)
+        self.heartbeat_details: S3HeartbeatDetails = heartbeat_details
+        self.s3_upload = s3_upload
+
+    async def flush(
+        self,
+        batch_export_file: BatchExportTemporaryFile,
+        records_since_last_flush: int,
+        bytes_since_last_flush: int,
+        flush_counter: int,
+        last_date_range: DateRange,
+        is_last: bool,
+        error: Exception | None,
+    ):
+        if error is not None:
+            await self.logger.adebug("Error while writing part %d", self.s3_upload.part_number + 1, exc_info=error)
+            await self.logger.awarning(
+                "An error was detected while writing part %d. Partial part will not be uploaded in case it can be retried.",
+                self.s3_upload.part_number + 1,
+            )
+            return
+
+        await self.logger.adebug(
+            "Uploading part %s containing %s records with size %s bytes",
+            self.s3_upload.part_number + 1,
+            records_since_last_flush,
+            bytes_since_last_flush,
+        )
+
+        await self.s3_upload.upload_part(batch_export_file)
+
+        self.rows_exported_counter.add(records_since_last_flush)
+        self.bytes_exported_counter.add(bytes_since_last_flush)
+
+        self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
+        self.heartbeat_details.append_upload_state(self.s3_upload.to_state())
 
 
 @dataclasses.dataclass
@@ -428,10 +541,16 @@ class S3InsertInputs:
     batch_export_schema: BatchExportSchema | None = None
 
 
-async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str | None]:
+async def initialize_and_resume_multipart_upload(
+    inputs: S3InsertInputs,
+) -> tuple[S3MultiPartUpload, S3HeartbeatDetails]:
     """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
-    key = get_s3_key(inputs)
+
+    try:
+        key = get_s3_key(inputs)
+    except Exception as e:
+        raise InvalidS3Key(e) from e
 
     s3_upload = S3MultiPartUpload(
         bucket_name=inputs.bucket_name,
@@ -441,37 +560,19 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
         region_name=inputs.region,
         aws_access_key_id=inputs.aws_access_key_id,
         aws_secret_access_key=inputs.aws_secret_access_key,
-        endpoint_url=inputs.endpoint_url,
+        endpoint_url=inputs.endpoint_url or None,
     )
 
-    details = activity.info().heartbeat_details
+    _, details = await should_resume_from_activity_heartbeat(activity, S3HeartbeatDetails)
+    if details is None:
+        details = S3HeartbeatDetails()
 
-    try:
-        interval_start, upload_state = HeartbeatDetails.from_activity_details(details)
-    except IndexError:
-        # This is the error we expect when no details as the sequence will be empty.
-        interval_start = inputs.data_interval_start
-        await logger.adebug(
-            "Did not receive details from previous activity Execution. Export will start from the beginning %s",
-            interval_start,
-        )
-    except Exception:
-        # We still start from the beginning, but we make a point to log unexpected errors.
-        # Ideally, any new exceptions should be added to the previous block after the first time and we will never land here.
-        interval_start = inputs.data_interval_start
-        await logger.awarning(
-            "Did not receive details from previous activity Execution due to an unexpected error. Export will start from the beginning %s",
-            interval_start,
-        )
-    else:
-        await logger.ainfo(
-            "Received details from previous activity. Export will attempt to resume from %s",
-            interval_start,
-        )
-        s3_upload.continue_from_state(upload_state)
+    if details.upload_state:
+        s3_upload.continue_from_state(details.upload_state)
 
         if inputs.compression == "brotli":
-            # Even if we receive details we cannot resume a brotli compressed upload as we have lost the compressor state.
+            # Even if we receive details we cannot resume a brotli compressed upload as
+            # we have lost the compressor state.
             interval_start = inputs.data_interval_start
 
             await logger.ainfo(
@@ -480,7 +581,7 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
             )
             await s3_upload.abort()
 
-    return s3_upload, interval_start
+    return s3_upload, details
 
 
 def s3_default_fields() -> list[BatchExportField]:
@@ -519,138 +620,107 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         get_s3_key(inputs),
     )
 
+    start_at = dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start is not None else None
+    end_at = dt.datetime.fromisoformat(inputs.data_interval_end)
+
+    if start_at:
+        is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
+    else:
+        is_5_min_batch_export = False
+
+    if is_5_min_batch_export:
+        clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
+    else:
+        clickhouse_url = None
+
     async with (
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
-        get_client(team_id=inputs.team_id) as client,
+        get_client(team_id=inputs.team_id, clickhouse_url=clickhouse_url) as client,
     ):
+        if is_5_min_batch_export:
+            await wait_for_delta_past_data_interval_end(end_at)
+
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
+        s3_upload, details = await initialize_and_resume_multipart_upload(inputs)
+        done_ranges: list[DateRange] = details.done_ranges
 
         model: BatchExportModel | BatchExportSchema | None = None
         if inputs.batch_export_schema is None and "batch_export_model" in {
             field.name for field in dataclasses.fields(inputs)
         }:
             model = inputs.batch_export_model
+            if model is not None:
+                model_name = model.name
+                extra_query_parameters = model.schema["values"] if model.schema is not None else None
+                fields = model.schema["fields"] if model.schema is not None else None
+            else:
+                model_name = "events"
+                extra_query_parameters = None
+                fields = None
         else:
             model = inputs.batch_export_schema
+            model_name = "custom"
+            extra_query_parameters = model["values"] if model is not None else {}
+            fields = model["fields"] if model is not None else None
 
-        record_iterator = iter_model_records(
-            model=model,
-            client=client,
+        data_interval_start = (
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
+        )
+        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
+        full_range = (data_interval_start, data_interval_end)
+
+        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        producer = Producer(clickhouse_client=client)
+        producer_task = producer.start(
+            queue=queue,
+            model_name=model_name,
+            is_backfill=inputs.is_backfill,
             team_id=inputs.team_id,
-            interval_start=interval_start,
-            interval_end=inputs.data_interval_end,
+            full_range=full_range,
+            done_ranges=done_ranges,
+            fields=fields,
+            destination_default_fields=s3_default_fields(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            is_backfill=inputs.is_backfill,
-            destination_default_fields=s3_default_fields(),
+            extra_query_parameters=extra_query_parameters,
         )
-
-        first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
-
         records_completed = 0
-        if first_record_batch is None:
+
+        record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
+        if record_batch_schema is None:
             return records_completed
 
+        record_batch_schema = pa.schema(
+            # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
+            # record batches have them as nullable.
+            # Until we figure it out, we set all fields to nullable. There are some fields we know
+            # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
+            # between batches.
+            [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
+        )
+
         async with s3_upload as s3_upload:
-
-            async def flush_to_s3(
-                local_results_file,
-                records_since_last_flush: int,
-                bytes_since_last_flush: int,
-                flush_counter: int,
-                last_inserted_at: dt.datetime,
-                last: bool,
-                error: Exception | None,
-            ):
-                if error is not None:
-                    await logger.adebug("Error while writing part %d", s3_upload.part_number + 1, exc_info=error)
-                    await logger.awarn(
-                        "An error was detected while writing part %d. Partial part will not be uploaded in case it can be retried.",
-                        s3_upload.part_number + 1,
-                    )
-                    return
-
-                await logger.adebug(
-                    "Uploading %s part %s containing %s records with size %s bytes",
-                    "last " if last else "",
-                    s3_upload.part_number + 1,
-                    records_since_last_flush,
-                    bytes_since_last_flush,
-                )
-
-                await s3_upload.upload_part(local_results_file)
-
-                rows_exported.add(records_since_last_flush)
-                bytes_exported.add(bytes_since_last_flush)
-
-                heartbeater.details = (str(last_inserted_at), s3_upload.to_state())
-
-            first_record_batch = cast_record_batch_json_columns(first_record_batch)
-            column_names = first_record_batch.column_names
-            column_names.pop(column_names.index("_inserted_at"))
-
-            schema = pa.schema(
-                # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
-                # record batches have them as nullable.
-                # Until we figure it out, we set all fields to nullable. There are some fields we know
-                # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
-                # between batches.
-                [field.with_nullable(True) for field in first_record_batch.select(column_names).schema]
-            )
-
-            writer = get_batch_export_writer(
-                inputs,
-                flush_callable=flush_to_s3,
+            records_completed = await run_consumer_loop(
+                queue=queue,
+                consumer_cls=S3Consumer,
+                producer_task=producer_task,
+                heartbeater=heartbeater,
+                heartbeat_details=details,
+                data_interval_end=data_interval_end,
+                data_interval_start=data_interval_start,
+                schema=record_batch_schema,
+                writer_format=WriterFormat.from_str(inputs.file_format, "S3"),
                 max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
-                schema=schema,
+                s3_upload=s3_upload,
+                writer_file_kwargs={"compression": inputs.compression},
             )
 
-            async with writer.open_temporary_file():
-                rows_exported = get_rows_exported_metric()
-                bytes_exported = get_bytes_exported_metric()
-
-                async for record_batch in record_iterator:
-                    record_batch = cast_record_batch_json_columns(record_batch)
-
-                    await writer.write_record_batch(record_batch)
-
-            records_completed = writer.records_total
             await s3_upload.complete()
 
         return records_completed
-
-
-def get_batch_export_writer(
-    inputs: S3InsertInputs, flush_callable: FlushCallable, max_bytes: int, schema: pa.Schema | None = None
-) -> BatchExportWriter:
-    """Return the `BatchExportWriter` corresponding to configured `file_format`.
-
-    Raises:
-        UnsupportedFileFormatError: If no writer exists for given `file_format`.
-    """
-    writer: BatchExportWriter
-
-    if inputs.file_format == "Parquet":
-        writer = ParquetBatchExportWriter(
-            max_bytes=max_bytes,
-            flush_callable=flush_callable,
-            compression=inputs.compression,
-            schema=schema,
-        )
-    elif inputs.file_format == "JSONLines":
-        writer = JSONLBatchExportWriter(
-            max_bytes=max_bytes,
-            flush_callable=flush_callable,
-            compression=inputs.compression,
-        )
-    else:
-        raise UnsupportedFileFormatError(inputs.file_format, "S3")
-
-    return writer
 
 
 @workflow.defn(name="s3-export", failure_exception_types=[workflow.NondeterminismError])
@@ -709,7 +779,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
-            endpoint_url=inputs.endpoint_url,
+            endpoint_url=inputs.endpoint_url or None,
             data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             compression=inputs.compression,
@@ -729,17 +799,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             insert_into_s3_activity,
             insert_inputs,
             interval=inputs.interval,
-            non_retryable_error_types=[
-                # S3 parameter validation failed.
-                "ParamValidationError",
-                # This error usually indicates credentials are incorrect or permissions are missing.
-                "ClientError",
-                # An S3 bucket doesn't exist.
-                "NoSuchBucket",
-                # Couldn't connect to custom S3 endpoint
-                "EndpointConnectionError",
-                # Input contained an empty S3 endpoint URL
-                "EmptyS3EndpointURLError",
-            ],
+            non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
             finish_inputs=finish_inputs,
         )

@@ -6,11 +6,26 @@ from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionSubTemplate
+from posthog.cdp.templates.hog_function_template import (
+    HogFunctionMapping,
+    HogFunctionMappingTemplate,
+    HogFunctionTemplate,
+    HogFunctionSubTemplate,
+)
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 
 logger = structlog.get_logger(__name__)
+
+
+class HogFunctionMappingSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = HogFunctionMapping
+
+
+class HogFunctionMappingTemplateSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = HogFunctionMappingTemplate
 
 
 class HogFunctionSubTemplateSerializer(DataclassSerializer):
@@ -19,6 +34,8 @@ class HogFunctionSubTemplateSerializer(DataclassSerializer):
 
 
 class HogFunctionTemplateSerializer(DataclassSerializer):
+    mapping_templates = HogFunctionMappingTemplateSerializer(many=True, required=False)
+    mappings = HogFunctionMappingSerializer(many=True, required=False)
     sub_templates = HogFunctionSubTemplateSerializer(many=True, required=False)
 
     class Meta:
@@ -28,22 +45,23 @@ class HogFunctionTemplateSerializer(DataclassSerializer):
 # NOTE: There is nothing currently private about these values
 class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["id", "team", "created_by", "enabled"]
+    filterset_fields = ["id", "team", "created_by", "enabled", "type"]
     permission_classes = [permissions.AllowAny]
     serializer_class = HogFunctionTemplateSerializer
 
-    def _get_templates(self):
-        data = HOG_FUNCTION_TEMPLATES
-        return data
-
     def list(self, request: Request, *args, **kwargs):
-        page = self.paginate_queryset(self._get_templates())
+        types = ["destination"]
+        if "type" in request.GET:
+            types = [self.request.GET.get("type", "destination")]
+        elif "types" in request.GET:
+            types = self.request.GET.get("types", "destination").split(",")
+        templates = [item for item in HOG_FUNCTION_TEMPLATES if item.type in types]
+        page = self.paginate_queryset(templates)
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)
 
     def retrieve(self, request: Request, *args, **kwargs):
-        data = self._get_templates()
-        item = next((item for item in data if item.id == kwargs["pk"]), None)
+        item = next((item for item in HOG_FUNCTION_TEMPLATES if item.id == kwargs["pk"]), None)
 
         if not item:
             raise NotFound(f"Template with id {kwargs['pk']} not found.")

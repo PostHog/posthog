@@ -246,10 +246,17 @@ class Team(UUIDClassicModel):
     session_recording_url_trigger_config = ArrayField(
         models.JSONField(null=True, blank=True), default=list, blank=True, null=True
     )
+    session_recording_url_blocklist_config = ArrayField(
+        models.JSONField(null=True, blank=True), default=list, blank=True, null=True
+    )
+    session_recording_event_trigger_config = ArrayField(
+        models.TextField(null=True, blank=True), default=list, blank=True, null=True
+    )
     session_replay_config = models.JSONField(null=True, blank=True)
     survey_config = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
     capture_performance_opt_in = models.BooleanField(null=True, blank=True, default=True)
+    capture_dead_clicks = models.BooleanField(null=True, blank=True, default=False)
     surveys_opt_in = models.BooleanField(null=True, blank=True)
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
@@ -512,7 +519,7 @@ class Team(UUIDClassicModel):
             return ", ".join(self.app_urls)
         return str(self.pk)
 
-    __repr__ = sane_repr("uuid", "name", "api_token")
+    __repr__ = sane_repr("id", "uuid", "project_id", "name", "api_token")
 
 
 @mutable_receiver(post_save, sender=Team)

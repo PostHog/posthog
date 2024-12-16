@@ -19,6 +19,8 @@ from ee.clickhouse.queries.experiments.trend_experiment_result import (
     ClickhouseTrendExperimentResult,
 )
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
+from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
+from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -27,7 +29,7 @@ from posthog.api.utils import action
 from posthog.caching.insight_cache import update_cached_state
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS
-from posthog.models.experiment import Experiment
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.filters.filter import Filter
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -50,6 +52,7 @@ def _calculate_experiment_results(experiment: Experiment, refresh: bool = False)
             experiment.feature_flag,
             experiment.start_date,
             experiment.end_date,
+            holdout=experiment.holdout,
             custom_exposure_filter=exposure_filter,
         ).get_results()
     else:
@@ -59,6 +62,7 @@ def _calculate_experiment_results(experiment: Experiment, refresh: bool = False)
             experiment.feature_flag,
             experiment.start_date,
             experiment.end_date,
+            holdout=experiment.holdout,
         ).get_results()
 
     return _experiment_results_cached(
@@ -156,6 +160,14 @@ class ExperimentSerializer(serializers.ModelSerializer):
     feature_flag_key = serializers.CharField(source="get_feature_flag_key")
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
+    holdout = ExperimentHoldoutSerializer(read_only=True)
+    holdout_id = serializers.PrimaryKeyRelatedField(
+        queryset=ExperimentHoldout.objects.all(), source="holdout", required=False, allow_null=True
+    )
+    saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
+    saved_metrics_ids = serializers.ListField(
+        child=serializers.JSONField(), write_only=True, required=False, allow_null=True
+    )
 
     class Meta:
         model = Experiment
@@ -168,14 +180,20 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "feature_flag_key",
             "feature_flag",
             "holdout",
+            "holdout_id",
             "exposure_cohort",
             "parameters",
             "secondary_metrics",
+            "saved_metrics",
+            "saved_metrics_ids",
             "filters",
             "archived",
             "created_by",
             "created_at",
             "updated_at",
+            "type",
+            "metrics",
+            "metrics_secondary",
         ]
         read_only_fields = [
             "id",
@@ -184,7 +202,42 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "updated_at",
             "feature_flag",
             "exposure_cohort",
+            "holdout",
+            "saved_metrics",
         ]
+
+    def validate_saved_metrics_ids(self, value):
+        if value is None:
+            return value
+
+        # check value is valid json list with id and optionally metadata param
+        if not isinstance(value, list):
+            raise ValidationError("Saved metrics must be a list")
+
+        for saved_metric in value:
+            if not isinstance(saved_metric, dict):
+                raise ValidationError("Saved metric must be an object")
+            if "id" not in saved_metric:
+                raise ValidationError("Saved metric must have an id")
+            if "metadata" in saved_metric and not isinstance(saved_metric["metadata"], dict):
+                raise ValidationError("Metadata must be an object")
+
+            # metadata is optional, but if it exists, should have type key
+            # TODO: extend with other metadata keys when known
+            if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
+                raise ValidationError("Metadata must have a type key")
+
+        # check if all saved metrics exist
+        saved_metrics = ExperimentSavedMetric.objects.filter(id__in=[saved_metric["id"] for saved_metric in value])
+        if saved_metrics.count() != len(value):
+            raise ValidationError("Saved metric does not exist")
+
+        return value
+
+    def validate_metrics(self, value):
+        # TODO 2024-11-15: commented code will be addressed when persistent metrics are implemented.
+
+        return value
 
     def validate_parameters(self, value):
         if not value:
@@ -201,8 +254,12 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        if not validated_data.get("filters"):
-            raise ValidationError("Filters are required to create an Experiment")
+        is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
+
+        # if not validated_data.get("filters") and not is_draft:
+        #     raise ValidationError("Filters are required when creating a launched experiment")
+
+        saved_metrics_data = validated_data.pop("saved_metrics_ids", [])
 
         variants = []
         aggregation_group_type_index = None
@@ -215,13 +272,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         feature_flag_key = validated_data.pop("get_feature_flag_key")
 
-        is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
-
-        properties = validated_data["filters"].get("properties", [])
-
-        if properties:
-            raise ValidationError("Experiments do not support global filter properties")
-
         holdout_groups = None
         if validated_data.get("holdout"):
             holdout_groups = validated_data["holdout"].filters
@@ -231,8 +281,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
         ]
 
-        filters = {
-            "groups": [{"properties": properties, "rollout_percentage": 100}],
+        feature_flag_filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
             "multivariate": {"variants": variants or default_variants},
             "aggregation_group_type_index": aggregation_group_type_index,
             "holdout_groups": holdout_groups,
@@ -242,8 +292,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
             data={
                 "key": feature_flag_key,
                 "name": f'Feature Flag for Experiment {validated_data["name"]}',
-                "filters": filters,
+                "filters": feature_flag_filters,
                 "active": not is_draft,
+                "creation_context": "experiments",
             },
             context=self.context,
         )
@@ -254,9 +305,64 @@ class ExperimentSerializer(serializers.ModelSerializer):
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
         )
+
+        # if this is a web experiment, copy over the variant data to the experiment itself.
+        if validated_data.get("type", "") == "web":
+            web_variants = {}
+            ff_variants = variants or default_variants
+
+            for variant in ff_variants:
+                web_variants[variant.get("key")] = {
+                    "rollout_percentage": variant.get("rollout_percentage"),
+                }
+
+            experiment.variants = web_variants
+            experiment.save()
+
+        if saved_metrics_data:
+            for saved_metric_data in saved_metrics_data:
+                saved_metric_serializer = ExperimentToSavedMetricSerializer(
+                    data={
+                        "experiment": experiment.id,
+                        "saved_metric": saved_metric_data["id"],
+                        "metadata": saved_metric_data.get("metadata"),
+                    },
+                    context=self.context,
+                )
+                saved_metric_serializer.is_valid(raise_exception=True)
+                saved_metric_serializer.save()
+                # TODO: Going the above route means we can still sometimes fail when validation fails?
+                # But this shouldn't really happen, if it does its a bug in our validation logic (validate_saved_metrics_ids)
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
+        # if (
+        #     not instance.filters.get("events")
+        #     and not instance.filters.get("actions")
+        #     and not instance.filters.get("data_warehouse")
+        #     and validated_data.get("start_date")
+        #     and not validated_data.get("filters")
+        # ):
+        #     raise ValidationError("Filters are required when launching an experiment")
+
+        update_saved_metrics = "saved_metrics_ids" in validated_data
+        saved_metrics_data = validated_data.pop("saved_metrics_ids", []) or []
+
+        # We replace all saved metrics on update to avoid issues with partial updates
+        if update_saved_metrics:
+            instance.experimenttosavedmetric_set.all().delete()
+            for saved_metric_data in saved_metrics_data:
+                saved_metric_serializer = ExperimentToSavedMetricSerializer(
+                    data={
+                        "experiment": instance.id,
+                        "saved_metric": saved_metric_data["id"],
+                        "metadata": saved_metric_data.get("metadata"),
+                    },
+                    context=self.context,
+                )
+                saved_metric_serializer.is_valid(raise_exception=True)
+                saved_metric_serializer.save()
+
         has_start_date = validated_data.get("start_date") is not None
         feature_flag = instance.feature_flag
 
@@ -270,6 +376,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "archived",
             "secondary_metrics",
             "holdout",
+            "metrics",
+            "metrics_secondary",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
@@ -321,8 +429,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
                     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
                 ]
 
-                filters = {
-                    "groups": [{"properties": properties, "rollout_percentage": 100}],
+                feature_flag_filters = {
+                    "groups": feature_flag.filters.get("groups", []),
                     "multivariate": {"variants": variants or default_variants},
                     "aggregation_group_type_index": aggregation_group_type_index,
                     "holdout_groups": holdout_groups,
@@ -330,7 +438,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,
-                    data={"filters": filters},
+                    data={"filters": feature_flag_filters},
                     partial=True,
                     context=self.context,
                 )
@@ -361,7 +469,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
 class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = ExperimentSerializer
-    queryset = Experiment.objects.prefetch_related("feature_flag", "created_by").all()
+    queryset = Experiment.objects.prefetch_related(
+        "feature_flag", "created_by", "holdout", "experimenttosavedmetric_set", "saved_metrics"
+    ).all()
     ordering = "-created_at"
 
     # ******************************************

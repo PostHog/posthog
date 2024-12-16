@@ -20,7 +20,7 @@
                sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
         FROM app_metrics
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND plugin_config_id = 3
           AND category = 'exportEvents'
           AND job_id = '1234'
@@ -40,7 +40,7 @@
          count() AS count,
          max(timestamp) AS last_seen
   FROM app_metrics
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND plugin_config_id = 3
     AND category = 'exportEvents'
     AND job_id = '1234'
@@ -72,7 +72,7 @@
          AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
-         AND "posthog_activitylog"."team_id" = 2)
+         AND "posthog_activitylog"."team_id" = 99999)
   '''
 # ---
 # name: TestHistoricalExports.test_historical_export_metrics.3
@@ -104,7 +104,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -128,7 +128,7 @@
          AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
-         AND "posthog_activitylog"."team_id" = 2)
+         AND "posthog_activitylog"."team_id" = 99999)
   '''
 # ---
 # name: TestHistoricalExports.test_historical_exports_activity_for_failed_export.1
@@ -160,7 +160,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -184,7 +184,7 @@
          AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
-         AND "posthog_activitylog"."team_id" = 2)
+         AND "posthog_activitylog"."team_id" = 99999)
   '''
 # ---
 # name: TestHistoricalExports.test_historical_exports_activity_for_finished_export.1
@@ -216,7 +216,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -240,7 +240,7 @@
          AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
-         AND "posthog_activitylog"."team_id" = 2)
+         AND "posthog_activitylog"."team_id" = 99999)
   '''
 # ---
 # name: TestHistoricalExports.test_historical_exports_activity_for_not_finished_export.1
@@ -272,7 +272,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -284,7 +284,7 @@
          "posthog_pluginstorage"."value"
   FROM "posthog_pluginstorage"
   WHERE ("posthog_pluginstorage"."key" = 'EXPORT_COORDINATION'
-         AND "posthog_pluginstorage"."plugin_config_id" = 2)
+         AND "posthog_pluginstorage"."plugin_config_id" = 99999)
   ORDER BY "posthog_pluginstorage"."id" ASC
   LIMIT 1
   '''

@@ -1,10 +1,13 @@
-from datetime import datetime
+from datetime import datetime, UTC
+from typing import Literal
 from unittest.mock import ANY
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
@@ -32,6 +35,49 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+
+@freeze_time("2021-01-01T13:46:23")
+class TestSessionRecordingFilterDateRange(APIBaseTest):
+    def test_with_relative_dates(self) -> None:
+        the_filter = SessionRecordingsFilter(team=self.team, data={"date_from": "-3d", "date_to": "-24h"})
+
+        assert the_filter.date_from == datetime(2020, 12, 29, 0, 0, 0, 0, UTC)
+        assert the_filter.date_to == datetime(year=2020, month=12, day=31, hour=13, minute=0, second=0, tzinfo=UTC)
+
+    def test_with_string_dates(self) -> None:
+        the_filter = SessionRecordingsFilter(team=self.team, data={"date_from": "2020-12-29", "date_to": "2021-01-01"})
+
+        assert the_filter.date_from == datetime(2020, 12, 29, 0, 0, 0, 0, UTC)
+        assert the_filter.date_to == datetime(
+            year=2021, month=1, day=1, hour=23, minute=59, second=59, microsecond=999999, tzinfo=UTC
+        )
+
+    def test_with_string_date_times(self) -> None:
+        the_filter = SessionRecordingsFilter(
+            team=self.team, data={"date_from": "2020-12-29T12:23:45Z", "date_to": "2021-01-01T13:34:42Z"}
+        )
+
+        assert the_filter.date_from == datetime(2020, 12, 29, 12, 23, 45, tzinfo=UTC)
+        assert the_filter.date_to == datetime(year=2021, month=1, day=1, hour=13, minute=34, second=42, tzinfo=UTC)
+
+    def test_with_no_date_from(self) -> None:
+        the_filter = SessionRecordingsFilter(
+            team=self.team, data={"date_from": None, "date_to": "2021-01-01T13:34:42Z"}
+        )
+
+        # defaults to start of 7 days ago
+        assert the_filter.date_from == datetime(2020, 12, 25, 0, 0, 0, 0, UTC)
+        assert the_filter.date_to == datetime(year=2021, month=1, day=1, hour=13, minute=34, second=42, tzinfo=UTC)
+
+    def test_with_no_date_to(self) -> None:
+        the_filter = SessionRecordingsFilter(
+            team=self.team, data={"date_from": "2021-01-01T11:34:42Z", "date_to": None}
+        )
+
+        assert the_filter.date_from == datetime(2021, 1, 1, 11, 34, 42, tzinfo=UTC)
+        # defaults to now
+        assert the_filter.date_to == datetime(year=2021, month=1, day=1, hour=13, minute=46, second=23, tzinfo=UTC)
 
 
 @freeze_time("2021-01-01T13:46:23")
@@ -78,8 +124,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             properties=properties,
         )
 
-    def _filter_recordings_by(self, recordings_filter: dict) -> SessionRecordingQueryResult:
-        the_filter = SessionRecordingsFilter(team=self.team, data=recordings_filter)
+    def _filter_recordings_by(self, recordings_filter: dict | None = None) -> SessionRecordingQueryResult:
+        the_filter = SessionRecordingsFilter(team=self.team, data=recordings_filter or {})
         session_recording_list_instance = SessionRecordingListFromFilters(
             filter=the_filter, team=self.team, hogql_query_modifiers=None
         )
@@ -780,6 +826,26 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             # Not far enough in the future from `days_since_blob_ingestion`
             with freeze_time("2023-09-05T12:00:01Z"):
                 assert ttl_days(self.team) == 35
+
+    @snapshot_clickhouse_queries
+    def test_listing_ignores_future_replays(self):
+        with freeze_time("2023-08-29T12:00:01Z"):
+            produce_replay_summary(team_id=self.team.id, session_id="29th Aug")
+
+        with freeze_time("2023-09-01T12:00:01Z"):
+            produce_replay_summary(team_id=self.team.id, session_id="1st-sep")
+
+        with freeze_time("2023-09-02T12:00:01Z"):
+            produce_replay_summary(team_id=self.team.id, session_id="2nd-sep")
+
+        with freeze_time("2023-09-03T12:00:01Z"):
+            produce_replay_summary(team_id=self.team.id, session_id="3rd-sep")
+
+        with freeze_time("2023-08-30T12:00:01Z"):
+            recordings = self._filter_recordings_by()
+
+            # recordings in the future don't show
+            assert [s["session_id"] for s in recordings.results] == ["29th Aug"]
 
     @snapshot_clickhouse_queries
     def test_filter_on_session_ids(self):
@@ -1613,8 +1679,53 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert len(session_recordings) == 2
         assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])
 
+    @parameterized.expand(
+        [
+            # Case 1: Neither has WARN and message "random"
+            (
+                '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
+                "AND",
+                0,
+                [],
+            ),
+            # Case 2: AND only matches one recording
+            (
+                '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
+                "AND",
+                1,
+                ["both_log_filters"],
+            ),
+            # Case 3: Only one is WARN level
+            (
+                '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}]',
+                "AND",
+                1,
+                ["one_log_filter"],
+            ),
+            # Case 4: Only one has message "random"
+            (
+                '[{"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
+                "AND",
+                1,
+                ["both_log_filters"],
+            ),
+            # Case 5: OR matches both
+            (
+                '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
+                "OR",
+                2,
+                ["both_log_filters", "one_log_filter"],
+            ),
+        ]
+    )
     @snapshot_clickhouse_queries
-    def test_operand_or_filters(self):
+    def test_operand_or_filters(
+        self,
+        console_log_filters: str,
+        operand: Literal["AND", "OR"],
+        expected_count: int,
+        expected_session_ids: list[str],
+    ) -> None:
         user = "test_operand_or_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
@@ -1624,13 +1735,10 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id=session_with_both_log_filters,
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
-            console_warn_count=1,
-            log_messages={
-                "warn": [
-                    "random",
-                ],
-            },
+            console_log_count=1,
+            log_messages={"info": ["random"]},
         )
+
         session_with_one_log_filter = "one_log_filter"
         produce_replay_summary(
             distinct_id="user",
@@ -1638,29 +1746,15 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_warn_count=1,
-            log_messages={
-                "warn": [
-                    "warn",
-                ],
-            },
+            log_messages={"warn": ["warn"]},
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                "console_log_filters": '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
-                "operand": "AND",
-            }
+        session_recordings, _, _ = self._filter_recordings_by(
+            {"console_log_filters": console_log_filters, "operand": operand}
         )
-        assert len(session_recordings) == 1
-        assert session_recordings[0]["session_id"] == session_with_both_log_filters
 
-        (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                "console_log_filters": '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
-                "operand": "OR",
-            }
-        )
-        assert len(session_recordings) == 2
+        assert len(session_recordings) == expected_count
+        assert sorted([rec["session_id"] for rec in session_recordings]) == sorted(expected_session_ids)
 
     @snapshot_clickhouse_queries
     def test_operand_or_mandatory_filters(self):
@@ -3028,19 +3122,42 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
+    @parameterized.expand(
+        [
+            # Case 1: OR operand, message 4 matches in warn and error
+            (
+                '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 4", "operator": "icontains", "type": "log_entry"}]',
+                "OR",
+                ["with-errors-session", "with-two-session", "with-warns-session", "with-logs-session"],
+            ),
+            # Case 2: AND operand, message 5 matches only in warn
+            (
+                '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
+                "AND",
+                ["with-warns-session"],
+            ),
+            # Case 3: AND operand, message 5 does not match log level "info"
+            (
+                '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
+                "AND",
+                [],
+            ),
+        ]
+    )
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
-    def test_filter_for_recordings_by_console_text(self):
+    def test_filter_for_recordings_by_console_text(
+        self,
+        console_log_filters: str,
+        operand: Literal["AND", "OR"],
+        expected_session_ids: list[str],
+    ) -> None:
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
-        with_logs_session_id = "with-logs-session"
-        with_warns_session_id = "with-warns-session"
-        with_errors_session_id = "with-errors-session"
-        with_two_session_id = "with-two-session"
-
+        # Create sessions
         produce_replay_summary(
             distinct_id="user",
-            session_id=with_logs_session_id,
+            session_id="with-logs-session",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_log_count=4,
@@ -3055,7 +3172,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         produce_replay_summary(
             distinct_id="user",
-            session_id=with_warns_session_id,
+            session_id="with-warns-session",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_warn_count=5,
@@ -3071,7 +3188,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         produce_replay_summary(
             distinct_id="user",
-            session_id=with_errors_session_id,
+            session_id="with-errors-session",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
@@ -3086,7 +3203,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         produce_replay_summary(
             distinct_id="user",
-            session_id=with_two_session_id,
+            session_id="with-two-session",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
@@ -3101,46 +3218,24 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "info": ["log message 1", "log message 2", "log message 3"],
             },
         )
-
-        (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                # there are 5 warn and 4 error logs, message 4 matches in both
-                "console_log_filters": '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 4", "operator": "exact", "type": "log_entry"}]',
-                "operand": "OR",
-            }
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="with-no-matches-session",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            console_error_count=4,
+            console_log_count=3,
+            log_messages={
+                "info": ["log message 1", "log message 2", "log message 3"],
+            },
         )
 
-        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
-            [
-                with_errors_session_id,
-                with_two_session_id,
-                with_warns_session_id,
-            ]
+        # Perform the filtering and validate results
+        session_recordings, _, _ = self._filter_recordings_by(
+            {"console_log_filters": console_log_filters, "operand": operand}
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                # there are 5 warn and 4 error logs, message 5 matches only matches in warn
-                "console_log_filters": '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
-                "operand": "AND",
-            }
-        )
-
-        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
-            [
-                with_warns_session_id,
-            ]
-        )
-
-        (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                # message 5 does not match log level "info"
-                "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
-                "operand": "AND",
-            }
-        )
-
-        assert sorted([sr["session_id"] for sr in session_recordings]) == []
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(expected_session_ids)
 
     @snapshot_clickhouse_queries
     def test_filter_for_recordings_by_snapshot_source(self):
@@ -3871,7 +3966,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk,
         )
 
-        GroupTypeMapping.objects.create(team=self.team, group_type="project", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=0
+        )
         create_group(
             team_id=self.team.pk,
             group_type_index=0,
@@ -3879,7 +3976,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             properties={"name": "project one"},
         )
 
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=1
+        )
         create_group(
             team_id=self.team.pk,
             group_type_index=1,

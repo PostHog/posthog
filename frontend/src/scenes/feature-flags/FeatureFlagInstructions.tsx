@@ -164,6 +164,12 @@ export function CodeInstructions({
                                             value: option.key,
                                             label: option.value,
                                             'data-attr': `feature-flag-instructions-select-option-${option.key}`,
+                                            labelInMenu: (
+                                                <div className="flex items-center space-x-2">
+                                                    <option.Icon />
+                                                    <span>{option.value}</span>
+                                                </div>
+                                            ),
                                         })
                                     ),
                                 },
@@ -174,6 +180,12 @@ export function CodeInstructions({
                                             value: option.key,
                                             label: option.value,
                                             'data-attr': `feature-flag-instructions-select-option-${option.key}`,
+                                            labelInMenu: (
+                                                <div className="flex items-center space-x-2">
+                                                    <option.Icon />
+                                                    <span>{option.value}</span>
+                                                </div>
+                                            ),
                                         })
                                     ),
                                 },

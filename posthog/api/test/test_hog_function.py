@@ -19,6 +19,8 @@ from posthog.cdp.templates.slack.template_slack import template as template_slac
 EXAMPLE_FULL = {
     "name": "HogHook",
     "hog": "fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.payload,\n  'method': inputs.method\n});",
+    "type": "destination",
+    "enabled": True,
     "inputs_schema": [
         {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
         {"key": "payload", "type": "json", "label": "JSON Payload", "required": True},
@@ -73,6 +75,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         payload = {
             "name": "Slack",
             "template_id": template_slack.id,
+            "type": "destination",
             "inputs": {
                 "slack_workspace": {"value": 1},
                 "channel": {"value": "#general"},
@@ -102,9 +105,10 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 ],
             }
         )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["detail"] == "The Data Pipelines addon is required to create custom functions."
+        new_response = response.json()
+        # These did not change
+        assert new_response["hog"] == template_slack.hog
+        assert new_response["inputs_schema"] == template_slack.inputs_schema
 
     def test_free_users_cannot_use_without_template(self):
         response = self._create_slack_function({"template_id": None})
@@ -112,7 +116,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == "The Data Pipelines addon is required to create custom functions."
 
-    def test_free_users_cannot_use_non_free_templates(self):
+    def test_free_users_cannot_create_non_free_templates(self):
         response = self._create_slack_function(
             {
                 "template_id": template_webhook.id,
@@ -121,6 +125,43 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == "The Data Pipelines addon is required for this template."
+
+    def test_free_users_can_update_non_free_templates(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
+        ]
+        self.organization.save()
+
+        response = self._create_slack_function(
+            {
+                "name": template_webhook.name,
+                "template_id": template_webhook.id,
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                },
+            }
+        )
+
+        assert response.json()["template"]["status"] == template_webhook.status
+
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        payload = {
+            "name": template_webhook.name,
+            "template_id": template_webhook.id,
+            "inputs": {
+                "url": {"value": "https://example.com/posthog-webhook-updated"},
+            },
+        }
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+            data=payload,
+        )
+
+        assert update_response.status_code == status.HTTP_200_OK, update_response.json()
+        assert update_response.json()["inputs"]["url"]["value"] == "https://example.com/posthog-webhook-updated"
 
 
 class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -157,12 +198,19 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_create_hog_function(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={"name": "Fetch URL", "description": "Test description", "hog": "fetch(inputs.url);", "inputs": {}},
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "description": "Test description",
+                "hog": "fetch(inputs.url);",
+                "inputs": {},
+            },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["created_by"]["id"] == self.user.id
         assert response.json() == {
             "id": ANY,
+            "type": "destination",
             "name": "Fetch URL",
             "description": "Test description",
             "created_at": ANY,
@@ -171,12 +219,14 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "enabled": False,
             "hog": "fetch(inputs.url);",
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "url", 32, "inputs", 1, 2, 2, "fetch", 1, 35],
+            "transpiled": None,
             "inputs_schema": [],
             "inputs": {},
             "filters": {"bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29]},
             "icon_url": None,
             "template": None,
             "masking": None,
+            "mappings": None,
             "status": {"rating": 0, "state": 0, "tokens": 0},
         }
 
@@ -215,10 +265,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "description": "Test description",
                 "hog": "fetch(inputs.url);",
                 "template_id": template_webhook.id,
+                "type": "destination",
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["template"] == {
+            "type": "destination",
             "name": template_webhook.name,
             "description": template_webhook.description,
             "id": template_webhook.id,
@@ -229,13 +281,20 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "hog": template_webhook.hog,
             "filters": None,
             "masking": None,
+            "mappings": None,
+            "mapping_templates": None,
             "sub_templates": response.json()["template"]["sub_templates"],
         }
 
     def test_deletes_via_update(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={"name": "Fetch URL", "description": "Test description", "hog": "fetch(inputs.url);"},
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "description": "Test description",
+                "hog": "fetch(inputs.url);",
+            },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         id = response.json()["id"]
@@ -315,6 +374,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "inputs_schema": [
                 {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
             ],
+            "type": "destination",
         }
         # Check required
         res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
@@ -335,6 +395,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"key": "dictionary", "type": "dictionary"},
                 {"key": "boolean", "type": "boolean"},
             ],
+            "type": "destination",
         }
 
         bad_inputs = {
@@ -367,6 +428,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "value": "I AM SECRET",
                 },
             },
+            "type": "destination",
         }
         expectation = {
             "url": {
@@ -406,6 +468,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_secret_inputs_not_updated_if_not_changed(self, *args):
         payload = {
+            "type": "destination",
             "name": "Fetch URL",
             "hog": "fetch(inputs.url);",
             "inputs_schema": [
@@ -442,6 +505,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_secret_inputs_updated_if_changed(self, *args):
         payload = {
+            "type": "destination",
             "name": "Fetch URL",
             "hog": "fetch(inputs.url);",
             "inputs_schema": [
@@ -533,6 +597,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
+                "type": "destination",
                 "name": "Fetch URL",
                 "hog": "let i := 0;\nwhile(i < 3) {\n  i := i + 1;\n  fetch(inputs.url, {\n    'headers': {\n      'x-count': f'{i}'\n    },\n    'body': inputs.payload,\n    'method': inputs.method\n  });\n}",
             },
@@ -701,6 +766,22 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
         }
 
+        # No bytecode for non-destination filters
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "type": "broadcast",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    "actions": [{"id": f"{action.id}", "name": "Test Action", "type": "actions", "order": 1}],
+                    "filter_test_accounts": True,
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["filters"].get("bytecode") is None
+
     def test_saves_masking_config(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -727,13 +808,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Fetch URL",
-                    "description": "Test description",
-                    "hog": "fetch(inputs.url);",
-                    "template_id": template_webhook.id,
-                    "enabled": True,
-                },
+                data=EXAMPLE_FULL,
             )
             assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -747,13 +822,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Fetch URL",
-                    "description": "Test description",
-                    "hog": "fetch(inputs.url);",
-                    "template_id": template_webhook.id,
-                    "enabled": True,
-                },
+                data=EXAMPLE_FULL,
             )
             assert response.status_code == status.HTTP_201_CREATED, response.json()
             response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
@@ -767,7 +836,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_functions/",
-                    data={"name": "Fetch URL", "hog": "fetch(inputs.url);", "enabled": True},
+                    data={"type": "destination", "name": "Fetch URL", "hog": "fetch(inputs.url);", "enabled": True},
                 )
                 id = response.json()["id"]
 
@@ -924,3 +993,159 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         filters = {"actions": [{"id": f"{action2.id}"}]}
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
         assert len(response.json()["results"]) == 1
+
+    def test_list_with_type_filter(self, *args):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert len(response.json()["results"]) == 1
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=destination")
+        assert len(response.json()["results"]) == 1
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=email")
+        assert len(response.json()["results"]) == 0
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={**EXAMPLE_FULL, "type": "email"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert len(response.json()["results"]) == 1
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=destination")
+        assert len(response.json()["results"]) == 1
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=email")
+        assert len(response.json()["results"]) == 1
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?types=destination,email")
+        assert len(response.json()["results"]) == 2
+
+    def test_create_hog_function_with_site_app_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Site App Function",
+                "hog": "export function onLoad() { console.log('Hello, site_app'); }",
+                "type": "site_app",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["bytecode"] is None
+        assert "Hello, site_app" in response.json()["transpiled"]
+
+    def test_create_hog_function_with_site_destination_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Site Destination Function",
+                "hog": "export function onLoad() { console.log('Hello, site_destination'); }",
+                "type": "site_destination",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["bytecode"] is None
+        assert "Hello, site_destination" in response.json()["transpiled"]
+
+    def test_cannot_modify_type_of_existing_hog_function(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Site Destination Function",
+                "hog": "export function onLoad() { console.log('Hello, site_destination'); }",
+                "type": "site_destination",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+            data={"type": "site_app"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "attr": "type",
+            "detail": "Cannot modify the type of an existing function",
+            "code": "invalid_input",
+            "type": "validation_error",
+        }
+
+    def test_transpiled_field_not_populated_for_other_types(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Regular Function",
+                "hog": "fetch(inputs.url);",
+                "type": "destination",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["bytecode"] is not None
+        assert response.json()["transpiled"] is None
+
+    def test_create_hog_function_with_invalid_typescript(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Invalid Site App Function",
+                "hog": "export function onLoad() { console.log('Missing closing brace');",
+                "type": "site_app",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "detail" in response.json()
+        assert "Error in TypeScript code" in response.json()["detail"]
+
+    def test_create_typescript_destination_with_inputs(self):
+        payload = {
+            "name": "TypeScript Destination Function",
+            "hog": "export function onLoad() { console.log(inputs.message); }",
+            "type": "site_destination",
+            "inputs_schema": [
+                {"key": "message", "type": "string", "label": "Message", "required": True},
+            ],
+            "inputs": {
+                "message": {
+                    "value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!",
+                },
+            },
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data=payload,
+        )
+        result = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert result["bytecode"] is None
+        assert "Hello, TypeScript" in result["transpiled"]
+        inputs = result["inputs"]
+        inputs["message"]["transpiled"]["stl"].sort()
+        assert result["inputs"] == {
+            "message": {
+                "transpiled": {
+                    "code": 'concat("Hello, TypeScript ", arrayMap(__lambda((a) => a), [1, 2, 3]), "!")',
+                    "lang": "ts",
+                    "stl": sorted(["__lambda", "concat", "arrayMap"]),
+                },
+                "value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!",
+            }
+        }

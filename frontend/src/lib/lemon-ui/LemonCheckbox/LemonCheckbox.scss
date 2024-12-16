@@ -104,6 +104,13 @@
             }
         }
 
+        &.LemonCheckbox--xsmall {
+            label {
+                min-height: 1.625rem;
+                padding: 0 0.375rem;
+            }
+        }
+
         .Field--error & {
             label {
                 border: 1px solid var(--danger);

@@ -6,6 +6,7 @@ from posthog.hogql.escape_sql import escape_hogql_string
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-posthog-replicator",
     name="PostHog",
     description="Send a copy of the incoming data in realtime to another PostHog instance",

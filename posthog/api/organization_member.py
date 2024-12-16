@@ -1,8 +1,7 @@
 from typing import cast
 
-from django.db.models import Model, Prefetch, QuerySet, F
+from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
-from django.views import View
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -23,7 +22,7 @@ class OrganizationMemberObjectPermissions(BasePermission):
 
     message = "Your cannot edit other organization members."
 
-    def has_object_permission(self, request: Request, view: View, membership: OrganizationMembership) -> bool:
+    def has_object_permission(self, request: Request, view, membership: OrganizationMembership) -> bool:
         if request.method in SAFE_METHODS:
             return True
         organization = extract_organization(membership, view)
@@ -124,14 +123,17 @@ class OrganizationMemberViewSet(
         if self.action == "list":
             params = self.request.GET.dict()
 
+            if "email" in params:
+                queryset = queryset.filter(user__email=params["email"])
+
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])
 
-        order = self.request.GET.get("order", None)
-        if order:
-            queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("-joined_at")
+            order = self.request.GET.get("order", None)
+            if order:
+                queryset = queryset.order_by(order)
+            else:
+                queryset = queryset.order_by("-joined_at")
 
         return queryset
 

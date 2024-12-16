@@ -1,6 +1,6 @@
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
@@ -8,7 +8,6 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { membershipLevelToName, teamMembershipLevelIntegers } from 'lib/utils/permissioning'
-import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -17,16 +16,11 @@ import { AvailableFeature } from '~/types'
 import { teamMembersLogic } from './teamMembersLogic'
 
 export function AddMembersModalWithButton({ disabledReason }: { disabledReason: string | null }): JSX.Element {
-    const { addableMembers, allMembersLoading } = useValues(teamMembersLogic)
+    const { addableMembers, allMembersLoading, isAddMembersModalOpen } = useValues(teamMembersLogic)
+    const { openAddMembersModal, closeAddMembersModal } = useActions(teamMembersLogic)
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-
-    const [isVisible, setIsVisible] = useState(false)
-
-    function closeModal(): void {
-        setIsVisible(false)
-    }
 
     return (
         <>
@@ -34,7 +28,7 @@ export function AddMembersModalWithButton({ disabledReason }: { disabledReason: 
                 type="primary"
                 data-attr="add-project-members-button"
                 onClick={() =>
-                    guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () => setIsVisible(true), {
+                    guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () => openAddMembersModal(), {
                         isGrandfathered:
                             !hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) &&
                             currentTeam?.access_control,
@@ -45,7 +39,7 @@ export function AddMembersModalWithButton({ disabledReason }: { disabledReason: 
             >
                 Add members to project
             </LemonButton>
-            <LemonModal title="" onClose={closeModal} isOpen={isVisible} simple>
+            <LemonModal title="" onClose={closeAddMembersModal} isOpen={isAddMembersModalOpen} simple>
                 <Form logic={teamMembersLogic} formKey="addMembers" enableFormOnSubmit>
                     <LemonModal.Header>
                         <h3>{`Adding members${currentTeam?.name ? ` to project ${currentTeam.name}` : ''}`}</h3>
@@ -76,7 +70,7 @@ export function AddMembersModalWithButton({ disabledReason }: { disabledReason: 
                         </LemonField>
                     </LemonModal.Content>
                     <LemonModal.Footer>
-                        <LemonButton type="secondary" onClick={closeModal}>
+                        <LemonButton type="secondary" onClick={closeAddMembersModal}>
                             Cancel
                         </LemonButton>
                         <LemonButton type="primary" data-attr="add-project-members-submit" htmlType="submit">

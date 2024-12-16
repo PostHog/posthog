@@ -14,6 +14,7 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::instrument;
 
+use crate::limiters::token_dropper::TokenDropper;
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
     Compression, DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
@@ -172,7 +173,14 @@ pub async fn event(
         }
         Err(err) => Err(err),
         Ok((context, events)) => {
-            if let Err(err) = process_events(state.sink.clone(), &events, &context).await {
+            if let Err(err) = process_events(
+                state.sink.clone(),
+                state.token_dropper.clone(),
+                &events,
+                &context,
+            )
+            .await
+            {
                 let cause = match err {
                     CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
@@ -300,13 +308,23 @@ pub fn process_single_event(
 #[instrument(skip_all, fields(events = events.len()))]
 pub async fn process_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
+    dropper: Arc<TokenDropper>,
     events: &'a [RawEvent],
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
-    let events: Vec<ProcessedEvent> = events
+    let mut events: Vec<ProcessedEvent> = events
         .iter()
         .map(|e| process_single_event(e, context))
         .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
+
+    events.retain(|e| {
+        if dropper.should_drop(&e.event.token, &e.event.distinct_id) {
+            report_dropped_events("token_dropper", 1);
+            false
+        } else {
+            true
+        }
+    });
 
     tracing::debug!(events=?events, "processed {} events", events.len());
 

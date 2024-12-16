@@ -13,7 +13,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.property_definition import PropertyType
 from posthog.models.utils import uuid7
-from posthog.schema import HogQLQueryModifiers, SessionTableVersion, BounceRatePageViewMode
+from posthog.schema import HogQLQueryModifiers, SessionTableVersion, BounceRatePageViewMode, FilterLogicalOperator
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -701,3 +701,37 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         results = get_lazy_session_table_properties_v2(None)
         for prop in results:
             get_lazy_session_table_values_v2(key=prop["id"], team=self.team, search_term=None)
+
+    def test_custom_channel_types(self):
+        self.team.modifiers = {
+            "customChannelTypeRules": [
+                {"items": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Test Channel Type", "id": "1"},
+                {"items": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Paid Social", "id": "2"},
+                {"items": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Test Channel Type", "id": "3"},
+            ]
+        }
+        self.team.save()
+        results = get_lazy_session_table_values_v2(key="$channel_type", team=self.team, search_term=None)
+        # the custom channel types should be first, there's should be no duplicates, and any custom rules for existing
+        # channel types should be bumped to the top
+        assert results == [
+            ["Test Channel Type"],
+            ["Paid Social"],
+            ["Cross Network"],
+            ["Paid Search"],
+            ["Paid Video"],
+            ["Paid Shopping"],
+            ["Paid Unknown"],
+            ["Direct"],
+            ["Organic Search"],
+            ["Organic Social"],
+            ["Organic Video"],
+            ["Organic Shopping"],
+            ["Push"],
+            ["SMS"],
+            ["Audio"],
+            ["Email"],
+            ["Referral"],
+            ["Affiliate"],
+            ["Unknown"],
+        ]

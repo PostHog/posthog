@@ -1558,6 +1558,46 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(Team.objects.count(), team_count)
         self.assertEqual(Organization.objects.count(), org_count)
 
+    def test_api_signup_with_sso_enforced_fails(self):
+        """Test that users cannot sign up with email/password when SSO is enforced."""
+
+        organization = Organization.objects.create(name="Test Org")
+        organization.available_product_features = [
+            {"key": AvailableFeature.SSO_ENFORCEMENT, "name": AvailableFeature.SSO_ENFORCEMENT},
+            {"key": AvailableFeature.SAML, "name": AvailableFeature.SAML},
+        ]
+        organization.save()
+        OrganizationDomain.objects.create(
+            domain="posthog_sss_test.com", organization=organization, sso_enforcement="saml", verified_at=timezone.now()
+        )
+
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+sso@posthog_sss_test.com", organization=organization
+        )
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {
+                "first_name": "Alice",
+                "password": VALID_TEST_PASSWORD,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "sso_enforced",
+                "detail": "Sign up with a password is disabled because SSO login is enforced for this domain. Please log in with your SSO credentials.",
+                "attr": None,
+            },
+        )
+
+        # Verify no user was created and invite was not used
+        self.assertFalse(User.objects.filter(email="test+sso@posthog.com").exists())
+        self.assertFalse(OrganizationInvite.objects.filter(target_email="test+sso@posthog.com").exists())
+
     # Social signup (use invite)
 
     def test_api_social_invite_sign_up(self):

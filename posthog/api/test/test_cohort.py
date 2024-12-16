@@ -241,7 +241,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -256,7 +256,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
@@ -1111,7 +1111,7 @@ email@example.org,
         self.assertEqual(1, _calc("select 1 from events"))
 
         # raises on all other cases
-        response = self.client.post(
+        query_post_response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={
                 "name": "cohort A",
@@ -1122,7 +1122,15 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 500, response.content)
+        query_get_response = self.client.get(
+            f"/api/projects/{self.team.id}/cohorts/{query_post_response.json()['id']}/"
+        )
+
+        self.assertEqual(query_post_response.status_code, 201)
+        self.assertEqual(query_get_response.status_code, 200)
+        self.assertEqual(
+            query_get_response.json()["errors_calculating"], 1
+        )  # Should be because selecting from groups is not allowed
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_with_is_set_filter_missing_value(self, patch_capture):

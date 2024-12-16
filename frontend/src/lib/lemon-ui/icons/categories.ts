@@ -52,9 +52,19 @@ export const OBJECTS = {
         'IconGearFilled',
         'IconStack',
         'IconSparkles',
+        'IconPlug',
         'IconPuzzle',
+        'IconActivity',
     ],
-    People: ['IconPeople', 'IconPeopleFilled', 'IconPerson', 'IconProfile', 'IconUser', 'IconGroups'],
+    People: [
+        'IconPeople',
+        'IconPeopleFilled',
+        'IconPerson',
+        'IconProfile',
+        'IconUser',
+        'IconGroups',
+        'IconShieldPeople',
+    ],
     'Business & Finance': ['IconStore', 'IconCart', 'IconReceipt', 'IconPiggyBank', 'IconHandMoney'],
     Time: ['IconHourglass', 'IconCalendar', 'IconClock'],
     Nature: ['IconDay', 'IconNight', 'IconGlobe', 'IconCloud', 'IconBug'],
@@ -93,6 +103,7 @@ export const TECHNOLOGY = {
         'IconBottomPanel',
         'IconSidePanel',
         'IconMouseScrollDown',
+        'IconDrag',
     ],
 }
 
@@ -183,6 +194,7 @@ export const TEAMS_AND_COMPANIES = {
         'IconPageChart',
         'IconSampling',
         'IconLive',
+        'IconRefresh',
         'IconBadge',
     ],
     Replay: [

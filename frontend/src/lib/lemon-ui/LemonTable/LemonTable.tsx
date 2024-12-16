@@ -90,6 +90,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     firstColumnSticky?: boolean
     // Max width for the column headers
     maxHeaderWidth?: string
+    /** Whether to hide the scrollbar. */
+    hideScrollbar?: boolean
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -125,6 +127,7 @@ export function LemonTable<T extends Record<string, any>>({
     footer,
     firstColumnSticky,
     maxHeaderWidth,
+    hideScrollbar,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -234,7 +237,11 @@ export function LemonTable<T extends Record<string, any>>({
             style={style}
             data-attr={dataAttr}
         >
-            <ScrollableShadows direction="horizontal" scrollRef={scrollRef}>
+            <ScrollableShadows
+                innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
+                direction="horizontal"
+                scrollRef={scrollRef}
+            >
                 <div className="LemonTable__content">
                     <table>
                         <colgroup>

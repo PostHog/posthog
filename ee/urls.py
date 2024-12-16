@@ -1,9 +1,11 @@
 from typing import Any
+
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include
 from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
+
 from ee.api import integration
 from ee.support_sidebar_max.sidebar_max_AI import chat_endpoint
 
@@ -15,23 +17,22 @@ from .api import (
     feature_flag_role_access,
     hooks,
     license,
-    organization_resource_access,
-    role,
     sentry_stats,
     subscription,
 )
+from .api.rbac import organization_resource_access, role
 from .session_recordings import session_recording_playlist
 
 
 def extend_api_router() -> None:
     from posthog.api import (
-        router as root_router,
-        register_grandfathered_environment_nested_viewset,
-        projects_router,
-        organizations_router,
-        project_feature_flags_router,
         environment_dashboards_router,
         legacy_project_dashboards_router,
+        organizations_router,
+        project_feature_flags_router,
+        projects_router,
+        register_grandfathered_environment_nested_viewset,
+        router as root_router,
     )
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
@@ -49,6 +50,7 @@ def extend_api_router() -> None:
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
+    # Start: routes to be deprecated
     project_feature_flags_router.register(
         r"role_access",
         feature_flag_role_access.FeatureFlagRoleAccessViewSet,
@@ -61,6 +63,7 @@ def extend_api_router() -> None:
         "organization_resource_access",
         ["organization_id"],
     )
+    # End: routes to be deprecated
     register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
     register_grandfathered_environment_nested_viewset(
         r"explicit_members",

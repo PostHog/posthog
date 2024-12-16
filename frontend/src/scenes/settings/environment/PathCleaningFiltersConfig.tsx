@@ -18,7 +18,15 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
     }
 
     if (!hasAdvancedPaths) {
-        return <p>Advanced path cleaning is a premium feature.</p>
+        return (
+            <p>
+                Advanced path cleaning is a premium feature. Check{' '}
+                <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
+                    our path cleaning rules documentation
+                </Link>{' '}
+                to learn more about it.
+            </p>
+        )
     }
 
     return (
@@ -31,6 +39,13 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
                     <code>http://tenant-two.mydomain.com/accounts</code> can become a single <code>/accounts</code>{' '}
                     path.
                 </i>
+            </p>
+            <p>
+                You can check{' '}
+                <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
+                    our path cleaning rules documentation
+                </Link>{' '}
+                to learn more about it.
             </p>
             <p>
                 Each rule is composed of an alias and a regex pattern. Any pattern in a URL or event name that matches

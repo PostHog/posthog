@@ -9,16 +9,17 @@ from django.conf import settings
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.celery import app
 from posthog.tasks.alerts.checks import (
+    alerts_backlog_task,
     check_alerts_task,
     checks_cleanup_task,
-    alerts_backlog_task,
+    reset_stuck_alerts_task,
 )
 from posthog.tasks.integrations import refresh_integrations
+from posthog.tasks.periodic_digest import send_all_periodic_digest_reports
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
     calculate_external_data_rows_synced,
-    calculate_replay_embeddings,
     check_async_migration_health,
     check_flags_to_rollback,
     clean_stale_partials,
@@ -51,10 +52,13 @@ from posthog.tasks.tasks import (
     sync_all_organization_available_product_features,
     update_event_partitions,
     update_quota_limiting,
+    update_survey_adaptive_sampling,
     update_survey_iteration,
     verify_persons_data_in_sync,
 )
 from posthog.utils import get_crontab
+
+from posthog.tasks.remote_config import sync_all_remote_configs
 
 
 def add_periodic_task_with_expiry(
@@ -126,6 +130,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="30"),
         update_quota_limiting.s(),
         name="update quota limiting",
+    )
+
+    # Send all periodic digest reports
+    sender.add_periodic_task(
+        crontab(hour="9", minute="0", day_of_week="mon"),
+        send_all_periodic_digest_reports.s(),
+        name="send all weekly digest reports",
     )
 
     # PostHog Cloud cron jobs
@@ -256,6 +267,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
+        crontab(hour="*/12"),
+        update_survey_adaptive_sampling.s(),
+        name="update survey's sampling feature flag rollout  based on date",
+    )
+
+    sender.add_periodic_task(
         crontab(hour="*", minute="*/2"),
         check_alerts_task.s(),
         name="check_alerts_task",
@@ -268,22 +285,18 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
+        crontab(hour="*", minute="*/15"),
+        reset_stuck_alerts_task.s(),
+        name="reset_stuck_alerts_task",
+    )
+
+    sender.add_periodic_task(
         crontab(hour="8", minute="0"),
         checks_cleanup_task.s(),
         name="clean up old alert checks",
     )
 
     if settings.EE_AVAILABLE:
-        # every interval seconds, we calculate N replay embeddings
-        # the goal is to process _enough_ every 24 hours that
-        # there is a meaningful playlist to test with
-        add_periodic_task_with_expiry(
-            sender,
-            settings.REPLAY_EMBEDDINGS_CALCULATION_CELERY_INTERVAL_SECONDS,
-            calculate_replay_embeddings.s(),
-            name="calculate replay embeddings",
-        )
-
         sender.add_periodic_task(
             crontab(hour="0", minute=str(randrange(0, 40))),
             clickhouse_send_license_usage.s(),
@@ -346,4 +359,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         60,
         refresh_integrations.s(),
         name="refresh integrations",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="0", minute=str(randrange(0, 40))),
+        sync_all_remote_configs.s(),
+        name="sync all remote configs",
     )

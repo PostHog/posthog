@@ -130,7 +130,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert len(list_for_another_insight.json()["results"]) == 0
 
     def test_alert_limit(self) -> None:
-        with mock.patch("posthog.api.alert.AlertConfiguration.ALERTS_PER_TEAM") as alert_limit:
+        with mock.patch("posthog.api.alert.AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER") as alert_limit:
             alert_limit.__get__ = mock.Mock(return_value=1)
 
             creation_request = {

@@ -19,6 +19,7 @@ const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConf
             <LemonField key={field.name} name={[field.name, 'enabled']} label={field.label}>
                 {({ value, onChange }) => (
                     <>
+                        {!!field.caption && <p>{field.caption}</p>}
                         <LemonSwitch
                             checked={value === undefined || value === null ? lastValue?.['enabled'] : value}
                             onChange={onChange}
@@ -141,7 +142,24 @@ export function SourceFormComponent({ sourceConfig, showPrefix = true, jobInputs
             </Group>
             {showPrefix && (
                 <LemonField name="prefix" label="Table Prefix (optional)">
-                    <LemonInput className="ph-ignore-input" data-attr="prefix" placeholder="internal_" />
+                    {({ value, onChange }) => (
+                        <>
+                            <LemonInput
+                                className="ph-ignore-input"
+                                data-attr="prefix"
+                                placeholder="internal_"
+                                value={value}
+                                onChange={onChange}
+                            />
+                            <p>
+                                Example table name:{' '}
+                                <strong>
+                                    {value}
+                                    {sourceConfig.name.toLowerCase()}_table_name
+                                </strong>
+                            </p>
+                        </>
+                    )}
                 </LemonField>
             )}
         </div>

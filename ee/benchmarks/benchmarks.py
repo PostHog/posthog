@@ -4,9 +4,9 @@ from .helpers import benchmark_clickhouse, no_materialized_columns, now
 from datetime import timedelta
 from ee.clickhouse.materialized_columns.analyze import (
     backfill_materialized_columns,
-    get_materialized_columns,
     materialize,
 )
+from ee.clickhouse.materialized_columns.columns import MaterializedColumn
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.queries.funnels import ClickhouseFunnel
@@ -28,13 +28,17 @@ from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.constants import FunnelCorrelationType
 
-MATERIALIZED_PROPERTIES: list[tuple[TableWithProperties, PropertyName]] = [
-    ("events", "$host"),
-    ("events", "$current_url"),
-    ("events", "$event_type"),
-    ("person", "email"),
-    ("person", "$browser"),
-]
+MATERIALIZED_PROPERTIES: dict[TableWithProperties, list[PropertyName]] = {
+    "events": [
+        "$current_url",
+        "$event_type",
+        "$host",
+    ],
+    "person": [
+        "$browser",
+        "email",
+    ],
+}
 
 DATE_RANGE = {"date_from": "2021-01-01", "date_to": "2021-10-01", "interval": "week"}
 SHORT_DATE_RANGE = {
@@ -766,14 +770,18 @@ class QuerySuite:
         get_person_property_values_for_key("$browser", self.team)
 
     def setup(self):
-        for table, property in MATERIALIZED_PROPERTIES:
-            if (property, "properties") not in get_materialized_columns(table):
+        for table, properties in MATERIALIZED_PROPERTIES.items():
+            columns = [
                 materialize(table, property)
-                backfill_materialized_columns(
-                    table,
-                    [(property, "properties")],
-                    backfill_period=timedelta(days=1_000),
+                for property in (
+                    set(properties) - {column.details.property_name for column in MaterializedColumn.get_all(table)}
                 )
+            ]
+            backfill_materialized_columns(
+                table,
+                columns,
+                backfill_period=timedelta(days=1_000),
+            )
 
         # :TRICKY: Data in benchmark servers has ID=2
         team = Team.objects.filter(id=2).first()

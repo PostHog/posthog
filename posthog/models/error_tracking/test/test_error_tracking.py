@@ -1,64 +1,76 @@
-from posthog.models.error_tracking import ErrorTrackingGroup
 from posthog.test.base import BaseTest
+from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 
 
 class TestErrorTracking(BaseTest):
+    def create_issue(self, fingerprints) -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        for fingerprint in fingerprints:
+            ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        return issue
+
     def test_defaults(self):
-        group = ErrorTrackingGroup.objects.create(status="active", team=self.team, fingerprint=["a_fingerprint"])
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
 
-        assert group.fingerprint == ["a_fingerprint"]
-        assert group.merged_fingerprints == []
-        assert group.assignee is None
+        assert issue.status == "active"
+        assert issue.name is None
 
-    def test_filtering(self):
-        ErrorTrackingGroup.objects.bulk_create(
-            [
-                ErrorTrackingGroup(team=self.team, fingerprint=["first_error"]),
-                ErrorTrackingGroup(
-                    team=self.team, fingerprint=["second_error"], merged_fingerprints=[["previously_merged"]]
-                ),
-                ErrorTrackingGroup(team=self.team, fingerprint=["third_error"]),
-            ]
-        )
+    def test_basic_merge(self):
+        issue_one = self.create_issue(["fingerprint_one"])
+        issue_two = self.create_issue(["fingerprint_two"])
 
-        matching_groups = ErrorTrackingGroup.objects.filter(fingerprint__in=[["first_error"], ["second_error"]])
-        assert matching_groups.count() == 2
+        issue_two.merge(issue_ids=[issue_one.id])
 
-        matching_groups = ErrorTrackingGroup.objects.filter(merged_fingerprints__contains=["previously_merged"])
-        assert matching_groups.count() == 1
+        # remaps the first fingerprint to the second issue
+        assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_two.id).count() == 2
+        # bumps the version
+        override = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one").first()
+        assert override
+        assert override.version == 1
 
-        matching_groups = ErrorTrackingGroup.filter_fingerprints(
-            queryset=ErrorTrackingGroup.objects, fingerprints=[["first_error"], ["previously_merged"]]
-        )
-        assert matching_groups.count() == 2
+        # deletes issue one
+        assert ErrorTrackingIssue.objects.count() == 1
 
-    def test_merge(self):
-        primary_group = ErrorTrackingGroup.objects.create(
-            status="active",
-            team=self.team,
-            fingerprint=["a_fingerprint"],
-            merged_fingerprints=[["already_merged_fingerprint"]],
-        )
-        merge_group_1 = ErrorTrackingGroup.objects.create(
-            status="active", team=self.team, fingerprint=["new_fingerprint"]
-        )
-        merge_group_2 = ErrorTrackingGroup.objects.create(
-            status="active",
-            team=self.team,
-            fingerprint=["another_fingerprint"],
-            merged_fingerprints=[["merged_fingerprint"]],
-        )
+    def test_merge_multiple_times(self):
+        issue_one = self.create_issue(["fingerprint_one"])
+        issue_two = self.create_issue(["fingerprint_two"])
+        issue_three = self.create_issue(["fingerprint_three"])
 
-        merging_fingerprints = [merge_group_1.fingerprint, merge_group_2.fingerprint, ["no_group_fingerprint"]]
-        primary_group.merge(merging_fingerprints)
+        issue_two.merge(issue_ids=[issue_one.id])
+        issue_three.merge(issue_ids=[issue_two.id])
 
-        assert sorted(primary_group.merged_fingerprints) == [
-            ["already_merged_fingerprint"],
-            ["another_fingerprint"],
-            ["merged_fingerprint"],
-            ["new_fingerprint"],
-            ["no_group_fingerprint"],
-        ]
+        # only the third issue remains
+        assert ErrorTrackingIssue.objects.count() == 1
+        # all fingerprints point to the third issue
+        assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_three.id).count() == 3
 
-        # deletes the old groups
-        assert ErrorTrackingGroup.objects.count() == 1
+        # bumps versions of the merged issues correct number of times
+        override = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one").first()
+        assert override
+        assert override.version == 2
+        override = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two").first()
+        assert override
+        assert override.version == 1
+
+    def test_merging_multiple_issues_at_once(self):
+        issue_one = self.create_issue(["fingerprint_one"])
+        issue_two = self.create_issue(["fingerprint_two"])
+        issue_three = self.create_issue(["fingerprint_three"])
+
+        issue_three.merge(issue_ids=[issue_one.id, issue_two.id])
+
+        assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_three.id).count() == 3
+
+    def test_splitting_fingerprints(self):
+        issue = self.create_issue(["fingerprint_one", "fingerprint_two", "fingerprint_three"])
+
+        issue.split(fingerprints=["fingerprint_one", "fingerprint_two"])
+
+        # creates two new issues
+        assert ErrorTrackingIssue.objects.count() == 3
+
+        # bumps the version but no longer points to the old issue
+        override = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one").first()
+        assert override
+        assert override.issue_id != issue.id
+        assert override.version == 1

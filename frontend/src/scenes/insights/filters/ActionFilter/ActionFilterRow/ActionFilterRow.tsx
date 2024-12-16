@@ -40,6 +40,7 @@ import {
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
+import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode, isStickinessQuery } from '~/queries/utils'
 import {
     ActionFilter,
@@ -596,9 +597,20 @@ export function ActionFilterRow({
                         onChange={(properties) => updateFilterProperty({ properties, index })}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
+                        metadataSource={
+                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                ? {
+                                      kind: NodeKind.HogQLQuery,
+                                      query: `select ${filter.distinct_id_field} from ${filter.table_name}`,
+                                  }
+                                : undefined
+                        }
                         taxonomicGroupTypes={
                             filter.type == TaxonomicFilterGroupType.DataWarehouse
-                                ? [TaxonomicFilterGroupType.DataWarehouseProperties]
+                                ? [
+                                      TaxonomicFilterGroupType.DataWarehouseProperties,
+                                      TaxonomicFilterGroupType.HogQLExpression,
+                                  ]
                                 : propertiesTaxonomicGroupTypes
                         }
                         eventNames={

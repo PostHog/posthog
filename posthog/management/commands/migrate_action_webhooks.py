@@ -129,16 +129,18 @@ def convert_to_hog_function(action: Action, inert=False) -> Optional[HogFunction
         hog_name = f"[CDP-TEST-HIDDEN] {hog_name}"
     hog_function = HogFunction(
         name=hog_name,
+        type="destination",
         description="Automatically migrated from legacy action webhooks",
         team_id=action.team_id,
         inputs=validate_inputs(
             webhook_template.inputs_schema,
             {"url": {"value": webhook_url}, "method": {"value": "POST"}, "body": {"value": body}},
+            function_type="destination",
         ),
         inputs_schema=webhook_template.inputs_schema,
         template_id=webhook_template.id,
         hog=hog_code,
-        bytecode=compile_hog(hog_code),
+        bytecode=compile_hog(hog_code, "destination"),
         filters=compile_filters_bytecode(
             {"actions": [{"id": f"{action.id}", "type": "actions", "name": action.name, "order": 0}]}, action.team
         ),

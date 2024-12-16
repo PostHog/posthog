@@ -1,15 +1,14 @@
 use std::{future::ready, sync::Arc};
 
 use axum::{routing::get, Router};
-use common_kafka::kafka_consumer::RecvErr;
 use common_metrics::{serve, setup_metrics_routes};
 use common_types::ClickHouseEvent;
 use cymbal::{
     app_context::AppContext,
     config::Config,
-    error::Error,
-    metric_consts::{ERRORS, EVENT_RECEIVED, STACK_PROCESSED},
-    types::{frames::RawFrame, ErrProps},
+    hack::kafka::{send_keyed_iter_to_kafka, RecvErr},
+    handle_event,
+    metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, STACK_PROCESSED},
 };
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
@@ -50,85 +49,75 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() {
     setup_tracing();
     info!("Starting up...");
 
-    let config = Config::init_from_env()?;
-    let context = Arc::new(AppContext::new(&config).await?);
+    let config = Config::init_from_env().unwrap();
+    let context = Arc::new(AppContext::new(&config).await.unwrap());
 
     start_health_liveness_server(&config, context.clone());
 
+    let batch_wait_time = std::time::Duration::from_secs(config.max_event_batch_wait_seconds);
+    let batch_size = config.max_events_per_batch;
+
     loop {
+        let whole_loop = common_metrics::timing_guard(MAIN_LOOP_TIME, &[]);
         context.worker_liveness.report_healthy().await;
         // Just grab the event as a serde_json::Value and immediately drop it,
         // we can work out a real type for it later (once we're deployed etc)
-        let (event, offset): (ClickHouseEvent, _) = match context.consumer.json_recv().await {
-            Ok(r) => r,
-            Err(RecvErr::Kafka(e)) => {
-                return Err(e.into()); // Just die if we recieve a Kafka error
-            }
-            Err(err) => {
-                // If we failed to parse the message, or it was empty, just log and continue, our
-                // consumer has already stored the offset for us.
-                metrics::counter!(ERRORS, "cause" => "recv_err").increment(1);
-                error!("Error receiving message: {:?}", err);
-                continue;
-            }
-        };
-        metrics::counter!(EVENT_RECEIVED).increment(1);
+        let received: Vec<Result<(ClickHouseEvent, _), _>> = context
+            .kafka_consumer
+            .json_recv_batch(batch_size, batch_wait_time)
+            .await;
 
-        offset.store().unwrap();
-
-        if event.event != "$exception" {
-            error!("event of type {}", event.event);
-            continue;
-        }
-
-        let Some(properties) = &event.properties else {
-            metrics::counter!(ERRORS, "cause" => "no_properties").increment(1);
-            continue;
-        };
-
-        let properties: ErrProps = match serde_json::from_str(properties) {
-            Ok(r) => r,
-            Err(err) => {
-                metrics::counter!(ERRORS, "cause" => "invalid_exception_properties").increment(1);
-                error!("Error parsing properties: {:?}", err);
-                continue;
-            }
-        };
-
-        let Some(exception_list) = &properties.exception_list else {
-            // Known issue that $exception_list didn't exist on old clients
-            continue;
-        };
-
-        if exception_list.is_empty() {
-            metrics::counter!(ERRORS, "cause" => "no_exception_list").increment(1);
-            continue;
-        }
-
-        let Some(trace) = exception_list[0].stacktrace.as_ref() else {
-            metrics::counter!(ERRORS, "cause" => "no_stack_trace").increment(1);
-            continue;
-        };
-
-        let stack_trace: &Vec<RawFrame> = &trace.frames;
-
-        let mut resolved_frames = Vec::new();
-        for frame in stack_trace {
-            let resolved = match context.resolver.resolve(frame.clone(), 1).await {
+        let mut output = Vec::with_capacity(received.len());
+        let mut offsets = Vec::with_capacity(received.len());
+        for message in received {
+            let (event, offset) = match message {
                 Ok(r) => r,
+                Err(RecvErr::Kafka(e)) => {
+                    panic!("Kafka error: {}", e)
+                }
                 Err(err) => {
-                    metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
-                    error!("Error parsing stack frame: {:?}", err);
+                    // If we failed to parse the message, or it was empty, just log and continue, our
+                    // consumer has already stored the offset for us.
+                    metrics::counter!(ERRORS, "cause" => "recv_err").increment(1);
+                    error!("Error receiving message: {:?}", err);
                     continue;
                 }
             };
-            resolved_frames.push(resolved);
+
+            metrics::counter!(EVENT_RECEIVED).increment(1);
+
+            let event = match handle_event(context.clone(), event).await {
+                Ok(e) => e,
+                Err(e) => {
+                    error!("Error handling event: {:?}", e);
+                    // If we get an unhandled error, it means we have some logical error in the code, or a
+                    // dependency is down, and we should just fall over.
+                    panic!("Unhandled error: {:?}", e);
+                }
+            };
+
+            output.push(event);
+            offsets.push(offset);
+        }
+
+        send_keyed_iter_to_kafka(
+            &context.kafka_producer,
+            &context.config.events_topic,
+            |ev| Some(ev.uuid.to_string()),
+            &output,
+        )
+        .await
+        .expect("Failed to send event to Kafka");
+
+        for offset in offsets {
+            offset.store().unwrap();
         }
 
         metrics::counter!(STACK_PROCESSED).increment(1);
+        whole_loop.label("finished", "true").fin();
     }
 }

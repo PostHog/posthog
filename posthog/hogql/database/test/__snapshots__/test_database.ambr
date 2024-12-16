@@ -478,6 +478,40 @@
                   "schema_valid": true,
                   "table": "person_distinct_id_overrides",
                   "type": "lazy_table"
+              },
+              "event_issue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_issue_id",
+                  "id": null,
+                  "name": "event_issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "exception_issue_override": {
+                  "chain": null,
+                  "fields": [
+                      "team_id",
+                      "fingerprint",
+                      "issue_id"
+                  ],
+                  "hogql_value": "exception_issue_override",
+                  "id": "exception_issue_override",
+                  "name": "exception_issue_override",
+                  "schema_valid": true,
+                  "table": "error_tracking_issue_fingerprint_overrides",
+                  "type": "lazy_table"
+              },
+              "issue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_id",
+                  "id": null,
+                  "name": "issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
               }
           },
           "id": "events",
@@ -848,7 +882,10 @@
                       "elements_chain_ids",
                       "elements_chain_elements",
                       "event_person_id",
-                      "override"
+                      "override",
+                      "event_issue_id",
+                      "exception_issue_override",
+                      "issue_id"
                   ],
                   "hogql_value": "events",
                   "id": "events",
@@ -1155,6 +1192,83 @@
           },
           "id": "log_entries",
           "name": "log_entries",
+          "type": "posthog"
+      },
+      "app_metrics": {
+          "fields": {
+              "app_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "app_source",
+                  "id": null,
+                  "name": "app_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "app_source_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "app_source_id",
+                  "id": null,
+                  "name": "app_source_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "instance_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "instance_id",
+                  "id": null,
+                  "name": "instance_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "timestamp",
+                  "id": null,
+                  "name": "timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "metric_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "metric_name",
+                  "id": null,
+                  "name": "metric_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "metric_kind": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "metric_kind",
+                  "id": null,
+                  "name": "metric_kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "count",
+                  "id": null,
+                  "name": "count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "app_metrics",
+          "name": "app_metrics",
           "type": "posthog"
       },
       "sessions": {
@@ -1589,6 +1703,153 @@
           },
           "id": "heatmaps",
           "name": "heatmaps",
+          "type": "posthog"
+      },
+      "query_log": {
+          "fields": {
+              "query_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_id",
+                  "id": null,
+                  "name": "query_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query",
+                  "id": null,
+                  "name": "query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query_start_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_start_time",
+                  "id": null,
+                  "name": "query_start_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "query_duration_ms": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_duration_ms",
+                  "id": null,
+                  "name": "query_duration_ms",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "created_by": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by",
+                  "id": null,
+                  "name": "created_by",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "read_rows": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "read_rows",
+                  "id": null,
+                  "name": "read_rows",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "read_bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "read_bytes",
+                  "id": null,
+                  "name": "read_bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "result_rows": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "result_rows",
+                  "id": null,
+                  "name": "result_rows",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "result_bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "result_bytes",
+                  "id": null,
+                  "name": "result_bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "memory_usage": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "memory_usage",
+                  "id": null,
+                  "name": "memory_usage",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "kind": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kind",
+                  "id": null,
+                  "name": "kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_type",
+                  "id": null,
+                  "name": "query_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "is_personal_api_key_request": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_personal_api_key_request",
+                  "id": null,
+                  "name": "is_personal_api_key_request",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              }
+          },
+          "id": "query_log",
+          "name": "query_log",
           "type": "posthog"
       }
   }
@@ -2028,6 +2289,40 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "array"
+              },
+              "event_issue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_issue_id",
+                  "id": null,
+                  "name": "event_issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "exception_issue_override": {
+                  "chain": null,
+                  "fields": [
+                      "team_id",
+                      "fingerprint",
+                      "issue_id"
+                  ],
+                  "hogql_value": "exception_issue_override",
+                  "id": "exception_issue_override",
+                  "name": "exception_issue_override",
+                  "schema_valid": true,
+                  "table": "error_tracking_issue_fingerprint_overrides",
+                  "type": "lazy_table"
+              },
+              "issue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_id",
+                  "id": null,
+                  "name": "issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
               }
           },
           "id": "events",
@@ -2396,7 +2691,10 @@
                       "elements_chain_href",
                       "elements_chain_texts",
                       "elements_chain_ids",
-                      "elements_chain_elements"
+                      "elements_chain_elements",
+                      "event_issue_id",
+                      "exception_issue_override",
+                      "issue_id"
                   ],
                   "hogql_value": "events",
                   "id": "events",
@@ -2703,6 +3001,83 @@
           },
           "id": "log_entries",
           "name": "log_entries",
+          "type": "posthog"
+      },
+      "app_metrics": {
+          "fields": {
+              "app_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "app_source",
+                  "id": null,
+                  "name": "app_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "app_source_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "app_source_id",
+                  "id": null,
+                  "name": "app_source_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "instance_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "instance_id",
+                  "id": null,
+                  "name": "instance_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "timestamp",
+                  "id": null,
+                  "name": "timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "metric_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "metric_name",
+                  "id": null,
+                  "name": "metric_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "metric_kind": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "metric_kind",
+                  "id": null,
+                  "name": "metric_kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "count",
+                  "id": null,
+                  "name": "count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "app_metrics",
+          "name": "app_metrics",
           "type": "posthog"
       },
       "sessions": {
@@ -3137,6 +3512,153 @@
           },
           "id": "heatmaps",
           "name": "heatmaps",
+          "type": "posthog"
+      },
+      "query_log": {
+          "fields": {
+              "query_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_id",
+                  "id": null,
+                  "name": "query_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query",
+                  "id": null,
+                  "name": "query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query_start_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_start_time",
+                  "id": null,
+                  "name": "query_start_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "query_duration_ms": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_duration_ms",
+                  "id": null,
+                  "name": "query_duration_ms",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "created_by": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by",
+                  "id": null,
+                  "name": "created_by",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "read_rows": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "read_rows",
+                  "id": null,
+                  "name": "read_rows",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "read_bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "read_bytes",
+                  "id": null,
+                  "name": "read_bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "result_rows": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "result_rows",
+                  "id": null,
+                  "name": "result_rows",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "result_bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "result_bytes",
+                  "id": null,
+                  "name": "result_bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "memory_usage": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "memory_usage",
+                  "id": null,
+                  "name": "memory_usage",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "kind": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kind",
+                  "id": null,
+                  "name": "kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_type",
+                  "id": null,
+                  "name": "query_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "is_personal_api_key_request": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_personal_api_key_request",
+                  "id": null,
+                  "name": "is_personal_api_key_request",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              }
+          },
+          "id": "query_log",
+          "name": "query_log",
           "type": "posthog"
       }
   }

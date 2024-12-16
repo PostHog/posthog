@@ -19,6 +19,8 @@ import {
 } from './date'
 import { printHogStringOutput } from './print'
 
+// TODO: this file should be generated from or mergred with posthog/hogql/compiler/javascript_stl.py
+
 function STLToString(args: any[]): string {
     if (isHogDate(args[0])) {
         const month = args[0].month
@@ -44,7 +46,7 @@ export const STL: Record<string, STLFunction> = {
             if (!options?.external?.regex?.match) {
                 throw new Error('Set options.external.regex.match for RegEx support')
             }
-            return options.external.regex.match(args[1], args[0])
+            return !args[0] || !args[1] ? false : options.external.regex.match(args[1], args[0])
         },
         minArgs: 2,
         maxArgs: 2,
@@ -71,9 +73,7 @@ export const STL: Record<string, STLFunction> = {
     },
     toString: { fn: STLToString, minArgs: 1, maxArgs: 1 },
     toUUID: {
-        fn: (args) => {
-            return String(args[0])
-        },
+        fn: STLToString,
         minArgs: 1,
         maxArgs: 1,
     },
@@ -148,8 +148,8 @@ export const STL: Record<string, STLFunction> = {
     },
     tuple: {
         fn: (args) => {
-            const tuple = args.slice()
-            ;(tuple as any).__isHogTuple = true
+            const tuple = args.slice();
+            (tuple as any).__isHogTuple = true
             return tuple
         },
         minArgs: 0,

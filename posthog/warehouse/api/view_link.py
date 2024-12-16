@@ -25,6 +25,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
             "joining_table_name",
             "joining_table_key",
             "field_name",
+            "configuration",
         ]
         read_only_fields = ["id", "created_by", "created_at"]
 

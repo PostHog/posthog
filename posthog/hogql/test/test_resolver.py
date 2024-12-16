@@ -1,9 +1,9 @@
-from datetime import datetime, date, UTC
+from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
-import pytest
-from django.test import override_settings
 from uuid import UUID
 
+import pytest
+from django.test import override_settings
 from freezegun import freeze_time
 
 from posthog.hogql import ast
@@ -11,18 +11,18 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
+    DateTimeDatabaseField,
     ExpressionField,
     FieldTraverser,
-    StringJSONDatabaseField,
     StringDatabaseField,
-    DateTimeDatabaseField,
+    StringJSONDatabaseField,
 )
 from posthog.hogql.errors import QueryError
-from posthog.hogql.test.utils import pretty_dataclasses
-from posthog.hogql.visitor import clone_expr
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolutionError, resolve_types
+from posthog.hogql.test.utils import pretty_dataclasses
+from posthog.hogql.visitor import clone_expr
 from posthog.test.base import BaseTest
 
 
@@ -355,6 +355,21 @@ class TestResolver(BaseTest):
             str(e.exception),
             "Cannot use '*' without table name when there are multiple tables in the query",
         )
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_asterisk_expander_multiple_table_with_scope(self):
+        node = self._select(
+            "select x.* from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a"
+        )
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert pretty_dataclasses(node) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_asterisk_expander_multiple_base_table_with_scope(self):
+        node = self._select("select e.* from session_replay_events e join sessions s on s.session_id=e.session_id")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert pretty_dataclasses(node) == self.snapshot
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")

@@ -36,6 +36,7 @@ export function like(
     pattern = String(pattern)
         .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
         .replaceAll('%', '.*')
+        .replaceAll('_', '.')
     if (match) {
         return match((caseInsensitive ? '(?i)' : '') + pattern, string)
     }

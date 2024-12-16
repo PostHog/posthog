@@ -5,7 +5,7 @@ from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
 from collections.abc import Callable
 from loginas.utils import is_impersonated_session, restore_original_login
-
+from posthog.rbac.user_access_control import UserAccessControl
 from django.shortcuts import redirect
 import structlog
 from corsheaders.middleware import CorsMiddleware
@@ -274,6 +274,14 @@ class AutoProjectMiddleware:
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
         user_permissions = UserPermissions(user)
+        user_access_control = UserAccessControl(user=user, team=new_team)
+
+        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
+        #   However this should be a rare operation!
+        if not user_access_control.check_access_level_for_object(new_team, "member"):
+            # Do something to indicate that they don't have access to the team...
+            return False
+
         # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
         #   However this should be a rare operation!
         if user_permissions.team(new_team).effective_membership_level is None:
@@ -669,7 +677,19 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
 
     init_time = get_or_set_session_cookie_created_at(request=request)
 
-    return datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
+    last_activity_time = request.session.get(settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY, init_time)
+
+    # If the last activity time is less than the idle timeout, we extend the session
+    if time.time() - last_activity_time < settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS:
+        last_activity_time = request.session[settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY] = time.time()
+        request.session.modified = True
+
+    idle_expiry_time = datetime.fromtimestamp(last_activity_time) + timedelta(
+        seconds=settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
+    )
+    total_expiry_time = datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
+
+    return min(idle_expiry_time, total_expiry_time)
 
 
 class AutoLogoutImpersonateMiddleware:

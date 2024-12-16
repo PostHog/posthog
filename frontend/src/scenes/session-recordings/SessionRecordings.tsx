@@ -2,14 +2,20 @@ import { IconEllipsis, IconGear } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import {
+    authorizedUrlListLogic,
+    AuthorizedUrlListType,
+    defaultAuthorizedUrlProperties,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,7 +26,6 @@ import { urls } from 'scenes/urls'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
 
-import { SessionRecordingErrors } from './errors/SessionRecordingErrors'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
@@ -133,11 +138,14 @@ function Warnings(): JSX.Element {
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     const theAuthorizedUrlsLogic = authorizedUrlListLogic({
-        actionId: null,
+        ...defaultAuthorizedUrlProperties,
         type: AuthorizedUrlListType.RECORDING_DOMAINS,
     })
     const { suggestions, authorizedUrls } = useValues(theAuthorizedUrlsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const mightBeRefusingRecordings = suggestions.length > 0 && authorizedUrls.length > 0
+    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <>
@@ -153,7 +161,7 @@ function Warnings(): JSX.Element {
                         children: 'Configure',
                     }}
                 >
-                    Session recordings are currently disabled for this project.
+                    Session recordings are currently disabled for this {settingLevel}.
                 </LemonBanner>
             ) : null}
 
@@ -163,7 +171,8 @@ function Warnings(): JSX.Element {
                     action={{
                         type: 'secondary',
                         icon: <IconGear />,
-                        onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
+                        onClick: () =>
+                            openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay-authorized-domains' }),
                         children: 'Configure',
                     }}
                     dismissKey={`session-recordings-authorized-domains-warning/${suggestions.join(',')}`}
@@ -191,8 +200,6 @@ function MainPanel(): JSX.Element {
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
-            ) : tab === ReplayTabs.Errors ? (
-                <SessionRecordingErrors />
             ) : tab === ReplayTabs.Templates ? (
                 <SessionRecordingTemplates />
             ) : null}

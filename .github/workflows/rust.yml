@@ -13,7 +13,7 @@ jobs:
     # Job to decide if we should run rust ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run Rust checks
@@ -60,7 +60,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.77
+              uses: dtolnay/rust-toolchain@1.82
 
             - uses: actions/cache@v4
               if: needs.changes.outputs.rust == 'true'
@@ -120,7 +120,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.77
+              uses: dtolnay/rust-toolchain@1.82
 
             - uses: actions/cache@v4
               if: needs.changes.outputs.rust == 'true'
@@ -199,7 +199,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.77
+              uses: dtolnay/rust-toolchain@1.82
               with:
                   components: clippy,rustfmt
 

@@ -409,7 +409,7 @@ def clickhouse_errors_count() -> None:
             name,
             value as errors,
             dateDiff('minute', last_error_time, now()) minutes_ago
-        from clusterAllReplicas(%(cluster)s, system, errors)
+        from clusterAllReplicas(%(cluster)s, system.errors)
         where code in (999, 225, 242)
         order by minutes_ago
     """
@@ -785,18 +785,25 @@ def verify_persons_data_in_sync() -> None:
     verify()
 
 
-@shared_task(ignrore_result=True)
+@shared_task(ignore_result=True)
 def stop_surveys_reached_target() -> None:
     from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
     stop_surveys_reached_target()
 
 
-@shared_task(ignrore_result=True)
+@shared_task(ignore_result=True)
 def update_survey_iteration() -> None:
     from posthog.tasks.update_survey_iteration import update_survey_iteration
 
     update_survey_iteration()
+
+
+@shared_task(ignore_result=True)
+def update_survey_adaptive_sampling() -> None:
+    from posthog.tasks.update_survey_adaptive_sampling import update_survey_adaptive_sampling
+
+    update_survey_adaptive_sampling()
 
 
 def recompute_materialized_columns_enabled() -> bool:
@@ -901,34 +908,6 @@ def ee_persist_finished_recordings() -> None:
         pass
     else:
         persist_finished_recordings()
-
-
-# this task runs a CH query and triggers other tasks
-# it can run on the default queue
-@shared_task(ignore_result=True)
-def calculate_replay_embeddings() -> None:
-    try:
-        from ee.tasks.replay import generate_recordings_embeddings_batch
-
-        generate_recordings_embeddings_batch()
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.error("Failed to calculate replay embeddings", error=e, exc_info=True)
-
-
-# this task triggers other tasks
-# it can run on the default queue
-@shared_task(ignore_result=True)
-def calculate_replay_error_clusters() -> None:
-    try:
-        from ee.tasks.replay import generate_replay_embedding_error_clusters
-
-        generate_replay_embedding_error_clusters()
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.error("Failed to calculate replay error clusters", error=e, exc_info=True)
 
 
 @shared_task(ignore_result=True)

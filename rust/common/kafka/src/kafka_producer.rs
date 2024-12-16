@@ -93,12 +93,25 @@ pub async fn send_iter_to_kafka<T>(
 where
     T: Serialize,
 {
+    send_keyed_iter_to_kafka(kafka_producer, topic, |_| None, iter).await
+}
+
+pub async fn send_keyed_iter_to_kafka<T>(
+    kafka_producer: &FutureProducer<KafkaContext>,
+    topic: &str,
+    key_extractor: impl Fn(&T) -> Option<String>,
+    iter: impl IntoIterator<Item = T>,
+) -> Result<(), KafkaProduceError>
+where
+    T: Serialize,
+{
     let mut payloads = Vec::new();
 
     for i in iter {
+        let key = key_extractor(&i);
         let payload = serde_json::to_string(&i)
             .map_err(|e| KafkaProduceError::SerializationError { error: e })?;
-        payloads.push(payload);
+        payloads.push((key, payload));
     }
 
     if payloads.is_empty() {
@@ -107,12 +120,12 @@ where
 
     let mut delivery_futures = Vec::new();
 
-    for payload in payloads {
+    for (key, payload) in payloads {
         match kafka_producer.send_result(FutureRecord {
             topic,
             payload: Some(&payload),
             partition: None,
-            key: None::<&str>,
+            key: key.as_deref(),
             timestamp: None,
             headers: None,
         }) {

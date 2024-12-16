@@ -47,6 +47,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
         setSelectedPageIndex,
         duplicateSurvey,
     } = useActions(surveyLogic)
+    const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
@@ -342,12 +343,23 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     </div>
                                                 ) : null}
                                             </div>
-                                            {survey.responses_limit && (
+                                            {surveyUsesLimit && (
                                                 <>
                                                     <span className="card-secondary mt-4">Completion conditions</span>
                                                     <span>
                                                         The survey will be stopped once <b>{survey.responses_limit}</b>{' '}
                                                         responses are received.
+                                                    </span>
+                                                </>
+                                            )}
+                                            {surveyUsesAdaptiveLimit && (
+                                                <>
+                                                    <span className="card-secondary mt-4">Completion conditions</span>
+                                                    <span>
+                                                        Survey response collection is limited to receive{' '}
+                                                        <b>{survey.response_sampling_limit}</b> responses every{' '}
+                                                        {survey.response_sampling_interval}{' '}
+                                                        {survey.response_sampling_interval_type}(s).
                                                     </span>
                                                 </>
                                             )}
@@ -403,6 +415,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                           <div>
                                               <p>Get notified whenever a survey result is submitted</p>
                                               <LinkedHogFunctions
+                                                  type="destination"
                                                   subTemplateId="survey_response"
                                                   filters={{
                                                       events: [
@@ -620,6 +633,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                         },
                     },
                 }}
+                readOnly={true}
             />
         </>
     )

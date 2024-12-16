@@ -1,6 +1,9 @@
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
+import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
+import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
+import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 
 import { Realm } from '~/types'
@@ -20,11 +23,11 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { SessionRecordingIngestionSettings } from './environment/SessionRecordingIngestionSettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
-    ReplayCostControl,
     ReplayGeneral,
 } from './environment/SessionRecordingSettings'
 import { SlackIntegration } from './environment/SlackIntegration'
@@ -50,14 +53,14 @@ import { OrganizationLogo } from './organization/OrgLogo'
 import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
-import { ProjectDisplayName } from './project/ProjectSettings'
+import { ProjectDisplayName, ProjectProductDescription } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
-import { TwoFactorAuthentication } from './user/TwoFactorAuthentication'
+import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDetails } from './user/UserDetails'
 
@@ -72,6 +75,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'display-name',
                 title: 'Display name',
                 component: <TeamDisplayName />,
+            },
+            {
+                id: 'product-description',
+                title: 'Product description',
+                description:
+                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
+                component: <ProjectProductDescription />,
+                flag: ['ARTIFICIAL_HOG', '!ENVIRONMENTS'],
             },
             {
                 id: 'snippet',
@@ -102,6 +113,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <AutocaptureSettings />,
             },
             {
+                id: 'autocapture-data-attributes',
+                title: 'Data attributes',
+                component: <DataAttributes />,
+            },
+            {
                 id: 'heatmaps',
                 title: 'Heatmaps',
                 component: <HeatmapsSettings />,
@@ -118,9 +134,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebVitalsAutocaptureSettings />,
             },
             {
-                id: 'autocapture-data-attributes',
-                title: 'Data attributes',
-                component: <DataAttributes />,
+                id: 'dead-clicks-autocapture',
+                title: 'Dead clicks autocapture',
+                component: <DeadClicksAutocaptureSettings />,
             },
         ],
     },
@@ -194,6 +210,20 @@ export const SETTINGS_MAP: SettingSection[] = [
 
     {
         level: 'environment',
+        id: 'environment-web-analytics',
+        title: 'Web analytics',
+        settings: [
+            {
+                id: 'channel-type',
+                title: 'Custom channel type',
+                component: <CustomChannelTypes />,
+            },
+        ],
+        flag: 'CUSTOM_CHANNEL_TYPE_RULES',
+    },
+
+    {
+        level: 'environment',
         id: 'environment-replay',
         title: 'Session replay',
         settings: [
@@ -211,11 +241,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
+                allowForTeam: (t) => !!t?.recording_domains?.length,
+            },
+            {
+                id: 'replay-triggers',
+                title: 'Replay triggers',
+                component: <ReplayTriggers />,
             },
             {
                 id: 'replay-ingestion',
                 title: 'Ingestion controls',
-                component: <ReplayCostControl />,
+                component: <SessionRecordingIngestionSettings />,
             },
             {
                 id: 'replay-ai-config',
@@ -312,6 +348,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'display-name',
                 title: 'Display name',
                 component: <ProjectDisplayName />,
+            },
+            {
+                id: 'product-description',
+                title: 'Product description',
+                description:
+                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
+                component: <ProjectProductDescription />,
+                flag: 'ARTIFICIAL_HOG',
             },
         ],
     },
@@ -436,7 +480,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: '2fa',
                 title: 'Two-factor authentication',
-                component: <TwoFactorAuthentication />,
+                component: <TwoFactorSettings />,
             },
         ],
     },

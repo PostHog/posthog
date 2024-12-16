@@ -8,7 +8,7 @@
   FROM
     (SELECT JSONExtractKeysAndValues(events.properties, 'String') AS kv
      FROM events
-     WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'event1'))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'event1'))
      ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
      LIMIT 100) ARRAY
   JOIN (kv).1 AS key,

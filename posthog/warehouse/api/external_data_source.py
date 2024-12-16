@@ -1,62 +1,79 @@
 import re
-from dateutil import parser
 import uuid
 from typing import Any
 
-from psycopg2 import OperationalError
-from sentry_sdk import capture_exception
 import structlog
+import temporalio
+from dateutil import parser
+from django.db.models import Prefetch
+from psycopg2 import OperationalError
 from rest_framework import filters, serializers, status, viewsets
-from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from sentry_sdk import capture_exception
+from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.warehouse.data_load.service import (
-    sync_external_data_job_workflow,
-    delete_external_data_schedule,
-    cancel_external_data_workflow,
-    delete_data_import_folder,
-    is_any_external_data_schema_paused,
-    trigger_external_data_source_workflow,
-)
-from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
-from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer, SimpleExternalDataSchemaSerializer
+from posthog.api.utils import action
+from posthog.cloud_utils import is_cloud
 from posthog.hogql.database.database import create_hogql_database
-from posthog.temporal.data_imports.pipelines.stripe import validate_credentials as validate_stripe_credentials
-from posthog.temporal.data_imports.pipelines.zendesk import validate_credentials as validate_zendesk_credentials
-from posthog.temporal.data_imports.pipelines.vitally import validate_credentials as validate_vitally_credentials
+from posthog.temporal.data_imports.pipelines.bigquery import (
+    filter_incremental_fields as filter_bigquery_incremental_fields,
+)
+from posthog.temporal.data_imports.pipelines.bigquery import (
+    get_schemas as get_bigquery_schemas,
+)
 from posthog.temporal.data_imports.pipelines.bigquery import (
     validate_credentials as validate_bigquery_credentials,
-    get_schemas as get_bigquery_schemas,
-    filter_incremental_fields as filter_bigquery_incremental_fields,
+)
+from posthog.temporal.data_imports.pipelines.chargebee import (
+    validate_credentials as validate_chargebee_credentials,
+)
+from posthog.temporal.data_imports.pipelines.hubspot.auth import (
+    get_hubspot_access_token_from_code,
 )
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
-from posthog.temporal.data_imports.pipelines.hubspot.auth import (
-    get_hubspot_access_token_from_code,
+from posthog.temporal.data_imports.pipelines.stripe import (
+    validate_credentials as validate_stripe_credentials,
+)
+from posthog.temporal.data_imports.pipelines.vitally import (
+    validate_credentials as validate_vitally_credentials,
+)
+from posthog.temporal.data_imports.pipelines.zendesk import (
+    validate_credentials as validate_zendesk_credentials,
+)
+from posthog.utils import get_instance_region, str_to_bool
+from posthog.warehouse.api.external_data_schema import (
+    ExternalDataSchemaSerializer,
+    SimpleExternalDataSchemaSerializer,
+)
+from posthog.warehouse.data_load.service import (
+    cancel_external_data_workflow,
+    delete_data_import_folder,
+    delete_external_data_schedule,
+    is_any_external_data_schema_paused,
+    sync_external_data_job_workflow,
+    trigger_external_data_source_workflow,
+)
+from posthog.warehouse.models import (
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
 )
 from posthog.warehouse.models.external_data_schema import (
     filter_mssql_incremental_fields,
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
-    get_sql_schemas_for_source_type,
     get_snowflake_schemas,
+    get_sql_schemas_for_source_type,
 )
-
-import temporalio
-
-from posthog.cloud_utils import is_cloud
-from posthog.utils import get_instance_region
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
-from sshtunnel import BaseSSHTunnelForwarderError
-from snowflake.connector.errors import ProgrammingError, DatabaseError, ForbiddenError
-from django.db.models import Prefetch
-
 
 logger = structlog.get_logger(__name__)
 
@@ -165,6 +182,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schemas",
             "prefix",
         ]
+        extra_kwargs = {
+            "job_inputs": {"write_only": True},
+        }
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
         latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
@@ -307,6 +327,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model, snowflake_schemas = self._handle_snowflake_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.BIGQUERY:
             new_source_model, bigquery_schemas = self._handle_bigquery_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.CHARGEBEE:
+            new_source_model = self._handle_chargebee_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
@@ -431,6 +453,26 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model
 
+    def _handle_chargebee_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        api_key = payload.get("api_key")
+        site_name = payload.get("site_name")
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={"api_key": api_key, "site_name": site_name},
+            prefix=prefix,
+        )
+
+        return new_source_model
+
     def _handle_zendesk_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         api_key = payload.get("api_key")
@@ -529,6 +571,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
         ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
+        using_ssl_str = payload.get("use_ssl", "1")
+        using_ssl = str_to_bool(using_ssl_str)
+
         if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
             raise InternalPostgresError()
 
@@ -554,6 +599,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "ssh_tunnel_auth_type_password": ssh_tunnel_auth_type_password,
                 "ssh_tunnel_auth_type_passphrase": ssh_tunnel_auth_type_passphrase,
                 "ssh_tunnel_auth_type_private_key": ssh_tunnel_auth_type_private_key,
+                "using_ssl": using_ssl,
             },
             prefix=prefix,
         )
@@ -578,6 +624,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             password,
             schema,
             ssh_tunnel,
+            using_ssl,
         )
 
         return new_source_model, list(schemas.keys())
@@ -593,9 +640,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         database = payload.get("database")
         warehouse = payload.get("warehouse")
         role = payload.get("role")
-        user = payload.get("user")
-        password = payload.get("password")
         schema = payload.get("schema")
+
+        auth_type_obj = payload.get("auth_type", {})
+        auth_type = auth_type_obj.get("selection", None)
+        auth_type_username = auth_type_obj.get("username", None)
+        auth_type_password = auth_type_obj.get("password", None)
+        auth_type_passphrase = auth_type_obj.get("passphrase", None)
+        auth_type_private_key = auth_type_obj.get("private_key", None)
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -609,14 +661,28 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "database": database,
                 "warehouse": warehouse,
                 "role": role,
-                "user": user,
-                "password": password,
                 "schema": schema,
+                "auth_type": auth_type,
+                "user": auth_type_username,
+                "password": auth_type_password,
+                "passphrase": auth_type_passphrase,
+                "private_key": auth_type_private_key,
             },
             prefix=prefix,
         )
 
-        schemas = get_snowflake_schemas(account_id, database, warehouse, user, password, schema, role)
+        schemas = get_snowflake_schemas(
+            account_id=account_id,
+            database=database,
+            warehouse=warehouse,
+            user=auth_type_username,
+            password=auth_type_password,
+            schema=schema,
+            role=role,
+            passphrase=auth_type_passphrase,
+            private_key=auth_type_private_key,
+            auth_type=auth_type,
+        )
 
         return new_source_model, list(schemas.keys())
 
@@ -635,6 +701,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         client_email = key_file.get("client_email")
         token_uri = key_file.get("token_uri")
 
+        temporary_dataset = request.data.get("temporary-dataset", {})
+        using_temporary_dataset = temporary_dataset.get("enabled", False)
+        temporary_dataset_id = temporary_dataset.get("temporary_dataset_id", None)
+
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
@@ -649,6 +719,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "private_key_id": private_key_id,
                 "client_email": client_email,
                 "token_uri": token_uri,
+                "using_temporary_dataset": using_temporary_dataset,
+                "temporary_dataset_id": temporary_dataset_id,
             },
             prefix=prefix,
         )
@@ -834,6 +906,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ]
 
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+        elif source_type == ExternalDataSource.Type.CHARGEBEE:
+            api_key = request.data.get("api_key", "")
+            site_name = request.data.get("site_name", "")
+
+            # Chargebee uses the term 'site' but it is effectively the subdomain
+            subdomain_regex = re.compile("^[a-zA-Z-]+$")
+            if not subdomain_regex.match(site_name):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: Chargebee site name is incorrect"},
+                )
+
+            if not validate_chargebee_credentials(api_key=api_key, site_name=site_name):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: Chargebee credentials are incorrect"},
+                )
 
         # Get schemas and validate SQL credentials
         if source_type in [
@@ -862,6 +951,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ssh_tunnel_auth_type_password = ssh_tunnel_auth_type_obj.get("password", None)
             ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
             ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
+
+            using_ssl_str = request.data.get("use_ssl", "1")
+            using_ssl = str_to_bool(using_ssl_str)
 
             ssh_tunnel = SSHTunnel(
                 enabled=using_ssh_tunnel,
@@ -920,6 +1012,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     password,
                     schema,
                     ssh_tunnel,
+                    using_ssl,
                 )
                 if len(result.keys()) == 0:
                     return Response(
@@ -994,20 +1087,48 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             database = request.data.get("database")
             warehouse = request.data.get("warehouse")
             role = request.data.get("role")
-            user = request.data.get("user")
-            password = request.data.get("password")
             schema = request.data.get("schema")
 
-            if not account_id or not warehouse or not database or not user or not password or not schema:
+            auth_type_obj = request.data.get("auth_type", {})
+            auth_type = auth_type_obj.get("selection", None)
+            auth_type_username = auth_type_obj.get("username", None)
+            auth_type_password = auth_type_obj.get("password", None)
+            auth_type_passphrase = auth_type_obj.get("passphrase", None)
+            auth_type_private_key = auth_type_obj.get("private_key", None)
+
+            if not account_id or not warehouse or not database or not schema:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": "Missing required parameters: account id, warehouse, database, user, password, schema"
-                    },
+                    data={"message": "Missing required parameters: account id, warehouse, database, schema"},
+                )
+
+            if auth_type == "password" and (not auth_type_username or not auth_type_password):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required parameters: username, password"},
+                )
+
+            if auth_type == "keypair" and (
+                not auth_type_passphrase or not auth_type_private_key or not auth_type_username
+            ):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required parameters: passphrase, private key"},
                 )
 
             try:
-                result = get_snowflake_schemas(account_id, database, warehouse, user, password, schema, role)
+                result = get_snowflake_schemas(
+                    account_id=account_id,
+                    database=database,
+                    warehouse=warehouse,
+                    user=auth_type_username,
+                    password=auth_type_password,
+                    schema=schema,
+                    role=role,
+                    passphrase=auth_type_passphrase,
+                    private_key=auth_type_private_key,
+                    auth_type=auth_type,
+                )
                 if len(result.keys()) == 0:
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,

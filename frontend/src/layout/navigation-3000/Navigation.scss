@@ -54,6 +54,15 @@
         flex-direction: column;
     }
 
+    &.Navigation3000__scene--raw-no-header {
+        --scene-padding: 0px;
+        --scene-padding-bottom: 0px;
+
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+    }
+
     &.Navigation3000__scene--canvas {
         --scene-padding: 0px;
 
@@ -166,7 +175,7 @@
 .Sidebar3000 {
     --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
-    --sidebar-row-height: 2rem;
+    --sidebar-row-height: 2.5rem;
     --sidebar-background: var(--bg-3000);
 
     position: relative;
@@ -442,7 +451,8 @@
         }
 
         // Accommodate menu button by moving stuff out of the way
-        &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__link {
+        &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__link,
+        &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__button {
             padding-right: calc(var(--sidebar-horizontal-padding) + 1.25rem);
         }
 
@@ -514,6 +524,7 @@
     }
 }
 
+.SidebarListItem__button,
 .SidebarListItem__link,
 .SidebarListItem__rename {
     --sidebar-list-item-inset: calc(
@@ -543,6 +554,17 @@
     color: inherit !important; // Disable link color
     .SidebarListItem[aria-disabled='true'] & {
         cursor: default;
+    }
+}
+
+.SidebarListItem__button {
+    row-gap: 1px;
+    padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
+    color: inherit !important; // Disable link color
+    cursor: pointer;
+
+    &:hover {
+        background: var(--border-3000);
     }
 }
 

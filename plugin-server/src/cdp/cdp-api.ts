@@ -5,7 +5,7 @@ import { Hub } from '../types'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
 import { FetchExecutor } from './fetch-executor'
-import { HogExecutor } from './hog-executor'
+import { HogExecutor, MAX_ASYNC_STEPS } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
 import { HogFunctionInvocationResult, HogFunctionType, LogEntry } from './types'
@@ -120,7 +120,7 @@ export class CdpApi {
             let count = 0
 
             while (!lastResponse || !lastResponse.finished) {
-                if (count > 5) {
+                if (count > MAX_ASYNC_STEPS * 2) {
                     throw new Error('Too many iterations')
                 }
                 count += 1
@@ -138,7 +138,9 @@ export class CdpApi {
                                 url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
                             },
                         },
-                        compoundConfiguration
+                        compoundConfiguration,
+                        // The "email" hog functions export a "sendEmail" function that we must explicitly call
+                        hogFunction.type === 'email' ? ['sendEmail', [globals.email]] : undefined
                     )
 
                 if (invocation.queue === 'fetch') {
@@ -154,7 +156,7 @@ export class CdpApi {
                             invocation: {
                                 ...invocation,
                                 queue: 'hog',
-                                queueParameters: { response: { status: 200, body: '{}' } },
+                                queueParameters: { response: { status: 200, headers: {} }, body: '{}' },
                             },
                             finished: false,
                             logs: [
@@ -183,7 +185,7 @@ export class CdpApi {
 
             res.json({
                 status: lastResponse.finished ? 'success' : 'error',
-                error: String(lastResponse.error),
+                error: lastResponse.error ? String(lastResponse.error) : null,
                 logs: logs,
             })
         } catch (e) {

@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { Query } from '~/queries/Query/Query'
 
 import { errorTrackingLogic } from '../errorTrackingLogic'
-import { errorTrackingGroupBreakdownQuery } from '../queries'
+import { errorTrackingIssueBreakdownQuery } from '../queries'
 
 const gridColumnsMap = {
     small: 'grid-cols-1',
@@ -70,7 +70,7 @@ const BreakdownGroup = ({ group }: { group: BreakdownGroup }): JSX.Element => {
                 )}
             </div>
             <Query
-                query={errorTrackingGroupBreakdownQuery({
+                query={errorTrackingIssueBreakdownQuery({
                     breakdownProperty: selectedProperty,
                     dateRange: dateRange,
                     filterTestAccounts: filterTestAccounts,

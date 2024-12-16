@@ -87,6 +87,7 @@ export function copyIndexHtml(
     const cssLoader = `
         const link = document.createElement("link");
         link.rel = "stylesheet";
+        link.crossOrigin = "anonymous";
         link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
         document.head.appendChild(link)
     `

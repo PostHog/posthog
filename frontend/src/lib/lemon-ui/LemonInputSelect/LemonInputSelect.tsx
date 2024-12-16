@@ -249,22 +249,25 @@ export function LemonInputSelect({
     }
 
     const _onBlur = (): void => {
-        // We need to add a delay as a click could be in the popover or the input wrapper which refocuses
-        setTimeout(() => {
-            if (popoverFocusRef.current) {
-                popoverFocusRef.current = false
-                inputRef.current?.focus()
-                _onFocus()
-                return
-            }
-            if (allowCustomValues && inputValue.trim() && !values.includes(inputValue)) {
+        const hasSelectedAutofilledValue = selectedIndex > 0
+        const hasCustomValue =
+            !hasSelectedAutofilledValue && allowCustomValues && inputValue.trim() && !values.includes(inputValue)
+        if (popoverFocusRef.current) {
+            popoverFocusRef.current = false
+            inputRef.current?.focus()
+            _onFocus()
+            if (hasCustomValue) {
                 _onActionItem(inputValue.trim(), null)
-            } else {
-                setInputValue('')
             }
-            setShowPopover(false)
-            onBlur?.()
-        }, 100)
+            return
+        }
+        if (hasCustomValue) {
+            _onActionItem(inputValue.trim(), null)
+        } else {
+            setInputValue('')
+        }
+        setShowPopover(false)
+        onBlur?.()
     }
 
     const _onFocus = (): void => {

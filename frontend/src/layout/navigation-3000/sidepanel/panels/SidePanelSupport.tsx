@@ -3,17 +3,17 @@ import {
     IconBook,
     IconChevronDown,
     IconDatabase,
-    IconDecisionTree,
     IconFeatures,
-    IconFlask,
+    IconGraph,
     IconHelmet,
     IconMap,
     IconMessage,
     IconPieChart,
+    IconPlug,
     IconRewindPlay,
     IconStack,
+    IconTestTube,
     IconToggle,
-    IconTrends,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -53,7 +53,7 @@ const PRODUCTS = [
     {
         name: 'Product analytics',
         slug: 'product-analytics',
-        icon: <IconTrends className="text-brand-blue h-5 w-5" />,
+        icon: <IconGraph className="text-[#2F80FA] h-5 w-5" />,
     },
     {
         name: 'Web analytics',
@@ -68,12 +68,12 @@ const PRODUCTS = [
     {
         name: 'Feature flags',
         slug: 'feature-flags',
-        icon: <IconToggle className="text-success h-5 w-5" />,
+        icon: <IconToggle className="text-[#30ABC6] h-5 w-5" />,
     },
     {
         name: 'Experiments',
         slug: 'experiments',
-        icon: <IconFlask className="text-purple h-5 w-5" />,
+        icon: <IconTestTube className="text-[#B62AD9] h-5 w-5" />,
     },
     {
         name: 'Surveys',
@@ -83,7 +83,7 @@ const PRODUCTS = [
     {
         name: 'Data pipelines',
         slug: 'cdp',
-        icon: <IconDecisionTree className="text-[#2EA2D3] h-5 w-5" />,
+        icon: <IconPlug className="text-[#2EA2D3] h-5 w-5" />,
     },
     {
         name: 'Data warehouse',
@@ -155,13 +155,13 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
             <br />
             <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light pt-4">
                 <div className="col-span-full flex justify-between border-b bg-bg-white py-1">
-                    <div>
-                        <strong>Avg support response times</strong>
-                    </div>
+                    {/* If placing a support message, replace the line below with explanation */}
+                    <strong>Avg support response times</strong>
                     <div>
                         <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
                     </div>
                 </div>
+                {/* If placing a support message, comment out (don't remove) the section below */}
                 {supportPlans?.map((plan) => {
                     // If they have an addon plan, only show the addon plan
                     const currentPlan = plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
@@ -177,7 +177,6 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                                 )}
                             </div>
                             <div className={currentPlan ? 'font-bold' : undefined}>
-                                {/* TODO(@zach): remove fallback after updated plans w/ support levels are shipped */}
                                 {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
                             </div>
                         </React.Fragment>

@@ -107,6 +107,8 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
@@ -250,7 +252,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
+class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
@@ -332,6 +334,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
             "timezone",
             "is_cached",
             "query_status",
@@ -348,6 +351,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
             "timezone",
             "refreshing",
             "is_cached",
@@ -710,6 +714,7 @@ Background calculation can be tracked using the `query_status` response field.""
 )
 class InsightViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
@@ -835,15 +840,30 @@ class InsightViewSet(
                 )
             elif key == INSIGHT:
                 insight = request.GET[INSIGHT]
+                legacy_filter = Q(query__isnull=True) & Q(filters__insight=insight)
+                legacy_to_hogql_mapping = {
+                    "TRENDS": schema.NodeKind.TRENDS_QUERY,
+                    "FUNNELS": schema.NodeKind.FUNNELS_QUERY,
+                    "RETENTION": schema.NodeKind.RETENTION_QUERY,
+                    "PATHS": schema.NodeKind.PATHS_QUERY,
+                    "STICKINESS": schema.NodeKind.STICKINESS_QUERY,
+                    "LIFECYCLE": schema.NodeKind.LIFECYCLE_QUERY,
+                }
                 if insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.exclude(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                 elif insight == "SQL":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.filter(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
+                elif insight in legacy_to_hogql_mapping:
+                    queryset = queryset.filter(
+                        legacy_filter
+                        | Q(query__isnull=False)
+                        & Q(query__kind=schema.NodeKind.INSIGHT_VIZ_NODE)
+                        & Q(query__source__kind=legacy_to_hogql_mapping[insight])
+                    )
                 else:
-                    queryset = queryset.filter(query__isnull=True)
-                    queryset = queryset.filter(filters__insight=insight)
+                    queryset = queryset.filter(legacy_filter)
             elif key == "search":
                 queryset = queryset.filter(
                     Q(name__icontains=request.GET["search"])
@@ -1164,7 +1184,7 @@ When set, the specified dashboard's filters and date range override will be appl
         page = int(request.query_params.get("page", "1"))
 
         item_id = kwargs["pk"]
-        if not Insight.objects.filter(id=item_id, team_id=self.team_id).exists():
+        if not Insight.objects.filter(id=item_id, team__project_id=self.team.project_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(

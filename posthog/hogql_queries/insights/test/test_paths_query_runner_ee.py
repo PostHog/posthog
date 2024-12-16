@@ -45,8 +45,12 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _create_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         create_group(
             team_id=self.team.pk,

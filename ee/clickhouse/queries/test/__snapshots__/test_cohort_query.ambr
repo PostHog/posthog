@@ -22,10 +22,10 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event IN ['$pageview', '$pageview', '$autocapture']
      GROUP BY person_id) behavior_query
   INNER JOIN
@@ -34,11 +34,11 @@
      FROM
        (SELECT id
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND id IN
             (SELECT id
              FROM person
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
@@ -93,10 +93,10 @@
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
-              WHERE team_id = 2
+              WHERE team_id = 99999
               GROUP BY distinct_id
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND event IN ['$pageview', '$pageview', '$new_view', '$new_view']
              AND timestamp <= now()
              AND timestamp >= now() - INTERVAL 8 day ))
@@ -107,11 +107,11 @@
      FROM
        (SELECT id
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND id IN
             (SELECT id
              FROM person
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
@@ -137,10 +137,10 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 1 week
@@ -151,11 +151,11 @@
      FROM
        (SELECT id
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND id IN
             (SELECT id
              FROM person
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
@@ -180,10 +180,10 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 1 week
@@ -195,7 +195,7 @@
        (SELECT id,
                argMax(properties, version) as person_props
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY id
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
@@ -235,10 +235,10 @@
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
-              WHERE team_id = 2
+              WHERE team_id = 99999
               GROUP BY distinct_id
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND event IN ['$pageview', '$pageview']
              AND timestamp <= now()
              AND timestamp >= now() - INTERVAL 7 day ))
@@ -283,10 +283,10 @@
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
-              WHERE team_id = 2
+              WHERE team_id = 99999
               GROUP BY distinct_id
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND event IN ['$new_view', '$pageview', '$pageview']
              AND timestamp <= now()
              AND timestamp >= now() - INTERVAL 1 week ))
@@ -332,10 +332,10 @@
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
-              WHERE team_id = 2
+              WHERE team_id = 99999
               GROUP BY distinct_id
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND event IN ['$pageview', '$pageview', '$pageview']
              AND timestamp <= now()
              AND timestamp >= now() - INTERVAL 1 week ))
@@ -346,11 +346,11 @@
      FROM
        (SELECT id
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND id IN
             (SELECT id
              FROM person
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
@@ -376,10 +376,10 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 4 day
@@ -404,10 +404,10 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 1 week
@@ -419,7 +419,7 @@
        (SELECT id,
                argMax(properties, version) as person_props
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY id
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
@@ -443,10 +443,10 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 1 week
@@ -458,7 +458,7 @@
        (SELECT id,
                argMax(pmat_$sample_field, version) as pmat_$sample_field
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY id
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
@@ -490,10 +490,10 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event IN ['$pageview', '$pageview', '$autocapture']
      GROUP BY person_id) behavior_query
   FULL OUTER JOIN
@@ -503,11 +503,11 @@
        (SELECT id,
                argMax(properties, version) as person_props
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND id IN
             (SELECT id
              FROM person
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
@@ -525,11 +525,11 @@
   
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')))
                OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))
               OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))
@@ -547,8 +547,8 @@
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version = NULL
   '''
 # ---
@@ -557,8 +557,8 @@
   /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version = 0
   '''
 # ---
@@ -567,11 +567,11 @@
   
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))))
               OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
   GROUP BY id
@@ -585,8 +585,8 @@
   
   SELECT count(DISTINCT person_id)
   FROM person_static_cohort
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter.1
@@ -599,16 +599,16 @@
      FROM
        (SELECT id
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY id
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person
   WHERE 1 = 1
     AND (((id IN
              (SELECT person_id as id
               FROM person_static_cohort
-              WHERE cohort_id = 2
-                AND team_id = 2)))) SETTINGS optimize_aggregation_in_order = 1,
-                                             join_algorithm = 'auto'
+              WHERE cohort_id = 99999
+                AND team_id = 99999)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                 join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra
@@ -616,8 +616,8 @@
   
   SELECT count(DISTINCT person_id)
   FROM person_static_cohort
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra.1
@@ -635,10 +635,10 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 1 week
@@ -649,15 +649,15 @@
      FROM
        (SELECT id
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY id
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND (((id IN
              (SELECT person_id as id
               FROM person_static_cohort
-              WHERE cohort_id = 2
-                AND team_id = 2))
+              WHERE cohort_id = 99999
+                AND team_id = 99999))
           AND (performed_event_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order = 1,
                                                                                   join_algorithm = 'auto'
   '''
@@ -677,10 +677,10 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 1 week
@@ -691,15 +691,15 @@
      FROM
        (SELECT id
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY id
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND ((((id IN
               (SELECT person_id as id
                FROM person_static_cohort
-               WHERE cohort_id = 2
-                 AND team_id = 2)))
+               WHERE cohort_id = 99999
+                 AND team_id = 99999)))
           OR ((performed_event_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order = 1,
                                                                                            join_algorithm = 'auto'
   '''
@@ -709,8 +709,8 @@
   
   SELECT count(DISTINCT person_id)
   FROM person_static_cohort
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
   '''
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.1
@@ -732,10 +732,10 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event IN ['$new_view', '$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 7 day
@@ -746,7 +746,7 @@
      FROM
        (SELECT id
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY id
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
@@ -754,8 +754,8 @@
            AND (id NOT IN
                   (SELECT person_id as id
                    FROM person_static_cohort
-                   WHERE cohort_id = 2
-                     AND team_id = 2)))
+                   WHERE cohort_id = 99999
+                     AND team_id = 99999)))
           OR (performed_event_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order = 1,
                                                                                  join_algorithm = 'auto'
   '''

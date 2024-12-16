@@ -1,18 +1,25 @@
 import '../Experiment.scss'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconRewindPlay } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
+import posthog from 'posthog-js'
+import { urls } from 'scenes/urls'
 
 import {
-    _FunnelExperimentResults,
-    _TrendsExperimentResults,
+    FilterLogicalOperator,
     FunnelExperimentVariant,
     InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingUniversalFilters,
+    ReplayTabs,
     TrendExperimentVariant,
+    UniversalFiltersGroupValue,
 } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -21,15 +28,18 @@ import { VariantTag } from './components'
 export function SummaryTable(): JSX.Element {
     const {
         experimentId,
+        experiment,
         experimentResults,
         tabularExperimentResults,
-        experimentInsightType,
+        getMetricType,
         exposureCountDataForVariant,
         conversionRateForVariant,
         experimentMathAggregationForTrends,
         countDataForVariant,
         getHighestProbabilityVariant,
+        credibleIntervalForVariant,
     } = useValues(experimentLogic)
+    const metricType = getMetricType(0)
 
     if (!experimentResults) {
         return <></>
@@ -51,7 +61,7 @@ export function SummaryTable(): JSX.Element {
         },
     ]
 
-    if (experimentInsightType === InsightType.TRENDS) {
+    if (metricType === InsightType.TRENDS) {
         columns.push({
             key: 'counts',
             title: (
@@ -59,9 +69,7 @@ export function SummaryTable(): JSX.Element {
                     {experimentResults.insight?.[0] && 'action' in experimentResults.insight[0] && (
                         <EntityFilterInfo filter={experimentResults.insight[0].action} />
                     )}
-                    <span className="pl-1">
-                        {experimentMathAggregationForTrends(experimentResults?.filters) ? 'metric' : 'count'}
-                    </span>
+                    <span className="pl-1">{experimentMathAggregationForTrends() ? 'metric' : 'count'}</span>
                 </div>
             ),
             render: function Key(_, variant): JSX.Element {
@@ -155,22 +163,11 @@ export function SummaryTable(): JSX.Element {
                     return <em>Baseline</em>
                 }
 
-                const credibleInterval = (experimentResults as _TrendsExperimentResults)?.credible_intervals?.[
-                    variant.key
-                ]
+                const credibleInterval = credibleIntervalForVariant(experimentResults || null, variant.key, metricType)
                 if (!credibleInterval) {
                     return <>—</>
                 }
-
-                const controlVariant = (experimentResults.variants as TrendExperimentVariant[]).find(
-                    ({ key }) => key === 'control'
-                ) as TrendExperimentVariant
-                const controlMean = controlVariant.count / controlVariant.absolute_exposure
-
-                // Calculate the percentage difference between the credible interval bounds of the variant and the control's mean.
-                // This represents the range in which the true percentage change relative to the control is likely to fall.
-                const lowerBound = ((credibleInterval[0] - controlMean) / controlMean) * 100
-                const upperBound = ((credibleInterval[1] - controlMean) / controlMean) * 100
+                const [lowerBound, upperBound] = credibleInterval
 
                 return (
                     <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
@@ -181,7 +178,7 @@ export function SummaryTable(): JSX.Element {
         })
     }
 
-    if (experimentInsightType === InsightType.FUNNELS) {
+    if (metricType === InsightType.FUNNELS) {
         columns.push({
             key: 'conversionRate',
             title: 'Conversion rate',
@@ -240,27 +237,11 @@ export function SummaryTable(): JSX.Element {
                         return <em>Baseline</em>
                     }
 
-                    const credibleInterval = (experimentResults as _FunnelExperimentResults)?.credible_intervals?.[
-                        item.key
-                    ]
+                    const credibleInterval = credibleIntervalForVariant(experimentResults || null, item.key, metricType)
                     if (!credibleInterval) {
                         return <>—</>
                     }
-
-                    const controlVariant = (experimentResults.variants as FunnelExperimentVariant[]).find(
-                        ({ key }) => key === 'control'
-                    ) as FunnelExperimentVariant
-                    const controlConversionRate =
-                        controlVariant.success_count / (controlVariant.success_count + controlVariant.failure_count)
-
-                    if (!controlConversionRate) {
-                        return <>—</>
-                    }
-
-                    // Calculate the percentage difference between the credible interval bounds of the variant and the control's conversion rate.
-                    // This represents the range in which the true percentage change relative to the control is likely to fall.
-                    const lowerBound = ((credibleInterval[0] - controlConversionRate) / controlConversionRate) * 100
-                    const upperBound = ((credibleInterval[1] - controlConversionRate) / controlConversionRate) * 100
+                    const [lowerBound, upperBound] = credibleInterval
 
                     return (
                         <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
@@ -289,7 +270,7 @@ export function SummaryTable(): JSX.Element {
             return (
                 <>
                     {percentage ? (
-                        <span className="inline-flex items-center w-30 space-x-4">
+                        <span className="inline-flex items-center w-52 space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
                             <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>
                                 {percentage.toFixed(2)}%
@@ -299,6 +280,73 @@ export function SummaryTable(): JSX.Element {
                         '—'
                     )}
                 </>
+            )
+        },
+    })
+
+    columns.push({
+        key: 'recordings',
+        title: '',
+        render: function Key(_, item): JSX.Element {
+            const variantKey = item.key
+            return (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconRewindPlay />}
+                    tooltip="Watch recordings of people who were exposed to this variant."
+                    type="secondary"
+                    onClick={() => {
+                        const filters: UniversalFiltersGroupValue[] = [
+                            {
+                                id: '$feature_flag_called',
+                                name: '$feature_flag_called',
+                                type: 'events',
+                                properties: [
+                                    {
+                                        key: `$feature/${experiment.feature_flag_key}`,
+                                        type: PropertyFilterType.Event,
+                                        value: [variantKey],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                    {
+                                        key: `$feature/${experiment.feature_flag_key}`,
+                                        type: PropertyFilterType.Event,
+                                        value: 'is_set',
+                                        operator: PropertyOperator.IsSet,
+                                    },
+                                    {
+                                        key: '$feature_flag',
+                                        type: PropertyFilterType.Event,
+                                        value: experiment.feature_flag_key,
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ]
+                        if (experiment.filters.insight === InsightType.FUNNELS) {
+                            if (experiment.filters?.events?.[0]) {
+                                filters.push(experiment.filters.events[0])
+                            } else if (experiment.filters?.actions?.[0]) {
+                                filters.push(experiment.filters.actions[0])
+                            }
+                        }
+                        const filterGroup: Partial<RecordingUniversalFilters> = {
+                            filter_group: {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: FilterLogicalOperator.And,
+                                        values: filters,
+                                    },
+                                ],
+                            },
+                        }
+                        router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
+                        posthog.capture('viewed recordings from experiment', { variant: variantKey })
+                    }}
+                >
+                    View recordings
+                </LemonButton>
             )
         },
     })

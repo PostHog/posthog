@@ -11,6 +11,8 @@ import { colonDelimitedDuration } from 'lib/utils'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
+import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { RecordingsQuery } from '~/queries/schema'
@@ -176,9 +178,11 @@ export function SessionRecordingPreview({
     onClick,
     pinned,
 }: SessionRecordingPreviewProps): JSX.Element {
-    const { filters } = useValues(sessionRecordingsPlaylistLogic)
+    const { playlistTimestampFormat } = useValues(playerSettingsLogic)
 
+    const { filters } = useValues(sessionRecordingsPlaylistLogic)
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
+
     const recordingProperties = recordingPropertiesById[recording.id]
     const loading = !recordingProperties && recordingPropertiesLoading
     const iconProperties = gatherIconProperties(recordingProperties, recording)
@@ -190,26 +194,32 @@ export function SessionRecordingPreview({
             <div
                 key={recording.id}
                 className={clsx(
-                    'SessionRecordingPreview flex overflow-hidden cursor-pointer py-1.5 pl-2',
+                    'SessionRecordingPreview flex overflow-hidden cursor-pointer py-0.5 px-1 text-xs',
                     isActive && 'SessionRecordingPreview--active'
                 )}
                 onClick={() => onClick?.()}
             >
                 <div className="grow overflow-hidden space-y-1">
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center justify-between space-x-0.5">
                         <div className="flex overflow-hidden font-medium text-link ph-no-capture">
                             <span className="truncate">{asDisplay(recording.person)}</span>
                         </div>
 
-                        <TZLabel
-                            className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
-                            time={recording.start_time}
-                            placement="right"
-                        />
+                        {playlistTimestampFormat === TimestampFormat.Relative ? (
+                            <TZLabel
+                                className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
+                                time={recording.start_time}
+                                placement="right"
+                            />
+                        ) : playlistTimestampFormat === TimestampFormat.UTC ? (
+                            <SimpleTimeLabel startTime={recording.start_time} isUTC={true} />
+                        ) : (
+                            <SimpleTimeLabel startTime={recording.start_time} isUTC={false} />
+                        )}
                     </div>
 
-                    <div className="flex justify-between items-center gap-2">
-                        <div className="flex space-x-2 text-muted text-xs">
+                    <div className="flex justify-between items-center space-x-0.5">
+                        <div className="flex space-x-2 text-muted text-sm">
                             <PropertyIcons
                                 recordingProperties={iconProperties}
                                 iconClassNames={iconClassNames}
@@ -249,7 +259,7 @@ export function SessionRecordingPreview({
 
                 <div
                     className={clsx(
-                        'min-w-6 flex flex-col gap-0.5 items-center',
+                        'min-w-6 flex flex-col space-x-0.5 items-center',
                         // need different margin if the first item is an icon
                         recording.ongoing || pinned ? 'mt-1' : 'mt-2'
                     )}

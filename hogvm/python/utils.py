@@ -26,7 +26,7 @@ class UncaughtHogVMException(HogVMException):
 
 
 def like(string, pattern, flags=0):
-    pattern = re.escape(pattern).replace("%", ".*")
+    pattern = re.escape(pattern).replace("%", ".*").replace("_", ".")
     re_pattern = re.compile(pattern, flags)
     return re_pattern.search(string) is not None
 

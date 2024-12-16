@@ -60,6 +60,11 @@ export function getSeriesColor(index: number = 0): string {
     return getColorVar(`data-${dataColorVars[adjustedIndex]}`)
 }
 
+/** Returns all color options for series */
+export function getSeriesColorPalette(): string[] {
+    return dataColorVars.map((colorVar) => getColorVar(`data-${colorVar}`))
+}
+
 /** Return the background color for the given series index. */
 export function getSeriesBackgroundColor(index: number): string {
     return `${getSeriesColor(index)}30`

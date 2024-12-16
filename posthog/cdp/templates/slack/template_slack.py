@@ -2,6 +2,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="free",
+    type="destination",
     id="template-slack",
     name="Slack",
     description="Sends a message to a slack channel",
@@ -23,7 +24,7 @@ let res := fetch('https://slack.com/api/chat.postMessage', {
   }
 });
 
-if (res.status != 200 or not res.body.ok) {
+if (res.status != 200 or res.body.ok == false) {
   throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');
 }
 """.strip(),
@@ -33,6 +34,7 @@ if (res.status != 200 or not res.body.ok) {
             "type": "integration",
             "integration": "slack",
             "label": "Slack workspace",
+            "requiredScopes": "channels:read groups:read chat:write chat:write.customize",
             "secret": False,
             "required": True,
         },

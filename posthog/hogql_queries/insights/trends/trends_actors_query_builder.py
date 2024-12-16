@@ -167,7 +167,7 @@ class TrendsActorsQueryBuilder:
     def is_total_value(self) -> bool:
         return self.trends_display.is_total_value()
 
-    def build_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def build_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return ast.SelectQuery(
             select=[
                 ast.Field(chain=["actor_id"]),

@@ -6,6 +6,11 @@ from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
+from posthog.clickhouse.materialized_columns import (
+    MaterializedColumn,
+    TablesWithMaterializedColumns,
+    get_materialized_column_for_property,
+)
 from posthog.clickhouse.property_groups import property_groups
 from posthog.hogql import ast
 from posthog.hogql.base import AST, _T_AST
@@ -13,6 +18,7 @@ from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     HogQLGlobalSettings,
 )
+from posthog.hogql.database.schema.query_log import RawQueryLogTable
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
@@ -71,7 +77,9 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: Optional[HogQLQuery
         clone_expr(query),
         dialect="hogql",
         context=HogQLContext(
-            team_id=team.pk, enable_select_queries=True, modifiers=create_default_modifiers_for_team(team, modifiers)
+            team_id=team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(team, modifiers),
         ),
         pretty=True,
     )
@@ -194,6 +202,7 @@ class JoinExprResponse:
 class PrintableMaterializedColumn:
     table: Optional[str]
     column: str
+    is_nullable: bool
 
     def __str__(self) -> str:
         if self.table is None:
@@ -266,7 +275,7 @@ class _Printer(Visitor):
         self.stack.pop()
 
         if len(self.stack) == 0 and self.dialect == "clickhouse" and self.settings:
-            if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectUnionQuery):
+            if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             settings = self._print_settings(self.settings)
             if settings is not None:
@@ -274,17 +283,25 @@ class _Printer(Visitor):
 
         return response
 
-    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
-        queries = [self.visit(expr) for expr in node.select_queries]
+        ret = self.visit(node.initial_select_query)
         if self.pretty:
-            query = f"\n{self.indent(1)}UNION ALL\n{self.indent(1)}".join([query.strip() for query in queries])
-        else:
-            query = " UNION ALL ".join(queries)
+            ret = ret.strip()
+        for expr in node.subsequent_select_queries:
+            query = self.visit(expr.select_query)
+            if self.pretty:
+                query = query.strip()
+            if expr.set_operator is not None:
+                if self.pretty:
+                    ret += f"\n{self.indent(1)}{expr.set_operator}\n{self.indent(1)}"
+                else:
+                    ret += f" {expr.set_operator} "
+            ret += query
         self._indent += 1
         if len(self.stack) > 1:
-            return f"({query.strip()})"
-        return query
+            return f"({ret.strip()})"
+        return ret
 
     def visit_select_query(self, node: ast.SelectQuery):
         if self.dialect == "clickhouse":
@@ -293,8 +310,8 @@ class _Printer(Visitor):
             if not self.context.team_id:
                 raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
-        # if we are the first parsed node in the tree, or a child of a SelectUnionQuery, mark us as a top level query
-        part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectUnionQuery)
+        # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
+        part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
         is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
 
         # We will add extra clauses onto this from the joined tables
@@ -478,7 +495,9 @@ class _Printer(Visitor):
             else:
                 sql = table_type.table.to_printed_hogql()
 
-            if isinstance(table_type.table, FunctionCallTable) and not isinstance(table_type.table, S3Table):
+            if isinstance(table_type.table, FunctionCallTable) and not (
+                isinstance(table_type.table, S3Table) or isinstance(table_type.table, RawQueryLogTable)
+            ):
                 if node.table_args is None:
                     raise QueryError(f"Table function '{table_type.table.name}' requires arguments")
 
@@ -507,7 +526,7 @@ class _Printer(Visitor):
         elif isinstance(node.type, ast.SelectQueryType):
             join_strings.append(self.visit(node.table))
 
-        elif isinstance(node.type, ast.SelectUnionQueryType):
+        elif isinstance(node.type, ast.SelectSetQueryType):
             join_strings.append(self.visit(node.table))
 
         elif isinstance(node.type, ast.SelectViewType) and node.alias is not None:
@@ -1141,7 +1160,7 @@ class _Printer(Visitor):
                 args_part = f"({', '.join(args)})"
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args ])})"
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             args = [self.visit(arg) for arg in node.args]
@@ -1251,7 +1270,7 @@ class _Printer(Visitor):
             isinstance(type.table_type, ast.SelectQueryType)
             or isinstance(type.table_type, ast.SelectQueryAliasType)
             or isinstance(type.table_type, ast.SelectViewType)
-            or isinstance(type.table_type, ast.SelectUnionQueryType)
+            or isinstance(type.table_type, ast.SelectSetQueryType)
         ):
             field_sql = self._print_identifier(type.name)
             if isinstance(type.table_type, ast.SelectQueryAliasType) or isinstance(type.table_type, ast.SelectViewType):
@@ -1310,10 +1329,11 @@ class _Printer(Visitor):
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
             materialized_column = self._get_materialized_column(table_name, property_name, field_name)
-            if materialized_column:
+            if materialized_column is not None:
                 yield PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
-                    self._print_identifier(materialized_column),
+                    self._print_identifier(materialized_column.name),
+                    is_nullable=materialized_column.is_nullable,
                 )
 
             if self.context.modifiers.propertyGroupsMode in (
@@ -1341,8 +1361,12 @@ class _Printer(Visitor):
                 materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
                 materialized_column = self._get_materialized_column("person", property_name, "properties")
-            if materialized_column:
-                yield PrintableMaterializedColumn(None, self._print_identifier(materialized_column))
+            if materialized_column is not None:
+                yield PrintableMaterializedColumn(
+                    None,
+                    self._print_identifier(materialized_column.name),
+                    is_nullable=materialized_column.is_nullable,
+                )
 
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
@@ -1350,7 +1374,10 @@ class _Printer(Visitor):
 
         materialized_property_source = self.__get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
-            if isinstance(materialized_property_source, PrintableMaterializedColumn):
+            if (
+                isinstance(materialized_property_source, PrintableMaterializedColumn)
+                and not materialized_property_source.is_nullable
+            ):
                 # TODO: rematerialize all columns to properly support empty strings and "null" string values.
                 if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
                     materialized_property_sql = f"nullIf({materialized_property_source}, '')"
@@ -1500,17 +1527,10 @@ class _Printer(Visitor):
 
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> Optional[str]:
-        try:
-            from ee.clickhouse.materialized_columns.columns import (
-                TablesWithMaterializedColumns,
-                get_materialized_columns,
-            )
-
-            materialized_columns = get_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
-            return materialized_columns.get((property_name, field_name), None)
-        except ModuleNotFoundError:
-            return None
+    ) -> MaterializedColumn | None:
+        return get_materialized_column_for_property(
+            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
+        )
 
     def _get_timezone(self) -> str:
         return self.context.database.get_timezone() if self.context.database else "UTC"

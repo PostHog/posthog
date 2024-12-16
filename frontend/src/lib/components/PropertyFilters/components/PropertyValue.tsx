@@ -26,6 +26,7 @@ export interface PropertyValueProps {
     autoFocus?: boolean
     eventNames?: string[]
     addRelativeDateTimeOptions?: boolean
+    forceSingleSelect?: boolean
 }
 
 export function PropertyValue({
@@ -39,11 +40,12 @@ export function PropertyValue({
     autoFocus = false,
     eventNames = [],
     addRelativeDateTimeOptions = false,
+    forceSingleSelect = false,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
 
-    const isMultiSelect = operator && isOperatorMulti(operator)
+    const isMultiSelect = operator && isOperatorMulti(operator) && !forceSingleSelect
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
 
