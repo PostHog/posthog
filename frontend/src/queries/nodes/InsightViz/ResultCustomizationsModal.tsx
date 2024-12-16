@@ -10,8 +10,11 @@ import { hexToRGB } from 'lib/utils'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ResultCustomizationBy } from '~/queries/schema'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
@@ -86,17 +89,28 @@ type TrendsInfoProps = {
 }
 
 function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.Element {
-    const breakdownValues = Array.isArray(dataset.breakdown_value) ? dataset.breakdown_value : [dataset.breakdown_value]
+    const { cohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const { breakdownFilter } = useValues(insightVizDataLogic)
 
     return (
         <>
-            {breakdownValues ? (
+            {dataset.breakdown_value ? (
                 <p className="mb-2">
                     You are customizing the appearance of series{' '}
                     <b>
                         <EntityFilterInfo filter={dataset.action} allowWrap={true} showSingleName={true} />
                     </b>{' '}
-                    for the breakdown <b>{breakdownValues.join('::')}</b>.
+                    for the breakdown{' '}
+                    <b>
+                        {formatBreakdownLabel(
+                            dataset.breakdown_value,
+                            breakdownFilter,
+                            cohorts,
+                            formatPropertyValueForDisplay
+                        )}
+                    </b>
+                    .
                 </p>
             ) : (
                 <p className="mb-2">
