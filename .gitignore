@@ -69,6 +69,7 @@ plugin-transpiler/dist
 *.log
 # pyright config (keep this until we have a standardized one)
 pyrightconfig.json
-sidebar-max-unintegrated/max-venv/
-sidebar-max-unintegrated/.vscode
-sidebar-max-unintegrated/.vscode/settings.json
+ee/support-sidebar-max/max-venv/
+ee/support-sidebar-max/.vscode
+ee/support-sidebar-max/.vscode/settings.json
+max-test-venv/

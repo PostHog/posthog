@@ -1,10 +1,15 @@
-const MAX_API_HOST = 'http://localhost:3000' // Default port used in sidebar_max_AI.py
+import { ApiConfig } from 'lib/api'
 
 let currentSessionId: string | null = null
 
 export const sidePanelMaxAPI = {
     async sendMessage(message: string): Promise<{ content: string }> {
-        const response = await fetch(`${MAX_API_HOST}/chat`, {
+        const projectId = ApiConfig.getCurrentProjectId()
+        if (!projectId) {
+            throw new Error('Project ID is required but not available')
+        }
+
+        const response = await fetch(`/api/projects/${projectId}/max/chat/`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

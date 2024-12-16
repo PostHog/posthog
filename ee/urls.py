@@ -1,11 +1,11 @@
 from typing import Any
-
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include
 from django.urls.conf import path
-
+from django.views.decorators.csrf import csrf_exempt
 from ee.api import integration
+from ee.support_sidebar_max.sidebar_max_AI import chat_endpoint
 
 from .api import (
     authentication,
@@ -102,5 +102,6 @@ admin_urlpatterns = (
 urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
+    path("chat/", csrf_exempt(chat_endpoint), name="max_chat"),  # Add Max's chat endpoint
     *admin_urlpatterns,
 ]
