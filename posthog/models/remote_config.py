@@ -39,6 +39,12 @@ REMOTE_CONFIG_CACHE_COUNTER = Counter(
     labelnames=["result"],
 )
 
+REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
+    "posthog_remote_config_cdn_purge",
+    "Number of times the remote config CDN purge task has been run",
+    labelnames=["result"],
+)
+
 
 logger = structlog.get_logger(__name__)
 
@@ -387,11 +393,17 @@ class RemoteConfig(UUIDModel):
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config.js"})
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/array.js"})
 
-        requests.post(
-            settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
-            headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
-            data=data,
-        )
+        try:
+            requests.post(
+                settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
+                headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
+                data=data,
+            )
+        except Exception:
+            logger.exception(f"Failed to purge CDN for team {self.team_id}")
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
+        else:
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
 
     def __str__(self):
         return f"RemoteConfig {self.team_id}"
