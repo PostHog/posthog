@@ -188,18 +188,14 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                     }
 
                     let level: 'warning' | 'info' | 'error' | undefined
-                    if (diff.kind === 'major' || numVersionsBehind >= 20) {
-                        level = 'error'
-                    } else if (diff.kind === 'minor' && diff.diff >= 15) {
+                    if (diff.kind === 'major') {
+                        level = 'info' // it is desirable to be on the latest major version, but not critical
+                    } else if (diff.kind === 'minor') {
+                        level = numVersionsBehind >= 40 ? 'warning' : undefined
+                    }
+
+                    if (level === undefined && numVersionsBehind > 50) {
                         level = 'warning'
-                    } else if ((diff.kind === 'minor' && diff.diff >= 10) || numVersionsBehind >= 10) {
-                        level = 'info'
-                    } else if (latestUsedVersion.extra) {
-                        // if we have an extra (alpha/beta/rc/etc.) version, we should always show a warning if they aren't on the latest
-                        level = 'warning'
-                    } else {
-                        // don't warn for a small number of patch versions behind
-                        level = undefined
                     }
 
                     // we check if there is a "latest user version string" to avoid returning odd data in unexpected cases
