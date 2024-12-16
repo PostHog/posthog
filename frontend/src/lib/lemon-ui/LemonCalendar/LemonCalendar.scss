@@ -24,11 +24,11 @@
         width: var(--lemon-calendar-day-width);
     }
 
-    .lemon-calendar-month-header {
-        height: var(--lemon-calendar-time-button-height);
-    }
-
     .LemonCalendar__month tr {
+        &.LemonCalendar__month-header {
+            height: var(--lemon-calendar-time-button-height);
+        }
+
         .LemonButton {
             &.rounded-none {
                 border-radius: 0;
