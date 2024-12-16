@@ -2,13 +2,14 @@ import datetime
 import json
 from typing import Optional
 from unittest.mock import call, patch
+from dateutil.relativedelta import relativedelta
 
 from django.core.cache import cache
 from django.db import connection
 from django.db.utils import OperationalError
 from django.test import TransactionTestCase
 from django.test.client import RequestFactory
-from django.utils import timezone
+from django.utils.timezone import now
 from freezegun.api import freeze_time
 from rest_framework import status
 
@@ -32,11 +33,15 @@ from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
+from posthog.models.feature_flag.flag_status import (
+    FeatureFlagStatus,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     FuzzyInt,
     QueryMatchingTest,
+    _create_event,
     _create_person,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
@@ -1458,73 +1463,91 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(tiles), 2)
         self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
         self.assertEqual(
-            tiles[0].insight.filters,
+            tiles[0].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_flag_called",
-                        "name": "$feature_flag_called",
-                        "type": "events",
-                    }
-                ],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$feature_flag_response",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
-                        }
-                    ],
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "name": "$feature_flag_called", "event": "$feature_flag_called"}],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "breakdown_type": "event",
-                "filter_test_accounts": False,
             },
         )
         self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
         self.assertEqual(
-            tiles[1].insight.filters,
+            tiles[1].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_flag_called",
-                        "math": "dau",
-                        "name": "$feature_flag_called",
-                        "type": "events",
-                    }
-                ],
-                "display": "ActionsTable",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$feature_flag_response",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
                         {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "$feature_flag_called",
+                            "event": "$feature_flag_called",
                         }
                     ],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsTable",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "breakdown_type": "event",
-                "filter_test_accounts": False,
             },
         )
 
@@ -1552,153 +1575,191 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(tiles), 4)
         self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
         self.assertEqual(
-            tiles[0].insight.filters,
+            tiles[0].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_flag_called",
-                        "name": "$feature_flag_called",
-                        "type": "events",
-                    }
-                ],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$feature_flag_response",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
-                        }
-                    ],
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "name": "$feature_flag_called", "event": "$feature_flag_called"}],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "breakdown_type": "event",
-                "filter_test_accounts": False,
             },
         )
         self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
         self.assertEqual(
-            tiles[1].insight.filters,
+            tiles[1].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_flag_called",
-                        "math": "dau",
-                        "name": "$feature_flag_called",
-                        "type": "events",
-                    }
-                ],
-                "display": "ActionsTable",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$feature_flag_response",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
                         {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "$feature_flag_called",
+                            "event": "$feature_flag_called",
                         }
                     ],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsTable",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "breakdown_type": "event",
-                "filter_test_accounts": False,
             },
         )
 
         # enriched insights
         self.assertEqual(tiles[2].insight.name, "Feature Interaction Total Volume")
         self.assertEqual(
-            tiles[2].insight.filters,
+            tiles[2].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_interaction",
-                        "name": "Feature Interaction - Total",
-                        "type": "events",
-                    },
-                    {
-                        "id": "$feature_interaction",
-                        "math": "dau",
-                        "name": "Feature Interaction - Unique users",
-                        "type": "events",
-                    },
-                ],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "name": "Feature Interaction - Total", "event": "$feature_interaction"},
                         {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
-                        }
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "Feature Interaction - Unique users",
+                            "event": "$feature_interaction",
+                        },
                     ],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "filter_test_accounts": False,
             },
         )
         self.assertEqual(tiles[3].insight.name, "Feature Viewed Total Volume")
         self.assertEqual(
-            tiles[3].insight.filters,
+            tiles[3].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_view",
-                        "name": "Feature View - Total",
-                        "type": "events",
-                    },
-                    {
-                        "id": "$feature_view",
-                        "math": "dau",
-                        "name": "Feature View - Unique users",
-                        "type": "events",
-                    },
-                ],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "name": "Feature View - Total", "event": "$feature_view"},
                         {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
-                        }
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "Feature View - Unique users",
+                            "event": "$feature_view",
+                        },
                     ],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "filter_test_accounts": False,
             },
         )
 
@@ -4936,7 +4997,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 properties={"group": f"{i}"},
             )
 
-        cohort1 = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now())
+        cohort1 = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=now())
         cohort1.insert_users_by_list(["person0", "person1", "person2"])
 
         cohort2 = Cohort.objects.create(
@@ -6038,3 +6099,510 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(all_flags["property-flag"])
         self.assertTrue(all_flags["default-flag"])
         self.assertFalse(errors)
+
+
+class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
+    def setUp(self):
+        cache.clear()
+
+        # delete all keys in redis
+        r = redis.get_client()
+        for key in r.scan_iter("*"):
+            r.delete(key)
+        return super().setUp()
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+
+    def assert_expected_response(
+        self, feature_flag_id: int, expected_status: FeatureFlagStatus, expected_reason: Optional[str] = None
+    ):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}/status",
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND if expected_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK,
+        )
+        response_data = response.json()
+        self.assertEqual(response_data.get("status"), expected_status)
+        if expected_reason is not None:
+            self.assertEqual(response_data.get("reason"), expected_reason)
+
+    def create_feature_flag_called_event(
+        self, feature_flag_key: str, response: Optional[bool] = True, datetime: Optional[datetime.datetime] = None
+    ):
+        timestamp = datetime or now() - relativedelta(hours=12)
+        _create_event(
+            event="$feature_flag_called",
+            distinct_id="person1",
+            properties={"$feature_flag": feature_flag_key, "$feature_flag_response": response},
+            team=self.team,
+            timestamp=timestamp,
+        )
+
+    def test_flag_status_reasons(self):
+        FeatureFlag.objects.all().delete()
+
+        # Request status for non-existent flag
+        self.assert_expected_response(1, FeatureFlagStatus.UNKNOWN, "Flag could not be found")
+
+        # Request status for flag that has been soft deleted
+        deleted_flag = FeatureFlag.objects.create(
+            name="Deleted feature flag",
+            key="deleted-feature-flag",
+            team=self.team,
+            deleted=True,
+            active=True,
+        )
+        self.assert_expected_response(deleted_flag.id, FeatureFlagStatus.DELETED, "Flag has been deleted")
+
+        # Request status for flag that is disabled, but recently called
+        disabled_flag = FeatureFlag.objects.create(
+            name="Disabled feature flag",
+            key="disabled-feature-flag",
+            team=self.team,
+            active=False,
+        )
+        self.create_feature_flag_called_event(disabled_flag.key)
+        self.assert_expected_response(disabled_flag.id, FeatureFlagStatus.ACTIVE)
+
+        # Request status for flag that has super group rolled out to <100%
+        fifty_percent_super_group_flag = FeatureFlag.objects.create(
+            name="50 percent super group flag",
+            key="50-percent-super-group-flag",
+            team=self.team,
+            active=True,
+            filters={"super_groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        self.create_feature_flag_called_event(fifty_percent_super_group_flag.key)
+        self.assert_expected_response(fifty_percent_super_group_flag.id, FeatureFlagStatus.ACTIVE)
+
+        # Request status for flag that has super group rolled out to 100% and specific properties
+        fully_rolled_out_super_group_flag_with_properties = FeatureFlag.objects.create(
+            name="100 percent super group with properties flag",
+            key="100-percent-super-group-with-properties-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "super_groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$feature_enrollment/cool-new-feature",
+                                "type": "person",
+                                "value": ["true"],
+                                "operator": "exact",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        self.create_feature_flag_called_event(fully_rolled_out_super_group_flag_with_properties.key)
+        self.assert_expected_response(fully_rolled_out_super_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
+
+        # Request status for flag that has super group rolled out to 100% and has no specific properties
+        fully_rolled_out_super_group_flag = FeatureFlag.objects.create(
+            name="100 percent super group flag",
+            key="100-percent-super-group-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "super_groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        self.assert_expected_response(
+            fully_rolled_out_super_group_flag.id, FeatureFlagStatus.STALE, "Super group is rolled out to 100%"
+        )
+
+        # Request status for flag that has holdout group rolled out to <100%
+        fifty_percent_holdout_group_flag = FeatureFlag.objects.create(
+            name="50 percent holdout group flag",
+            key="50-percent-holdout-group-flag",
+            team=self.team,
+            active=True,
+            filters={"holdout_groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        self.create_feature_flag_called_event(fifty_percent_holdout_group_flag.key)
+        self.assert_expected_response(fifty_percent_holdout_group_flag.id, FeatureFlagStatus.ACTIVE)
+
+        # Request status for flag that has holdout group rolled out to 100% and specific properties
+        fully_rolled_out_holdout_group_flag_with_properties = FeatureFlag.objects.create(
+            name="100 percent holdout group with properties flag",
+            key="100-percent-holdout-group-with-properties-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "holdout_groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "type": "person",
+                                "value": ["Smith"],
+                                "operator": "contains",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        self.create_feature_flag_called_event(fully_rolled_out_holdout_group_flag_with_properties.key)
+        self.assert_expected_response(fully_rolled_out_holdout_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
+
+        # Request status for flag that has holdout group rolled out to 100% and has no specific properties
+        fully_rolled_out_holdout_group_flag = FeatureFlag.objects.create(
+            name="100 percent holdout group flag",
+            key="100-percent-holdout-group-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "holdout_groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        self.assert_expected_response(
+            fully_rolled_out_holdout_group_flag.id, FeatureFlagStatus.STALE, "Holdout group is rolled out to 100%"
+        )
+
+        # Request status for multivariate flag with no variants set to 100%
+        multivariate_flag_no_rolled_out_variants = FeatureFlag.objects.create(
+            name="Multivariate flag with no variants set to 100%",
+            key="multivariate-no-rolled-out-variants-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "var1key", "name": "test", "rollout_percentage": 50},
+                        {"key": "var2key", "name": "control", "rollout_percentage": 50},
+                    ],
+                }
+            },
+        )
+        self.create_feature_flag_called_event(multivariate_flag_no_rolled_out_variants.key)
+        self.assert_expected_response(multivariate_flag_no_rolled_out_variants.id, FeatureFlagStatus.ACTIVE)
+
+        # Request status for multivariate flag with no variants set to 100%
+        multivariate_flag_rolled_out_variant = FeatureFlag.objects.create(
+            name="Multivariate flag with variant set to 100%",
+            key="multivariate-rolled-out-variant-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "test", "rollout_percentage": 100},
+                        {"key": "control", "rollout_percentage": 0},
+                    ],
+                },
+                "groups": [{"variant": None, "properties": [], "rollout_percentage": 100}],
+            },
+        )
+        self.assert_expected_response(
+            multivariate_flag_rolled_out_variant.id,
+            FeatureFlagStatus.STALE,
+            'This flag will always use the variant "test"',
+        )
+
+        # Request status for multivariate flag with a variant set to 100% but no release condition set to 100%
+        multivariate_flag_rolled_out_variant_no_rolled_out_release = FeatureFlag.objects.create(
+            name="Multivariate flag with variant set to 100%, no release condition set to 100%",
+            key="multivariate-rolled-out-variant-no-release-rolled-out-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "var1key", "name": "test", "rollout_percentage": 100},
+                        {"key": "var2key", "name": "control", "rollout_percentage": 0},
+                    ],
+                },
+                "groups": [
+                    {"variant": None, "properties": [], "rollout_percentage": 20},
+                    {"variant": None, "properties": [], "rollout_percentage": 30},
+                ],
+            },
+        )
+        self.create_feature_flag_called_event(multivariate_flag_rolled_out_variant_no_rolled_out_release.key)
+        self.assert_expected_response(
+            multivariate_flag_rolled_out_variant_no_rolled_out_release.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
+        # Request status for multivariate flag with a variant set to 100% but no release condition set to 100%
+        multivariate_flag_rolled_out_release_condition_half_variant = FeatureFlag.objects.create(
+            name="Multivariate flag with release condition set to 100%, but variants still 50%",
+            key="multivariate-rolled-out-release-half-variant-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "var1key", "name": "test", "rollout_percentage": 50},
+                        {"key": "var2key", "name": "control", "rollout_percentage": 50},
+                    ],
+                },
+                "groups": [
+                    {"variant": None, "properties": [], "rollout_percentage": 100},
+                ],
+            },
+        )
+        self.create_feature_flag_called_event(multivariate_flag_rolled_out_release_condition_half_variant.key)
+        self.assert_expected_response(
+            multivariate_flag_rolled_out_release_condition_half_variant.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
+        # Request status for multivariate flag with variants set to 100% and a filtered release condition
+        multivariate_flag_rolled_out_variant_rolled_out_filtered_release = FeatureFlag.objects.create(
+            name="Multivariate flag with variant and release condition set to 100%",
+            key="multivariate-rolled-out-variant-and-release-condition-with-properties-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "var1key", "name": "test", "rollout_percentage": 100},
+                        {"key": "var2key", "name": "control", "rollout_percentage": 0},
+                    ],
+                },
+                "groups": [
+                    {
+                        "variant": None,
+                        "properties": [
+                            {
+                                "key": "name",
+                                "type": "person",
+                                "value": ["Smith"],
+                                "operator": "contains",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ],
+            },
+        )
+        self.create_feature_flag_called_event(multivariate_flag_rolled_out_variant_rolled_out_filtered_release.key)
+        self.assert_expected_response(
+            multivariate_flag_rolled_out_variant_rolled_out_filtered_release.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
+        # Request status for multivariate flag with no variants set to 100%, but a filtered and fully rolled out release condition has variant override
+        multivariate_flag_filtered_rolled_out_release_with_override = FeatureFlag.objects.create(
+            name="Multivariate flag with release condition set to 100% and override",
+            key="multivariate-rolled-out-filtered-release-condition-and-override-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "var1key", "name": "test", "rollout_percentage": 60},
+                        {"key": "var2key", "name": "control", "rollout_percentage": 40},
+                    ],
+                },
+                "groups": [
+                    {
+                        "variant": "var1key",
+                        "properties": [
+                            {
+                                "key": "name",
+                                "type": "person",
+                                "value": ["Smith"],
+                                "operator": "contains",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ],
+            },
+        )
+        self.create_feature_flag_called_event(multivariate_flag_filtered_rolled_out_release_with_override.key)
+        self.assert_expected_response(
+            multivariate_flag_filtered_rolled_out_release_with_override.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
+        # Request status for multivariate flag with no variants set to 100%, but fully rolled out release condition has variant override
+        multivariate_flag_rolled_out_release_with_override = FeatureFlag.objects.create(
+            name="Multivariate flag with release condition set to 100% and override",
+            key="multivariate-rolled-out-release-condition-and-override-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "test", "rollout_percentage": 60},
+                        {"key": "control", "rollout_percentage": 40},
+                    ],
+                },
+                "groups": [
+                    {
+                        "variant": "test",
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    }
+                ],
+            },
+        )
+        self.assert_expected_response(
+            multivariate_flag_rolled_out_release_with_override.id,
+            FeatureFlagStatus.STALE,
+            'This flag will always use the variant "test"',
+        )
+
+        # Request status for boolean flag with empty filters
+        boolean_flag_empty_filters = FeatureFlag.objects.create(
+            name="Boolean flag with empty filters",
+            key="boolean-empty-filters-flag",
+            team=self.team,
+            active=True,
+            filters={},
+        )
+        self.assert_expected_response(
+            boolean_flag_empty_filters.id,
+            FeatureFlagStatus.STALE,
+            'This boolean flag will always evaluate to "true"',
+        )
+
+        # Request status for boolean flag with no fully rolled out release conditions
+        boolean_flag_no_rolled_out_release_conditions = FeatureFlag.objects.create(
+            name="Boolean flag with no release condition set to 100%",
+            key="boolean-no-rolled-out-release-conditions-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 99,
+                    },
+                    {
+                        "properties": [],
+                        "rollout_percentage": 99,
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "type": "person",
+                                "value": ["Smith"],
+                                "operator": "contains",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                ],
+            },
+        )
+        self.create_feature_flag_called_event(boolean_flag_no_rolled_out_release_conditions.key)
+        self.assert_expected_response(
+            boolean_flag_no_rolled_out_release_conditions.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
+        # Request status for boolean flag with a fully rolled out release condition
+        boolean_flag_rolled_out_release_condition = FeatureFlag.objects.create(
+            name="Boolean flag with a release condition set to 100%",
+            key="boolean-rolled-out-release-condition-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "type": "person",
+                                "value": ["Smith"],
+                                "operator": "contains",
+                            }
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    },
+                ],
+            },
+        )
+        self.assert_expected_response(
+            boolean_flag_rolled_out_release_condition.id,
+            FeatureFlagStatus.STALE,
+            'This boolean flag will always evaluate to "true"',
+        )
+
+        # Request status for a boolean flag with no rolled out release conditions and has
+        # been called recently
+        boolean_flag_no_rolled_out_release_condition_recently_evaluated = FeatureFlag.objects.create(
+            name="Boolean flag with a release condition set to 100%",
+            key="boolean-recently-evaluated-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "type": "person",
+                                "value": ["Smith"],
+                                "operator": "contains",
+                            }
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                ],
+            },
+        )
+        self.create_feature_flag_called_event(boolean_flag_no_rolled_out_release_condition_recently_evaluated.key)
+        self.assert_expected_response(
+            boolean_flag_no_rolled_out_release_condition_recently_evaluated.id, FeatureFlagStatus.ACTIVE
+        )
+
+        # Request status for a boolean flag with no rolled out release conditions, and has
+        # been called, but not recently
+        boolean_flag_rolled_out_release_condition_not_recently_evaluated = FeatureFlag.objects.create(
+            name="Boolean flag with a release condition set to 100%",
+            key="boolean-not-recently-evaluated-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "type": "person",
+                                "value": ["Smith"],
+                                "operator": "contains",
+                            }
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                ],
+            },
+        )
+        self.create_feature_flag_called_event(
+            boolean_flag_rolled_out_release_condition_not_recently_evaluated.key, True, now() - relativedelta(days=31)
+        )
+        self.assert_expected_response(
+            boolean_flag_rolled_out_release_condition_not_recently_evaluated.id,
+            FeatureFlagStatus.INACTIVE,
+            "Flag has not been evaluated recently",
+        )

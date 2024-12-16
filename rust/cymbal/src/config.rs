@@ -86,6 +86,12 @@ pub struct Config {
     // Maximum number of lines of pre and post context to get per frame
     #[envconfig(default = "15")]
     pub context_line_count: usize,
+
+    #[envconfig(default = "1000")]
+    pub max_events_per_batch: usize,
+
+    #[envconfig(default = "10")]
+    pub max_event_batch_wait_seconds: u64,
 }
 
 impl Config {

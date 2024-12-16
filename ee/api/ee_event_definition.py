@@ -11,6 +11,10 @@ from posthog.models.activity_logging.activity_log import (
 )
 
 from loginas.utils import is_impersonated_session
+from typing import cast
+import posthoganalytics
+from posthog.event_usage import groups
+from posthog.models import User
 
 
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -103,6 +107,23 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             was_impersonated=is_impersonated_session(self.context["request"]),
             detail=Detail(name=str(event_definition.name), changes=changes),
         )
+
+        verified_old = event_definition.verified
+        verified_new = validated_data.get("verified", verified_old)
+
+        # If verified status has changed, track it
+        if "verified" in validated_data and verified_old != verified_new:
+            user = cast(User, self.context["request"].user)
+            posthoganalytics.capture(
+                str(user.distinct_id),
+                "event verification toggled",
+                properties={
+                    "verified": verified_new,
+                    "event_name": event_definition.name,
+                    "is_custom_event": not event_definition.name.startswith("$"),
+                },
+                groups=groups(user.organization),
+            )
 
         return super().update(event_definition, validated_data)
 

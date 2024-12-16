@@ -1073,7 +1073,7 @@ def team_api_test_factory():
             )
 
         @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
-        @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation")
+        @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation", return_value=False)
         @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
@@ -1083,6 +1083,10 @@ def team_api_test_factory():
             mock_report_user_action_legacy_endpoint: MagicMock,
             mock_check_and_update_activation: MagicMock,
         ) -> None:
+            """
+            Intent already exists, but hasn't been activated yet. It should update the intent
+            and send a new event for the user showing the intent.
+            """
             intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
             original_created_at = intent.created_at
             assert original_created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)

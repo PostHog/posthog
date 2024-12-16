@@ -108,8 +108,6 @@ posthog/hogql/parser.py:0: error: Item "None" of "list[Expr] | None" has no attr
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql/functions/cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
-posthog/hogql/functions/cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
 posthog/hogql/database/schema/persons_pdi.py:0: error: Incompatible types in assignment (expression has type "Organization | None", variable has type "Organization")  [assignment]
 posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
 posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
@@ -145,13 +143,11 @@ posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Item "No
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Argument 1 to "float" has incompatible type "Any | None"; expected "str | Buffer | SupportsFloat | SupportsIndex"  [arg-type]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Argument 1 to "clean_display" has incompatible type "Any | None"; expected "str"  [arg-type]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "FunnelsFilter"; expected "str": "TrendsFilter"  [dict-item]
-posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "RetentionFilter"; expected "str": "TrendsFilter"  [dict-item]
-posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Argument 1 to "to_base_entity_dict" has incompatible type "Any | None"; expected "dict[Any, Any]"  [arg-type]
-posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Argument 1 to "to_base_entity_dict" has incompatible type "Any | None"; expected "dict[Any, Any]"  [arg-type]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "PathsFilter"; expected "str": "TrendsFilter"  [dict-item]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "LifecycleFilter"; expected "str": "TrendsFilter"  [dict-item]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "StickinessFilter"; expected "str": "TrendsFilter"  [dict-item]
-posthog/warehouse/models/external_data_schema.py:0: error: Name "update_incremental_field_last_value" already defined on line 0  [no-redef]
+posthog/warehouse/models/external_data_schema.py:0: error: Incompatible types in assignment (expression has type "str", variable has type "int | float")  [assignment]
+posthog/warehouse/models/external_data_schema.py:0: error: Incompatible types in assignment (expression has type "str", variable has type "int | float")  [assignment]
 posthog/session_recordings/models/session_recording.py:0: error: Argument "distinct_id" to "MissingPerson" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/session_recordings/models/session_recording.py:0: error: Incompatible type for lookup 'persondistinctid__team_id': (got "Team", expected "str | int")  [misc]
 posthog/models/hog_functions/hog_function.py:0: error: Argument 1 to "get" of "dict" has incompatible type "str | None"; expected "str"  [arg-type]
@@ -221,13 +217,9 @@ posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible types in assignme
 posthog/hogql/transforms/in_cohort.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/in_cohort.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql/transforms/in_cohort.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
-posthog/hogql/transforms/in_cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
-posthog/hogql/transforms/in_cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
 posthog/hogql/transforms/in_cohort.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/in_cohort.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql/transforms/in_cohort.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
-posthog/hogql/transforms/in_cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
-posthog/hogql/transforms/in_cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
 posthog/hogql/transforms/in_cohort.py:0: error: Argument "table" to "JoinExpr" has incompatible type "Expr"; expected "SelectQuery | SelectSetQuery | Field | None"  [arg-type]
 posthog/hogql/transforms/in_cohort.py:0: error: List item 0 has incompatible type "SelectQueryType | None"; expected "SelectQueryType"  [list-item]
 posthog/hogql/transforms/in_cohort.py:0: error: Item "None" of "JoinConstraint | None" has no attribute "expr"  [union-attr]
@@ -497,6 +489,10 @@ posthog/tasks/exports/test/test_csv_exporter_renders.py:0: error: Item "memoryvi
 posthog/tasks/exports/test/test_csv_exporter_renders.py:0: error: Item "None" of "bytes | memoryview | None" has no attribute "decode"  [union-attr]
 posthog/tasks/exports/test/test_csv_exporter_renders.py:0: error: Item "memoryview" of "bytes | memoryview | None" has no attribute "decode"  [union-attr]
 posthog/tasks/exports/test/test_csv_exporter_renders.py:0: error: Item "None" of "bytes | memoryview | None" has no attribute "decode"  [union-attr]
+posthog/management/commands/warehouse_last_incremental_value_sync.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/management/commands/warehouse_last_incremental_value_sync.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/management/commands/warehouse_last_incremental_value_sync.py:0: error: Argument 3 to "get_value" of "ConfigProvider" has incompatible type "str | None"; expected "str"  [arg-type]
+posthog/management/commands/warehouse_last_incremental_value_sync.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/management/commands/sync_persons_to_clickhouse.py:0: error: Argument 4 to "create_person_override" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/management/commands/sync_persons_to_clickhouse.py:0: error: Argument "group_type_index" to "raw_create_group_ch" has incompatible type "int"; expected "Literal[0, 1, 2, 3, 4]"  [arg-type]
 posthog/management/commands/migrate_team.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "BatchExport")  [assignment]
@@ -604,16 +600,6 @@ posthog/warehouse/data_load/validate_schema.py:0: error: Incompatible types in a
 posthog/warehouse/data_load/validate_schema.py:0: error: Incompatible types in assignment (expression has type "object", variable has type "str | int | Combinable")  [assignment]
 posthog/warehouse/data_load/validate_schema.py:0: error: Incompatible types in assignment (expression has type "dict[str, dict[str, str | bool]] | dict[str, str]", variable has type "dict[str, dict[str, str]]")  [assignment]
 posthog/warehouse/data_load/source_templates.py:0: error: Incompatible types in assignment (expression has type "str", variable has type "Type")  [assignment]
-posthog/warehouse/api/external_data_schema.py:0: error: Incompatible return value type (got "str | None", expected "SyncType | None")  [return-value]
-posthog/warehouse/api/external_data_schema.py:0: error: Argument 1 to "get_sql_schemas_for_source_type" has incompatible type "str"; expected "Type"  [arg-type]
-posthog/warehouse/api/external_data_schema.py:0: error: No overload variant of "get" of "dict" matches argument type "str"  [call-overload]
-posthog/warehouse/api/external_data_schema.py:0: note: Possible overload variants:
-posthog/warehouse/api/external_data_schema.py:0: note: def get(self, Type, /) -> dict[str, list[IncrementalField]] | None
-posthog/warehouse/api/external_data_schema.py:0: note: def get(self, Type, dict[str, list[IncrementalField]], /) -> dict[str, list[IncrementalField]]
-posthog/warehouse/api/external_data_schema.py:0: note: def [_T] get(self, Type, _T, /) -> dict[str, list[IncrementalField]] | _T
-posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
-posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
-posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: error: No overload variant of "get" of "dict" matches argument types "str", "tuple[()]"  [call-overload]
 posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: Possible overload variants:
 posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: def get(self, Type, /) -> Sequence[str] | None
@@ -710,9 +696,6 @@ posthog/hogql/test/test_parser_python.py:0: error: Unsupported dynamic base clas
 posthog/hogql/test/test_parser_cpp.py:0: error: Unsupported dynamic base class "parser_test_factory"  [misc]
 posthog/hogql/test/test_parse_string_python.py:0: error: Unsupported dynamic base class "parse_string_test_factory"  [misc]
 posthog/hogql/test/test_parse_string_cpp.py:0: error: Unsupported dynamic base class "parse_string_test_factory"  [misc]
-posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attribute "snapshot"  [attr-defined]
-posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attribute "snapshot"  [attr-defined]
-posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attribute "snapshot"  [attr-defined]
 posthog/hogql/database/test/test_view.py:0: error: Argument "dialect" to "print_ast" has incompatible type "str"; expected "Literal['hogql', 'clickhouse']"  [arg-type]
 posthog/hogql/database/test/test_s3_table.py:0: error: Argument "dialect" to "print_ast" has incompatible type "str"; expected "Literal['hogql', 'clickhouse']"  [arg-type]
 posthog/helpers/full_text_search.py:0: error: Incompatible return value type (got "SearchVector", expected "CombinedExpression")  [return-value]
@@ -784,6 +767,16 @@ ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseTrendExper
 ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseFunnelExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
 ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseSecondaryExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
 ee/clickhouse/views/experiments.py:0: error: Item "None" of "User | None" has no attribute "email"  [union-attr]
+posthog/warehouse/api/external_data_schema.py:0: error: Incompatible return value type (got "str | None", expected "SyncType | None")  [return-value]
+posthog/warehouse/api/external_data_schema.py:0: error: Argument 1 to "get_sql_schemas_for_source_type" has incompatible type "str"; expected "Type"  [arg-type]
+posthog/warehouse/api/external_data_schema.py:0: error: No overload variant of "get" of "dict" matches argument type "str"  [call-overload]
+posthog/warehouse/api/external_data_schema.py:0: note: Possible overload variants:
+posthog/warehouse/api/external_data_schema.py:0: note: def get(self, Type, /) -> dict[str, list[IncrementalField]] | None
+posthog/warehouse/api/external_data_schema.py:0: note: def get(self, Type, dict[str, list[IncrementalField]], /) -> dict[str, list[IncrementalField]]
+posthog/warehouse/api/external_data_schema.py:0: note: def [_T] get(self, Type, _T, /) -> dict[str, list[IncrementalField]] | _T
+posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]

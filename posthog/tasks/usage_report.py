@@ -336,20 +336,23 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         capture_exception(err)
         pha_client = Client("sTMFPsFhdP1Ssg")
         capture_event(
-            pha_client,
-            f"organization usage report to billing service failure",
-            org_id,
-            {"err": str(err)},
+            pha_client=pha_client,
+            name=f"organization usage report to billing service failure",
+            organization_id=org_id,
+            properties={"err": str(err)},
         )
         raise
 
 
 def capture_event(
+    *,
     pha_client: Client,
     name: str,
-    organization_id: str,
+    organization_id: Optional[str] = None,
+    team_id: Optional[int] = None,
     properties: dict[str, Any],
     timestamp: Optional[Union[datetime, str]] = None,
+    send_for_all_members: bool = False,
 ) -> None:
     if timestamp and isinstance(timestamp, str):
         try:
@@ -357,16 +360,38 @@ def capture_event(
         except ValueError:
             timestamp = None
 
+    if not organization_id and not team_id:
+        raise ValueError("Either organization_id or team_id must be provided")
+
     if is_cloud():
-        org_owner = get_org_owner_or_first_user(organization_id)
-        distinct_id = org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
-        pha_client.capture(
-            distinct_id,
-            name,
-            {**properties, "scope": "user"},
-            groups={"organization": organization_id, "instance": settings.SITE_URL},
-            timestamp=timestamp,
-        )
+        distinct_ids = []
+        if send_for_all_members:
+            if organization_id:
+                distinct_ids = list(
+                    OrganizationMembership.objects.filter(organization_id=organization_id).values_list(
+                        "user__distinct_id", flat=True
+                    )
+                )
+            elif team_id:
+                team = Team.objects.get(id=team_id)
+                distinct_ids = [user.distinct_id for user in team.all_users_with_access()]
+        else:
+            if not organization_id:
+                team = Team.objects.get(id=team_id)
+                organization_id = team.organization_id
+            org_owner = get_org_owner_or_first_user(organization_id) if organization_id else None
+            distinct_ids.append(
+                org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
+            )
+
+        for distinct_id in distinct_ids:
+            pha_client.capture(
+                distinct_id,
+                name,
+                {**properties, "scope": "user"},
+                groups={"organization": organization_id, "instance": settings.SITE_URL},
+                timestamp=timestamp,
+            )
         pha_client.group_identify("organization", organization_id, properties)
     else:
         pha_client.capture(
@@ -711,20 +736,40 @@ def get_teams_with_hog_function_fetch_calls_in_period(
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def capture_report(
+    *,
     capture_event_name: str,
-    org_id: str,
+    org_id: Optional[str] = None,
+    team_id: Optional[int] = None,
     full_report_dict: dict[str, Any],
     at_date: Optional[datetime] = None,
+    send_for_all_members: bool = False,
 ) -> None:
+    if not org_id and not team_id:
+        raise ValueError("Either org_id or team_id must be provided")
     pha_client = Client("sTMFPsFhdP1Ssg")
     try:
-        capture_event(pha_client, capture_event_name, org_id, full_report_dict, timestamp=at_date)
+        capture_event(
+            pha_client=pha_client,
+            name=capture_event_name,
+            organization_id=org_id,
+            team_id=team_id,
+            properties=full_report_dict,
+            timestamp=at_date,
+            send_for_all_members=send_for_all_members,
+        )
         logger.info(f"UsageReport sent to PostHog for organization {org_id}")
     except Exception as err:
         logger.exception(
             f"UsageReport sent to PostHog for organization {org_id} failed: {str(err)}",
         )
-        capture_event(pha_client, f"{capture_event_name} failure", org_id, {"error": str(err)})
+        capture_event(
+            pha_client=pha_client,
+            name=f"{capture_event_name} failure",
+            organization_id=org_id,
+            team_id=team_id,
+            properties={"error": str(err)},
+            send_for_all_members=send_for_all_members,
+        )
     pha_client.flush()
 
 
@@ -937,7 +982,7 @@ def _get_teams_for_usage_reports() -> Sequence[Team]:
     return list(
         Team.objects.select_related("organization")
         .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
-        .only("id", "organization__id", "organization__name", "organization__created_at")
+        .only("id", "name", "organization__id", "organization__name", "organization__created_at")
     )
 
 
@@ -1042,6 +1087,7 @@ def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[s
     logger.info("Getting all usage data...")  # noqa T201
     time_now = datetime.now()
     all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
+
     logger.debug(f"Getting all usage data took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
 
     logger.info("Getting teams for usage reports...")  # noqa T201
@@ -1109,7 +1155,12 @@ def send_all_org_usage_reports(
             # First capture the events to PostHog
             if not skip_capture_event:
                 at_date_str = at_date.isoformat() if at_date else None
-                capture_report.delay(capture_event_name, org_id, full_report_dict, at_date_str)
+                capture_report.delay(
+                    capture_event_name=capture_event_name,
+                    org_id=org_id,
+                    full_report_dict=full_report_dict,
+                    at_date=at_date_str,
+                )
 
             # Then capture the events to Billing
             if has_non_zero_usage(full_report):

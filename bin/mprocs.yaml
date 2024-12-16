@@ -1,0 +1,24 @@
+procs:
+    celery-worker:
+        shell: 'source ./bin/celery-queues.env && python manage.py run_autoreload_celery --type=worker'
+
+    celery-beat:
+        shell: 'source ./bin/celery-queues.env && python manage.py run_autoreload_celery --type=beat'
+
+    plugin-server:
+        shell: './bin/plugin-server'
+
+    backend:
+        shell: './bin/start-backend'
+
+    frontend:
+        shell: './bin/start-frontend'
+
+    temporal-worker:
+        # added a sleep to give the docker stuff time to start
+        shell: 'sleep 10 && python3 manage.py start_temporal_worker'
+
+    docker-compose:
+        shell: 'docker compose -f docker-compose.dev.yml up'
+        stop:
+            send-keys: ['<C-c>']

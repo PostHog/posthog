@@ -115,9 +115,11 @@ class FunnelBase(ABC):
         team, breakdown = self.context.team, self.context.breakdown
 
         if isinstance(breakdown, list):
-            cohorts = Cohort.objects.filter(team_id=team.pk, pk__in=[b for b in breakdown if b != "all"])
+            cohorts = Cohort.objects.filter(
+                team__project_id=team.project_id, pk__in=[b for b in breakdown if b != "all"]
+            )
         else:
-            cohorts = Cohort.objects.filter(team_id=team.pk, pk=breakdown)
+            cohorts = Cohort.objects.filter(team__project_id=team.project_id, pk=breakdown)
 
         return list(cohorts)
 
@@ -724,7 +726,9 @@ class FunnelBase(ABC):
             first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
             return ast.And(exprs=[*filters, first_time_filter])
         elif entity.math == FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS:
-            subquery = FirstTimeForUserAggregationQuery(self.context, ast.Constant(value=1), filter_expr).to_query()
+            subquery = FirstTimeForUserAggregationQuery(
+                self.context, ast.Constant(value=1), ast.And(exprs=filters)
+            ).to_query()
             first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
             return ast.And(exprs=[*filters, first_time_filter])
         elif len(filters) > 1:

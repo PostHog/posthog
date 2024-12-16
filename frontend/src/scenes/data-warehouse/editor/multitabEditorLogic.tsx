@@ -1,6 +1,6 @@
 import { Monaco } from '@monaco-editor/react'
 import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -11,20 +11,26 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { HogQLMetadataResponse, HogQLQuery, NodeKind } from '~/queries/schema'
 import { DataVisualizationNode } from '~/queries/schema'
 import { DataWarehouseSavedQuery, ExportContext } from '~/types'
 
+import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../external/dataWarehouseExternalSceneLogic'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
+
+export const dataNodeKey = insightVizDataNodeKey({
+    dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
+    cachedInsight: null,
+    doNotLoad: true,
+})
+
 export interface MultitabEditorLogicProps {
     key: string
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
-    onRunQuery?: (query: HogQLQuery) => void
-    onQueryInputChange?: (query: string) => void
-    sourceQuery?: DataVisualizationNode
 }
 
 export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
@@ -48,7 +54,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     actions({
         setQueryInput: (queryInput: string) => ({ queryInput }),
         updateState: true,
-        runQuery: (queryOverride?: string) => ({ queryOverride }),
+        runQuery: (queryOverride?: string, switchTab?: boolean) => ({ queryOverride, switchTab }),
         setActiveQuery: (query: string) => ({ query }),
         setTabs: (tabs: QueryTab[]) => ({ tabs }),
         addTab: (tab: QueryTab) => ({ tab }),
@@ -63,6 +69,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         setMetadata: (query: string, metadata: HogQLMetadataResponse) => ({ query, metadata }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
+        setCacheLoading: (loading: boolean) => ({ loading }),
+        setError: (error: string | null) => ({ error }),
+        setIsValidView: (isValidView: boolean) => ({ isValidView }),
+        setSourceQuery: (sourceQuery: DataVisualizationNode) => ({ sourceQuery }),
+        editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -70,6 +81,24 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         }
     }),
     reducers({
+        cacheLoading: [
+            true,
+            {
+                setCacheLoading: (_, { loading }) => loading,
+            },
+        ],
+        sourceQuery: [
+            {
+                kind: NodeKind.DataVisualizationNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: '',
+                },
+            } as DataVisualizationNode,
+            {
+                setSourceQuery: (_, { sourceQuery }) => sourceQuery,
+            },
+        ],
         queryInput: [
             '',
             {
@@ -108,8 +137,28 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 setTabs: (_, { tabs }) => tabs,
             },
         ],
+        error: [
+            null as string | null,
+            {
+                setError: (_, { error }) => error,
+            },
+        ],
+        isValidView: [
+            false,
+            {
+                setIsValidView: (_, { isValidView }) => isValidView,
+            },
+        ],
     }),
     listeners(({ values, props, actions, asyncActions }) => ({
+        editView: ({ query, view }) => {
+            const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
+            if (maybeExistingTab) {
+                actions.selectTab(maybeExistingTab)
+            } else {
+                actions.createTab(query, view)
+            }
+        },
         createTab: ({ query = '', view }) => {
             const mountedCodeEditorLogic = codeEditorLogic.findMounted()
             let currentModelCount = 1
@@ -188,7 +237,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 codeEditorLogic.findMounted() ||
                 codeEditorLogic({
                     key: props.key,
-                    query: props.sourceQuery?.source.query ?? '',
+                    query: values.sourceQuery?.source.query ?? '',
                     language: 'hogQL',
                 })
 
@@ -246,10 +295,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.createTab()
                 }
             }
+            actions.setCacheLoading(false)
         },
-        setQueryInput: ({ queryInput }) => {
+        setQueryInput: () => {
             actions.updateState()
-            props.onQueryInputChange?.(queryInput)
         },
         updateState: async (_, breakpoint) => {
             await breakpoint(100)
@@ -262,15 +311,24 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
             localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
         },
-        runQuery: ({ queryOverride }) => {
+        runQuery: ({ queryOverride, switchTab }) => {
             const query = queryOverride || values.queryInput
 
-            actions.setActiveQuery(query)
-            props.sourceQuery &&
-                props.onRunQuery?.({
-                    ...props.sourceQuery.source,
+            actions.setSourceQuery({
+                ...values.sourceQuery,
+                source: {
+                    ...values.sourceQuery.source,
                     query,
-                })
+                },
+            })
+            dataNodeLogic({
+                key: dataNodeKey,
+                query: {
+                    ...values.sourceQuery.source,
+                    query,
+                },
+                autoLoad: false,
+            }).actions.loadData(!switchTab)
         },
         saveAsView: async () => {
             LemonDialog.openForm({
@@ -291,17 +349,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
         },
         saveAsViewSubmit: async ({ name }) => {
-            const query: HogQLQuery = {
-                kind: NodeKind.HogQLQuery,
-                query: values.queryInput,
-            }
+            const query: HogQLQuery = values.sourceQuery.source
 
             const logic = dataNodeLogic({
-                key: values.activeTabKey,
-                query: {
-                    kind: NodeKind.HogQLQuery,
-                    query: values.queryInput,
-                },
+                key: dataNodeKey,
+                query,
             })
 
             const types = logic.values.response?.types ?? []
@@ -328,7 +380,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         saveAsInsightSubmit: async ({ name }) => {
             const insight = await insightsApi.create({
                 name,
-                query: props.sourceQuery,
+                query: values.sourceQuery,
                 saved: true,
             })
 
@@ -360,28 +412,19 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             lemonToast.success('View updated')
         },
     })),
-    subscriptions(({ props, actions, values }) => ({
+    subscriptions(({ props, actions }) => ({
         activeModelUri: (activeModelUri) => {
             if (props.monaco) {
                 const _model = props.monaco.editor.getModel(activeModelUri.uri)
                 const val = _model?.getValue()
                 actions.setQueryInput(val ?? '')
-                actions.runQuery()
-                dataNodeLogic({
-                    key: values.activeTabKey,
-                    query: {
-                        kind: NodeKind.HogQLQuery,
-                        query: val ?? '',
-                    },
-                    doNotLoad: !val,
-                }).mount()
+                actions.runQuery(undefined, true)
             }
         },
     })),
     selectors({
-        activeTabKey: [(s) => [s.activeModelUri], (activeModelUri) => `hogQLQueryEditor/${activeModelUri?.uri.path}`],
         exportContext: [
-            () => [(_, props) => props.sourceQuery],
+            (s) => [s.sourceQuery],
             (sourceQuery) => {
                 // TODO: use active tab at some point
                 const filename = 'export'
@@ -392,8 +435,5 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 } as ExportContext
             },
         ],
-    }),
-    afterMount(({ props, values }) => {
-        props.onQueryInputChange?.(values.queryInput)
     }),
 ])

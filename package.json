@@ -45,7 +45,7 @@
         "prettier": "prettier --write \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "prettier:check": "prettier --check \"frontend/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "typescript:check": "tsc --noEmit && echo \"No errors reported by tsc.\"",
-        "lint:js": "eslint frontend/src cypress",
+        "lint:js": "eslint --cache frontend/src cypress",
         "lint:css": "stylelint \"frontend/**/*.{css,scss}\"",
         "format:backend": "ruff .",
         "format:frontend": "pnpm lint:js --fix && pnpm lint:css --fix && pnpm prettier",
@@ -161,7 +161,7 @@
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
-        "posthog-js": "1.194.5",
+        "posthog-js": "1.200.2",
         "posthog-js-lite": "3.0.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -265,6 +265,7 @@
         "axe-core": "^4.4.3",
         "babel-loader": "^8.0.6",
         "babel-plugin-import": "^1.13.0",
+        "caniuse-lite": "^1.0.30001687",
         "concurrently": "^5.3.0",
         "css-loader": "^3.4.2",
         "cypress": "^13.11.0",
@@ -349,7 +350,7 @@
             "prettier --write"
         ],
         "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
+            "eslint --cache -c .eslintrc.js --fix",
             "prettier --write"
         ],
         "frontend/*.mjs": [
@@ -376,7 +377,7 @@
             "last 2 edge versions"
         ],
         "production": [
-            "defaults and not not op_mini all"
+            "defaults and not op_mini all"
         ]
     },
     "browser": {

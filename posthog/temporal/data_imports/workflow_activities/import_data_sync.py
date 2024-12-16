@@ -13,7 +13,7 @@ from temporalio import activity
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 from posthog.models.integration import Integration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
-from posthog.temporal.data_imports.pipelines.bigquery import delete_table
+from posthog.temporal.data_imports.pipelines.bigquery import delete_all_temp_destination_tables, delete_table
 
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline_sync import DataImportPipelineSync, PipelineInputs
@@ -413,8 +413,20 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 model.pipeline.job_inputs.get("using_temporary_dataset", False) and temporary_dataset_id is not None
             )
 
+            destination_table_prefix = "__posthog_import_"
             destination_table_dataset_id = temporary_dataset_id if using_temporary_dataset else dataset_id
-            destination_table = f"{project_id}.{destination_table_dataset_id}.__posthog_import_{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
+            destination_table = f"{project_id}.{destination_table_dataset_id}.{destination_table_prefix}{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
+
+            delete_all_temp_destination_tables(
+                dataset_id=dataset_id,
+                table_prefix=destination_table_prefix,
+                project_id=project_id,
+                private_key=private_key,
+                private_key_id=private_key_id,
+                client_email=client_email,
+                token_uri=token_uri,
+                logger=logger,
+            )
 
             try:
                 source = bigquery_source(

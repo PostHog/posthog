@@ -82,7 +82,12 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             incremental_field_type == IncrementalFieldType.Integer
             or incremental_field_type == IncrementalFieldType.Numeric
         ):
-            last_value_json = last_value_py
+            if isinstance(last_value_py, int | float):
+                last_value_json = last_value_py
+            elif isinstance(last_value_py, datetime):
+                last_value_json = str(last_value_py)
+            else:
+                last_value_json = int(last_value_py)
         else:
             last_value_json = str(last_value_py)
 
