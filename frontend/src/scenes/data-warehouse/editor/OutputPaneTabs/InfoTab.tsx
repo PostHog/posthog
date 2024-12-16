@@ -1,6 +1,7 @@
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
@@ -22,7 +23,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                     {isEditingMaterializedView ? (
                         <div>
                             {editingView?.last_run_at ? (
-                                `Last run at ${editingView?.last_run_at}`
+                                `Last run at ${humanFriendlyDetailedTime(editingView.last_run_at)}`
                             ) : (
                                 <div>
                                     <span>Materialization scheduled</span>
@@ -90,7 +91,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                                     </Tooltip>
                                 )
                             }
-                            return last_run_at
+                            return humanFriendlyDetailedTime(last_run_at)
                         },
                     },
                 ]}

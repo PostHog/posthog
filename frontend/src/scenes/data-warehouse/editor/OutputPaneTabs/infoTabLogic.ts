@@ -37,24 +37,26 @@ export const infoTabLogic = kea<infoTabLogicType>([
                 if (!metadata) {
                     return []
                 }
-                return metadata.table_names?.map((table_name) => {
-                    const view = dataWarehouseSavedQueryMap[table_name]
-                    if (view) {
+                return (
+                    metadata.table_names?.map((table_name) => {
+                        const view = dataWarehouseSavedQueryMap[table_name]
+                        if (view) {
+                            return {
+                                name: table_name,
+                                type: 'table',
+                                status: view.status,
+                                last_run_at: view.last_run_at || 'never',
+                            }
+                        }
+
                         return {
                             name: table_name,
-                            type: 'table',
-                            status: view.status,
-                            last_run_at: view.last_run_at || 'never',
+                            type: 'source',
+                            status: undefined,
+                            last_run_at: undefined,
                         }
-                    }
-
-                    return {
-                        name: table_name,
-                        type: 'source',
-                        status: undefined,
-                        last_run_at: undefined,
-                    }
-                })
+                    }) || []
+                )
             },
         ],
     }),
