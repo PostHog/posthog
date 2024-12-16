@@ -11,7 +11,6 @@ template_snapchat_pixel: HogFunctionTemplate = HogFunctionTemplate(
     hog="""
 // Adds window.snaptr and lazily loads the Snapchat Pixel script
 function initSnippet() {
-    console.log('SNAP: initSnippet');
     (function(e,t,n){if(e.snaptr)return;var a=e.snaptr=function()
     {a.handleRequest?a.handleRequest.apply(a,arguments):a.queue.push(arguments)};
     a.queue=[];var s='script';r=t.createElement(s);r.async=!0;
@@ -22,18 +21,15 @@ function initSnippet() {
 
 export function onLoad({ inputs }) {
     initSnippet();
-    console.log('SNAP: onLoad');
     let userProperties = {};
     for (const [key, value] of Object.entries(inputs.userProperties)) {
         if (value) {
             userProperties[key] = value;
         }
     };
-    console.log('SNAP: onLoad/end', userProperties);
     snaptr('init', inputs.pixelId, userProperties);
 }
 export function onEvent({ inputs }) {
-    console.log('SNAP: onEvent');
     let eventProperties = {};
     for (const [key, value] of Object.entries(inputs.eventProperties)) {
         if (value) {
@@ -45,7 +41,6 @@ export function onEvent({ inputs }) {
             eventProperties[key] = value;
         }
     };
-    console.log('SNAP: onEvent/end', eventProperties);
     snaptr('track', inputs.eventType, eventProperties);
 }
 """.strip(),
