@@ -53,7 +53,19 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     )
 
     if use_remote_config:
-        return RemoteConfig.get_config_via_token(token)
+        response = RemoteConfig.get_config_via_token(token, request=request)
+
+        # Add in a bunch of backwards compatibility stuff
+        response["isAuthenticated"] = False
+        response["toolbarParams"] = {}
+        response["config"] = {"enable_collect_everything": True}
+        response["surveys"] = True if len(response["surveys"]) > 0 else False
+
+        # Remove some stuff that is specific to the new RemoteConfig
+        del response["hasFeatureFlags"]
+        del response["token"]
+
+        return response
 
     response = {
         "config": {"enable_collect_everything": True},
