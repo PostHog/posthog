@@ -67,6 +67,12 @@ def default_client():
 
 @cache
 def make_ch_pool(**overrides) -> ChPool:
+    client_settings = {
+        "distributed_product_mode": "global",
+    }
+    if settings.TEST:
+        client_settings["mutations_sync"] = "1"
+
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
@@ -77,7 +83,7 @@ def make_ch_pool(**overrides) -> ChPool:
         "verify": settings.CLICKHOUSE_VERIFY,
         "connections_min": settings.CLICKHOUSE_CONN_POOL_MIN,
         "connections_max": settings.CLICKHOUSE_CONN_POOL_MAX,
-        "settings": {"mutations_sync": "1"} if settings.TEST else {},
+        "settings": client_settings,
         # Without this, OPTIMIZE table and other queries will regularly run into timeouts
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,
         **overrides,
