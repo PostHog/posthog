@@ -1,4 +1,4 @@
 #!/bin/sh
 
-cargo sqlx database create
-cargo sqlx migrate run
+sqlx database create
+sqlx migrate run
