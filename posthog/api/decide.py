@@ -1,5 +1,5 @@
 from random import random
-from typing import Union, cast
+from typing import Any, Union
 
 import structlog
 from django.conf import settings
@@ -14,8 +14,7 @@ from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.api.utils import (
     get_project_id,
     get_token,
-    hostname_in_allowed_url_list,
-    parse_domain,
+    on_permitted_recording_domain,
 )
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import (
@@ -30,6 +29,7 @@ from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.filters.mixins.utils import process_bool
+from posthog.models.remote_config import RemoteConfig
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import (
@@ -46,30 +46,26 @@ FLAG_EVALUATION_COUNTER = Counter(
 )
 
 
-def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
-    origin = parse_domain(request.headers.get("Origin"))
-    referer = parse_domain(request.headers.get("Referer"))
-    user_agent = request.META.get("HTTP_USER_AGENT")
-
-    is_authorized_web_client: bool = hostname_in_allowed_url_list(
-        team.recording_domains, origin
-    ) or hostname_in_allowed_url_list(team.recording_domains, referer)
-    # TODO this is a short term fix for beta testers
-    # TODO we will match on the app identifier in the origin instead and allow users to auth those
-    is_authorized_mobile_client: bool = user_agent is not None and any(
-        keyword in user_agent
-        for keyword in ["posthog-android", "posthog-ios", "posthog-react-native", "posthog-flutter"]
+def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
+    # Check for query param "use_remote_config"
+    use_remote_config = request.GET.get("use_remote_config") == "true" or token in (
+        settings.DECIDE_TOKENS_FOR_REMOTE_CONFIG or []
     )
 
-    return is_authorized_web_client or is_authorized_mobile_client
+    if use_remote_config:
+        response = RemoteConfig.get_config_via_token(token, request=request)
 
+        # Add in a bunch of backwards compatibility stuff
+        response["isAuthenticated"] = False
+        response["toolbarParams"] = {}
+        response["config"] = {"enable_collect_everything": True}
+        response["surveys"] = True if len(response["surveys"]) > 0 else False
 
-@csrf_exempt
-@timed("posthog_cloud_decide_endpoint")
-def get_decide(request: HttpRequest):
-    # handle cors request
-    if request.method == "OPTIONS":
-        return cors_response(request, JsonResponse({"status": 1}))
+        # Remove some stuff that is specific to the new RemoteConfig
+        del response["hasFeatureFlags"]
+        del response["token"]
+
+        return response
 
     response = {
         "config": {"enable_collect_everything": True},
@@ -81,256 +77,287 @@ def get_decide(request: HttpRequest):
         "sessionRecording": False,
     }
 
-    if request.method == "POST":
+    response["captureDeadClicks"] = True if team.capture_dead_clicks else False
+
+    capture_network_timing = True if team.capture_performance_opt_in else False
+    capture_web_vitals = True if team.autocapture_web_vitals_opt_in else False
+    autocapture_web_vitals_allowed_metrics = None
+    if capture_web_vitals:
+        autocapture_web_vitals_allowed_metrics = team.autocapture_web_vitals_allowed_metrics
+    response["capturePerformance"] = (
+        {
+            "network_timing": capture_network_timing,
+            "web_vitals": capture_web_vitals,
+            "web_vitals_allowed_metrics": autocapture_web_vitals_allowed_metrics,
+        }
+        if capture_network_timing or capture_web_vitals
+        else False
+    )
+
+    response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
+    response["autocaptureExceptions"] = (
+        {
+            "endpoint": "/e/",
+        }
+        if team.autocapture_exceptions_opt_in
+        else False
+    )
+
+    # this not settings.DEBUG check is a lazy workaround because
+    # NEW_ANALYTICS_CAPTURE_ENDPOINT doesn't currently work in DEBUG mode
+    if not settings.DEBUG and str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):
+        response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
+
+    if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
+        response["elementsChainAsString"] = True
+
+    response["sessionRecording"] = _session_recording_config_response(request, team)
+
+    if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
+        from ee.billing.quota_limiting import (
+            QuotaLimitingCaches,
+            QuotaResource,
+            list_limited_team_attributes,
+        )
+
+        limited_tokens_recordings = list_limited_team_attributes(
+            QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+        if token in limited_tokens_recordings:
+            response["quotaLimited"] = ["recordings"]
+            response["sessionRecording"] = False
+
+    response["surveys"] = True if team.surveys_opt_in else False
+    response["heatmaps"] = True if team.heatmaps_opt_in else False
+    response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
+
+    site_apps = []
+    # errors mean the database is unavailable, bail in this case
+    if team.inject_web_apps and not skip_db:
         try:
-            data = load_data_from_request(request)
-            api_version_string = request.GET.get("v")
-            # NOTE: This does not support semantic versioning e.g. 2.1.0
-            api_version = int(api_version_string) if api_version_string else 1
-        except ValueError:
-            # default value added because of bug in posthog-js 1.19.0
-            # see https://sentry.io/organizations/posthog2/issues/2738865125/?project=1899813
-            # as a tombstone if the below statsd counter hasn't seen errors for N days
-            # then it is likely that no clients are running posthog-js 1.19.0
-            # and this defaulting could be removed
-            statsd.incr(
-                f"posthog_cloud_decide_defaulted_api_version_on_value_error",
-                tags={"endpoint": "decide", "api_version_string": api_version_string},
-            )
-            api_version = 2
-        except UnspecifiedCompressionFallbackParsingError as error:
-            # Notably don't capture this exception as it's not caused by buggy behavior,
-            # it's just a fallback for when we can't parse the request due to a missing header
-            # that we attempted to kludge by manually setting the compression type to gzip
-            # If this kludge fails, though all we need to do is return a 400 and move on
-            return cors_response(
-                request,
-                generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
-            )
-        except RequestParsingError as error:
-            capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
-            return cors_response(
-                request,
-                generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
-            )
+            with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
+                site_apps = get_decide_site_apps(team, using_database=DATABASE_FOR_FLAG_MATCHING)
+        except Exception:
+            pass
 
-        token = get_token(data, request)
-        team = Team.objects.get_team_from_cache_or_token(token)
-        if team is None and token:
-            project_id = get_project_id(data, request)
+    response["siteApps"] = site_apps
 
-            if not project_id:
-                return cors_response(
-                    request,
-                    generate_exception_response(
-                        "decide",
-                        "Project API key invalid. You can find your project API key in PostHog project settings.",
-                        code="invalid_api_key",
-                        type="authentication_error",
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                    ),
-                )
+    return response
 
-            user = User.objects.get_from_personal_api_key(token)
-            if user is None:
-                return cors_response(
-                    request,
-                    generate_exception_response(
-                        "decide",
-                        "Invalid Personal API key.",
-                        code="invalid_personal_key",
-                        type="authentication_error",
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                    ),
-                )
-            team = user.teams.get(id=project_id)
 
-        if team:
-            if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
-                return cors_response(
-                    request,
-                    generate_exception_response(
-                        "decide",
-                        f"Team with ID {team.id} cannot access the /decide endpoint."
-                        f"Please contact us at hey@posthog.com",
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    ),
-                )
+@csrf_exempt
+@timed("posthog_cloud_decide_endpoint")
+def get_decide(request: HttpRequest):
+    # handle cors request
+    if request.method == "OPTIONS":
+        return cors_response(request, JsonResponse({"status": 1}))
 
-            token = cast(str, token)  # we know it's not None if we found a team
-            structlog.contextvars.bind_contextvars(team_id=team.id)
-
-            disable_flags = process_bool(data.get("disable_flags")) is True
-            feature_flags = None
-            errors = False
-            if not disable_flags:
-                distinct_id = data.get("distinct_id")
-                if distinct_id is None:
-                    return cors_response(
-                        request,
-                        generate_exception_response(
-                            "decide",
-                            "Decide requires a distinct_id.",
-                            code="missing_distinct_id",
-                            type="validation_error",
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                        ),
-                    )
-                else:
-                    distinct_id = str(distinct_id)
-
-                property_overrides = {}
-                geoip_enabled = process_bool(data.get("geoip_disable")) is False
-
-                if geoip_enabled:
-                    property_overrides = get_geoip_properties(get_ip_address(request))
-
-                all_property_overrides: dict[str, Union[str, int]] = {
-                    **property_overrides,
-                    **(data.get("person_properties") or {}),
-                }
-
-                feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
-                    team.pk,
-                    distinct_id,
-                    data.get("groups") or {},
-                    hash_key_override=data.get("$anon_distinct_id"),
-                    property_value_overrides=all_property_overrides,
-                    group_property_value_overrides=(data.get("group_properties") or {}),
-                )
-
-                active_flags = {key: value for key, value in feature_flags.items() if value}
-
-                if api_version == 2:
-                    response["featureFlags"] = active_flags
-                elif api_version >= 3:
-                    # v3 returns all flags, not just active ones, as well as if there was an error computing all flags
-                    response["featureFlags"] = feature_flags
-                    response["errorsWhileComputingFlags"] = errors
-                    response["featureFlagPayloads"] = feature_flag_payloads
-                else:
-                    # default v1
-                    response["featureFlags"] = list(active_flags.keys())
-
-                # metrics for feature flags
-                team_id_label = label_for_team_id_to_track(team.pk)
-                FLAG_EVALUATION_COUNTER.labels(
-                    team_id=team_id_label,
-                    errors_computing=errors,
-                    has_hash_key_override=bool(data.get("$anon_distinct_id")),
-                ).inc()
-            else:
-                response["featureFlags"] = {}
-
-            response["captureDeadClicks"] = True if team.capture_dead_clicks else False
-
-            capture_network_timing = True if team.capture_performance_opt_in else False
-            capture_web_vitals = True if team.autocapture_web_vitals_opt_in else False
-            autocapture_web_vitals_allowed_metrics = None
-            if capture_web_vitals:
-                autocapture_web_vitals_allowed_metrics = team.autocapture_web_vitals_allowed_metrics
-            response["capturePerformance"] = (
+    if request.method != "POST":
+        statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
+        return cors_response(
+            request,
+            JsonResponse(
                 {
-                    "network_timing": capture_network_timing,
-                    "web_vitals": capture_web_vitals,
-                    "web_vitals_allowed_metrics": autocapture_web_vitals_allowed_metrics,
+                    "config": {"enable_collect_everything": True},
+                    "toolbarParams": {},
+                    "isAuthenticated": False,
+                    # gzip and gzip-js are aliases for the same compression algorithm
+                    "supportedCompression": ["gzip", "gzip-js"],
+                    "featureFlags": [],
+                    "sessionRecording": False,
                 }
-                if capture_network_timing or capture_web_vitals
-                else False
-            )
+            ),
+        )
 
-            response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
-            response["autocaptureExceptions"] = (
-                {
-                    "endpoint": "/e/",
-                }
-                if team.autocapture_exceptions_opt_in
-                else False
-            )
+    try:
+        data = load_data_from_request(request)
+        api_version_string = request.GET.get("v")
+        # NOTE: This does not support semantic versioning e.g. 2.1.0
+        api_version = int(api_version_string) if api_version_string else 1
+    except ValueError:
+        # default value added because of bug in posthog-js 1.19.0
+        # see https://sentry.io/organizations/posthog2/issues/2738865125/?project=1899813
+        # as a tombstone if the below statsd counter hasn't seen errors for N days
+        # then it is likely that no clients are running posthog-js 1.19.0
+        # and this defaulting could be removed
+        statsd.incr(
+            f"posthog_cloud_decide_defaulted_api_version_on_value_error",
+            tags={"endpoint": "decide", "api_version_string": api_version_string},
+        )
+        api_version = 2
+    except UnspecifiedCompressionFallbackParsingError as error:
+        # Notably don't capture this exception as it's not caused by buggy behavior,
+        # it's just a fallback for when we can't parse the request due to a missing header
+        # that we attempted to kludge by manually setting the compression type to gzip
+        # If this kludge fails, though all we need to do is return a 400 and move on
+        return cors_response(
+            request,
+            generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
+        )
+    except RequestParsingError as error:
+        capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
+        return cors_response(
+            request,
+            generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
+        )
 
-            # this not settings.DEBUG check is a lazy workaround because
-            # NEW_ANALYTICS_CAPTURE_ENDPOINT doesn't currently work in DEBUG mode
-            if not settings.DEBUG and str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):
-                response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
+    token = get_token(data, request)
+    team = Team.objects.get_team_from_cache_or_token(token)
+    if team is None and token:
+        project_id = get_project_id(data, request)
 
-            if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
-                response["elementsChainAsString"] = True
-
-            response["sessionRecording"] = _session_recording_config_response(request, team, token)
-
-            if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
-                from ee.billing.quota_limiting import (
-                    QuotaLimitingCaches,
-                    QuotaResource,
-                    list_limited_team_attributes,
-                )
-
-                limited_tokens_recordings = list_limited_team_attributes(
-                    QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-                )
-
-                if token in limited_tokens_recordings:
-                    response["quotaLimited"] = ["recordings"]
-                    response["sessionRecording"] = False
-
-            response["surveys"] = True if team.surveys_opt_in else False
-            response["heatmaps"] = True if team.heatmaps_opt_in else False
-            try:
-                default_identified_only = team.pk >= int(settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN)
-            except Exception:
-                default_identified_only = False
-            response["defaultIdentifiedOnly"] = bool(default_identified_only)
-
-            site_apps = []
-            # errors mean the database is unavailable, bail in this case
-            if team.inject_web_apps and not errors:
-                try:
-                    with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
-                        site_apps = get_decide_site_apps(team, using_database=DATABASE_FOR_FLAG_MATCHING)
-                except Exception:
-                    pass
-
-            response["siteApps"] = site_apps
-
-            # NOTE: Whenever you add something to decide response, update this test:
-            # `test_decide_doesnt_error_out_when_database_is_down`
-            # which ensures that decide doesn't error out when the database is down
-
-            if feature_flags:
-                # Billing analytics for decide requests with feature flags
-                # Don't count if all requests are for survey targeting flags only.
-                if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
-                    # Sample no. of decide requests with feature flags
-                    if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
-                        count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
-                        increment_request_count(team.pk, count)
-
-        else:
-            # no auth provided
+        if not project_id:
             return cors_response(
                 request,
                 generate_exception_response(
                     "decide",
-                    "No project API key provided. You can find your project API key in PostHog project settings.",
-                    code="no_api_key",
+                    "Project API key invalid. You can find your project API key in PostHog project settings.",
+                    code="invalid_api_key",
                     type="authentication_error",
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 ),
             )
 
+        user = User.objects.get_from_personal_api_key(token)
+        if user is None:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "decide",
+                    "Invalid Personal API key.",
+                    code="invalid_personal_key",
+                    type="authentication_error",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
+        team = user.teams.get(id=project_id)
+
+    if team:
+        if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "decide",
+                    f"Team with ID {team.id} cannot access the /decide endpoint."
+                    f"Please contact us at hey@posthog.com",
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                ),
+            )
+
+        token = team.api_token
+
+        structlog.contextvars.bind_contextvars(team_id=team.id)
+
+        disable_flags = process_bool(data.get("disable_flags")) is True
+        feature_flags = None
+        errors = False
+        flags_response: dict[str, Any] = {}
+
+        if not disable_flags:
+            distinct_id = data.get("distinct_id")
+            if distinct_id is None:
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "decide",
+                        "Decide requires a distinct_id.",
+                        code="missing_distinct_id",
+                        type="validation_error",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    ),
+                )
+            else:
+                distinct_id = str(distinct_id)
+
+            property_overrides = {}
+            geoip_enabled = process_bool(data.get("geoip_disable")) is False
+
+            if geoip_enabled:
+                property_overrides = get_geoip_properties(get_ip_address(request))
+
+            all_property_overrides: dict[str, Union[str, int]] = {
+                **property_overrides,
+                **(data.get("person_properties") or {}),
+            }
+
+            feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
+                team.pk,
+                distinct_id,
+                data.get("groups") or {},
+                hash_key_override=data.get("$anon_distinct_id"),
+                property_value_overrides=all_property_overrides,
+                group_property_value_overrides=(data.get("group_properties") or {}),
+            )
+
+            active_flags = {key: value for key, value in feature_flags.items() if value}
+
+            if api_version == 2:
+                flags_response["featureFlags"] = active_flags
+            elif api_version >= 3:
+                # v3 returns all flags, not just active ones, as well as if there was an error computing all flags
+                flags_response["featureFlags"] = feature_flags
+                flags_response["errorsWhileComputingFlags"] = errors
+                flags_response["featureFlagPayloads"] = feature_flag_payloads
+            else:
+                # default v1
+                flags_response["featureFlags"] = list(active_flags.keys())
+
+            # metrics for feature flags
+            team_id_label = label_for_team_id_to_track(team.pk)
+            FLAG_EVALUATION_COUNTER.labels(
+                team_id=team_id_label,
+                errors_computing=errors,
+                has_hash_key_override=bool(data.get("$anon_distinct_id")),
+            ).inc()
+        else:
+            flags_response["featureFlags"] = {}
+
+        # NOTE: Changed code - everything not feature flags goes in here
+        response = get_base_config(token, team, request, skip_db=errors)
+        response.update(flags_response)
+
+        # NOTE: Whenever you add something to decide response, update this test:
+        # `test_decide_doesnt_error_out_when_database_is_down`
+        # which ensures that decide doesn't error out when the database is down
+
+        if feature_flags:
+            # Billing analytics for decide requests with feature flags
+            # Don't count if all requests are for survey targeting flags only.
+            if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
+                # Sample no. of decide requests with feature flags
+                if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
+                    count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+                    increment_request_count(team.pk, count)
+
+    else:
+        # no auth provided
+        return cors_response(
+            request,
+            generate_exception_response(
+                "decide",
+                "No project API key provided. You can find your project API key in PostHog project settings.",
+                code="no_api_key",
+                type="authentication_error",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
+
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))
 
 
-def _session_recording_config_response(request: HttpRequest, team: Team, token: str) -> bool | dict:
+def _session_recording_domain_not_allowed(team: Team, request: HttpRequest) -> bool:
+    return team.recording_domains and not on_permitted_recording_domain(team.recording_domains, request)
+
+
+def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:
     session_recording_config_response: bool | dict = False
 
     try:
-        if team.session_recording_opt_in and (
-            on_permitted_recording_domain(team, request) or not team.recording_domains
-        ):
+        if team.session_recording_opt_in and not _session_recording_domain_not_allowed(team, request):
             capture_console_logs = True if team.capture_console_log_opt_in else False
-            sample_rate = team.session_recording_sample_rate or None
+            sample_rate = str(team.session_recording_sample_rate) if team.session_recording_sample_rate else None
             if sample_rate == "1.00":
                 sample_rate = None
 

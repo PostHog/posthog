@@ -1219,6 +1219,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "time",
+ "tokio",
  "tracing",
  "uuid",
 ]
