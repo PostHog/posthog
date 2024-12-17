@@ -1018,7 +1018,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = values.endReached ? [] : playingElements
         },
         restartIframePlayback: () => {
-            cache.pausedMediaElements.forEach((el: HTMLMediaElement) => el.play())
+            cache.pausedMediaElements?.forEach((el: HTMLMediaElement) => el.play())
             cache.pausedMediaElements = []
         },
 
@@ -1141,6 +1141,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 props.mode !== SessionRecordingPlayerMode.Preview
             ) {
                 actions.reportMessageTooLargeWarningSeen(values.sessionRecordingId)
+            }
+        },
+        currentPlayerState: (prev, next) => {
+            if (next === SessionPlayerState.ERROR && prev !== SessionPlayerState.ERROR) {
+                posthog.capture('recording player error', {
+                    watchedSessionId: values.sessionRecordingId,
+                    currentTimestamp: values.currentTimestamp,
+                    currentSegment: values.currentSegment,
+                    currentPlayerTime: values.currentPlayerTime,
+                })
             }
         },
     })),
