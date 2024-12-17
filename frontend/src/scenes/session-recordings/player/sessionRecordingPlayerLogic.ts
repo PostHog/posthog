@@ -151,7 +151,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endBuffer: true,
         startScrub: true,
         endScrub: true,
-        setErrorPlayerState: (show: boolean) => ({ show }),
+        setErrorPlayerState: (show: boolean, reason?: string) => ({ show, reason }),
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         syncPlayerSpeed: true,
         setCurrentTimestamp: (timestamp: number) => ({ timestamp }),
@@ -369,7 +369,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
-        isErrored: [false, { setErrorPlayerState: (_, { show }) => show }],
+        isErrored: [false, { setErrorPlayerState: (_, { show, reason }) => (show ? reason : false) }],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
 
         errorCount: [0, { incrementErrorCount: (prevErrorCount) => prevErrorCount + 1 }],
@@ -778,13 +778,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadSnapshotsForSourceFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setErrorPlayerState(true)
+                actions.setErrorPlayerState(true, 'loadSnapshotsForSourceFailure')
             }
         },
         loadSnapshotSourcesFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setErrorPlayerState(true)
+                actions.setErrorPlayerState(true, 'loadSnapshotSourcesFailure')
             }
         },
         setPlay: () => {
@@ -878,7 +878,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         values.player?.replayer?.pause()
                         actions.endBuffer()
                         console.error("Error: Player tried to seek to a position that hasn't loaded yet")
-                        actions.setErrorPlayerState(true)
+                        actions.setErrorPlayerState(true, 'buffer and not still loading')
                     }
                 }
             }
@@ -1138,13 +1138,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.reportMessageTooLargeWarningSeen(values.sessionRecordingId)
             }
         },
-        currentPlayerState: (prev, next) => {
-            if (next === SessionPlayerState.ERROR && prev !== SessionPlayerState.ERROR) {
+        isErrored: (next) => {
+            if (next) {
                 posthog.capture('recording player error', {
                     watchedSessionId: values.sessionRecordingId,
                     currentTimestamp: values.currentTimestamp,
                     currentSegment: values.currentSegment,
                     currentPlayerTime: values.currentPlayerTime,
+                    error: next,
                 })
             }
         },
