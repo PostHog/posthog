@@ -11,7 +11,7 @@ KAPPA_0 = 1.0  # Prior strength for mean
 ALPHA_0 = 1.0  # Prior shape for variance
 BETA_0 = 1.0  # Prior scale for variance
 
-LOG_VARIANCE = 2
+LOG_VARIANCE = 0.75
 
 SAMPLE_SIZE = 10000
 EPSILON = 1e-10  # Small epsilon value to handle zeros
