@@ -1,5 +1,31 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplate
 
+common_inputs = [
+    {
+        "key": "eventProperties",
+        "type": "dictionary",
+        "description": "Map of Snapchat event attributes and their values. Check out this page for more details: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+        "label": "Event parameters",
+        "default": {
+            "price": "{toFloat(event.properties.price ?? event.properties.value ?? event.properties.revenue)}",
+            "currency": "{event.properties.currency}",
+            "item_ids": "{event.properties.item_ids}",
+            "item_category": "{event.properties.category}",
+            "description": "{event.properties.description}",
+            "search_string": "{event.properties.search_string}",
+            "number_items": "{toInt(event.properties.number_items ?? event.properties.quantity)}",
+            "payment_info_available": "{toInt(event.properties.payment_info_available)}",
+            "sign_up_method": "{event.properties.sign_up_method}",
+            "brands": "{event.properties.brands}",
+            "success": "{toInt(event.properties.success) in (0, 1) ? toInt(event.properties.success) : null}",
+            "transaction_id": "{event.properties.orderId ?? event.properties.transactionId ?? event.properties.transaction_id}",
+            "client_dedup_id": "{event.uuid}",
+        },
+        "secret": False,
+        "required": False,
+    },
+]
+
 template_snapchat_pixel: HogFunctionTemplate = HogFunctionTemplate(
     status="client-side",
     type="site_destination",
@@ -36,11 +62,6 @@ export function onEvent({ inputs }) {
             eventProperties[key] = value;
         }
     };
-    for (const [key, value] of Object.entries(inputs.additionalProperties)) {
-        if (value) {
-            eventProperties[key] = value;
-        }
-    };
     snaptr('track', inputs.eventType, eventProperties);
 }
 """.strip(),
@@ -61,29 +82,7 @@ export function onEvent({ inputs }) {
             "label": "User parameters",
             "default": {
                 "user_email": "{person.properties.email}",
-            },
-            "secret": False,
-            "required": False,
-        },
-        {
-            "key": "eventProperties",
-            "type": "dictionary",
-            "description": "Map of Snapchat event attributes and their values. Check out this page for more details: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
-            "label": "Event parameters",
-            "default": {
-                "price": "{toFloat(event.properties.price ?? event.properties.value ?? event.properties.revenue)}",
-                "currency": "{event.properties.currency}",
-                "item_ids": "{event.properties.item_ids}",
-                "item_category": "{event.properties.category}",
-                "description": "{event.properties.description}",
-                "search_string": "{event.properties.search_string}",
-                "number_items": "{toInt(event.properties.number_items ?? event.properties.quantity)}",
-                "payment_info_available": "{toInt(event.properties.payment_info_available)}",
-                "sign_up_method": "{event.properties.sign_up_method}",
-                "brands": "{event.properties.brands}",
-                "success": "{toInt(event.properties.success) in (0, 1) ? toInt(event.properties.success) : null}",
-                "transaction_id": "{event.properties.orderId ?? event.properties.transactionId ?? event.properties.transaction_id}",
-                "client_dedup_id": "{event.uuid}",
+                "user_phone_number": "{person.properties.phone}",
             },
             "secret": False,
             "required": False,
@@ -103,13 +102,7 @@ export function onEvent({ inputs }) {
                     "default": "PAGE_VIEW",
                     "required": True,
                 },
-                {
-                    "key": "additionalProperties",
-                    "type": "dictionary",
-                    "description": "Additional properties to add for this event type",
-                    "label": "Additional parameters",
-                    "default": {},
-                },
+                *common_inputs,
             ],
         ),
         HogFunctionMappingTemplate(
@@ -125,13 +118,7 @@ export function onEvent({ inputs }) {
                     "default": "PURCHASE",
                     "required": True,
                 },
-                {
-                    "key": "additionalProperties",
-                    "type": "dictionary",
-                    "description": "Additional properties to add for this event type",
-                    "label": "Additional parameters",
-                    "default": {},
-                },
+                *common_inputs,
             ],
         ),
         HogFunctionMappingTemplate(
@@ -147,13 +134,7 @@ export function onEvent({ inputs }) {
                     "default": "START_CHECKOUT",
                     "required": True,
                 },
-                {
-                    "key": "additionalProperties",
-                    "type": "dictionary",
-                    "description": "Additional properties to add for this event type",
-                    "label": "Additional parameters",
-                    "default": {},
-                },
+                *common_inputs,
             ],
         ),
         HogFunctionMappingTemplate(
@@ -169,13 +150,7 @@ export function onEvent({ inputs }) {
                     "default": "ADD_CART",
                     "required": True,
                 },
-                {
-                    "key": "additionalProperties",
-                    "type": "dictionary",
-                    "description": "Additional properties to add for this event type",
-                    "label": "Additional parameters",
-                    "default": {},
-                },
+                *common_inputs,
             ],
         ),
         HogFunctionMappingTemplate(
@@ -191,13 +166,7 @@ export function onEvent({ inputs }) {
                     "default": "ADD_BILLING",
                     "required": True,
                 },
-                {
-                    "key": "additionalProperties",
-                    "type": "dictionary",
-                    "description": "Additional properties to add for this event type",
-                    "label": "Additional parameters",
-                    "default": {},
-                },
+                *common_inputs,
             ],
         ),
         HogFunctionMappingTemplate(
@@ -213,13 +182,7 @@ export function onEvent({ inputs }) {
                     "default": "AD_CLICK",
                     "required": True,
                 },
-                {
-                    "key": "additionalProperties",
-                    "type": "dictionary",
-                    "description": "Additional properties to add for this event type",
-                    "label": "Additional parameters",
-                    "default": {},
-                },
+                *common_inputs,
             ],
         ),
         HogFunctionMappingTemplate(
@@ -235,13 +198,7 @@ export function onEvent({ inputs }) {
                     "default": "AD_VIEW",
                     "required": True,
                 },
-                {
-                    "key": "additionalProperties",
-                    "type": "dictionary",
-                    "description": "Additional properties to add for this event type",
-                    "label": "Additional parameters",
-                    "default": {},
-                },
+                *common_inputs,
             ],
         ),
         HogFunctionMappingTemplate(
@@ -257,13 +214,7 @@ export function onEvent({ inputs }) {
                     "default": "ADD_TO_WISHLIST",
                     "required": True,
                 },
-                {
-                    "key": "additionalProperties",
-                    "type": "dictionary",
-                    "description": "Additional properties to add for this event type",
-                    "label": "Additional parameters",
-                    "default": {},
-                },
+                *common_inputs,
             ],
         ),
         HogFunctionMappingTemplate(
@@ -279,13 +230,7 @@ export function onEvent({ inputs }) {
                     "default": "VIEW_CONTENT",
                     "required": True,
                 },
-                {
-                    "key": "additionalProperties",
-                    "type": "dictionary",
-                    "description": "Additional properties to add for this event type",
-                    "label": "Additional parameters",
-                    "default": {},
-                },
+                *common_inputs,
             ],
         ),
         HogFunctionMappingTemplate(
@@ -301,13 +246,7 @@ export function onEvent({ inputs }) {
                     "default": "VIEW_CONTENT",
                     "required": True,
                 },
-                {
-                    "key": "additionalProperties",
-                    "type": "dictionary",
-                    "description": "Additional properties to add for this event type",
-                    "label": "Additional parameters",
-                    "default": {},
-                },
+                *common_inputs,
             ],
         ),
         HogFunctionMappingTemplate(
@@ -323,13 +262,7 @@ export function onEvent({ inputs }) {
                     "default": "SEARCH",
                     "required": True,
                 },
-                {
-                    "key": "additionalProperties",
-                    "type": "dictionary",
-                    "description": "Additional properties to add for this event type",
-                    "label": "Additional parameters",
-                    "default": {},
-                },
+                *common_inputs,
             ],
         ),
     ],
