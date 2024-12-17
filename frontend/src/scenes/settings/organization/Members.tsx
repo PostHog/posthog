@@ -19,7 +19,6 @@ import {
 } from 'lib/utils/permissioning'
 import { useEffect } from 'react'
 import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
-import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -143,9 +142,9 @@ export function Members(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
 
-    const { setSearch, ensureAllMembersLoaded, loadAllMembers } = useActions(membersLogic)
+    const { setSearch, ensureAllMembersLoaded } = useActions(membersLogic)
     const { updateOrganization } = useActions(organizationLogic)
-    const { toggleTwoFactorSetupModal } = useActions(twoFactorLogic)
+    const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
 
     useEffect(() => {
         ensureAllMembersLoaded()
@@ -212,14 +211,6 @@ export function Members(): JSX.Element | null {
             render: function LevelRender(_, member) {
                 return (
                     <>
-                        {member.user.uuid == user.uuid && (
-                            <TwoFactorSetupModal
-                                onSuccess={() => {
-                                    userLogic.actions.updateUser({})
-                                    loadAllMembers()
-                                }}
-                            />
-                        )}
                         <Tooltip
                             title={
                                 member.user.uuid == user.uuid && !member.is_2fa_enabled
@@ -230,7 +221,7 @@ export function Members(): JSX.Element | null {
                             <LemonTag
                                 onClick={
                                     member.user.uuid == user.uuid && !member.is_2fa_enabled
-                                        ? () => toggleTwoFactorSetupModal(true)
+                                        ? () => openTwoFactorSetupModal()
                                         : undefined
                                 }
                                 data-attr="2fa-enabled"

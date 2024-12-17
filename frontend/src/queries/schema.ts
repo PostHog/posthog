@@ -367,6 +367,7 @@ export interface HogQLMetadataResponse {
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
     query_status?: never
+    table_names?: string[]
 }
 
 export type AutocompleteCompletionItemKind =

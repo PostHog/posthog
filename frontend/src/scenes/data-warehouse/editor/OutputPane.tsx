@@ -31,13 +31,14 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
+import { InfoTab } from './OutputPaneTabs/InfoTab'
 
 export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
     const { variablesForInsight } = useValues(variablesLogic)
 
-    const { editingView, sourceQuery, exportContext, isValidView, error } = useValues(multitabEditorLogic)
+    const { editingView, sourceQuery, exportContext, isValidView, error, editorKey } = useValues(multitabEditorLogic)
     const { saveAsInsight, saveAsView, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
@@ -89,6 +90,10 @@ export function OutputPane(): JSX.Element {
                         {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
+                        },
+                        {
+                            key: OutputTab.Info,
+                            label: 'Info',
                         },
                     ]}
                 />
@@ -151,7 +156,7 @@ export function OutputPane(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            <div className="flex flex-1 relative bg-dark justify-center items-center">
+            <div className="flex flex-1 relative bg-dark">
                 <Content
                     activeTab={activeTab}
                     responseError={responseError}
@@ -168,6 +173,7 @@ export function OutputPane(): JSX.Element {
                     saveAsInsight={saveAsInsight}
                     queryId={queryId}
                     pollResponse={pollResponse}
+                    editorKey={editorKey}
                 />
             </div>
             <div className="flex justify-end pr-2 border-t">
@@ -294,6 +300,7 @@ const Content = ({
     saveAsInsight,
     queryId,
     pollResponse,
+    editorKey,
 }: any): JSX.Element | null => {
     if (activeTab === OutputTab.Results) {
         if (responseError) {
@@ -310,7 +317,9 @@ const Content = ({
         return responseLoading ? (
             <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
         ) : !response ? (
-            <span className="text-muted mt-3">Query results will appear here</span>
+            <div className="flex flex-1 justify-center items-center">
+                <span className="text-muted mt-3">Query results will appear here</span>
+            </div>
         ) : (
             <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
                 <DataGrid
@@ -335,7 +344,9 @@ const Content = ({
         }
 
         return !response ? (
-            <span className="text-muted mt-3">Query be results will be visualized here</span>
+            <div className="flex flex-1 justify-center items-center">
+                <span className="text-muted mt-3">Query results will be visualized here</span>
+            </div>
         ) : (
             <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
                 <InternalDataTableVisualization
@@ -347,6 +358,14 @@ const Content = ({
                     exportContext={exportContext}
                     onSaveInsight={saveAsInsight}
                 />
+            </div>
+        )
+    }
+
+    if (activeTab === OutputTab.Info) {
+        return (
+            <div className="flex flex-1 relative bg-dark">
+                <InfoTab codeEditorKey={editorKey} />
             </div>
         )
     }
