@@ -1241,7 +1241,7 @@ impl FeatureFlagMatcher {
                 .await?
                 .get(&group_type_index)
                 .and_then(|group_type_name| self.groups.get(group_type_name))
-                .and_then(|v| v.as_str())
+                .and_then(|group_key_value| group_key_value.as_str())
                 // NB: we currently use empty string ("") as the hashed identifier for group flags without a group key,
                 // and I don't want to break parity with the old service since I don't want the hash values to change
                 .unwrap_or("")
