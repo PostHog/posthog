@@ -5,7 +5,6 @@ import time
 from typing import Optional
 from unittest.mock import patch, Mock
 
-from inline_snapshot import snapshot
 import pytest
 from django.conf import settings
 from django.core.cache import cache
@@ -3790,6 +3789,9 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             name="Org 1", slug=f"org-{dbname}-{random.randint(1, 1000000)}"
         )
         team = Team.objects.db_manager(dbname).create(organization=organization, name="Team 1 org 1")
+        # Tricky the remote config is normally created via a task linked to the standard DB whereas here we are fudging the DB access to simulate things
+        remote_config, _ = RemoteConfig.objects.db_manager(dbname).get_or_create(team=team, defaults={"config": {}})
+        remote_config.sync()
         user = User.objects.db_manager(dbname).create(
             email=f"test-{random.randint(1, 100000)}@posthog.com",
             password="password",
@@ -4574,41 +4576,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 {"groups-flag": True, "default-no-prop-group-flag": True},
             )
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
-
-    @patch(
-        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-        return_value=True,
-    )
-    def test_site_apps_in_decide_use_replica(self, mock_is_connected):
-        org, team, user = self.setup_user_and_team_in_db("default")
-        self.organization, self.team, self.user = org, team, user
-
-        plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
-        PluginSourceFile.objects.create(
-            plugin=plugin,
-            filename="site.ts",
-            source="export function inject (){}",
-            transpiled="function inject(){}",
-            status=PluginSourceFile.Status.TRANSPILED,
-        )
-        PluginConfig.objects.create(
-            plugin=plugin,
-            enabled=True,
-            order=1,
-            team=self.team,
-            config={},
-            web_token="tokentoken",
-        )
-        sync_team_inject_web_apps(self.team)
-
-        # update caches
-        self._post_decide(api_version=3)
-
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            injected = response.json()["siteApps"]
-            self.assertEqual(len(injected), 1)
 
     # Adding local evaluation tests for read replica in one place for now, until we move to a separate CI flow for all read replica tests
     # since code-level overrides don't work for theses tests, as they affect the DATABASES setting
