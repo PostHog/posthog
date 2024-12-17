@@ -398,11 +398,15 @@ class RemoteConfig(UUIDModel):
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/array.js"})
 
         try:
-            requests.post(
+            res = requests.post(
                 settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
                 headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
                 data=data,
             )
+
+            if res.status_code != 200:
+                raise Exception(f"Failed to purge CDN for team {self.team_id}: {res.status_code} {res.text}")
+
         except Exception:
             logger.exception(f"Failed to purge CDN for team {self.team_id}")
             REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
