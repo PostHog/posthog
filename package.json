@@ -77,7 +77,7 @@
         "@microlink/react-json-view": "^1.21.3",
         "@microsoft/fetch-event-source": "^2.0.1",
         "@monaco-editor/react": "4.6.0",
-        "@posthog/hogvm": "^1.0.61",
+        "@posthog/hogvm": "^1.0.63",
         "@posthog/icons": "0.9.2",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@react-hook/size": "^2.1.2",
