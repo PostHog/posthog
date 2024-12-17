@@ -151,4 +151,5 @@ export interface TentativeListItem {
 export interface ButtonListItem extends BasicListItem {
     key: '__button__'
     onClick: () => void
+    icon?: JSX.Element
 }

@@ -3,10 +3,10 @@ import { LemonBanner, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Query } from '~/queries/Query/Query'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
 import { ExperimentIdType, InsightType } from '~/types'
 
 import { MetricInsightId } from '../constants'
@@ -120,7 +120,16 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
         syncWithUrl: false,
     })
     const { insightProps } = useValues(insightLogicInstance)
-    const { query } = useValues(insightDataLogic(insightProps))
+    let query = null
+    if (experiment.metrics.length > 0) {
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source:
+                metricType === InsightType.FUNNELS
+                    ? (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query
+                    : (experiment.metrics[0] as ExperimentTrendsQuery).count_query,
+        }
+    }
 
     const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
 

@@ -5,14 +5,12 @@ import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAu
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
 import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { CreateEnvironmentModal } from 'scenes/project/CreateEnvironmentModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
-import { userLogic } from 'scenes/userLogic'
 
 import type { globalModalsLogicType } from './GlobalModalsType'
 
@@ -58,7 +56,6 @@ export function GlobalModals(): JSX.Element {
         useActions(globalModalsLogic)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { user } = useValues(userLogic)
 
     return (
         <>
@@ -71,17 +68,7 @@ export function GlobalModals(): JSX.Element {
             <TimeSensitiveAuthenticationModal />
             <SessionPlayerModal />
             <PreviewingCustomCssModal />
-            {user && user.organization?.enforce_2fa && !user.is_2fa_enabled && (
-                <TwoFactorSetupModal
-                    onSuccess={() => {
-                        userLogic.actions.loadUser()
-                        membersLogic.actions.loadAllMembers()
-                    }}
-                    forceOpen
-                    closable={false}
-                    required={true}
-                />
-            )}
+            <TwoFactorSetupModal />
             <HedgehogBuddyWithLogic />
         </>
     )
