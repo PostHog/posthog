@@ -57,16 +57,13 @@ common_inputs = [
         "label": "Custom data",
         "description": "A map that contains custom data. See this page for options: https://developers.snap.com/api/marketing-api/Conversions-API/Parameters#custom-data-parameters",
         "default": {
-            "price": "{toFloat(event.properties.price ?? event.properties.value ?? event.properties.revenue)}",
+            "value": "{toFloat(event.properties.price ?? event.properties.value ?? event.properties.revenue)}",
             "currency": "{event.properties.currency}",
-            "item_ids": "{event.properties.item_ids}",
-            "item_category": "{event.properties.category}",
-            "description": "{event.properties.description}",
+            "content_ids": "{event.properties.item_ids}",
+            "content_category": "{event.properties.category}",
             "search_string": "{event.properties.search_string ?? event.properties.query}",
-            "number_items": "{toInt(event.properties.number_items ?? event.properties.quantity)}",
-            "sign_up_method": "{event.properties.sign_up_method}",
-            "brands": "{event.properties.brands}",
-            "transaction_id": "{event.properties.orderId ?? event.properties.transactionId ?? event.properties.transaction_id}",
+            "num_items": "{toInt(event.properties.number_items ?? event.properties.quantity)}",
+            "order_id": "{event.properties.orderId ?? event.properties.transactionId ?? event.properties.transaction_id}",
             "event_id": "{event.uuid}",
         },
         "secret": False,
@@ -155,7 +152,20 @@ if (res.status >= 400) {
             "type": "string",
             "label": "Event Type",
             "description": "Check out this page for possible event types: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
-            "default": "{event.event == '$pageview' ? 'PAGE_VIEW' : event.event}",
+            "default": "{"
+            "event.event == '$pageview' ? 'PAGE_VIEW'"
+            ": event.event == 'Order completed' ? 'PURCHASE'"
+            ": event.event == 'Checkout started' ? 'START_CHECKOUT'"
+            ": event.event == 'Product added' ? 'ADD_CART'"
+            ": event.event == 'Payment info entered' ? 'ADD_BILLING'"
+            ": event.event == 'Promotion clicked' ? 'AD_CLICK'"
+            ": event.event == 'Promotion viewed' ? 'AD_VIEW'"
+            ": event.event == 'Product added to wishlist' ? 'ADD_TO_WISHLIST'"
+            ": event.event == 'Product viewed' ? 'VIEW_CONTENT'"
+            ": event.event == 'Product list viewed' ? 'VIEW_CONTENT'"
+            ": event.event == 'Products searched' ? 'SEARCH'"
+            ": event.event"
+            "}",
             "required": True,
         },
         *common_inputs,
