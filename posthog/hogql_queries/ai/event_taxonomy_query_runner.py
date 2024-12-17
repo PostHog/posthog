@@ -50,7 +50,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        if not self.query.property:
+        if not self.query.properties:
             return parse_select(
                 """
                 SELECT
@@ -71,13 +71,14 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
         return parse_select(
             """
                 SELECT
-                    {const},
+                    key,
                     arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS values,
                     count(DISTINCT value) AS total_count
                 FROM {from_query}
+                GROUP BY key
+                LIMIT 500
             """,
             placeholders={
-                "const": ast.Constant(value=self.query.property),
                 "from_query": self._get_subquery(),
             },
         )
@@ -129,35 +130,57 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             ),
         ]
 
-        if self.query.property:
+        if self.query.properties:
             filter_expr.append(
-                ast.CompareOperation(
-                    left=ast.Field(chain=["properties", self.query.property]),
-                    op=ast.CompareOperationOp.NotEq,
-                    right=ast.Constant(value=""),
+                ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["properties", prop]),
+                            op=ast.CompareOperationOp.NotEq,
+                            right=ast.Constant(value=""),
+                        )
+                        for prop in self.query.properties
+                    ]
                 )
             )
 
         return ast.And(exprs=filter_expr)
 
     def _get_subquery(self) -> ast.SelectQuery:
-        if self.query.property:
+        if self.query.properties:
             query = parse_select(
                 """
                     SELECT
-                        {prop} as value,
-                        count(*) AS count
-                    FROM
-                        events
-                    WHERE
-                        {filter}
-                    GROUP BY
-                        value
-                    ORDER BY
-                        count DESC
+                        key,
+                        value,
+                        count() as count
+                    FROM (
+                        SELECT
+                            {props} as kv
+                        FROM
+                            events
+                        WHERE {filter}
+                    )
+                    ARRAY JOIN kv.1 AS key, kv.2 AS value
+                    WHERE value != ''
+                    GROUP BY key, value
+                    ORDER BY count DESC
                 """,
                 placeholders={
-                    "prop": ast.Field(chain=["properties", self.query.property]),
+                    "props": ast.Array(
+                        exprs=[
+                            ast.Tuple(
+                                exprs=[
+                                    ast.Constant(value=prop),
+                                    ast.Call(
+                                        name="JSONExtractString",
+                                        args=[ast.Field(chain=["properties"]), ast.Constant(value=prop)],
+                                    ),
+                                ]
+                            )
+                            for prop in self.query.properties
+                        ]
+                    ),
                     "filter": self._get_subquery_filter(),
                 },
             )
