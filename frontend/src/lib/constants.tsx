@@ -235,7 +235,7 @@ export const FEATURE_FLAGS = {
     SITE_APP_FUNCTIONS: 'site-app-functions', // owner: @mariusandra #team-cdp
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     REPLAY_LIST_RECORDINGS_AS_QUERY: 'replay-list-recordings-as-query', // owner: @pauldambra #team-replay
-    SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @joe
+    SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
