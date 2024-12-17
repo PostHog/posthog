@@ -5,7 +5,8 @@ import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
-import { FEATURE_FLAGS, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -14,17 +15,15 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 
 import { experimentLogic } from './experimentLogic'
-import { ExperimentsDisabledBanner } from './Experiments'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, featureFlags, groupTypes, aggregationLabel, dynamicFeatureFlagKey } = useValues(experimentLogic)
+    const { experiment, groupTypes, aggregationLabel, dynamicFeatureFlagKey } = useValues(experimentLogic)
     const { addExperimentGroup, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
         useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
+    const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
-    return featureFlags[FEATURE_FLAGS.EXPERIMENTS_MIGRATION_DISABLE_UI] ? (
-        <ExperimentsDisabledBanner />
-    ) : (
+    return (
         <div>
             <div className="space-y-8">
                 <div className="space-y-6 max-w-120">
@@ -106,37 +105,40 @@ const ExperimentFormFields = (): JSX.Element => {
                         />
                     </div>
                 )}
-                <div>
-                    <h3 className="mt-10">Participant type</h3>
-                    <div className="text-xs text-muted">
-                        The type on which to aggregate metrics. You can change this at any time during the experiment.
-                    </div>
-                    <LemonDivider />
-                    <LemonRadio
-                        value={
-                            experiment.parameters.aggregation_group_type_index != undefined
-                                ? experiment.parameters.aggregation_group_type_index
-                                : -1
-                        }
-                        onChange={(rawGroupTypeIndex) => {
-                            const groupTypeIndex = rawGroupTypeIndex !== -1 ? rawGroupTypeIndex : undefined
+                {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
+                    <div>
+                        <h3 className="mt-10">Participant type</h3>
+                        <div className="text-xs text-muted">
+                            The type on which to aggregate metrics. You can change this at any time during the
+                            experiment.
+                        </div>
+                        <LemonDivider />
+                        <LemonRadio
+                            value={
+                                experiment.parameters.aggregation_group_type_index != undefined
+                                    ? experiment.parameters.aggregation_group_type_index
+                                    : -1
+                            }
+                            onChange={(rawGroupTypeIndex) => {
+                                const groupTypeIndex = rawGroupTypeIndex !== -1 ? rawGroupTypeIndex : undefined
 
-                            setExperiment({
-                                parameters: {
-                                    ...experiment.parameters,
-                                    aggregation_group_type_index: groupTypeIndex ?? undefined,
-                                },
-                            })
-                        }}
-                        options={[
-                            { value: -1, label: 'Persons' },
-                            ...Array.from(groupTypes.values()).map((groupType) => ({
-                                value: groupType.group_type_index,
-                                label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                            })),
-                        ]}
-                    />
-                </div>
+                                setExperiment({
+                                    parameters: {
+                                        ...experiment.parameters,
+                                        aggregation_group_type_index: groupTypeIndex ?? undefined,
+                                    },
+                                })
+                            }}
+                            options={[
+                                { value: -1, label: 'Persons' },
+                                ...Array.from(groupTypes.values()).map((groupType) => ({
+                                    value: groupType.group_type_index,
+                                    label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                                })),
+                            ]}
+                        />
+                    </div>
+                )}
                 <div className="mt-10">
                     <h3 className="mb-1">Variants</h3>
                     <div className="text-xs text-muted">Add up to 9 variants to test against your control.</div>

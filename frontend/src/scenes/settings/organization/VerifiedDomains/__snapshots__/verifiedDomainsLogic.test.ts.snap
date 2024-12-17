@@ -115,6 +115,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "test_account_filters_default_checked": false,
         "timezone": "UTC",
         "updated_at": "2022-03-17T16:09:21.566253Z",
+        "user_access_level": "admin",
         "uuid": "TEAM_UUID",
       },
     ],

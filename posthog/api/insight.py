@@ -1184,7 +1184,7 @@ When set, the specified dashboard's filters and date range override will be appl
         page = int(request.query_params.get("page", "1"))
 
         item_id = kwargs["pk"]
-        if not Insight.objects.filter(id=item_id, team_id=self.team_id).exists():
+        if not Insight.objects.filter(id=item_id, team__project_id=self.team.project_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(

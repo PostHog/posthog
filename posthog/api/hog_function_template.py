@@ -6,11 +6,26 @@ from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionSubTemplate
+from posthog.cdp.templates.hog_function_template import (
+    HogFunctionMapping,
+    HogFunctionMappingTemplate,
+    HogFunctionTemplate,
+    HogFunctionSubTemplate,
+)
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 
 logger = structlog.get_logger(__name__)
+
+
+class HogFunctionMappingSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = HogFunctionMapping
+
+
+class HogFunctionMappingTemplateSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = HogFunctionMappingTemplate
 
 
 class HogFunctionSubTemplateSerializer(DataclassSerializer):
@@ -19,6 +34,8 @@ class HogFunctionSubTemplateSerializer(DataclassSerializer):
 
 
 class HogFunctionTemplateSerializer(DataclassSerializer):
+    mapping_templates = HogFunctionMappingTemplateSerializer(many=True, required=False)
+    mappings = HogFunctionMappingSerializer(many=True, required=False)
     sub_templates = HogFunctionSubTemplateSerializer(many=True, required=False)
 
     class Meta:
@@ -33,8 +50,12 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
     serializer_class = HogFunctionTemplateSerializer
 
     def list(self, request: Request, *args, **kwargs):
-        type = self.request.GET.get("type", "destination")
-        templates = [item for item in HOG_FUNCTION_TEMPLATES if item.type == type]
+        types = ["destination"]
+        if "type" in request.GET:
+            types = [self.request.GET.get("type", "destination")]
+        elif "types" in request.GET:
+            types = self.request.GET.get("types", "destination").split(",")
+        templates = [item for item in HOG_FUNCTION_TEMPLATES if item.type in types]
         page = self.paginate_queryset(templates)
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)

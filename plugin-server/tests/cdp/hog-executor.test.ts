@@ -112,7 +112,7 @@ describe('Hog Executor', () => {
                 {
                     timestamp: expect.any(DateTime),
                     level: 'debug',
-                    message: "Suspending function due to async function call 'fetch'. Payload: 1951 bytes",
+                    message: "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                 },
             ])
         })
@@ -193,7 +193,7 @@ describe('Hog Executor', () => {
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 Array [
                   "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes",
+                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Resuming function",
                   "Fetch response:, {\\"status\\":200,\\"body\\":\\"success\\"}",
                   "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
@@ -212,7 +212,7 @@ describe('Hog Executor', () => {
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 Array [
                   "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes",
+                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Resuming function",
                   "Fetch response:, {\\"status\\":200,\\"body\\":{\\"foo\\":\\"bar\\"}}",
                   "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
@@ -243,7 +243,7 @@ describe('Hog Executor', () => {
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 Array [
                   "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes",
+                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Fetch failed after 1 attempts",
                   "Fetch failure of kind failurestatus with status 404 and message 404 Not Found",
                   "Resuming function",
@@ -562,7 +562,7 @@ describe('Hog Executor', () => {
             expect(result3.error).toEqual('Exceeded maximum number of async steps: 5')
             expect(result3.logs.map((log) => log.message)).toEqual([
                 'Resuming function',
-                'Error executing function: HogVMException: Exceeded maximum number of async steps: 5',
+                'Error executing function on event uuid: HogVMException: Exceeded maximum number of async steps: 5',
             ])
         })
     })
@@ -610,9 +610,9 @@ describe('Hog Executor', () => {
                 'I AM FIBONACCI',
                 'I AM FIBONACCI',
                 'I AM FIBONACCI',
-                'Function exceeded maximum log entries. No more logs will be collected.',
+                'Function exceeded maximum log entries. No more logs will be collected. Event: uuid',
                 expect.stringContaining(
-                    'Error executing function: HogVMException: Execution timed out after 0.1 seconds. Performed'
+                    'Error executing function on event uuid: HogVMException: Execution timed out after 0.1 seconds. Performed'
                 ),
             ])
         })

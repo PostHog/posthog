@@ -3,6 +3,9 @@ from datetime import UTC, datetime
 from celery import shared_task
 from django.db import models
 
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.feedback.survey import Survey
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
@@ -30,6 +33,10 @@ We shouldn't use this model and the `activated_at` field in place of sending eve
 about product usage because that limits our data exploration later. Definitely continue
 sending events for product usage that we may want to track for any reason, along with
 calculating activation here.
+
+Note: single-event activation metrics that can also happen at the same time the intent
+is created won't have tracking events sent for them. Unless you want to solve this,
+make activation metrics require multiple things to happen.
 """
 
 
@@ -58,7 +65,7 @@ class ProductIntent(UUIDModel):
 
     def has_activated_data_warehouse(self) -> bool:
         insights = Insight.objects.filter(
-            team=self.team,
+            team__project_id=self.team.project_id,
             created_at__gte=datetime(2024, 6, 1, tzinfo=UTC),
             query__kind="DataVisualizationNode",
         )
@@ -74,12 +81,50 @@ class ProductIntent(UUIDModel):
 
         return False
 
-    def check_and_update_activation(self) -> None:
-        if self.product_type == "data_warehouse":
-            if self.has_activated_data_warehouse():
-                self.activated_at = datetime.now(tz=UTC)
-                self.save()
-                self.report_activation("data_warehouse")
+    def has_activated_experiments(self) -> bool:
+        # the team has any launched experiments
+        return Experiment.objects.filter(team=self.team, start_date__isnull=False).exists()
+
+    def has_activated_feature_flags(self) -> bool:
+        # Get feature flags that have at least one filter group, excluding ones used by experiments and surveys
+        experiment_flags = Experiment.objects.filter(team=self.team).values_list("feature_flag_id", flat=True)
+        survey_flags = Survey.objects.filter(team=self.team).values_list("targeting_flag_id", flat=True)
+
+        feature_flags = (
+            FeatureFlag.objects.filter(
+                team=self.team,
+                filters__groups__0__properties__isnull=False,
+            )
+            .exclude(id__in=experiment_flags)
+            .exclude(id__in=survey_flags)
+            .only("id", "filters")
+        )
+
+        # To activate we need at least 2 feature flags
+        if feature_flags.count() < 2:
+            return False
+
+        # To activate we need at least 2 filter groups across all flags
+        total_groups = 0
+        for flag in feature_flags:
+            total_groups += len(flag.filters.get("groups", []))
+
+        return total_groups >= 2
+
+    def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
+        activation_checks = {
+            "data_warehouse": self.has_activated_data_warehouse,
+            "experiments": self.has_activated_experiments,
+            "feature_flags": self.has_activated_feature_flags,
+        }
+
+        if self.product_type in activation_checks and activation_checks[self.product_type]():
+            self.activated_at = datetime.now(tz=UTC)
+            self.save()
+            if not skip_reporting:
+                self.report_activation(self.product_type)
+            return True
+        return False
 
     def report_activation(self, product_key: str) -> None:
         from posthog.event_usage import report_team_action

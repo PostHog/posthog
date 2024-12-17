@@ -382,32 +382,11 @@ class UserViewSet(
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
 
-    @action(methods=["GET"], detail=True)
-    def start_2fa_setup(self, request, **kwargs):
-        key = random_hex(20)
-        self.request.session["django_two_factor-hex"] = key
-        rawkey = unhexlify(key.encode("ascii"))
-        b32key = b32encode(rawkey).decode("utf-8")
-        self.request.session["django_two_factor-qr_secret_key"] = b32key
-        return Response({"success": True})
-
-    @action(methods=["POST"], detail=True)
-    def validate_2fa(self, request, **kwargs):
-        form = TOTPDeviceForm(
-            request.session["django_two_factor-hex"],
-            request.user,
-            data={"token": request.data["token"]},
-        )
-        if not form.is_valid():
-            raise serializers.ValidationError("Token is not valid", code="token_invalid")
-        form.save()
-        otp_login(request, default_device(request.user))
-        return Response({"success": True})
-
-    @action(methods=["POST"], detail=True, permission_classes=[AllowAny])
+    @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
         user_uuid = request.data["uuid"]
+
         if not token:
             raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
 
@@ -443,7 +422,7 @@ class UserViewSet(
 
     @action(
         methods=["POST"],
-        detail=True,
+        detail=False,
         permission_classes=[AllowAny],
         throttle_classes=[UserEmailVerificationThrottle],
     )
@@ -489,6 +468,38 @@ class UserViewSet(
             instance.save()
             return Response(instance.hedgehog_config)
 
+    # Deprecated - use two_factor_start_setup instead
+    @action(methods=["GET"], detail=True)
+    def start_2fa_setup(self, request, **kwargs):
+        return self.two_factor_start_setup(request, **kwargs)
+
+    @action(methods=["GET"], detail=True)
+    def two_factor_start_setup(self, request, **kwargs):
+        key = random_hex(20)
+        self.request.session["django_two_factor-hex"] = key
+        rawkey = unhexlify(key.encode("ascii"))
+        b32key = b32encode(rawkey).decode("utf-8")
+        self.request.session["django_two_factor-qr_secret_key"] = b32key
+        return Response({"success": True})
+
+    # Deprecated - use two_factor_validate instead
+    @action(methods=["POST"], detail=True)
+    def validate_2fa(self, request, **kwargs):
+        return self.two_factor_validate(request, **kwargs)
+
+    @action(methods=["POST"], detail=True)
+    def two_factor_validate(self, request, **kwargs):
+        form = TOTPDeviceForm(
+            request.session["django_two_factor-hex"],
+            request.user,
+            data={"token": request.data["token"]},
+        )
+        if not form.is_valid():
+            raise serializers.ValidationError("Token is not valid", code="token_invalid")
+        form.save()
+        otp_login(request, default_device(request.user))
+        return Response({"success": True})
+
     @action(methods=["GET"], detail=True)
     def two_factor_status(self, request, **kwargs):
         """Get current 2FA status including backup codes if enabled"""
@@ -526,7 +537,7 @@ class UserViewSet(
 
         # Generate new backup codes
         backup_codes = []
-        for _ in range(10):  # Generate 10 backup codes
+        for _ in range(5):  # Generate 5 backup codes
             token = StaticToken.random_token()
             static_device.token_set.create(token=token)
             backup_codes.append(token)

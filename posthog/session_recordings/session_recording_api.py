@@ -4,6 +4,7 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from json import JSONDecodeError
 from typing import Any, Optional, cast
 
 import posthoganalytics
@@ -20,6 +21,7 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 
+import posthog.session_recordings.queries.session_recording_list_from_query
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -36,7 +38,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     PersonalApiKeyRateThrottle,
 )
-from posthog.schema import HogQLQueryModifiers, QueryTiming
+from posthog.schema import HogQLQueryModifiers, QueryTiming, RecordingsQuery
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -45,6 +47,7 @@ from posthog.session_recordings.queries.session_recording_list_from_filters impo
     ReplayFiltersEventsSubQuery,
     SessionRecordingListFromFilters,
 )
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_recording_properties import (
     SessionRecordingProperties,
 )
@@ -240,10 +243,8 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
         return data
 
 
-def list_recordings_response(
-    filter: SessionRecordingsFilter, request: request.Request, serializer_context: dict[str, Any]
-) -> Response:
-    (recordings, timings) = list_recordings(filter, request, context=serializer_context)
+def list_recordings_response(listing_result: tuple[dict, dict]) -> Response:
+    (recordings, timings) = listing_result
     response = Response(recordings)
     response.headers["Server-Timing"] = ", ".join(
         f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
@@ -294,6 +295,22 @@ class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
     rate = "600/hour"
 
 
+def query_as_params_to_dict(params_dict: dict) -> dict:
+    """
+    before (if ever) we convert this to a query runner that takes a post
+    we need to convert to a valid dict from the data that arrived in query params
+    """
+    converted = {}
+    for key in params_dict:
+        try:
+            converted[key] = json.loads(params_dict[key]) if isinstance(params_dict[key], str) else params_dict[key]
+        except JSONDecodeError:
+            converted[key] = params_dict[key]
+
+    converted.pop("as_query", None)
+    return converted
+
+
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
 class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin):
     scope_object = "session_recording"
@@ -320,9 +337,19 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        filter = SessionRecordingsFilter(request=request, team=self.team)
-        self._maybe_report_recording_list_filters_changed(request, team=self.team)
-        return list_recordings_response(filter, request, self.get_serializer_context())
+        use_query_type = (request.GET.get("as_query", "False")).lower() == "true"
+        if use_query_type:
+            data_dict = query_as_params_to_dict(request.GET.dict())
+            query = RecordingsQuery.model_validate(data_dict)
+            # a little duplication for now
+            self._maybe_report_recording_list_filters_changed(request, team=self.team)
+            return list_recordings_response(
+                list_recordings_from_query(query, request, context=self.get_serializer_context())
+            )
+        else:
+            filter = SessionRecordingsFilter(request=request, team=self.team)
+            self._maybe_report_recording_list_filters_changed(request, team=self.team)
+            return list_recordings_response(list_recordings(filter, request, context=self.get_serializer_context()))
 
     @extend_schema(
         exclude=True,
@@ -334,31 +361,54 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     )
     @action(methods=["GET"], detail=False)
     def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
-        filter = SessionRecordingsFilter(request=request, team=self.team)
+        use_query_type = (request.GET.get("as_query", "False")).lower() == "true"
 
-        if not filter.session_ids or len(filter.session_ids) != 1:
-            raise exceptions.ValidationError(
-                "Must specify exactly one session_id",
+        if use_query_type:
+            data_dict = query_as_params_to_dict(request.GET.dict())
+            query = RecordingsQuery.model_validate(data_dict)
+
+            # a little duplication for now
+            if not query.session_ids or len(query.session_ids) != 1:
+                raise exceptions.ValidationError(
+                    "Must specify exactly one session_id",
+                )
+
+            if not query.events and not query.actions:
+                raise exceptions.ValidationError(
+                    "Must specify at least one event or action filter",
+                )
+
+            distinct_id = str(cast(User, request.user).distinct_id)
+            modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
+            results, _, timings = (
+                posthog.session_recordings.queries.session_recording_list_from_query.ReplayFiltersEventsSubQuery(
+                    query=query, team=self.team, hogql_query_modifiers=modifiers
+                ).get_event_ids_for_session()
             )
+        else:
+            filter = SessionRecordingsFilter(request=request, team=self.team)
 
-        if not filter.events and not filter.actions:
-            raise exceptions.ValidationError(
-                "Must specify at least one event or action filter",
-            )
+            if not filter.session_ids or len(filter.session_ids) != 1:
+                raise exceptions.ValidationError(
+                    "Must specify exactly one session_id",
+                )
 
-        distinct_id = str(cast(User, request.user).distinct_id)
-        modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
-        matching_events_query_response = ReplayFiltersEventsSubQuery(
-            filter=filter, team=self.team, hogql_query_modifiers=modifiers
-        ).get_event_ids_for_session()
+            if not filter.events and not filter.actions:
+                raise exceptions.ValidationError(
+                    "Must specify at least one event or action filter",
+                )
 
-        response = JsonResponse(data={"results": matching_events_query_response.results})
+            distinct_id = str(cast(User, request.user).distinct_id)
+            modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
+            results, _, timings = ReplayFiltersEventsSubQuery(
+                filter=filter, team=self.team, hogql_query_modifiers=modifiers
+            ).get_event_ids_for_session()
+
+        response = JsonResponse(data={"results": results})
 
         response.headers["Server-Timing"] = ", ".join(
             f"{key};dur={round(duration, ndigits=2)}"
-            for key, duration in _generate_timings(
-                matching_events_query_response.timings, ServerTimingsGathered()
-            ).items()
+            for key, duration in _generate_timings(timings, ServerTimingsGathered()).items()
         )
         return response
 
@@ -794,6 +844,107 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.ValidationError(f"Invalid version: {version}")
 
 
+# TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
+def list_recordings_from_query(
+    query: RecordingsQuery, request: request.Request, context: dict[str, Any]
+) -> tuple[dict, dict]:
+    """
+    As we can store recordings in S3 or in Clickhouse we need to do a few things here
+
+    A. If filter.session_ids is specified:
+      1. We first try to load them directly from Postgres if they have been persisted to S3 (they might have fell out of CH)
+      2. Any that couldn't be found are then loaded from Clickhouse
+    B. Otherwise we just load all values from Clickhouse
+      2. Once loaded we convert them to SessionRecording objects in case we have any other persisted data
+    """
+
+    all_session_ids = query.session_ids
+
+    recordings: list[SessionRecording] = []
+    more_recordings_available = False
+    team = context["get_team"]()
+    hogql_timings: list[QueryTiming] | None = None
+
+    timer = ServerTimingsGathered()
+
+    if all_session_ids:
+        with timer("load_persisted_recordings"):
+            # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
+            sorted_session_ids = sorted(all_session_ids)
+
+            persisted_recordings_queryset = SessionRecording.objects.filter(
+                team=team, session_id__in=sorted_session_ids
+            ).exclude(object_storage_path=None)
+
+            persisted_recordings = persisted_recordings_queryset.all()
+
+            recordings = recordings + list(persisted_recordings)
+
+            remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
+            query.session_ids = remaining_session_ids
+
+    if (all_session_ids and query.session_ids) or not all_session_ids:
+        distinct_id = str(cast(User, request.user).distinct_id)
+        modifiers = safely_read_modifiers_overrides(distinct_id, team)
+
+        with timer("load_recordings_from_hogql"):
+            (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromQuery(
+                query=query, team=team, hogql_query_modifiers=modifiers
+            ).run()
+
+        with timer("build_recordings"):
+            recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
+            recordings = recordings + recordings_from_clickhouse
+
+            recordings = [x for x in recordings if not x.deleted]
+
+            # If we have specified session_ids we need to sort them by the order they were specified
+            if all_session_ids:
+                recordings = sorted(
+                    recordings,
+                    key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
+                )
+
+    if not request.user.is_authenticated:  # for mypy
+        raise exceptions.NotAuthenticated()
+
+    # Update the viewed status for all loaded recordings
+    with timer("load_viewed_recordings"):
+        viewed_session_recordings = set(
+            SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
+        )
+
+    with timer("load_persons"):
+        # Get the related persons for all the recordings
+        distinct_ids = sorted([x.distinct_id for x in recordings])
+        person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
+            "person"
+        )
+
+    with timer("process_persons"):
+        distinct_id_to_person = {}
+        for person_distinct_id in person_distinct_ids:
+            person_distinct_id.person._distinct_ids = [
+                person_distinct_id.distinct_id
+            ]  # Stop the person from loading all distinct ids
+            distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
+
+        for recording in recordings:
+            recording.viewed = recording.session_id in viewed_session_recordings
+            person = distinct_id_to_person.get(recording.distinct_id)
+            if person:
+                recording.person = person
+
+    session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
+    results = session_recording_serializer.data
+
+    all_timings = _generate_timings(hogql_timings, timer)
+    return (
+        {"results": results, "has_next": more_recordings_available, "version": 4},
+        all_timings,
+    )
+
+
 def list_recordings(
     filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any]
 ) -> tuple[dict, dict]:
@@ -865,7 +1016,7 @@ def list_recordings(
 
     with timer("load_persons"):
         # Get the related persons for all the recordings
-        distinct_ids = sorted([x.distinct_id for x in recordings])
+        distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
         person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
             "person"
         )
@@ -880,7 +1031,7 @@ def list_recordings(
 
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
-            person = distinct_id_to_person.get(recording.distinct_id)
+            person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
             if person:
                 recording.person = person
 

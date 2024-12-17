@@ -4,7 +4,7 @@
 # - `uv pip compile requirements.in -o requirements.txt`
 # - `uv pip compile requirements-dev.in -o requirements-dev.txt`
 #
-aiohttp>=3.9.0
+aiohttp==3.11.10
 aioboto3==12.0.0
 aiokafka>=0.8
 antlr4-python3-runtime==4.13.1
@@ -51,6 +51,7 @@ langfuse==2.52.1
 langgraph==0.2.34
 langsmith==0.1.132
 lzstring==1.0.4
+multidict==6.0.5 # Not used by us directly, but code won't run on Ubuntu 24.04 unless we resolve this to 6.0.5
 natsort==8.4.0
 nanoid==2.0.0
 numpy==1.23.3

@@ -9,62 +9,107 @@ import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
+import { AvailableFeature, HogFunctionTypeType, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
 import { AppMetricSparkLine } from '../AppMetricSparkLine'
+import { FrontendApps } from '../FrontendApps'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { HogFunctionStatusIndicator } from '../hogfunctions/HogFunctionStatusIndicator'
+import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { AppMetricSparkLineV2 } from '../metrics/AppMetricsV2Sparkline'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
-import { Destination, PipelineBackend } from '../types'
+import { Destination, PipelineBackend, SiteApp, Transformation } from '../types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
 import { DestinationsFilters } from './DestinationsFilters'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { DestinationOptionsTable } from './NewDestinations'
 
-export function Destinations(): JSX.Element {
-    const { destinations, loading } = useValues(pipelineDestinationsLogic({ syncFiltersWithUrl: true }))
+export interface DestinationsProps {
+    types: HogFunctionTypeType[]
+}
+
+export function Destinations({ types }: DestinationsProps): JSX.Element {
+    const { destinations, loading } = useValues(pipelineDestinationsLogic({ types }))
 
     return (
         <>
-            <PageHeader
-                caption="Send your data in real time or in batches to destinations outside of PostHog."
-                buttons={<NewButton stage={PipelineStage.Destination} />}
-            />
-            <PayGateMini feature={AvailableFeature.DATA_PIPELINES} className="mb-2">
-                <ProductIntroduction
-                    productName="Pipeline destinations"
-                    thingName="destination"
-                    productKey={ProductKey.PIPELINE_DESTINATIONS}
-                    description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
-                    docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
-                    isEmpty={destinations.length === 0 && !loading}
+            {types.includes('destination') ? (
+                <>
+                    <PageHeader
+                        caption="Send your data in real time or in batches to destinations outside of PostHog."
+                        buttons={<NewButton stage={PipelineStage.Destination} />}
+                    />
+                    <PayGateMini feature={AvailableFeature.DATA_PIPELINES} className="mb-2">
+                        <ProductIntroduction
+                            productName="Pipeline destinations"
+                            thingName="destination"
+                            productKey={ProductKey.PIPELINE_DESTINATIONS}
+                            description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
+                            docsURL="https://posthog.com/docs/cdp"
+                            actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
+                            isEmpty={destinations.length === 0 && !loading}
+                        />
+                    </PayGateMini>
+                </>
+            ) : types.includes('site_app') ? (
+                <PageHeader
+                    caption="Run custom scripts on your website."
+                    buttons={<NewButton stage={PipelineStage.SiteApp} />}
                 />
-            </PayGateMini>
-            <DestinationsTable />
+            ) : null}
+
+            <DestinationsTable types={types} />
             <div className="mt-4" />
-            <h2>New destinations</h2>
-            <DestinationOptionsTable />
+            <h2>
+                {types.includes('destination')
+                    ? 'New destinations'
+                    : types.includes('site_app')
+                    ? 'New site app'
+                    : types.includes('transformation')
+                    ? 'New transformation'
+                    : 'New'}
+            </h2>
+            <DestinationOptionsTable types={types} />
+            {/* Old site-apps until we migrate everyone onto the new ones */}
+            {types.includes('site_app') ? <FrontendApps asLegacyList /> : null}
         </>
     )
 }
 export type DestinationsTableProps = {
+    types: HogFunctionTypeType[]
     hideFeedback?: boolean
     hideAddDestinationButton?: boolean
 }
 
-export function DestinationsTable({ hideFeedback, hideAddDestinationButton }: DestinationsTableProps): JSX.Element {
+export function DestinationsTable({
+    hideFeedback,
+    hideAddDestinationButton,
+    types,
+}: DestinationsTableProps): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
-    const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(pipelineDestinationsLogic)
-    const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
-    const { resetFilters } = useActions(destinationsFiltersLogic)
+    const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(
+        pipelineDestinationsLogic({ types })
+    )
+    const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic({ types }))
+    const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
+
+    const showFrequencyHistory = types.includes('destination')
+    const simpleName =
+        types.includes('destination') || types.includes('site_destination')
+            ? 'destination'
+            : types.includes('site_app')
+            ? 'site app'
+            : 'Hog function'
 
     return (
         <div className="space-y-2">
-            <DestinationsFilters hideFeedback={hideFeedback} hideAddDestinationButton={hideAddDestinationButton} />
+            <DestinationsFilters
+                types={types}
+                hideFeedback={hideFeedback}
+                hideAddDestinationButton={hideAddDestinationButton}
+            />
 
             <LemonTable
                 dataSource={filteredDestinations}
@@ -97,7 +142,7 @@ export function DestinationsTable({ hideFeedback, hideAddDestinationButton }: De
                             return (
                                 <LemonTableLink
                                     to={urls.pipelineNode(
-                                        PipelineStage.Destination,
+                                        hogFunctionTypeToPipelineStage(destination.stage),
                                         destination.id,
                                         PipelineNodeTab.Configuration
                                     )}
@@ -113,34 +158,42 @@ export function DestinationsTable({ hideFeedback, hideAddDestinationButton }: De
                             )
                         },
                     },
-                    {
-                        title: 'Frequency',
-                        key: 'interval',
-                        render: function RenderFrequency(_, destination) {
-                            return destination.interval
-                        },
-                    },
-                    {
-                        title: 'Last 7 days',
-                        render: function RenderSuccessRate(_, destination) {
-                            return (
-                                <Link
-                                    to={urls.pipelineNode(
-                                        PipelineStage.Destination,
-                                        destination.id,
-                                        PipelineNodeTab.Metrics
-                                    )}
-                                >
-                                    {destination.backend === PipelineBackend.HogFunction ? (
-                                        <AppMetricSparkLineV2 id={destination.hog_function.id} />
-                                    ) : (
-                                        <AppMetricSparkLine pipelineNode={destination} />
-                                    )}
-                                </Link>
-                            )
-                        },
-                    },
-                    updatedAtColumn() as LemonTableColumn<Destination, any>,
+                    ...(showFrequencyHistory
+                        ? [
+                              {
+                                  title: 'Frequency',
+                                  key: 'interval',
+                                  render: function RenderFrequency(_, destination) {
+                                      return 'interval' in destination ? destination.interval : null
+                                  },
+                              } as LemonTableColumn<Destination | Transformation | SiteApp, any>,
+                          ]
+                        : []),
+                    ...(showFrequencyHistory
+                        ? [
+                              {
+                                  title: 'Last 7 days',
+                                  render: function RenderSuccessRate(_, destination) {
+                                      return (
+                                          <Link
+                                              to={urls.pipelineNode(
+                                                  hogFunctionTypeToPipelineStage(destination.stage),
+                                                  destination.id,
+                                                  PipelineNodeTab.Metrics
+                                              )}
+                                          >
+                                              {destination.backend === PipelineBackend.HogFunction ? (
+                                                  <AppMetricSparkLineV2 id={destination.hog_function.id} />
+                                              ) : (
+                                                  <AppMetricSparkLine pipelineNode={destination} />
+                                              )}
+                                          </Link>
+                                      )
+                                  },
+                              } as LemonTableColumn<Destination | Transformation | SiteApp, any>,
+                          ]
+                        : []),
+                    updatedAtColumn() as LemonTableColumn<Destination | Transformation | SiteApp, any>,
                     {
                         title: 'Status',
                         key: 'enabled',
@@ -171,23 +224,23 @@ export function DestinationsTable({ hideFeedback, hideAddDestinationButton }: De
                                             items={[
                                                 {
                                                     label: destination.enabled
-                                                        ? 'Pause destination'
-                                                        : 'Unpause destination',
+                                                        ? `Pause ${simpleName}`
+                                                        : `Unpause ${simpleName}`,
                                                     onClick: () => toggleNode(destination, !destination.enabled),
                                                     disabledReason: !canConfigurePlugins
-                                                        ? 'You do not have permission to toggle destinations.'
+                                                        ? `You do not have permission to toggle ${simpleName}s.`
                                                         : !canEnableDestination(destination) && !destination.enabled
-                                                        ? 'Data pipelines add-on is required for enabling new destinations'
+                                                        ? `Data pipelines add-on is required for enabling new ${simpleName}s`
                                                         : undefined,
                                                 },
                                                 ...pipelineNodeMenuCommonItems(destination),
                                                 {
-                                                    label: 'Delete destination',
+                                                    label: `Delete ${simpleName}`,
                                                     status: 'danger' as const, // for typechecker happiness
                                                     onClick: () => deleteNode(destination),
                                                     disabledReason: canConfigurePlugins
                                                         ? undefined
-                                                        : 'You do not have permission to delete destinations.',
+                                                        : `You do not have permission to delete ${simpleName}.`,
                                                 },
                                             ]}
                                         />

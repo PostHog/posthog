@@ -8,6 +8,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 import { SymbolSetUploadModal } from './SymbolSetUploadModal'
 
@@ -18,27 +19,41 @@ export const scene: SceneExport = {
 
 export function ErrorTrackingConfigurationScene(): JSX.Element {
     const { missingSymbolSets, validSymbolSets } = useValues(errorTrackingSymbolSetLogic)
+    const { loadSymbolSets } = useActions(errorTrackingSymbolSetLogic)
+
+    useEffect(() => {
+        loadSymbolSets()
+    }, [loadSymbolSets])
 
     return (
-        <div className="space-y-4">
-            <h2>Symbol sets</h2>
-            <p>
-                Source maps are required to demangle any minified code in your exception stack traces. PostHog
-                automatically retrieves source maps where possible. Cases where it was not possible are listed below.
-                Source maps can be uploaded retroactively but changes will only apply to all future exceptions ingested.
-            </p>
-            {missingSymbolSets.length > 0 && <SymbolSetTable dataSource={missingSymbolSets} pageSize={5} missing />}
-            {validSymbolSets.length > 0 && <SymbolSetTable dataSource={validSymbolSets} pageSize={10} />}
-            <SymbolSetUploadModal />
-        </div>
+        <AlphaAccessScenePrompt>
+            <div className="space-y-4">
+                <h2>Symbol sets</h2>
+                <p>
+                    Source maps are required to demangle any minified code in your exception stack traces. PostHog
+                    automatically retrieves source maps where possible. Cases where it was not possible are listed
+                    below. Source maps can be uploaded retroactively but changes will only apply to all future
+                    exceptions ingested.
+                </p>
+                {missingSymbolSets.length > 0 && (
+                    <SymbolSetTable id="missing" dataSource={missingSymbolSets} pageSize={5} missing />
+                )}
+                {(validSymbolSets.length > 0 || missingSymbolSets.length === 0) && (
+                    <SymbolSetTable id="valid" dataSource={validSymbolSets} pageSize={10} />
+                )}
+                <SymbolSetUploadModal />
+            </div>
+        </AlphaAccessScenePrompt>
     )
 }
 
 const SymbolSetTable = ({
+    id,
     dataSource,
     pageSize,
     missing,
 }: {
+    id: string
     dataSource: ErrorTrackingSymbolSet[]
     pageSize: number
     missing?: boolean
@@ -98,6 +113,7 @@ const SymbolSetTable = ({
 
     return (
         <LemonTable
+            id={id}
             showHeader={missing}
             pagination={{ pageSize }}
             columns={columns}

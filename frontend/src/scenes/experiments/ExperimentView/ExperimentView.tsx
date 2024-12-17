@@ -2,13 +2,11 @@ import '../Experiment.scss'
 
 import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { PostHogFeature } from 'posthog-js/react'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
-import { ExperimentsDisabledBanner } from '../Experiments'
 import {
     ExperimentLoadingAnimation,
     LoadingState,
@@ -69,16 +67,14 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentResultsLoading, experimentId, experimentResults, tabKey, featureFlags } =
+    const { experimentLoading, experimentResultsLoading, experimentId, experimentResults, tabKey } =
         useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
 
     const hasResultsInsight = experimentResults && experimentResults.insight
 
-    return featureFlags[FEATURE_FLAGS.EXPERIMENTS_MIGRATION_DISABLE_UI] ? (
-        <ExperimentsDisabledBanner />
-    ) : (
+    return (
         <>
             <PageHeaderCustom />
             <div className="space-y-8 experiment-view">

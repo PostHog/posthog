@@ -92,6 +92,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const { isFullScreen, explorerMode, isBuffering, messageTooLargeWarnings } = useValues(
         sessionRecordingPlayerLogic(logicProps)
     )
+    const { setPlayNextAnimationInterrupted } = useActions(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
     const { isVerticallyStacked, sidebarOpen, playbackMode } = useValues(playerSettingsLogic)
 
@@ -185,6 +186,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     `SessionRecordingPlayer--${size}`
                 )}
                 onClick={incrementClickCount}
+                onMouseMove={() => setPlayNextAnimationInterrupted(true)}
+                onMouseOut={() => setPlayNextAnimationInterrupted(false)}
             >
                 <FloatingContainerContext.Provider value={playerRef}>
                     {explorerMode ? (

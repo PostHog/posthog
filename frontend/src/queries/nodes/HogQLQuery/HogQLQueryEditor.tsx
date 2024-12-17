@@ -30,6 +30,7 @@ export interface HogQLQueryEditorProps {
     onChange?: (query: string) => void
     embedded?: boolean
     editorFooter?: (hasErrors: boolean, errors: string | null, isValidView: boolean) => JSX.Element
+    queryResponse?: Record<string, any>
 }
 
 let uniqueNode = 0
@@ -60,6 +61,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         key,
         editor,
         monaco,
+        queryResponse: props.queryResponse,
     }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
     const { queryInput, prompt, aiAvailable, promptError, promptLoading, multitab } = useValues(logic)

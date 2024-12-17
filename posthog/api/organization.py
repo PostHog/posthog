@@ -5,6 +5,8 @@ from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
+from rest_framework.response import Response
+import posthoganalytics
 
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -12,7 +14,7 @@ from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
-from posthog.event_usage import report_organization_deleted
+from posthog.event_usage import report_organization_deleted, groups
 from posthog.models import Organization, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -240,3 +242,24 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             **super().get_serializer_context(),
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if "enforce_2fa" in request.data:
+            enforce_2fa_value = request.data["enforce_2fa"]
+            organization = self.get_object()
+            user = cast(User, request.user)
+
+            # Add capture event for 2FA enforcement change
+            posthoganalytics.capture(
+                str(user.distinct_id),
+                "organization 2fa enforcement toggled",
+                properties={
+                    "enabled": enforce_2fa_value,
+                    "organization_id": str(organization.id),
+                    "organization_name": organization.name,
+                    "user_role": user.organization_memberships.get(organization=organization).level,
+                },
+                groups=groups(organization),
+            )
+
+        return super().update(request, *args, **kwargs)

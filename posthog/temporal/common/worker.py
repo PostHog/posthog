@@ -25,7 +25,7 @@ async def start_worker(
     max_concurrent_workflow_tasks=None,
     max_concurrent_activities=None,
 ):
-    runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address="0.0.0.0:%d" % metrics_port)))
+    runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address=f"0.0.0.0:{metrics_port:d}")))
     client = await connect(
         host,
         port,

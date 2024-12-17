@@ -120,7 +120,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     const options: ProductConfigOption[] = [
         {
             title: 'Autocapture frontend interactions',
-            description: `If you use our JavaScript or React Native libraries, we'll automagically 
+            description: `If you use our JavaScript, React Native or iOS libraries, we'll automagically 
             capture frontend interactions like clicks, submits, and more. Fine-tune what you 
             capture directly in your code snippet.`,
             teamProperty: 'autocapture_opt_out',
@@ -199,7 +199,7 @@ const WebAnalyticsOnboarding = (): JSX.Element => {
     const options: ProductConfigOption[] = [
         {
             title: 'Autocapture frontend interactions',
-            description: `If you use our JavaScript or React Native libraries, we'll automagically 
+            description: `If you use our JavaScript, React Native or iOS libraries, we'll automagically 
             capture frontend interactions like clicks, submits, and more. Fine-tune what you 
             capture directly in your code snippet.`,
             teamProperty: 'autocapture_opt_out',

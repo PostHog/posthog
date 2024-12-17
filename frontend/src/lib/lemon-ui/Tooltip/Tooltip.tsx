@@ -32,6 +32,7 @@ export interface TooltipProps {
     placement?: Placement
     className?: string
     visible?: boolean
+    interactive?: boolean
 }
 
 export function Tooltip({
@@ -42,14 +43,16 @@ export function Tooltip({
     offset = 8,
     arrowOffset,
     delayMs = 500,
-    closeDelayMs = 0, // Set this to some delay to ensure the content stays open when hovered
+    closeDelayMs = 100, // Slight delay to ensure smooth transition
+    interactive = false,
     visible: controlledOpen,
 }: TooltipProps): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+    const [isHoveringTooltip, setIsHoveringTooltip] = useState(false) // Track tooltip hover state
     const caretRef = useRef(null)
     const floatingContainer = useFloatingContainer()
 
-    const open = controlledOpen ?? uncontrolledOpen
+    const open = controlledOpen ?? (uncontrolledOpen || isHoveringTooltip)
 
     const { context, refs } = useFloating({
         placement,
@@ -116,7 +119,10 @@ export function Tooltip({
                         className="Tooltip max-w-sm"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ ...context.floatingStyles }}
-                        {...getFloatingProps()}
+                        {...getFloatingProps({
+                            onMouseEnter: () => interactive && setIsHoveringTooltip(true), // Keep tooltip open
+                            onMouseLeave: () => interactive && setIsHoveringTooltip(false), // Allow closing
+                        })}
                     >
                         <div
                             className={clsx(

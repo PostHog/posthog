@@ -1,5 +1,5 @@
 import { IconGear, IconTrending } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
@@ -321,6 +321,11 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: VariationCell(),
             align: 'right',
         },
+        unique_conversions: {
+            title: <span className="pr-5">Unique Conversions</span>,
+            render: VariationCell(),
+            align: 'right',
+        },
         conversion_rate: {
             title: <span className="pr-5">Conversion Rate</span>,
             render: VariationCell({ isPercentage: true }),
@@ -523,7 +528,20 @@ export const WebStatsTableTile = ({
                         <LemonSwitch
                             label={
                                 <div className="flex flex-row space-x-2">
-                                    <span>Enable path cleaning</span>
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                Check{' '}
+                                                <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
+                                                    our path cleaning rules documentation
+                                                </Link>{' '}
+                                                to learn more about path cleaning
+                                            </>
+                                        }
+                                        interactive
+                                    >
+                                        <span>Enable path cleaning</span>
+                                    </Tooltip>
                                     <LemonButton
                                         icon={<IconGear />}
                                         type="tertiary"

@@ -305,6 +305,8 @@ export class HogExecutor {
                       )
                     : invocation.hogFunction.bytecode)
 
+            const eventId = invocation?.globals?.event?.uuid || 'Unknown event'
+
             try {
                 let hogLogs = 0
                 execRes = execHog(invocationInput, {
@@ -354,7 +356,7 @@ export class HogExecutor {
                                 result.logs.push({
                                     level: 'warn',
                                     timestamp: DateTime.now(),
-                                    message: `Function exceeded maximum log entries. No more logs will be collected.`,
+                                    message: `Function exceeded maximum log entries. No more logs will be collected. Event: ${eventId}`,
                                 })
                             }
 
@@ -410,7 +412,7 @@ export class HogExecutor {
                 result.logs.push({
                     level: 'error',
                     timestamp: DateTime.now(),
-                    message: `Error executing function: ${e}`,
+                    message: `Error executing function on event ${eventId}: ${e}`,
                 })
                 throw e
             }
@@ -436,7 +438,7 @@ export class HogExecutor {
                     timestamp: DateTime.now(),
                     message: `Suspending function due to async function call '${execRes.asyncFunctionName}'. Payload: ${
                         calculateCost(execRes.state) + calculateCost(args)
-                    } bytes`,
+                    } bytes. Event: ${eventId}`,
                 })
 
                 if (execRes.asyncFunctionName) {

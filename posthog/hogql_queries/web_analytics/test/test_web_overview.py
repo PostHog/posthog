@@ -9,6 +9,7 @@ from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRun
 from posthog.models import Action, Element
 from posthog.models.utils import uuid7
 from posthog.schema import (
+    CompareFilter,
     WebOverviewQuery,
     DateRange,
     SessionTableVersion,
@@ -83,7 +84,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = WebOverviewQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=[],
-            compare=compare,
+            compareFilter=CompareFilter(compare=compare) if compare else None,
             modifiers=modifiers,
             filterTestAccounts=filter_test_accounts,
             conversionGoal=ActionConversionGoal(actionId=action.id)

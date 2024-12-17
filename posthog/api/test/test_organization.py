@@ -1,4 +1,5 @@
 from rest_framework import status
+from unittest.mock import patch, ANY
 
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -128,7 +129,8 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.plugins_access_level, 3)
 
-    def test_enforce_2fa_for_everyone(self):
+    @patch("posthoganalytics.capture")
+    def test_enforce_2fa_for_everyone(self, mock_capture):
         # Only admins should be able to enforce 2fa
         response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_2fa": True})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -141,6 +143,19 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.enforce_2fa, True)
+
+        # Verify the capture event was called correctly
+        mock_capture.assert_any_call(
+            self.user.distinct_id,
+            "organization 2fa enforcement toggled",
+            properties={
+                "enabled": True,
+                "organization_id": str(self.organization.id),
+                "organization_name": self.organization.name,
+                "user_role": OrganizationMembership.Level.ADMIN,
+            },
+            groups={"instance": ANY, "organization": str(self.organization.id)},
+        )
 
     def test_projects_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, _, _ = Organization.objects.bootstrap(self.user)

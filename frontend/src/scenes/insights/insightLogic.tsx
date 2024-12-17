@@ -408,9 +408,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 query: values.query,
                 saved: true,
             })
-            lemonToast.info(
-                `You're now working on a copy of ${values.insight.name || values.insight.derived_name || name}`
-            )
+
+            if (router.values.location.pathname.includes(urls.dataWarehouse())) {
+                lemonToast.info(`You're now viewing ${values.insight.name || values.insight.derived_name || name}`)
+            } else {
+                lemonToast.info(
+                    `You're now working on a copy of ${values.insight.name || values.insight.derived_name || name}`
+                )
+            }
+
             persist && actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
 

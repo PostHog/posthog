@@ -100,7 +100,7 @@ describe('Surveys', () => {
         cy.get('[data-attr=prop-val]').click({ force: true })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
-        cy.get('[data-attr="rollout-percentage"]').type('100')
+        cy.get('[data-attr="rollout-percentage"]').click().type('100')
 
         // save
         cy.get('[data-attr="save-survey"]').eq(0).click()
@@ -202,7 +202,7 @@ describe('Surveys', () => {
         cy.get('[data-attr="prop-filter-person_properties-0"]').click()
         cy.get('[data-attr=prop-val]').click({ force: true })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
-        cy.get('[data-attr="rollout-percentage"]').type('100')
+        cy.get('[data-attr="rollout-percentage"]').click().type('100')
 
         cy.get('[data-attr=save-survey]').first().click()
 

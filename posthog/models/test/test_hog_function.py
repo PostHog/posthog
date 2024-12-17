@@ -4,7 +4,7 @@ from inline_snapshot import snapshot
 
 from hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.models.action.action import Action
-from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.user import User
 from posthog.test.base import QueryMatchingTest
 
@@ -34,13 +34,14 @@ class TestHogFunction(TestCase):
         assert json_filters["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 29]  # TRUE
 
     def test_hog_function_filters_compilation(self):
+        action = Action.objects.create(team=self.team, name="Test Action")
         item = HogFunction.objects.create(
             name="Test",
-            type="destination",
+            type=HogFunctionType.DESTINATION,
             team=self.team,
             filters={
                 "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-                "actions": [{"id": "9", "name": "Test Action", "type": "actions", "order": 1}],
+                "actions": [{"id": str(action.pk), "name": "Test Action", "type": "actions", "order": 1}],
                 "filter_test_accounts": True,
             },
         )
@@ -49,7 +50,7 @@ class TestHogFunction(TestCase):
         json_filters = to_dict(item.filters)
         assert json_filters == {
             "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-            "actions": [{"id": "9", "name": "Test Action", "type": "actions", "order": 1}],
+            "actions": [{"id": str(action.pk), "name": "Test Action", "type": "actions", "order": 1}],
             "filter_test_accounts": True,
             "bytecode": [
                 "_H",
@@ -103,11 +104,7 @@ class TestHogFunction(TestCase):
                 35,
                 33,
                 1,
-                33,
-                2,
-                33,
-                1,
-                11,
+                29,
                 3,
                 2,
                 4,
@@ -278,7 +275,8 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             {"key": "$pageview", "operator": "regex", "value": "test"},
         ]
         # 1 update team, 1 load hog functions, 1 update hog functions
-        with self.assertNumQueries(3):
+        # 8 unrelated due to RemoteConfig refresh
+        with self.assertNumQueries(3 + 8):
             self.team.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()

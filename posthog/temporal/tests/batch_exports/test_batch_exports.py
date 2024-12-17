@@ -4,14 +4,12 @@ import json
 import operator
 from random import randint
 
-import pyarrow as pa
 import pytest
 from django.test import override_settings
 
 from posthog.batch_exports.service import BatchExportModel
 from posthog.temporal.batch_exports.batch_exports import (
     RecordBatchProducerError,
-    RecordBatchQueue,
     TaskNotDoneError,
     generate_query_ranges,
     get_data_interval,
@@ -741,57 +739,6 @@ async def test_start_produce_batch_export_record_batches_handles_duplicates(clic
     records = await get_all_record_batches_from_queue(queue, produce_task)
 
     assert_records_match_events(records, events)
-
-
-async def test_record_batch_queue_tracks_bytes():
-    """Test `RecordBatchQueue` tracks bytes from `RecordBatch`."""
-    records = [{"test": 1}, {"test": 2}, {"test": 3}]
-    record_batch = pa.RecordBatch.from_pylist(records)
-
-    queue = RecordBatchQueue()
-
-    await queue.put(record_batch)
-    assert record_batch.get_total_buffer_size() == queue.qsize()
-
-    item = await queue.get()
-
-    assert item == record_batch
-    assert queue.qsize() == 0
-
-
-async def test_record_batch_queue_raises_queue_full():
-    """Test `QueueFull` is raised when we put too many bytes."""
-    records = [{"test": 1}, {"test": 2}, {"test": 3}]
-    record_batch = pa.RecordBatch.from_pylist(records)
-    record_batch_size = record_batch.get_total_buffer_size()
-
-    queue = RecordBatchQueue(max_size_bytes=record_batch_size)
-
-    await queue.put(record_batch)
-    assert record_batch.get_total_buffer_size() == queue.qsize()
-
-    with pytest.raises(asyncio.QueueFull):
-        queue.put_nowait(record_batch)
-
-    item = await queue.get()
-
-    assert item == record_batch
-    assert queue.qsize() == 0
-
-
-async def test_record_batch_queue_sets_schema():
-    """Test `RecordBatchQueue` sets a schema from first `RecordBatch`."""
-    records = [{"test": 1}, {"test": 2}, {"test": 3}]
-    record_batch = pa.RecordBatch.from_pylist(records)
-
-    queue = RecordBatchQueue()
-
-    await queue.put(record_batch)
-
-    assert queue._schema_set.is_set()
-
-    schema = await queue.get_schema()
-    assert schema == record_batch.schema
 
 
 async def test_raise_on_produce_task_failure_raises_record_batch_producer_error():

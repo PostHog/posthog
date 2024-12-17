@@ -10,8 +10,8 @@ from django.conf import settings
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import ErrorTrackingSymbolSet
-from posthog.models.error_tracking import ErrorTrackingStackFrame
+from posthog.api.utils import action
+from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet, ErrorTrackingStackFrame
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 
@@ -28,29 +28,26 @@ class ObjectStorageUnavailable(Exception):
     pass
 
 
-# class ErrorTrackingGroupSerializer(serializers.ModelSerializer):
-#     class Meta:
-#         model = ErrorTrackingGroup
-#         fields = ["assignee", "status"]
+class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingIssue
+        fields = ["assignee", "status"]
 
 
-# class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-#     scope_object = "INTERNAL"
-#     queryset = ErrorTrackingGroup.objects.all()
-#     serializer_class = ErrorTrackingGroupSerializer
+class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = ErrorTrackingIssue.objects.all()
+    serializer_class = ErrorTrackingIssueSerializer
 
-#     def safely_get_object(self, queryset) -> QuerySet:
-#         stringified_fingerprint = self.kwargs["pk"]
-#         fingerprint = json.loads(urlsafe_base64_decode(stringified_fingerprint))
-#         group, _ = queryset.get_or_create(fingerprint=fingerprint, team=self.team)
-#         return group
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team_id=self.team.id)
 
-#     @action(methods=["POST"], detail=True)
-#     def merge(self, request, **kwargs):
-#         group: ErrorTrackingGroup = self.get_object()
-#         merging_fingerprints: list[list[str]] = request.data.get("merging_fingerprints", [])
-#         group.merge(merging_fingerprints)
-#         return Response({"success": True})
+    @action(methods=["POST"], detail=True)
+    def merge(self, request, **kwargs):
+        issue: ErrorTrackingIssue = self.get_object()
+        ids: list[str] = request.data.get("ids", [])
+        issue.merge(issue_ids=ids)
+        return Response({"success": True})
 
 
 class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):

@@ -7,8 +7,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -50,8 +50,8 @@ export const groupLogic = kea<groupLogicType>([
     path((key) => ['scenes', 'groups', 'groupLogic', key]),
     connect({
         values: [
-            teamLogic,
-            ['currentTeamId'],
+            projectLogic,
+            ['currentProjectId'],
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
             featureFlagLogic,
@@ -68,7 +68,7 @@ export const groupLogic = kea<groupLogicType>([
             {
                 loadGroup: async () => {
                     const params = { group_type_index: props.groupTypeIndex, group_key: props.groupKey }
-                    const url = `api/projects/${values.currentTeamId}/groups/find?${toParams(params)}`
+                    const url = `api/projects/${values.currentProjectId}/groups/find?${toParams(params)}`
                     return await api.get(url)
                 },
             },

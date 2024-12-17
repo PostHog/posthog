@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
@@ -13,7 +13,7 @@ import { capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './util
 export const importAppsLogic = kea<importAppsLogicType>([
     path(['scenes', 'pipeline', 'importAppsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
+        values: [projectLogic, ['currentProjectId'], userLogic, ['user']],
     }),
     actions({
         loadPluginConfigs: true,
@@ -33,7 +33,7 @@ export const importAppsLogic = kea<importAppsLogicType>([
             {
                 loadPluginConfigs: async () => {
                     const res: PluginConfigTypeNew[] = await api.loadPaginatedResults(
-                        `api/projects/${values.currentTeamId}/pipeline_import_apps_configs`
+                        `api/projects/${values.currentProjectId}/pipeline_import_apps_configs`
                     )
 
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))

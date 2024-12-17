@@ -102,16 +102,14 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                 </LemonButton>
                             ) : (
                                 <>
-                                    {type === 'destination' ? (
-                                        <LemonButton
-                                            type="secondary"
-                                            onClick={loadSampleGlobals}
-                                            loading={sampleGlobalsLoading}
-                                            tooltip="Find the last event matching filters, and use it to populate the globals below."
-                                        >
-                                            Refresh globals
-                                        </LemonButton>
-                                    ) : null}
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={loadSampleGlobals}
+                                        loading={sampleGlobalsLoading}
+                                        tooltip="Find the last event matching filters, and use it to populate the globals below."
+                                    >
+                                        Refresh globals
+                                    </LemonButton>
                                     <LemonField name="mock_async_functions">
                                         {({ value, onChange }) => (
                                             <LemonSwitch
@@ -129,7 +127,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                                         }
                                                     >
                                                         <span className="flex gap-2">
-                                                            Mock out async functions
+                                                            Mock out HTTP requests
                                                             <IconInfo className="text-lg" />
                                                         </span>
                                                     </Tooltip>

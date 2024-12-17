@@ -46,6 +46,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     actions({
         setTab: (tab: IssueTab) => ({ tab }),
         setActiveEventUUID: (uuid: ErrorTrackingEvent['uuid']) => ({ uuid }),
+        setIssue: (issue: ErrorTrackingIssue) => ({ issue }),
         updateIssue: (issue: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>) => ({ issue }),
     }),
 
@@ -89,6 +90,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     const response = await api.errorTracking.updateIssue(props.id, issue)
                     return { ...values.issue, ...response }
                 },
+                setIssue: ({ issue }) => issue,
             },
         ],
         events: [

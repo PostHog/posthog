@@ -69,15 +69,13 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     }),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
-            if (values.type === 'destination') {
-                actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
-            }
+            actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
         },
     })),
     forms(({ props, actions, values }) => ({
         testInvocation: {
             defaults: {
-                mock_async_functions: true,
+                mock_async_functions: false,
             } as HogFunctionTestInvocationForm,
             alwaysShowErrors: true,
             errors: ({ globals }) => {
