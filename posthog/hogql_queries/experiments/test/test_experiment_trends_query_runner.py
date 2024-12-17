@@ -1659,7 +1659,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # control values are 0, 1, 2, 3, 4
         # test values are 0, 2, 4, 6, 8, 10, 12, 14, 16, 18
 
-        # Populate exposure events
+        # Populate metric + exposure events
         for variant, count in [("control", 5), ("test", 10)]:
             for i in range(count):
                 _create_event(
