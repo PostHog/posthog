@@ -24,6 +24,10 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     // Primitives colors
     // DO NOT USE PRIMITIVE COLORS DIRECTLY.
     // Use the semantic colors instead.
+
+    --brand-blue: #1d4aff;
+    --brand-red: #f54e00;
+    --brand-yellow: #f9bd2b;
     --primary-black: #000;
     --primary-black-25: hsl(0deg 0% 0% / 25.1%);
     --primary-black-50: hsl(0deg 0% 0% / 50.2%);
@@ -134,6 +138,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --red-300: hsl(14deg 74% 66%);
     --red-400: hsl(13deg 74% 55%);
     --red-500: hsl(14deg 94% 44%);
+    --red-500-10: hsl(14deg 94% 44% / 10%);
     --red-500-20: hsl(14deg 94% 44% / 20%);
     --red-600: hsl(13deg 93% 35%);
     --red-700: hsl(14deg 94% 26%);
@@ -147,6 +152,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --orange-300: hsl(30deg 100% 70%);
     --orange-400: hsl(30deg 100% 60%);
     --orange-500: hsl(30deg 100% 50%);
+    --orange-500-5: hsl(30deg 100% 50% / 10%);
     --orange-500-20: hsl(30deg 100% 50% / 20%);
     --orange-600: hsl(30deg 100% 40%);
     --orange-700: hsl(30deg 100% 30%);
@@ -173,6 +179,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --green-300: hsl(95deg 35% 56%);
     --green-400: hsl(95deg 51% 41%);
     --green-500: hsl(95deg 100% 26%);
+    --green-500-10: hsl(95deg 100% 26% / 10%);
     --green-500-20: hsl(95deg 100% 26% / 20%);
     --green-600: hsl(95deg 100% 21%);
     --green-700: hsl(95deg 100% 16%);
@@ -200,11 +207,20 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --accent-400: hsl(var(--accent-hue), 92%, 59%);
     --accent-500: hsl(var(--accent-hue), 99%, 48%);
     --accent-500-08: hsla(var(--accent-hue), 99%, 48%, 8%);
+    --accent-500-20: hsla(var(--accent-hue), 99%, 48%, 20%);
     --accent-500-25: hsla(var(--accent-hue), 99%, 48%, 25%);
     --accent-600: hsl(var(--accent-hue), 99%, 39%);
     --accent-700: hsl(var(--accent-hue), 99%, 29%);
     --accent-800: hsl(var(--accent-hue), 100%, 19%);
     --accent-900: hsl(var(--accent-hue), 100%, 10%);
+
+    // Brand colors
+    --background-brand-blue: #1d4aff;
+    --background-brand-blue-subtle: hsl(228deg 100% 56% / 10%);
+    --background-brand-red: hsl(19deg 100% 48%);
+    --background-brand-red-subtle: hsl(19deg 100% 48% / 10%);
+    --background-brand-yellow: hsl(43deg 94% 57%);
+    --background-brand-yellow-subtle: hsl(43deg 94% 57% / 10%);
 
     // Content colors
     --content-disabled: var(--neutral-300);
@@ -233,7 +249,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --content-accent-active: var(--accent-500);
     --background-accent: var(--accent-500);
     --background-accent-pressed: var(--accent-700);
-    --background-accent-25: var(--accent-500-25);
+    --background-accent-subtle: var(--accent-500-20);
     --border-accent: var(--accent-500);
     --border-accent-hover: var(--accent-500);
     --background-accent-subtle-08: var(--accent-500-08);
@@ -242,6 +258,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --content-warning: var(--orange-700);
     --background-warning: var(--orange-500);
     --background-warning-subtle: var(--orange-500-20);
+    --background-warning-highlight: var(--orange-500-10);
 
     // Danger
     --content-danger: var(--red-600);
@@ -249,11 +266,13 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --background-danger-subtle: var(--red-500-20);
     --background-danger-bold: var(--red-200);
     --border-danger: var(--red-500);
+    --background-danger-highlight: var(--red-500-10);
 
     // Success
     --content-success: var(--green-500);
     --background-success: var(--green-500);
     --background-success-subtle: var(--green-500-20);
+    --background-success-highlight: var(--green-500-10);
 
     // Highlight
     --background-mark: var(--yellow-500-20);

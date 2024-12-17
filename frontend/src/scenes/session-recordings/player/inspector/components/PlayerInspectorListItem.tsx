@@ -327,7 +327,10 @@ export function PlayerInspectorListItem({
                     <div
                         className={clsx(
                             'flex-1 overflow-hidden',
-                            item.highlightColor && `bg-${item.highlightColor}-highlight`
+                            // item.highlightColor && `bg-${item.highlightColor}-highlight`,
+                            item.highlightColor === 'primary' && 'bg-[var(--background-warning-highlight)]',
+                            item.highlightColor === 'danger' && 'bg-[var(--background-danger-highlight)]',
+                            item.highlightColor === 'warning' && 'bg-[var(--background-warning-highlight)]'
                         )}
                     >
                         <RowItemTitle item={item} finalTimestamp={end} />
