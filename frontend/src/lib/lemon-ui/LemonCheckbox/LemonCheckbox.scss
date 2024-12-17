@@ -6,6 +6,13 @@
     width: fit-content;
     font-weight: 500;
     line-height: 1.5rem;
+    outline-offset: 2px;
+
+    &:has(:focus-visible) {
+        .LemonCheckbox__box {
+            outline: -webkit-focus-ring-color auto 1px;
+        }
+    }
 
     .LemonCheckbox__input {
         width: 0 !important;
