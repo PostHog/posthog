@@ -4605,6 +4605,7 @@ export type HogFunctionInputSchemaType = {
     integration?: string
     integration_key?: string
     integration_field?: 'slack_channel'
+    requiredScopes?: string
 }
 
 export type HogFunctionInputType = {
@@ -4668,6 +4669,7 @@ export type HogFunctionTypeType =
     | 'destination'
     | 'site_destination'
     | 'site_app'
+    | 'transformation'
     | 'email'
     | 'sms'
     | 'push'
@@ -4825,4 +4827,11 @@ export type ReplayTemplateVariableType = {
     description?: string
     filterGroup?: UniversalFiltersGroupValue
     noTouch?: boolean
+}
+
+/**
+ * Assistant Conversation
+ */
+export interface Conversation {
+    id: string
 }

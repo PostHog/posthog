@@ -17,7 +17,7 @@ from posthog.schema import (
     TrendsQuery,
     TrendsFilter,
     IntervalType,
-    InsightDateRange,
+    DateRange,
     BaseMathType,
     AlertState,
     AlertCalculationInterval,
@@ -86,7 +86,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             breakdownFilter=breakdown,
             trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
             interval=interval,
-            dateRange=InsightDateRange(date_from="-8w"),
+            dateRange=DateRange(date_from="-8w"),
         ).model_dump()
 
         insight = self.dashboard_api.create_insight(
@@ -114,7 +114,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             breakdownFilter=breakdown,
             trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_PIE),
             interval=IntervalType.WEEK,
-            dateRange=InsightDateRange(date_from="-8w"),
+            dateRange=DateRange(date_from="-8w"),
         ).model_dump()
 
         insight = self.dashboard_api.create_insight(

@@ -1,9 +1,9 @@
+import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { IconCalculate, IconClipboardEdit } from 'lib/lemon-ui/icons'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -42,20 +42,6 @@ const savedQueriesfuse = new Fuse<DataWarehouseSavedQuery>([], {
     includeMatches: true,
 })
 
-const nonMaterializedViewsfuse = new Fuse<DataWarehouseSavedQuery>([], {
-    keys: [{ name: 'name', weight: 2 }],
-    threshold: 0.3,
-    ignoreLocation: true,
-    includeMatches: true,
-})
-
-const materializedViewsfuse = new Fuse<DataWarehouseSavedQuery>([], {
-    keys: [{ name: 'name', weight: 2 }],
-    threshold: 0.3,
-    ignoreLocation: true,
-    includeMatches: true,
-})
-
 export const editorSidebarLogic = kea<editorSidebarLogicType>([
     path(['data-warehouse', 'editor', 'editorSidebarLogic']),
     connect({
@@ -66,8 +52,6 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
             databaseTableListLogic,
             ['posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [
             editorSceneLogic,
@@ -86,19 +70,13 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                 s.relevantPosthogTables,
                 s.relevantDataWarehouseTables,
                 s.databaseLoading,
-                s.relevantNonMaterializedViews,
-                s.relevantMaterializedViews,
-                s.featureFlags,
             ],
             (
                 relevantSavedQueries,
                 dataWarehouseSavedQueriesLoading,
                 relevantPosthogTables,
                 relevantDataWarehouseTables,
-                databaseLoading,
-                relevantNonMaterializedViews,
-                relevantMaterializedViews,
-                featureFlags
+                databaseLoading
             ) => [
                 {
                     key: 'data-warehouse-sources',
@@ -163,13 +141,19 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                     key: 'data-warehouse-views',
                     noun: ['view', 'views'],
                     loading: dataWarehouseSavedQueriesLoading,
-                    items: (featureFlags[FEATURE_FLAGS.DATA_MODELING]
-                        ? relevantNonMaterializedViews
-                        : relevantSavedQueries
-                    ).map(([savedQuery, matches]) => ({
+                    items: relevantSavedQueries.map(([savedQuery, matches]) => ({
                         key: savedQuery.id,
                         name: savedQuery.name,
                         url: '',
+                        icon: savedQuery.status ? (
+                            <Tooltip title="Materialized view">
+                                <IconCalculate />
+                            </Tooltip>
+                        ) : (
+                            <Tooltip title="View">
+                                <IconClipboardEdit />
+                            </Tooltip>
+                        ),
                         searchMatch: matches
                             ? {
                                   matchingFields: matches.map((match) => match.key),
@@ -195,16 +179,6 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                     actions.toggleJoinTableModal()
                                 },
                             },
-                            ...(featureFlags[FEATURE_FLAGS.DATA_MODELING] && !savedQuery.status
-                                ? [
-                                      {
-                                          label: 'Materialize',
-                                          onClick: () => {
-                                              actions.runDataWarehouseSavedQuery(savedQuery.id)
-                                          },
-                                      },
-                                  ]
-                                : []),
                             {
                                 label: 'Delete',
                                 status: 'danger',
@@ -215,63 +189,6 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         ],
                     })),
                 } as SidebarCategory,
-                ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
-                    ? [
-                          {
-                              key: 'data-warehouse-materialized-views',
-                              noun: ['materialized view', 'materialized views'],
-                              loading: dataWarehouseSavedQueriesLoading,
-                              items: relevantMaterializedViews.map(([materializedView, matches]) => ({
-                                  key: materializedView.id,
-                                  name: materializedView.name,
-                                  url: '',
-                                  searchMatch: matches
-                                      ? {
-                                            matchingFields: matches.map((match) => match.key),
-                                            nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                                        }
-                                      : null,
-                                  onClick: () => {
-                                      actions.selectSchema(materializedView)
-                                  },
-                                  menuItems: [
-                                      {
-                                          label: 'Edit view definition',
-                                          onClick: () => {
-                                              multitabEditorLogic({
-                                                  key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                              }).actions.createTab(materializedView.query.query, materializedView)
-                                          },
-                                      },
-                                      {
-                                          label: 'Add join',
-                                          onClick: () => {
-                                              actions.selectSourceTable(materializedView.name)
-                                              actions.toggleJoinTableModal()
-                                          },
-                                      },
-                                      ...(featureFlags[FEATURE_FLAGS.DATA_MODELING] && materializedView.status
-                                          ? [
-                                                {
-                                                    label: 'Run',
-                                                    onClick: () => {
-                                                        actions.runDataWarehouseSavedQuery(materializedView.id)
-                                                    },
-                                                },
-                                            ]
-                                          : []),
-                                      {
-                                          label: 'Delete',
-                                          status: 'danger',
-                                          onClick: () => {
-                                              actions.deleteDataWarehouseSavedQuery(materializedView.id)
-                                          },
-                                      },
-                                  ],
-                              })),
-                          },
-                      ]
-                    : []),
             ],
         ],
         nonMaterializedViews: [
@@ -325,28 +242,6 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return dataWarehouseSavedQueries.map((savedQuery) => [savedQuery, null])
-            },
-        ],
-        relevantNonMaterializedViews: [
-            (s) => [s.nonMaterializedViews, navigation3000Logic.selectors.searchTerm],
-            (nonMaterializedViews, searchTerm): [DataWarehouseSavedQuery, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
-                    return nonMaterializedViewsfuse
-                        .search(searchTerm)
-                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
-                }
-                return nonMaterializedViews.map((view) => [view, null])
-            },
-        ],
-        relevantMaterializedViews: [
-            (s) => [s.materializedViews, navigation3000Logic.selectors.searchTerm],
-            (materializedViews, searchTerm): [DataWarehouseSavedQuery, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
-                    return materializedViewsfuse
-                        .search(searchTerm)
-                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
-                }
-                return materializedViews.map((view) => [view, null])
             },
         ],
     })),

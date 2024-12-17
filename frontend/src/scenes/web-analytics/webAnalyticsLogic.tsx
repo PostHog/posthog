@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { urls } from 'scenes/urls'
@@ -281,7 +281,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             return { tileId, tabId }
         },
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
-        setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
+        setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -475,7 +475,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         compareFilter: [
-            { compare: true } as CompareFilter | null,
+            { compare: true } as CompareFilter,
             persistConfig,
             {
                 setCompareFilter: (_, { compareFilter }) => compareFilter,
@@ -621,7 +621,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 display: ChartDisplayType.ActionsLineGraph,
                                 ...trendsFilter,
                             },
-                            compareFilter: compareFilter || { compare: false },
+                            compareFilter,
                             filterTestAccounts,
                             conversionGoal: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS]
                                 ? conversionGoal
@@ -696,7 +696,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
-                            includeLCPScore: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LCP_SCORE] ? true : undefined,
+                            includeLCPScore: true,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenModal: false,
@@ -870,44 +870,43 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         },
                                     }
                                 ),
-                                featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LAST_CLICK]
-                                    ? {
-                                          id: PathTab.EXIT_CLICK,
-                                          title: 'Outbound link clicks',
-                                          linkText: 'Outbound clicks',
-                                          query: {
-                                              full: true,
-                                              kind: NodeKind.DataTableNode,
-                                              source: {
-                                                  kind: NodeKind.WebExternalClicksTableQuery,
-                                                  properties: webAnalyticsFilters,
-                                                  dateRange,
-                                                  sampling,
-                                                  limit: 10,
-                                                  filterTestAccounts,
-                                                  conversionGoal: featureFlags[
-                                                      FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS
-                                                  ]
-                                                      ? conversionGoal
-                                                      : undefined,
-                                                  stripQueryParams: shouldStripQueryParams,
-                                              },
-                                              embedded: false,
-                                              columns: ['url', 'visitors', 'clicks'],
-                                          },
-                                          insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
-                                          canOpenModal: true,
-                                          docs: {
-                                              title: 'Outbound Clicks',
-                                              description: (
-                                                  <div>
-                                                      You'll be able to verify when someone leaves your website by
-                                                      clicking an outbound link (to a separate domain)
-                                                  </div>
-                                              ),
-                                          },
-                                      }
-                                    : null,
+                                {
+                                    id: PathTab.EXIT_CLICK,
+                                    title: 'Outbound link clicks',
+                                    linkText: 'Outbound clicks',
+                                    query: {
+                                        full: true,
+                                        kind: NodeKind.DataTableNode,
+                                        source: {
+                                            kind: NodeKind.WebExternalClicksTableQuery,
+                                            properties: webAnalyticsFilters,
+                                            dateRange,
+                                            compareFilter,
+                                            sampling,
+                                            limit: 10,
+                                            filterTestAccounts,
+                                            conversionGoal: featureFlags[
+                                                FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS
+                                            ]
+                                                ? conversionGoal
+                                                : undefined,
+                                            stripQueryParams: shouldStripQueryParams,
+                                        },
+                                        embedded: false,
+                                        columns: ['url', 'visitors', 'clicks'],
+                                    },
+                                    insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
+                                    canOpenModal: true,
+                                    docs: {
+                                        title: 'Outbound Clicks',
+                                        description: (
+                                            <div>
+                                                You'll be able to verify when someone leaves your website by clicking an
+                                                outbound link (to a separate domain)
+                                            </div>
+                                        ),
+                                    },
+                                },
                             ] as (TabsTileTab | undefined)[]
                         ).filter(isNotNil),
                     },
@@ -938,21 +937,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                     Channels are the different sources that bring traffic to your
                                                     website, e.g. Paid Search, Organic Social, Direct, etc.
                                                 </p>
-                                                {featureFlags[FEATURE_FLAGS.CUSTOM_CHANNEL_TYPE_RULES] && (
-                                                    <p>
-                                                        You can also{' '}
-                                                        <Link
-                                                            to={urls.settings(
-                                                                'environment-web-analytics',
-                                                                'channel-type'
-                                                            )}
-                                                        >
-                                                            create custom channel types
-                                                        </Link>
-                                                        , allowing you to further categorize your channels.
-                                                    </p>
-                                                )}
-
+                                                <p>
+                                                    You can also{' '}
+                                                    <Link
+                                                        to={urls.settings('environment-web-analytics', 'channel-type')}
+                                                    >
+                                                        create custom channel types
+                                                    </Link>
+                                                    , allowing you to further categorize your channels.
+                                                </p>
                                                 <p>
                                                     Something unexpected? Try the{' '}
                                                     <Link to={urls.sessionAttributionExplorer()}>
@@ -1275,7 +1268,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                           }
                         : null,
                     // Hiding if conversionGoal is set already because values aren't representative
-                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS]
+                    !conversionGoal
                         ? {
                               kind: 'query',
                               tileId: TileId.GOALS,
@@ -1290,6 +1283,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       kind: NodeKind.WebGoalsQuery,
                                       properties: webAnalyticsFilters,
                                       dateRange,
+                                      compareFilter,
                                       sampling,
                                       limit: 10,
                                       filterTestAccounts,
@@ -1321,7 +1315,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REPLAY]
+                    !conversionGoal
                         ? {
                               kind: 'replay',
                               tileId: TileId.REPLAY,
@@ -1823,8 +1817,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     checkCustomEventConversionGoalHasSessionIdsHelper(
                         conversionGoal,
                         breakpoint,
-                        actions.setConversionGoalWarning,
-                        values.featureFlags
+                        actions.setConversionGoalWarning
                     ),
             ],
         }
@@ -1833,8 +1826,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         checkCustomEventConversionGoalHasSessionIdsHelper(
             values.conversionGoal,
             undefined,
-            actions.setConversionGoalWarning,
-            values.featureFlags
+            actions.setConversionGoalWarning
         ).catch(() => {
             // ignore, this warning is just a nice-to-have, no point showing an error to the user
         })
@@ -1849,13 +1841,8 @@ const isDefinitionStale = (definition: EventDefinition | PropertyDefinition): bo
 const checkCustomEventConversionGoalHasSessionIdsHelper = async (
     conversionGoal: WebAnalyticsConversionGoal | null,
     breakpoint: BreakPointFunction | undefined,
-    setConversionGoalWarning: (warning: ConversionGoalWarning | null) => void,
-    featureFlags: FeatureFlagsSet
+    setConversionGoalWarning: (warning: ConversionGoalWarning | null) => void
 ): Promise<void> => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_WARN_CUSTOM_EVENT_NO_SESSION]) {
-        return
-    }
-
     if (!conversionGoal || !('customEventName' in conversionGoal) || !conversionGoal.customEventName) {
         setConversionGoalWarning(null)
         return

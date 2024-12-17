@@ -1,3 +1,4 @@
+import json
 import subprocess
 import tempfile
 from inline_snapshot import snapshot
@@ -71,7 +72,7 @@ function onLoad() {
 };return exports;})();
     let processEvent = undefined;
     if ('onEvent' in source) {
-        processEvent = function processEvent(globals) {
+        processEvent = function processEvent(globals, posthog) {
             if (!('onEvent' in source)) { return; };
             const inputs = buildInputs(globals);
             const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
@@ -98,7 +99,7 @@ function onLoad() {
         }
 
         return {
-            processEvent: processEvent
+            processEvent: (globals) => processEvent(globals, posthog)
         }
     }
 
@@ -129,12 +130,12 @@ function onLoad() {
         assert '__getGlobal("person")' in result
 
     def test_get_transpiled_function_with_filters(self):
-        self.hog_function.hog = "export function onEvent(event) { console.log(event.event); }"
+        self.hog_function.hog = "export function onEvent(globals) { console.log(globals); }"
         self.hog_function.filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
 
         result = self.compile_and_run()
 
-        assert "console.log(event.event);" in result
+        assert "console.log(globals);" in result
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
         assert "const filterMatches = !!(!!((__getGlobal" in result
@@ -249,7 +250,7 @@ function onLoad() {
         action.steps = [{"event": "$pageview", "url": "https://example.com"}]  # type: ignore
         action.save()
 
-        self.hog_function.hog = "export function onEvent(event) { console.log(event.event); }"
+        self.hog_function.hog = "export function onEvent(globals) { console.log(globals); }"
         self.hog_function.filters = {
             "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
             "actions": [{"id": str(action.pk), "name": "Test Action", "type": "actions"}],
@@ -258,7 +259,7 @@ function onLoad() {
 
         result = self.compile_and_run()
 
-        assert "console.log(event.event);" in result
+        assert "console.log(globals);" in result
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
         assert "https://example.com" in result
@@ -283,3 +284,63 @@ function onLoad() {
         assert 'if (!!(!!((__getGlobal("event") == "$autocapture")))) {' in result
         assert "const newInputs = structuredClone(inputs);" in result
         assert 'newInputs["greeting"] = concat("Hallo, ", __getProperty' in result
+
+    def test_run_function_onload(self):
+        self.hog_function.hog = "export function onLoad({ inputs, posthog }) { console.log(inputs.message); }"
+        self.hog_function.filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
+        self.hog_function.inputs = {"message": {"value": "Hello World {person.properties.name}"}}
+
+        result = self.compile_and_run()
+        assert "Hello World" in result
+
+        response = self._execute_javascript(
+            result
+            + "().init({ posthog: { get_property: () => ({name: 'Bob'}) }, callback: () => { console.log('Loaded') } })"
+        )
+        assert "Hello World Bob\nLoaded" == response.strip()
+
+    def test_run_function_onevent(self):
+        self.hog_function.hog = "export function onEvent({ inputs }) { console.log(inputs.message); }"
+        # self.hog_function.filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
+        self.hog_function.inputs = {"message": {"value": "Hello World {event.properties.id}"}}
+        self.hog_function.mappings = [
+            {
+                "inputs": {"greeting": {"value": "Hallo, {person.properties.nonexistent_property}!"}},
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events"}]},
+            }
+        ]
+
+        result = self.compile_and_run()
+        assert "Hello World" in result
+
+        globals = {
+            "event": {"event": "$pageview", "properties": {"id": "banana"}},
+            "groups": {},
+            "person": {"properties": {"name": "Bob"}},
+        }
+        response = self._execute_javascript(
+            result
+            + "().init({ posthog: { get_property: () => ({name: 'Bob'}) }, callback: () => { console.log('Loaded') } }).processEvent("
+            + json.dumps(globals)
+            + ")"
+        )
+        assert "Loaded\nHello World banana" == response.strip()
+
+        globals = {
+            "event": {"event": "$autocapture", "properties": {"id": "banana"}},
+            "groups": {},
+            "person": {"properties": {"name": "Bob"}},
+        }
+        response = self._execute_javascript(
+            result
+            + "().init({ posthog: { get_property: () => ({name: 'Bob'}) }, callback: () => { console.log('Loaded') } }).processEvent("
+            + json.dumps(globals)
+            + ")"
+        )
+        assert "Loaded" == response.strip()
+
+    def _execute_javascript(self, js) -> str:
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(js.encode("utf-8"))
+            f.flush()
+            return subprocess.check_output(["node", f.name]).decode("utf-8")
