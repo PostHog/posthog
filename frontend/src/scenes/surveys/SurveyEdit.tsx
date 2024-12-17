@@ -689,7 +689,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                         }
                                                                     }}
                                                                 />
-                                                                Don't show to users who saw a survey within the last
+                                                                Don't show to users who saw any survey in the last
                                                                 <LemonInput
                                                                     type="number"
                                                                     size="xsmall"

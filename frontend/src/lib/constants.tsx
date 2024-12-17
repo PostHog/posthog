@@ -231,6 +231,7 @@ export const FEATURE_FLAGS = {
     HOG_TRANSFORMATIONS: 'hog-transformations', // owner: #team-cdp
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     REPLAY_LIST_RECORDINGS_AS_QUERY: 'replay-list-recordings-as-query', // owner: @pauldambra #team-replay
+    SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     EXPERIMENT_STATS_V2: 'experiment-stats-v2', // owner: @danielbachhuber #team-experiments
     WEB_ANALYTICS_PERIOD_COMPARISON: 'web-analytics-period-comparison', // owner: @rafaeelaudibert #team-web-analytics
