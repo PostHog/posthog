@@ -23,7 +23,6 @@ export function PrimaryGoalTrends(): JSX.Element {
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
     if (!editingPrimaryMetricIndex && editingPrimaryMetricIndex !== 0) {
-        console.warn('editingPrimaryMetricIndex is null or undefined')
         return <></>
     }
 

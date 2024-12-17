@@ -22,11 +22,11 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
     if (!editingPrimaryMetricIndex && editingPrimaryMetricIndex !== 0) {
-        console.warn('editingPrimaryMetricIndex is null or undefined')
         return <></>
     }
 
-    const currentMetric = experiment.metrics[editingPrimaryMetricIndex] as ExperimentTrendsQuery
+    const metricIdx = editingPrimaryMetricIndex
+    const currentMetric = experiment.metrics[metricIdx] as ExperimentTrendsQuery
 
     return (
         <>
@@ -49,7 +49,7 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
                         )
 
                         setTrendsExposureMetric({
-                            metricIdx: editingPrimaryMetricIndex,
+                            metricIdx,
                             series,
                         })
                     } else {
@@ -115,7 +115,7 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setTrendsExposureMetric({
-                                metricIdx: editingPrimaryMetricIndex,
+                                metricIdx,
                                 filterTestAccounts: checked,
                             })
                         } else {

@@ -18,12 +18,11 @@ export function PrimaryMetricModal({ experimentId }: { experimentId: Experiment[
         isPrimaryMetricModalOpen,
         editingPrimaryMetricIndex,
     } = useValues(experimentLogic({ experimentId }))
-    const { updateExperimentGoal, setExperiment, updateExperiment, closePrimaryMetricModal } = useActions(
+    const { updateExperimentGoal, setExperiment, closePrimaryMetricModal } = useActions(
         experimentLogic({ experimentId })
     )
 
     if (!editingPrimaryMetricIndex && editingPrimaryMetricIndex !== 0) {
-        console.warn('editingPrimaryMetricIndex is null or undefined')
         return <></>
     }
 
@@ -54,9 +53,7 @@ export function PrimaryMetricModal({ experimentId }: { experimentId: Experiment[
                             setExperiment({
                                 metrics: newMetrics,
                             })
-                            updateExperiment({
-                                metrics: newMetrics,
-                            })
+                            updateExperimentGoal(experiment.filters)
                         }}
                     >
                         Delete

@@ -426,7 +426,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 setExperimentResultCalculationError: (_, { error }) => error,
             },
         ],
-        // here
         flagImplementationWarning: [
             false as boolean,
             {
@@ -487,6 +486,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openPrimaryMetricModal: (_, { index }) => index,
                 closePrimaryMetricModal: () => null,
+                updateExperimentGoal: () => null,
             },
         ],
         primaryMetricsResultErrors: [
@@ -890,7 +890,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         // :HANDLE FLAG: CLEAN UP AFTER MIGRATION
                         if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             const errorDetailMatch = error.detail.match(/\{.*\}/)
-                            errorDetail = errorDetailMatch[0]
+                            errorDetail = errorDetailMatch ? errorDetailMatch[0] : error.detail
                         }
                         actions.setExperimentResultCalculationError({ detail: errorDetail, statusCode: error.status })
                         if (error.status === 504) {
@@ -922,11 +922,15 @@ export const experimentLogic = kea<experimentLogicType>([
                                 }
                             } catch (error: any) {
                                 const errorDetailMatch = error.detail.match(/\{.*\}/)
-                                const errorDetail = errorDetailMatch[0]
+                                const errorDetail = errorDetailMatch ? JSON.parse(errorDetailMatch[0]) : error.detail
 
                                 // Store the error in primaryMetricsResultErrors
                                 const currentErrors = [...(values.primaryMetricsResultErrors || [])]
-                                currentErrors[index] = { detail: errorDetail, statusCode: error.status }
+                                currentErrors[index] = {
+                                    detail: errorDetail,
+                                    statusCode: error.status,
+                                    hasDiagnostics: !!errorDetailMatch,
+                                }
                                 actions.setPrimaryMetricsResultErrors(currentErrors)
                                 return null
                             }

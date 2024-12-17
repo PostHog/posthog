@@ -4,20 +4,11 @@ import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from '../ExperimentView/components'
-import {
-    BAR_HEIGHT,
-    BAR_PADDING,
-    COLORS,
-    CONVERSION_RATE_RECT_WIDTH,
-    HORIZONTAL_PADDING,
-    TICK_FONT_SIZE,
-    TICK_PANEL_HEIGHT,
-    VIEW_BOX_WIDTH,
-} from './const'
 import { NoResultEmptyState } from './NoResultEmptyState'
 
 function formatTickValue(value: number): string {
@@ -71,10 +62,33 @@ export function DeltaChart({
         exposureCountDataForVariant,
         metricResultsLoading,
     } = useValues(experimentLogic)
+
+    const { experiment } = useValues(experimentLogic)
     const { openPrimaryMetricModal } = useActions(experimentLogic)
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
+
+    const BAR_HEIGHT = 8
+    const BAR_PADDING = 10
+    const TICK_PANEL_HEIGHT = 20
+    const VIEW_BOX_WIDTH = 800
+    const HORIZONTAL_PADDING = 20
+    const CONVERSION_RATE_RECT_WIDTH = 2
+    const TICK_FONT_SIZE = 9
+
+    const { isDarkModeOn } = useValues(themeLogic)
+    const COLORS = {
+        TICK_TEXT_COLOR: 'var(--text-secondary-3000)',
+        BOUNDARY_LINES: 'var(--border-3000)',
+        ZERO_LINE: 'var(--border-bold)',
+        BAR_NEGATIVE: isDarkModeOn ? 'rgb(206 66 54)' : '#F44435',
+        BAR_BEST: isDarkModeOn ? 'rgb(49 145 51)' : '#4DAF4F',
+        BAR_DEFAULT: isDarkModeOn ? 'rgb(121 121 121)' : 'rgb(217 217 217)',
+        BAR_CONTROL: isDarkModeOn ? 'rgba(217, 217, 217, 0.2)' : 'rgba(217, 217, 217, 0.4)',
+        BAR_MIDDLE_POINT: 'black',
+        BAR_MIDDLE_POINT_CONTROL: 'rgba(0, 0, 0, 0.4)',
+    }
 
     // Update chart height calculation to include only one BAR_PADDING for each space between bars
     const chartHeight = BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * variants.length
@@ -143,19 +157,22 @@ export function DeltaChart({
                 >
                     <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
                         <div className="space-y-1">
-                            <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis">
-                                {metricIndex + 1}. {metric.name || <span className="text-muted">Untitled metric</span>}
+                            <div className="flex items-center gap-2">
+                                <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow">
+                                    {metricIndex + 1}.{' '}
+                                    {metric.name || <span className="text-muted">Untitled metric</span>}
+                                </div>
+                                <LemonButton
+                                    className="flex-shrink-0"
+                                    type="secondary"
+                                    size="xsmall"
+                                    icon={<IconPencil fontSize="12" />}
+                                    onClick={() => openPrimaryMetricModal(metricIndex)}
+                                />
                             </div>
                             <LemonTag type="muted" size="small">
                                 {metric.kind === 'ExperimentFunnelsQuery' ? 'Funnel' : 'Trend'}
                             </LemonTag>
-                            <LemonButton
-                                className="max-w-72"
-                                type="secondary"
-                                size="xsmall"
-                                icon={<IconPencil />}
-                                onClick={() => openPrimaryMetricModal(metricIndex)}
-                            />
                         </div>
                     </div>
                 </div>
@@ -216,7 +233,7 @@ export function DeltaChart({
                                         textAnchor="middle"
                                         dominantBaseline="middle"
                                         fontSize={TICK_FONT_SIZE}
-                                        fill="rgba(17, 17, 17, 0.7)"
+                                        fill={COLORS.TICK_TEXT_COLOR}
                                         fontWeight="600"
                                     >
                                         {formatTickValue(value)}
@@ -277,7 +294,6 @@ export function DeltaChart({
                                     delta = (variantMean - controlMean) / controlMean
                                 }
                             } else {
-                                // Original funnel logic
                                 const variantRate = conversionRateForVariant(result, variant.key)
                                 const controlRate = conversionRateForVariant(result, 'control')
                                 delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
@@ -424,38 +440,48 @@ export function DeltaChart({
                             }}
                             onMouseLeave={() => setEmptyStateTooltipVisible(false)}
                         >
-                            <div
-                                className="flex items-center justify-center text-muted cursor-default"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ fontSize: '10px', fontWeight: 400 }}
-                            >
-                                <span>Results not yet available</span>
-                                {error?.statusCode === 400 ? (
-                                    <LemonTag size="small" type="highlight" className="ml-1">
-                                        <IconActivity className="mr-1" fontSize="1em" />
-                                        <span className="font-semibold">
-                                            {(() => {
-                                                try {
-                                                    const detail = JSON.parse(error.detail)
-                                                    return Object.values(detail).filter((v) => v === false).length
-                                                } catch {
-                                                    return '0'
-                                                }
-                                            })()}
-                                        </span>
-                                        /<span className="font-semibold">4</span>
-                                    </LemonTag>
-                                ) : (
-                                    <LemonTag type="danger" className="ml-1">
-                                        Error
-                                    </LemonTag>
-                                )}
-                            </div>
+                            {!experiment.start_date ? (
+                                <div
+                                    className="flex items-center justify-center text-muted cursor-default"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ fontSize: '10px', fontWeight: 400 }}
+                                >
+                                    <span>Waiting for experiment to start&hellip;</span>
+                                </div>
+                            ) : (
+                                <div
+                                    className="flex items-center justify-center text-muted cursor-default"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ fontSize: '10px', fontWeight: 400 }}
+                                >
+                                    <span>Results not yet available</span>
+                                    {error?.hasDiagnostics ? (
+                                        <LemonTag size="small" type="highlight" className="ml-2">
+                                            <IconActivity className="mr-1" fontSize="1em" />
+                                            <span className="font-semibold">
+                                                {(() => {
+                                                    try {
+                                                        const detail = JSON.parse(error.detail)
+                                                        return Object.values(detail).filter((v) => v === false).length
+                                                    } catch {
+                                                        return '0'
+                                                    }
+                                                })()}
+                                            </span>
+                                            /<span className="font-semibold">4</span>
+                                        </LemonTag>
+                                    ) : (
+                                        <LemonTag size="small" type="danger" className="ml-1">
+                                            Error
+                                        </LemonTag>
+                                    )}
+                                </div>
+                            )}
                         </foreignObject>
                     </svg>
                 )}
 
-                {/* Tooltip */}
+                {/* Variant result tooltip */}
                 {tooltipData && (
                     <div
                         // eslint-disable-next-line react/forbid-dom-props
@@ -559,7 +585,6 @@ export function DeltaChart({
                                                 )
                                             }
 
-                                            // Original funnel logic
                                             const variantRate = conversionRateForVariant(result, tooltipData.variant)
                                             const controlRate = conversionRateForVariant(result, 'control')
                                             const delta =

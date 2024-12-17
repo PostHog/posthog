@@ -55,7 +55,7 @@ function AddMetric({
         <LemonButton
             icon={<IconPlus />}
             type="secondary"
-            size="small"
+            size="xsmall"
             onClick={() => {
                 const newMetrics = [...metrics, getDefaultFunnelsMetric()]
                 setExperiment({
