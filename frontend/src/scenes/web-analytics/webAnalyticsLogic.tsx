@@ -281,7 +281,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             return { tileId, tabId }
         },
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
-        setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
+        setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -475,7 +475,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         compareFilter: [
-            { compare: true } as CompareFilter | null,
+            { compare: true } as CompareFilter,
             persistConfig,
             {
                 setCompareFilter: (_, { compareFilter }) => compareFilter,
@@ -621,7 +621,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 display: ChartDisplayType.ActionsLineGraph,
                                 ...trendsFilter,
                             },
-                            compareFilter: compareFilter || { compare: false },
+                            compareFilter,
                             filterTestAccounts,
                             conversionGoal: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS]
                                 ? conversionGoal
@@ -882,6 +882,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   kind: NodeKind.WebExternalClicksTableQuery,
                                                   properties: webAnalyticsFilters,
                                                   dateRange,
+                                                  compareFilter,
                                                   sampling,
                                                   limit: 10,
                                                   filterTestAccounts,
@@ -1290,6 +1291,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       kind: NodeKind.WebGoalsQuery,
                                       properties: webAnalyticsFilters,
                                       dateRange,
+                                      compareFilter,
                                       sampling,
                                       limit: 10,
                                       filterTestAccounts,
@@ -1321,7 +1323,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REPLAY]
+                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REPLAY]
                         ? {
                               kind: 'replay',
                               tileId: TileId.REPLAY,
