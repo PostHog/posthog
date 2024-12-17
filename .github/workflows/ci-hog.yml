@@ -247,18 +247,37 @@ jobs:
               run: |
                   VERSION=$(jq ".version" hogvm/typescript/package.json -r)
 
+                  retry_pnpm_install() {
+                      local retries=0
+                      local max_retries=20 # 10 minutes total
+                      local delay=30
+
+                      while [[ $retries -lt $max_retries ]]; do
+                          echo "Attempting pnpm install (retry $((retries+1))/$max_retries)..."
+                          pnpm install --no-frozen-lockfile && break
+                          echo "Install failed. Retrying in $delay seconds..."
+                          sleep $delay
+                          retries=$((retries + 1))
+                      done
+
+                      if [[ $retries -eq $max_retries ]]; then
+                          echo "pnpm install failed after $max_retries attempts."
+                          exit 1
+                      fi
+                  }
+
                   # Update main package.json
                   mv package.json package.old.json
                   jq --indent 4 '.dependencies."@posthog/hogvm" = "^'$VERSION'"' package.old.json > package.json
                   rm package.old.json
-                  pnpm install --no-frozen-lockfile
+                  retry_pnpm_install
 
                   # Update plugin-server/package.json
                   cd plugin-server
                   mv package.json package.old.json
                   jq --indent 4 '.dependencies."@posthog/hogvm" = "^'$VERSION'"' package.old.json > package.json
                   rm package.old.json
-                  pnpm install --no-frozen-lockfile
+                  retry_pnpm_install
 
             - name: Commit updated package.json files
               if: env.mismatch == 'true'
