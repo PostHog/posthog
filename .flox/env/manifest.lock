@@ -20,8 +20,14 @@
         "pkg-path": "corepack",
         "pkg-group": "nodejs"
       },
+      "go": {
+        "pkg-path": "go",
+        "pkg-group": "go",
+        "version": "1.22"
+      },
       "libiconv": {
         "pkg-path": "libiconv",
+        "pkg-group": "rust-toolchain",
         "systems": [
           "aarch64-darwin"
         ]
@@ -31,8 +37,7 @@
         "pkg-group": "python"
       },
       "mprocs": {
-        "pkg-path": "mprocs",
-        "pkg-group": "mprocs"
+        "pkg-path": "mprocs"
       },
       "nodejs": {
         "pkg-path": "nodejs_18",
@@ -67,10 +72,11 @@
     },
     "vars": {
       "DEBUG": "1",
+      "DIRENV_LOG_FORMAT": "",
       "POSTHOG_SKIP_MIGRATION_CHECKS": "1"
     },
     "hook": {
-      "on-activate": "export CARGO_HOME=\"$FLOX_ENV_CACHE/cargo\"\nexport PATH=\"$CARGO_HOME/bin:$PATH\"\n\n# Set up a Python virtual environment\nexport PYTHON_DIR=\"$FLOX_ENV_CACHE/venv\"\nuv venv \"$PYTHON_DIR\" --allow-existing\necho -e \"Python interpreter path for your code editor: \\033[32m.flox/cache/venv/bin/python\\033[0m\"\n\nsource \"$PYTHON_DIR/bin/activate\"\n\n# Install Python dependencies (this is practically instant thanks to uv)\nuv pip install -q -r requirements.txt -r requirements-dev.txt\n\n# Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)\n# This also sets up pre-commit hooks via Husky\nif [ ! -d \"node_modules\" ]; then\n  pnpm install -s\nfi\n\n# Add required entries to /etc/hosts if not present\nif ! grep -q \"127.0.0.1 kafka clickhouse\" /etc/hosts; then\n  echo \"\"\n  echo \"🚨 Amending /etc/hosts to map hostnames 'kafka' and 'clickhouse' to 127.0.0.1...\"\n  echo \"127.0.0.1 kafka clickhouse\" | sudo tee -a /etc/hosts 1> /dev/null\n  echo \"✅ /etc/hosts amended\"\nfi\n\necho -e \"\n👉 IT'S DANGEROUS TO GO ALONE! RUN THIS:\n\\033[38;2;255;0;0m1.\\033[0m bin/migrate - to run all migrations\n\\033[38;2;0;255;0m2.\\033[0m bin/start - to start the entire stack\n\\033[38;2;0;0;255m3.\\033[0m ./manage.py generate_demo_data - to create a user with demo data\n\"\n"
+      "on-activate": "# Set up a Python virtual environment\nexport PYTHON_DIR=\"$FLOX_ENV_CACHE/venv\"\nif [ ! -d \"$PYTHON_DIR\" ]; then\n  uv venv \"$PYTHON_DIR\" --allow-existing\nfi\n\necho -e \"Python virtual environment path: \\033[33m.flox/cache/venv\\033[0m\"\necho -e \"Python interpreter path, for your code editor: \\033[33m.flox/cache/venv/bin/python\\033[0m\"\n\nsource \"$PYTHON_DIR/bin/activate\"\n\n# Install Python dependencies (this is practically instant thanks to uv)\nuv pip install -q -r requirements.txt -r requirements-dev.txt\n\n# Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)\n# This also sets up pre-commit hooks via Husky\nif [ ! -d \"node_modules\" ]; then\n  pnpm install -s\nfi\n\nif [[ -t 0 ]]; then  # Check if running in an interactive shell\n  # Add required entries to /etc/hosts if not present\n  if ! grep -q \"127.0.0.1 kafka clickhouse\" /etc/hosts; then\n    echo \"\"\n    echo \"🚨 Amending /etc/hosts to map hostnames 'kafka' and 'clickhouse' to 127.0.0.1...\"\n    echo \"127.0.0.1 kafka clickhouse\" | sudo tee -a /etc/hosts 1> /dev/null\n    echo \"✅ /etc/hosts amended\"\n  fi\n\n  # Guide through installing and configuring direnv if not present (optionally)\n  if [ ! -d \"$DIRENV_DIR\" ] && [ ! -f \"$FLOX_ENV_CACHE/.hush-direnv\" ]; then\n    read -p \"\n👉 Use direnv (https://direnv.net) for automatic activation of this environment by your shell.\n❓ Would you like direnv to be set up now? (y/n, default: y): \" -n 1 -r\n    if [[ $REPLY =~ ^[Yy]$ || -z $REPLY ]]; then\n      $FLOX_ENV_CACHE/../bin/direnv-setup.sh\n    else\n      echo \"⏭️ Skipping direnv setup. This message will not be shown again, but if you change your mind, just run '.flox/bin/direnv-setup.sh'\"\n      touch $FLOX_ENV_CACHE/.hush-direnv\n    fi\n  fi\n\n  # Print intro message\n  echo -e \"\nIT'S DANGEROUS TO GO ALONE! RUN THIS:\n1. \\033[31mbin/migrate\\033[0m - to run all migrations\n2. \\033[32mbin/start\\033[0m - to start the entire stack\n3. \\033[34m./manage.py generate_demo_data\\033[0m - to create a user with demo data\n\"\nfi\n"
     },
     "profile": {
       "bash": "  source \"$PYTHON_DIR/bin/activate\"\n",
@@ -93,119 +99,123 @@
   },
   "packages": [
     {
-      "attr_path": "mprocs",
+      "attr_path": "go",
       "broken": false,
-      "derivation": "/nix/store/sw31k6n4j0q96v0b7mc2k4jx7av5f910-mprocs-0.7.1.drv",
-      "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
-      "install_id": "mprocs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=a73246e2eef4c6ed172979932bc80e1404ba2d56",
-      "name": "mprocs-0.7.1",
-      "pname": "mprocs",
-      "rev": "a73246e2eef4c6ed172979932bc80e1404ba2d56",
-      "rev_count": 719504,
-      "rev_date": "2024-12-09T15:59:59Z",
-      "scrape_date": "2024-12-11T03:49:32Z",
+      "derivation": "/nix/store/x1p2gf1jcqn29l4agdqrb0w09rib7w3m-go-1.22.7.drv",
+      "description": "Go Programming language",
+      "install_id": "go",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=5633bcff0c6162b9e4b5f1264264611e950c8ec7",
+      "name": "go-1.22.7",
+      "pname": "go",
+      "rev": "5633bcff0c6162b9e4b5f1264264611e950c8ec7",
+      "rev_count": 690827,
+      "rev_date": "2024-10-09T16:51:18Z",
+      "scrape_date": "2024-10-11T03:53:01Z",
       "stabilities": [
+        "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "0.7.1",
+      "version": "1.22.7",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/0nlavc4nbccrs54vmzpva4kp9im1kxvw-mprocs-0.7.1"
+        "out": "/nix/store/rfcwglhhspqx5v5h0sl4b3py14i6vpxa-go-1.22.7"
       },
       "system": "aarch64-darwin",
-      "group": "mprocs",
+      "group": "go",
       "priority": 5
     },
     {
-      "attr_path": "mprocs",
+      "attr_path": "go",
       "broken": false,
-      "derivation": "/nix/store/qzlp3z83xmbjbf41jqmg7y0vm0g3p1ys-mprocs-0.7.1.drv",
-      "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
-      "install_id": "mprocs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=a73246e2eef4c6ed172979932bc80e1404ba2d56",
-      "name": "mprocs-0.7.1",
-      "pname": "mprocs",
-      "rev": "a73246e2eef4c6ed172979932bc80e1404ba2d56",
-      "rev_count": 719504,
-      "rev_date": "2024-12-09T15:59:59Z",
-      "scrape_date": "2024-12-11T03:49:32Z",
+      "derivation": "/nix/store/qk95aryv3n1mhmk0lxf55sg9yr0l6138-go-1.22.7.drv",
+      "description": "Go Programming language",
+      "install_id": "go",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=5633bcff0c6162b9e4b5f1264264611e950c8ec7",
+      "name": "go-1.22.7",
+      "pname": "go",
+      "rev": "5633bcff0c6162b9e4b5f1264264611e950c8ec7",
+      "rev_count": 690827,
+      "rev_date": "2024-10-09T16:51:18Z",
+      "scrape_date": "2024-10-11T03:53:01Z",
       "stabilities": [
+        "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "0.7.1",
+      "version": "1.22.7",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/3r1lbf5gh5klaxf59dr23ajx8p64n4iw-mprocs-0.7.1"
+        "out": "/nix/store/64z59pb0ss407rbv1fcvq0ynngrwfa6k-go-1.22.7"
       },
       "system": "aarch64-linux",
-      "group": "mprocs",
+      "group": "go",
       "priority": 5
     },
     {
-      "attr_path": "mprocs",
+      "attr_path": "go",
       "broken": false,
-      "derivation": "/nix/store/28qj4jh13mirxqrqhjhzjj92kqdr8h16-mprocs-0.7.1.drv",
-      "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
-      "install_id": "mprocs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=a73246e2eef4c6ed172979932bc80e1404ba2d56",
-      "name": "mprocs-0.7.1",
-      "pname": "mprocs",
-      "rev": "a73246e2eef4c6ed172979932bc80e1404ba2d56",
-      "rev_count": 719504,
-      "rev_date": "2024-12-09T15:59:59Z",
-      "scrape_date": "2024-12-11T03:49:32Z",
+      "derivation": "/nix/store/4bjrs6k4a0xjyy5zanbc8igv0cffsi0a-go-1.22.7.drv",
+      "description": "Go Programming language",
+      "install_id": "go",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=5633bcff0c6162b9e4b5f1264264611e950c8ec7",
+      "name": "go-1.22.7",
+      "pname": "go",
+      "rev": "5633bcff0c6162b9e4b5f1264264611e950c8ec7",
+      "rev_count": 690827,
+      "rev_date": "2024-10-09T16:51:18Z",
+      "scrape_date": "2024-10-11T03:53:01Z",
       "stabilities": [
+        "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "0.7.1",
+      "version": "1.22.7",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/1pw5lq06qhnrnmmn9wlfamk26y98mgxg-mprocs-0.7.1"
+        "out": "/nix/store/r8199g59rmp6ac0lnx86fpk57fbxc3bk-go-1.22.7"
       },
       "system": "x86_64-darwin",
-      "group": "mprocs",
+      "group": "go",
       "priority": 5
     },
     {
-      "attr_path": "mprocs",
+      "attr_path": "go",
       "broken": false,
-      "derivation": "/nix/store/708zbbivjp6b7jrmcl4inijhwj7fap03-mprocs-0.7.1.drv",
-      "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
-      "install_id": "mprocs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=a73246e2eef4c6ed172979932bc80e1404ba2d56",
-      "name": "mprocs-0.7.1",
-      "pname": "mprocs",
-      "rev": "a73246e2eef4c6ed172979932bc80e1404ba2d56",
-      "rev_count": 719504,
-      "rev_date": "2024-12-09T15:59:59Z",
-      "scrape_date": "2024-12-11T03:49:32Z",
+      "derivation": "/nix/store/gp0ma9f4n4nxmgbgl1g65kvlf05cl22y-go-1.22.7.drv",
+      "description": "Go Programming language",
+      "install_id": "go",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=5633bcff0c6162b9e4b5f1264264611e950c8ec7",
+      "name": "go-1.22.7",
+      "pname": "go",
+      "rev": "5633bcff0c6162b9e4b5f1264264611e950c8ec7",
+      "rev_count": 690827,
+      "rev_date": "2024-10-09T16:51:18Z",
+      "scrape_date": "2024-10-11T03:53:01Z",
       "stabilities": [
+        "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "0.7.1",
+      "version": "1.22.7",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/nd8697nvxpvvkp99yj3zz3sywi88qag0-mprocs-0.7.1"
+        "out": "/nix/store/chzgk756zb2cqlzbjr86m0lfxi63cdfy-go-1.22.7"
       },
       "system": "x86_64-linux",
-      "group": "mprocs",
+      "group": "go",
       "priority": 5
     },
     {
@@ -1305,6 +1315,37 @@
       "priority": 5
     },
     {
+      "attr_path": "libiconv",
+      "broken": false,
+      "derivation": "/nix/store/5g94mlh38xmfwq5wpik66jsaw1g026ss-libiconv-99.drv",
+      "description": "Iconv(3) implementation",
+      "install_id": "libiconv",
+      "license": "[ BSD-2-Clause, BSD-3-Clause, APSL-1.0 ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=5633bcff0c6162b9e4b5f1264264611e950c8ec7",
+      "name": "libiconv-99",
+      "pname": "libiconv",
+      "rev": "5633bcff0c6162b9e4b5f1264264611e950c8ec7",
+      "rev_count": 690827,
+      "rev_date": "2024-10-09T16:51:18Z",
+      "scrape_date": "2024-10-11T03:53:01Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "99",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/r2jkk7lsmi17m5lp3r7aip9626n07qfz-libiconv-99-dev",
+        "out": "/nix/store/cjzmz9dskblgkbv4by2wnsyvdjw6jpcm-libiconv-99"
+      },
+      "system": "aarch64-darwin",
+      "group": "rust-toolchain",
+      "priority": 5
+    },
+    {
       "attr_path": "rustPlatform.rustLibSrc",
       "broken": false,
       "derivation": "/nix/store/za8qn1akdaglwdm4sv2ndnsa92hy54j7-rust-lib-src.drv",
@@ -1669,15 +1710,15 @@
       "priority": 5
     },
     {
-      "attr_path": "libiconv",
+      "attr_path": "mprocs",
       "broken": false,
-      "derivation": "/nix/store/k7j41vj37kdjpy3yz1sxnb7fqi9ivfdq-libiconv-99.drv",
-      "description": "Iconv(3) implementation",
-      "install_id": "libiconv",
-      "license": "[ BSD-2-Clause, BSD-3-Clause, APSL-1.0 ]",
+      "derivation": "/nix/store/5hckam5lgqqmlkjd1r6a0bzkkvhfm349-mprocs-0.7.1.drv",
+      "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
+      "install_id": "mprocs",
+      "license": "MIT",
       "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "name": "libiconv-99",
-      "pname": "libiconv",
+      "name": "mprocs-0.7.1",
+      "pname": "mprocs",
       "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
       "rev_count": 647193,
       "rev_date": "2024-07-03T18:27:49Z",
@@ -1687,15 +1728,104 @@
         "unstable"
       ],
       "unfree": false,
-      "version": "99",
+      "version": "0.7.1",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "dev": "/nix/store/w062fsd14dghzai3a64spxpqbc4ga208-libiconv-99-dev",
-        "out": "/nix/store/0rsh55ighfv3fxidf3xz8vl3abiika0i-libiconv-99"
+        "out": "/nix/store/pk1mb41ryrw2izq15pymxjwqvw8mr29p-mprocs-0.7.1"
       },
       "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "mprocs",
+      "broken": false,
+      "derivation": "/nix/store/lg4yvv4az18g59l7rgfvn2pqxidx5qgb-mprocs-0.7.1.drv",
+      "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
+      "install_id": "mprocs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
+      "name": "mprocs-0.7.1",
+      "pname": "mprocs",
+      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
+      "rev_count": 647193,
+      "rev_date": "2024-07-03T18:27:49Z",
+      "scrape_date": "2024-07-05T00:14:29Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.7.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/dynm867fg992nb5wlysvrg1p14cwgsca-mprocs-0.7.1"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "mprocs",
+      "broken": false,
+      "derivation": "/nix/store/xbicacfnn0gnz08rri7jwc40byxrm404-mprocs-0.7.1.drv",
+      "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
+      "install_id": "mprocs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
+      "name": "mprocs-0.7.1",
+      "pname": "mprocs",
+      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
+      "rev_count": 647193,
+      "rev_date": "2024-07-03T18:27:49Z",
+      "scrape_date": "2024-07-05T00:14:29Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.7.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/kx138kp8rxjwph6wqp3lk8v6fybij2bz-mprocs-0.7.1"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "mprocs",
+      "broken": false,
+      "derivation": "/nix/store/ydrq0m8lp0m3pjpd9ndg1x30z3bg81qx-mprocs-0.7.1.drv",
+      "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
+      "install_id": "mprocs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
+      "name": "mprocs-0.7.1",
+      "pname": "mprocs",
+      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
+      "rev_count": 647193,
+      "rev_date": "2024-07-03T18:27:49Z",
+      "scrape_date": "2024-07-05T00:14:29Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.7.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/ky3hbhjvsr4l5nh1xjipkbswll37j0dq-mprocs-0.7.1"
+      },
+      "system": "x86_64-linux",
       "group": "toplevel",
       "priority": 5
     }
