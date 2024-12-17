@@ -68,7 +68,11 @@ CORS(app)
 CORS(
     app,
     resources={
-        r"/chat": {"origins": ["http://localhost:8000"], "methods": ["POST"], "allow_headers": ["Content-Type"]}
+        r"/api/projects/*/max/chat/": {
+            "origins": ["http://localhost:8000"],
+            "methods": ["POST"],
+            "allow_headers": ["Content-Type"],
+        }
     },
 )
 
@@ -383,10 +387,10 @@ def format_response(response):
         return "\n\nError: No response from Max.\n\n"
 
 
-@app.route("/chat", methods=["POST"])
-def chat():
+@app.route("/api/projects/<project_id>/max/chat/", methods=["POST"])
+def chat(project_id=None):
     try:
-        logger.info("Incoming request to /chat endpoint.")
+        logger.info("Incoming request to chat endpoint.")
         data = request.json
         if not data or "message" not in data:
             logger.warning("Invalid request: No 'message' provided.")

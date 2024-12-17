@@ -9,7 +9,10 @@ export const sidePanelMaxAPI = {
             throw new Error('Project ID is required but not available')
         }
 
-        const response = await fetch(`/api/projects/${projectId}/max/chat/`, {
+        const isDevelopment = process.env.NODE_ENV === 'development'
+        const baseUrl = isDevelopment ? 'http://localhost:3001' : ''
+
+        const response = await fetch(`${baseUrl}/api/projects/${projectId}/max/chat/`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
