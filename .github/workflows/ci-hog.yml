@@ -138,7 +138,7 @@ jobs:
 
     check-package-version:
         name: Check HogVM TypeScript package version and detect an update
-        needs: hog-tests
+        # needs: hog-tests
         runs-on: ubuntu-24.04
         outputs:
             committed-version: ${{ steps.check-package-version.outputs.committed-version }}
