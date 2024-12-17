@@ -45,6 +45,12 @@ FLAG_EVALUATION_COUNTER = Counter(
     labelnames=[LABEL_TEAM_ID, "errors_computing", "has_hash_key_override"],
 )
 
+REMOTE_CONFIG_CACHE_COUNTER = Counter(
+    "posthog_remote_config_for_decide",
+    "Metric tracking whether Remote Config was used for decide",
+    labelnames=["result"],
+)
+
 
 def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
     use_remote_config = False
@@ -57,6 +63,8 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     elif settings.REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE > 0:
         if random() < settings.REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE:
             use_remote_config = True
+
+    REMOTE_CONFIG_CACHE_COUNTER.labels(result=use_remote_config).inc()
 
     if use_remote_config:
         response = RemoteConfig.get_config_via_token(token, request=request)
