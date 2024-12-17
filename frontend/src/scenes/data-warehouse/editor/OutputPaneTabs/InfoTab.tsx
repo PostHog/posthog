@@ -1,4 +1,4 @@
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -18,7 +18,10 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
     return (
         <div className="flex flex-col flex-1 m-4 gap-4">
             <div>
-                <h3>Materialization</h3>
+                <div className="flex flex-row items-center gap-2">
+                    <h3 className="mb-0">Materialization</h3>
+                    <LemonTag type="warning">BETA</LemonTag>
+                </div>
                 <div>
                     {isEditingMaterializedView ? (
                         <div>
@@ -38,13 +41,19 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                             </LemonButton>
                         </div>
                     ) : (
-                        <LemonButton
-                            onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
-                            type="primary"
-                            disabledReason={editingView ? undefined : 'You must save the view first'}
-                        >
-                            Materialize
-                        </LemonButton>
+                        <div>
+                            <p>
+                                Materialized views are a way to pre-compute data in your data warehouse. This allows you
+                                to run queries faster and more efficiently.
+                            </p>
+                            <LemonButton
+                                onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
+                                type="primary"
+                                disabledReason={editingView ? undefined : 'You must save the view first'}
+                            >
+                                Materialize
+                            </LemonButton>
+                        </div>
                     )}
                 </div>
             </div>
