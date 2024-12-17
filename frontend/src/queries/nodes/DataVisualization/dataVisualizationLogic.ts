@@ -1,13 +1,11 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { dayjs } from 'lib/dayjs'
-import { lightenDarkenColor, RGBToHex, uuid } from 'lib/utils'
+import { lightenDarkenColor, objectsEqual, RGBToHex, uuid } from 'lib/utils'
 import mergeObject from 'lodash.merge'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
 import {
     AnyResponseType,
     ChartAxis,
@@ -19,7 +17,7 @@ import {
     HogQLVariable,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps, ItemMode } from '~/types'
+import { ChartDisplayType, DashboardType, ItemMode } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
@@ -64,11 +62,14 @@ export interface AxisSeries<T> {
 export interface DataVisualizationLogicProps {
     key: string
     query: DataVisualizationNode
+    insightMode: ItemMode
+    dataNodeCollectionId: string
     setQuery?: (node: DataVisualizationNode) => void
-    insightLogicProps: InsightLogicProps<DataVisualizationNode>
     context?: QueryContext<DataVisualizationNode>
     cachedResults?: AnyResponseType
     insightLoading?: boolean
+    dashboardId?: DashboardType['id']
+    loadPriority?: number
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
 }
@@ -217,14 +218,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         values: [
             teamLogic,
             ['currentTeamId'],
-            insightSceneLogic,
-            ['insightMode'],
             dataNodeLogic({
                 cachedResults: props.cachedResults,
                 key: props.key,
                 query: props.query.source,
-                dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
-                loadPriority: props.insightLogicProps.loadPriority,
+                dataNodeCollectionId: props.dataNodeCollectionId,
+                loadPriority: props.loadPriority,
                 variablesOverride: props.variablesOverride,
             }),
             ['response', 'responseLoading', 'responseError', 'queryCancelled'],
@@ -236,13 +235,18 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 cachedResults: props.cachedResults,
                 key: props.key,
                 query: props.query.source,
-                dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
-                loadPriority: props.insightLogicProps.loadPriority,
+                dataNodeCollectionId: props.dataNodeCollectionId,
+                loadPriority: props.loadPriority,
                 variablesOverride: props.variablesOverride,
             }),
             ['loadData'],
         ],
     })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.query && !objectsEqual(props.query, oldProps.query)) {
+            actions._setQuery(props.query)
+        }
+    }),
     props({ query: { source: {} } } as DataVisualizationLogicProps),
     actions(({ values }) => ({
         setVisualizationType: (visualizationType: ChartDisplayType) => ({ visualizationType }),
@@ -281,8 +285,16 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             colorMode: values.isDarkModeOn ? 'dark' : 'light',
         }),
         setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
+        _setQuery: (node: DataVisualizationNode) => ({ node }),
     })),
     reducers(({ props }) => ({
+        query: [
+            props.query,
+            {
+                setQuery: (_, { node }) => node,
+                _setQuery: (_, { node }) => node,
+            },
+        ],
         visualizationType: [
             ChartDisplayType.ActionsTable as ChartDisplayType,
             {
@@ -553,32 +565,32 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return columns.filter((n) => n.type.isNumerical)
             },
         ],
-        query: [(_state, props) => [props.query], (query) => query],
+        dashboardId: [() => [(_, props) => props.dashboardId], (dashboardId) => dashboardId ?? null],
         showEditingUI: [
-            (state, props) => [state.insightMode, props.insightLogicProps],
-            (insightMode, insightLogicProps) => {
-                if (insightLogicProps.dashboardId) {
+            (state, props) => [props.insightMode, state.dashboardId],
+            (insightMode, dashboardId) => {
+                if (dashboardId) {
                     return false
                 }
 
                 return insightMode == ItemMode.Edit
             },
         ],
-        insightLogicProps: [(_state, props) => [props.insightLogicProps], (insightLogicProps) => insightLogicProps],
         showResultControls: [
-            (state, props) => [state.insightMode, props.insightLogicProps],
-            (insightMode, insightLogicProps) => {
+            (state, props) => [props.insightMode, state.dashboardId],
+            (insightMode, dashboardId) => {
                 if (insightMode === ItemMode.Edit) {
                     return true
                 }
 
-                return !insightLogicProps.dashboardId
+                return !dashboardId
             },
         ],
         presetChartHeight: [
-            (_state, props) => [props.insightLogicProps],
-            (insightLogicProps) => {
-                return !insightLogicProps.dashboardId
+            (state, props) => [props.key, state.dashboardId],
+            (key, dashboardId) => {
+                // Key for SQL editor based visiaulizations
+                return !key.includes('new-SQL') && !dashboardId
             },
         ],
         sourceFeatures: [(_, props) => [props.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],

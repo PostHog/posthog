@@ -3,6 +3,7 @@ import { LemonButton, LemonButtonProps, LemonDropdown, Popover } from '@posthog/
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { AnyDataNode } from '~/queries/schema'
 import { UniversalFiltersGroup, UniversalFilterValue } from '~/types'
 
 import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
@@ -75,12 +76,14 @@ const Value = ({
     onChange,
     onRemove,
     initiallyOpen = false,
+    metadataSource,
 }: {
     index: number
     filter: UniversalFilterValue
     onChange: (property: UniversalFilterValue) => void
     onRemove: () => void
     initiallyOpen?: boolean
+    metadataSource?: AnyDataNode
 }): JSX.Element => {
     const { rootKey, taxonomicPropertyFilterGroupTypes } = useValues(universalFiltersLogic)
 
@@ -103,6 +106,7 @@ const Value = ({
                         onChange={(properties) => onChange({ ...filter, properties })}
                         disablePopover
                         taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                        metadataSource={metadataSource}
                     />
                 ) : isEditable ? (
                     <TaxonomicPropertyFilter

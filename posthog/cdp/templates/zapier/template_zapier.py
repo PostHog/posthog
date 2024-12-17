@@ -3,9 +3,10 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="free",
+    type="destination",
     id="template-zapier",
     name="Zapier",
-    description="Sends a webhook templated by the incoming event data",
+    description="Trigger Zaps in Zapier based on PostHog events.",
     icon_url="/static/services/zapier.png",
     category=["Custom"],
     hog="""

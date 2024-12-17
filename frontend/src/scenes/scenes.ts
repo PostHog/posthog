@@ -65,9 +65,13 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Error tracking',
     },
-    [Scene.ErrorTrackingGroup]: {
+    [Scene.ErrorTrackingConfiguration]: {
         projectBased: true,
-        name: 'Error tracking group',
+        name: 'Error tracking configuration',
+    },
+    [Scene.ErrorTrackingIssue]: {
+        projectBased: true,
+        name: 'Error tracking issue',
     },
     [Scene.Insight]: {
         projectBased: true,
@@ -130,6 +134,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Replay recording',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
+    },
+    [Scene.CustomCss]: {
+        projectBased: true,
+        name: 'Custom CSS',
     },
     [Scene.ReplayPlaylist]: {
         projectBased: true,
@@ -206,6 +214,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         activityScope: ActivityScope.FEATURE_FLAG,
         defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
     },
+    [Scene.FeatureManagement]: {
+        projectBased: true,
+        name: 'Features',
+        defaultDocsPath: '/docs/feature-flags',
+    },
     [Scene.Surveys]: {
         projectBased: true,
         name: 'Surveys',
@@ -233,6 +246,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Data warehouse',
         defaultDocsPath: '/docs/data-warehouse',
+    },
+    [Scene.SQLEditor]: {
+        projectBased: true,
+        name: 'SQL editor',
+        defaultDocsPath: '/docs/data-warehouse/setup',
+        layout: 'app-raw-no-header',
     },
     [Scene.DataWarehouseExternal]: {
         projectBased: true,
@@ -362,6 +381,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.DebugQuery]: {
         projectBased: true,
     },
+    [Scene.DebugHog]: {
+        projectBased: true,
+        name: 'Hog Repl',
+    },
     [Scene.VerifyEmail]: {
         allowUnauthenticated: true,
         layout: 'plain',
@@ -401,6 +424,14 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.SessionAttributionExplorer]: {
         projectBased: true,
         name: 'Session attribution explorer (beta)',
+    },
+    [Scene.MessagingBroadcasts]: {
+        projectBased: true,
+        name: 'Broadcasts',
+    },
+    [Scene.MessagingProviders]: {
+        projectBased: true,
+        name: 'Providers',
     },
 }
 
@@ -469,6 +500,7 @@ export const redirects: Record<
     '/batch_exports': urls.pipeline(PipelineTab.Destinations),
     '/apps': urls.pipeline(PipelineTab.Overview),
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
+    '/messaging': urls.messagingBroadcasts(),
 }
 
 export const routes: Record<string, Scene> = {
@@ -520,6 +552,7 @@ export const routes: Record<string, Scene> = {
     [urls.pipeline(':tab')]: Scene.Pipeline,
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
     [urls.pipelineNode(':stage', ':id')]: Scene.PipelineNode,
+    [urls.customCss()]: Scene.CustomCss,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,
@@ -530,7 +563,8 @@ export const routes: Record<string, Scene> = {
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.errorTracking()]: Scene.ErrorTracking,
-    [urls.errorTrackingGroup(':fingerprint')]: Scene.ErrorTrackingGroup,
+    [urls.errorTrackingConfiguration()]: Scene.ErrorTrackingConfiguration,
+    [urls.errorTrackingIssue(':id')]: Scene.ErrorTrackingIssue,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,
@@ -539,8 +573,11 @@ export const routes: Record<string, Scene> = {
     [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
     [urls.dataWarehouseRedirect(':kind')]: Scene.DataWarehouseRedirect,
+    [urls.sqlEditor()]: Scene.SQLEditor,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
+    [urls.featureManagement()]: Scene.FeatureManagement,
+    [urls.featureManagement(':id')]: Scene.FeatureManagement,
     [urls.annotations()]: Scene.DataManagement,
     [urls.annotation(':id')]: Scene.DataManagement,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
@@ -577,6 +614,7 @@ export const routes: Record<string, Scene> = {
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
     [urls.debugQuery()]: Scene.DebugQuery,
+    [urls.debugHog()]: Scene.DebugHog,
     [urls.notebook(':shortId')]: Scene.Notebook,
     [urls.notebooks()]: Scene.Notebooks,
     [urls.canvas()]: Scene.Canvas,
@@ -584,4 +622,11 @@ export const routes: Record<string, Scene> = {
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
     [urls.heatmaps()]: Scene.Heatmaps,
     [urls.sessionAttributionExplorer()]: Scene.SessionAttributionExplorer,
+    [urls.messagingProviders()]: Scene.MessagingProviders,
+    [urls.messagingProvider(':id')]: Scene.MessagingProviders,
+    [urls.messagingProviderNew()]: Scene.MessagingProviders,
+    [urls.messagingProviderNew(':template')]: Scene.MessagingProviders,
+    [urls.messagingBroadcasts()]: Scene.MessagingBroadcasts,
+    [urls.messagingBroadcast(':id')]: Scene.MessagingBroadcasts,
+    [urls.messagingBroadcastNew()]: Scene.MessagingBroadcasts,
 }

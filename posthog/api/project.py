@@ -15,6 +15,7 @@ from posthog.api.team import (
     TeamSerializer,
     validate_team_attrs,
 )
+from ee.api.rbac.access_control import AccessControlViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -30,9 +31,12 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
-from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
-from posthog.models.product_intent.product_intent import ProductIntent
+from posthog.models.product_intent.product_intent import (
+    ProductIntent,
+    calculate_product_activation,
+)
 from posthog.models.project import Project
+from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
@@ -44,13 +48,17 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from posthog.utils import get_ip_address, get_week_start_for_country_code
+from posthog.utils import (
+    get_instance_realm,
+    get_ip_address,
+    get_week_start_for_country_code,
+)
 
 
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
-        fields = ["id", "organization_id", "name", "created_at"]
+        fields = ["id", "organization_id", "name", "product_description", "created_at"]
         read_only_fields = ["id", "organization_id", "created_at"]
 
 
@@ -66,6 +74,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "id",
             "organization",
             "name",
+            "product_description",
             "created_at",
             "effective_membership_level",  # Compat with TeamSerializer
             "has_group_types",  # Compat with TeamSerializer
@@ -182,7 +191,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
-        return GroupTypeMapping.objects.filter(team_id=project.id).exists()
+        return GroupTypeMapping.objects.filter(project_id=project.id).exists()
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)
@@ -195,7 +204,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     def get_product_intents(self, obj):
         project = obj
         team = project.passthrough_team
-        return ProductIntent.objects.filter(team=team).values("product_type", "created_at", "onboarding_completed_at")
+        calculate_product_activation.delay(team.id, only_calc_if_days_since_last_checked=1)
+        return ProductIntent.objects.filter(team=team).values(
+            "product_type", "created_at", "onboarding_completed_at", "updated_at"
+        )
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
@@ -332,14 +344,13 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
         should_team_be_saved_too = False
         for attr, value in validated_data.items():
-            if attr in self.Meta.team_passthrough_fields:
+            if attr not in self.Meta.team_passthrough_fields:
+                # This attr is a Project field
+                setattr(instance, attr, value)
+            else:
+                # This attr is actually on the Project's passthrough Team
                 should_team_be_saved_too = True
                 setattr(team, attr, value)
-            else:
-                if attr == "name":  # `name` should be updated on _both_ the Project and Team
-                    should_team_be_saved_too = True
-                    setattr(team, attr, value)
-                setattr(instance, attr, value)
 
         instance.save()
         if should_team_be_saved_too:
@@ -384,7 +395,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return instance
 
 
-class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
     """
@@ -569,10 +580,12 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
         if not created:
+            if not product_intent.activated_at:
+                product_intent.check_and_update_activation()
             product_intent.updated_at = datetime.now(tz=UTC)
             product_intent.save()
 
-        if created and isinstance(user, User):
+        if isinstance(user, User) and not product_intent.activated_at:
             report_user_action(
                 user,
                 "user showed product intent",
@@ -582,6 +595,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "$current_url": current_url,
                     "$session_id": session_id,
                     "intent_context": request.data.get("intent_context"),
+                    "is_first_intent_for_product": created,
+                    "intent_created_at": product_intent.created_at,
+                    "intent_updated_at": product_intent.updated_at,
+                    "realm": get_instance_realm(),
                 },
                 team=team,
             )
@@ -612,6 +629,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "$current_url": current_url,
                     "$session_id": session_id,
                     "intent_context": request.data.get("intent_context"),
+                    "is_first_intent_for_product": created,
+                    "intent_created_at": product_intent.created_at,
+                    "intent_updated_at": product_intent.updated_at,
+                    "realm": get_instance_realm(),
                 },
                 team=team,
             )
@@ -626,6 +647,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "product_key": product_type,
                     "$current_url": current_url,
                     "$session_id": session_id,
+                    "intent_context": request.data.get("intent_context"),
+                    "intent_created_at": product_intent.created_at,
+                    "intent_updated_at": product_intent.updated_at,
+                    "realm": get_instance_realm(),
                 },
                 team=team,
             )

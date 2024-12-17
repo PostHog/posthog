@@ -117,10 +117,7 @@ export const Table = (props: TableProps): JSX.Element => {
                             }
                         />
                     ) : (
-                        <InsightEmptyState
-                            heading={props.context?.emptyStateHeading}
-                            detail={props.context?.emptyStateDetail}
-                        />
+                        <InsightEmptyState heading="There are no matching rows for this query" detail="" />
                     )
                 }
                 footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}

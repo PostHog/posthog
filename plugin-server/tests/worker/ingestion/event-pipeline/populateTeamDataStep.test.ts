@@ -38,6 +38,16 @@ beforeEach(() => {
                 getTeamByToken: jest.fn((token) => {
                     return token === teamTwoToken ? teamTwo : null
                 }),
+
+                fetchTeam: jest.fn((teamId) => {
+                    if (teamId === 2) {
+                        return teamTwo
+                    }
+                    if (teamId === 3) {
+                        return { ...teamTwo, person_processing_opt_out: true }
+                    }
+                    return null
+                }),
             },
         },
     }
@@ -90,10 +100,15 @@ describe('populateTeamDataStep()', () => {
     })
 
     it('event with a team_id value is returned unchanged', async () => {
-        jest.mocked(runner.hub.teamManager.getTeamByToken).mockRejectedValueOnce(new Error('should not be called'))
-        const input = { ...pipelineEvent, team_id: 43 }
+        const input = { ...pipelineEvent, team_id: 2 }
         const response = await populateTeamDataStep(runner, input)
         expect(response).toEqual(input)
+    })
+
+    it('event with a team_id whose team is opted-out from person processing', async () => {
+        const input = { ...pipelineEvent, team_id: 3 }
+        const response = await populateTeamDataStep(runner, input)
+        expect(response.properties.$process_person_profile).toBe(false)
     })
 
     it('PG errors are propagated up to trigger retries', async () => {

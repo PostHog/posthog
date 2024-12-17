@@ -34,7 +34,12 @@ export const seekbarLogic = kea<seekbarLogicType>([
         thumbLeftPos: [
             -THUMB_OFFSET,
             {
-                setThumbLeftPos: (_, { thumbLeftPos }) => thumbLeftPos,
+                setThumbLeftPos: (_, { thumbLeftPos }) => {
+                    // we receive this number to many decimal places, so we round it to 1 decimal place
+                    // since otherwise we render dependent components
+                    // thousands of times more than we need to
+                    return parseFloat(thumbLeftPos.toFixed(1))
+                },
             },
         ],
         cursorDiff: [
@@ -82,7 +87,12 @@ export const seekbarLogic = kea<seekbarLogicType>([
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
                 if (sessionPlayerData?.bufferedToTime && sessionPlayerData?.segments && sessionPlayerData?.durationMs) {
-                    return 100 * (sessionPlayerData?.bufferedToTime / sessionPlayerData.durationMs)
+                    // we calculate this number to many decimal places, so we round it to 1 decimal place
+                    // since otherwise we render dependent components
+                    // thousands of times more than we need to
+                    return parseFloat(
+                        (100 * (sessionPlayerData?.bufferedToTime / sessionPlayerData.durationMs)).toFixed(1)
+                    )
                 }
                 return 0
             },

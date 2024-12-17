@@ -3,7 +3,7 @@ import { LemonButton, LemonButtonProps, ProfilePicture } from '@posthog/lemon-ui
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { fullName } from 'lib/utils'
 
-import { ErrorTrackingGroup } from '../../queries/schema'
+import { ErrorTrackingIssue } from '../../queries/schema'
 
 export const AssigneeSelect = ({
     assignee,
@@ -11,7 +11,7 @@ export const AssigneeSelect = ({
     showName = false,
     ...buttonProps
 }: {
-    assignee: ErrorTrackingGroup['assignee']
+    assignee: ErrorTrackingIssue['assignee']
     onChange: (userId: number | null) => void
     showName?: boolean
 } & Partial<Pick<LemonButtonProps, 'type'>>): JSX.Element => {

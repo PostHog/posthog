@@ -30,6 +30,7 @@ from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -227,8 +228,12 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
 
     def _create_test_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         self._create_group(
             team_id=self.team.pk,
@@ -855,6 +860,67 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[2]["breakdown_value"] == "Chrome"
         assert response.results[2]["aggregated_value"] == 9
 
+    def test_trends_with_cohort_filter(self):
+        self._create_test_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort p1",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", properties=[{"key": "id", "value": cohort.pk, "type": "cohort"}])],
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 6
+        assert response.results[0]["data"] == [0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]
+
+    def test_trends_with_cohort_filter_other_team_in_project(self):
+        self._create_test_events()
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        cohort = Cohort.objects.create(
+            team=other_team_in_project,  # Not self.team!
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort p1 other team",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", properties=[{"key": "id", "value": cohort.pk, "type": "cohort"}])],
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 6
+        assert response.results[0]["data"] == [0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]
+
     def test_formula_with_multi_cohort_breakdown(self):
         self._create_test_events()
         cohort1 = Cohort.objects.create(
@@ -1040,8 +1106,15 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response.results[1]["days"],
         )
 
-        self.assertEqual(["day 0", "day 1", "day 2", "day 3", "day 4"], response.results[0]["labels"])
-        self.assertEqual(["day 0", "day 1", "day 2", "day 3", "day 4"], response.results[1]["labels"])
+        self.assertEqual(
+            ["15-Jan-2020", "16-Jan-2020", "17-Jan-2020", "18-Jan-2020", "19-Jan-2020"],
+            response.results[0]["labels"],
+        )
+
+        self.assertEqual(
+            ["10-Jan-2020", "11-Jan-2020", "12-Jan-2020", "13-Jan-2020", "14-Jan-2020"],
+            response.results[1]["labels"],
+        )
 
     def test_trends_compare_weeks(self):
         self._create_test_events()
@@ -1092,10 +1165,31 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(
-                ["day 0", "day 1", "day 2", "day 3", "day 4", "day 5", "day 6", "day 7"], response.results[0]["labels"]
+                [
+                    "17-Jan-2020",
+                    "18-Jan-2020",
+                    "19-Jan-2020",
+                    "20-Jan-2020",
+                    "21-Jan-2020",
+                    "22-Jan-2020",
+                    "23-Jan-2020",
+                    "24-Jan-2020",
+                ],
+                response.results[0]["labels"],
             )
+
             self.assertEqual(
-                ["day 0", "day 1", "day 2", "day 3", "day 4", "day 5", "day 6", "day 7"], response.results[1]["labels"]
+                [
+                    "10-Jan-2020",
+                    "11-Jan-2020",
+                    "12-Jan-2020",
+                    "13-Jan-2020",
+                    "14-Jan-2020",
+                    "15-Jan-2020",
+                    "16-Jan-2020",
+                    "17-Jan-2020",
+                ],
+                response.results[1]["labels"],
             )
 
     def test_trends_breakdowns(self):
@@ -3812,7 +3906,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             Breakdown(type="group", group_type_index=0, property="industry"),
         ]
 
-        for breakdown_filter in itertools.permutations(breakdowns, 3):
+        for breakdown_filter in itertools.permutations(breakdowns, 2):
             response = self._run_trends_query(
                 "2020-01-09",
                 "2020-01-20",
@@ -4919,3 +5013,57 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 1
         assert response.results[0]["data"] == [1.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.1]
+
+    def test_trends_aggregation_first_matching_event_for_user(self):
+        _create_person(
+            team=self.team,
+            distinct_ids=["p1"],
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-08T12:00:00Z",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-10T12:00:00Z",
+            properties={"$browser": "Firefox"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$browser": "Firefox"},
+        )
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-08",
+            "2020-01-11",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_MATCHING_EVENT_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Firefox")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert response.results[0]["data"] == [0, 0, 1, 0]

@@ -37,6 +37,9 @@ test('a' not ilike 'b')                   // true
 test('a' in 'car')                        // true
 test('a' in 'foo')                        // false
 test('a' not in 'car')                    // false
+test('bax' like 'b_x')
+test('baax' not like 'b_x')
+test('baax' like 'b%x')
 test(concat('arg', 'another'))            // 'arganother'
 test(concat(1, NULL))                     // '1'
 test(concat(true, false))                 // 'truefalse'

@@ -1,9 +1,12 @@
+import json
 import logging
 from typing import Any, Optional
 from rest_framework import serializers
 
-from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.parser import parse_program, parse_string_template
+from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOURCE
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +21,34 @@ def generate_template_bytecode(obj: Any) -> Any:
     elif isinstance(obj, list):
         return [generate_template_bytecode(item) for item in obj]
     elif isinstance(obj, str):
-        return create_bytecode(parse_string_template(obj))
+        return create_bytecode(parse_string_template(obj)).bytecode
     else:
         return obj
+
+
+def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
+    """
+    Clones an object, compiling any string values to bytecode templates
+    """
+    if isinstance(obj, dict):
+        return (
+            "{"
+            + (
+                ", ".join(
+                    [
+                        f"{json.dumps(str(key))}: {transpile_template_code(value, compiler)}"
+                        for key, value in obj.items()
+                    ]
+                )
+            )
+            + "}"
+        )
+    elif isinstance(obj, list):
+        return "[" + (", ".join([transpile_template_code(item, compiler) for item in obj])) + "]"
+    elif isinstance(obj, str):
+        return compiler.visit(parse_string_template(obj))
+    else:
+        return json.dumps(obj)
 
 
 class InputsSchemaItemSerializer(serializers.Serializer):
@@ -28,7 +56,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
         choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field", "email"]
     )
     key = serializers.CharField()
-    label = serializers.CharField(required=False)  # type: ignore
+    label = serializers.CharField(required=False, allow_blank=True)  # type: ignore
     choices = serializers.ListField(child=serializers.DictField(), required=False)
     required = serializers.BooleanField(default=False)  # type: ignore
     default = serializers.JSONField(required=False)
@@ -37,6 +65,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     integration = serializers.CharField(required=False)
     integration_key = serializers.CharField(required=False)
     integration_field = serializers.ChoiceField(choices=["slack_channel"], required=False)
+    requiredScopes = serializers.CharField(required=False)
 
     # TODO Validate choices if type=choice
 
@@ -55,6 +84,7 @@ class InputsItemSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         schema = self.context["schema"]
+        function_type = self.context["function_type"]
         value = attrs.get("value")
 
         name: str = schema["key"]
@@ -96,7 +126,16 @@ class InputsItemSerializer(serializers.Serializer):
                         # We want to exclude the "design" property
                         value = {key: value[key] for key in value if key != "design"}
 
-                    attrs["bytecode"] = generate_template_bytecode(value)
+                    if function_type in TYPES_WITH_JAVASCRIPT_SOURCE:
+                        compiler = JavaScriptCompiler()
+                        code = transpile_template_code(value, compiler)
+                        attrs["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
+                        if "bytecode" in attrs:
+                            del attrs["bytecode"]
+                    else:
+                        attrs["bytecode"] = generate_template_bytecode(value)
+                        if "transpiled" in attrs:
+                            del attrs["transpiled"]
         except Exception as e:
             raise serializers.ValidationError({"inputs": {name: f"Invalid template: {str(e)}"}})
 
@@ -115,7 +154,12 @@ def validate_inputs_schema(value: list) -> list:
     return serializer.validated_data or []
 
 
-def validate_inputs(inputs_schema: list, inputs: dict, existing_secret_inputs: Optional[dict] = None) -> dict:
+def validate_inputs(
+    inputs_schema: list,
+    inputs: dict,
+    existing_secret_inputs: Optional[dict] = None,
+    function_type: Optional[str] = None,
+) -> dict:
     """
     Tricky: We want to allow overriding the secret inputs, but not return them.
     If we have a given input then we use it, otherwise we pull it from the existing secrets
@@ -129,7 +173,9 @@ def validate_inputs(inputs_schema: list, inputs: dict, existing_secret_inputs: O
         if schema.get("secret") and existing_secret_inputs and value and value.get("secret"):
             value = existing_secret_inputs.get(schema["key"]) or {}
 
-        serializer = InputsItemSerializer(data=value, context={"schema": schema})
+        serializer = InputsItemSerializer(
+            data=value, context={"schema": schema, "function_type": function_type or "destination"}
+        )
 
         if not serializer.is_valid():
             raise serializers.ValidationError(serializer.errors)
@@ -139,11 +185,16 @@ def validate_inputs(inputs_schema: list, inputs: dict, existing_secret_inputs: O
     return validated_inputs
 
 
-def compile_hog(hog: str, supported_functions: Optional[set[str]] = None) -> list[Any]:
+def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> list[Any]:
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
-        return create_bytecode(program, supported_functions=supported_functions or {"fetch", "postHogCapture"})
+        supported_functions = set()
+
+        if hog_type == "destination":
+            supported_functions = {"fetch", "postHogCapture"}
+
+        return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})

@@ -374,12 +374,24 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        with self.assertNumQueries(17):
+        with self.assertNumQueries(19):
             response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(payload["results"]), 2)
+
+    def test_dont_expose_job_inputs(self):
+        self._create_external_data_source()
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
+        payload = response.json()
+        results = payload["results"]
+
+        assert len(results) == 1
+
+        result = results[0]
+        assert result.get("job_inputs") is None
 
     def test_get_external_data_source_with_schema(self):
         source = self._create_external_data_source()
@@ -400,7 +412,6 @@ class TestExternalDataSource(APIBaseTest):
                 "prefix",
                 "last_run_at",
                 "schemas",
-                "job_inputs",
             ],
         )
         self.assertEqual(

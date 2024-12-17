@@ -31,6 +31,7 @@ django-redis==5.2.0
 django-statsd==2.5.2
 django-structlog==2.1.3
 django-revproxy==0.12.0
+django-two-factor-auth==1.14.0
 djangorestframework==3.15.1
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
@@ -40,12 +41,17 @@ dnspython==2.2.1
 drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
 drf-spectacular==0.27.2
+Flask==3.1.0  # Required by Max (PostHog Support AI)
+Flask-Cors==5.0.0  # Required by Max (PostHog Support AI)
 geoip2==4.6.0
 google-cloud-bigquery==3.26
+grpcio~=1.63.2 # Version constrained so that `deepeval` can be installed in in dev
 gunicorn==20.1.0
 hogql-parser==1.0.47
+httpx==0.28.1  # Required by Max (PostHog Support AI)
 huggingface-hub==0.26.5  # Required by Max (PostHog Support AI)
 infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
+jiter==0.8.2  # Required by Max (PostHog Support AI)
 jsonref==1.1.0
 kafka-python==2.0.2
 kombu==5.3.2
@@ -59,8 +65,8 @@ lzstring==1.0.4
 mimesis==5.2.1
 more-itertools==9.0.0
 multidict==6.0.5 # Not used by us directly, but code won't run on Ubuntu 24.04 unless we resolve this to 6.0.5
-natsort==8.4.0
 nanoid==2.0.0
+natsort==8.4.0
 nh3==0.2.14
 numpy==1.26.4
 openai==1.51.2
@@ -107,6 +113,7 @@ statshog==1.0.6
 stripe==10.3.0
 structlog==23.2.0
 temporalio==1.7.1
+tenacity~=8.4.2  # Version constrained so that `deepeval` can be installed in in dev
 tiktoken==0.8.0
 token-bucket==0.3.0
 tokenizers==0.21.0  # Required by Max (PostHog Support AI)
@@ -116,9 +123,3 @@ whitenoise==6.5.0
 xmlsec==1.3.13 # Do not change this version - it will break SAML
 zstd==1.5.5.1
 zxcvbn==4.4.28
-grpcio~=1.63.2 # Version constrained so that `deepeval` can be installed in in dev
-tenacity~=8.4.2  # Version constrained so that `deepeval` can be installed in in dev
-Flask==3.1.0  # Required by Max (PostHog Support AI)
-Flask-Cors==5.0.0  # Required by Max (PostHog Support AI)
-httpx==0.28.1  # Required by Max (PostHog Support AI)
-jiter==0.8.2  # Required by Max (PostHog Support AI)

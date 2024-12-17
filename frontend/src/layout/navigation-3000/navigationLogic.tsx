@@ -1,16 +1,18 @@
 import {
-    IconChat,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
-    IconDecisionTree,
+    IconFeatures,
     IconGraph,
     IconHome,
     IconLive,
     IconLogomark,
+    IconMegaphone,
+    IconMessage,
     IconNotebook,
     IconPeople,
     IconPieChart,
+    IconPlug,
     IconPlusSmall,
     IconRewindPlay,
     IconRocket,
@@ -30,6 +32,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import React from 'react'
+import { editorSidebarLogic } from 'scenes/data-warehouse/editor/editorSidebarLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -102,9 +105,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     reducers({
         isSidebarShown: [
             true,
-            {
-                persist: true,
-            },
             {
                 hideSidebar: () => false,
                 showSidebar: () => true,
@@ -430,6 +430,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     })
                 }
 
+                if (featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]) {
+                    sectionOne.splice(4, 0, {
+                        identifier: Scene.FeatureManagement,
+                        label: 'Features',
+                        icon: <IconFeatures />,
+                        logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
+                        to: isUsingSidebar ? undefined : urls.featureManagement(),
+                    })
+                }
+
                 return [
                     sectionOne,
                     [
@@ -493,7 +503,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         {
                             identifier: Scene.Surveys,
                             label: 'Surveys',
-                            icon: <IconChat />,
+                            icon: <IconMessage />,
                             to: urls.surveys(),
                         },
                         featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
@@ -507,9 +517,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         {
                             identifier: Scene.DataWarehouse,
                             label: 'Data warehouse',
-                            icon: <IconServer />,
+                            icon: <IconDatabase />,
                             to: isUsingSidebar ? undefined : urls.dataWarehouse(),
                         },
+                        featureFlags[FEATURE_FLAGS.SQL_EDITOR]
+                            ? {
+                                  identifier: Scene.SQLEditor,
+                                  label: 'SQL Editor',
+                                  icon: <IconServer />,
+                                  to: urls.sqlEditor(),
+                                  logic: editorSidebarLogic,
+                              }
+                            : null,
                         featureFlags[FEATURE_FLAGS.DATA_MODELING] && hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.DataModel,
@@ -521,9 +540,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.Pipeline,
-                                  label: 'Data pipeline',
-                                  icon: <IconDecisionTree />,
+                                  label: 'Data pipelines',
+                                  icon: <IconPlug />,
                                   to: urls.pipeline(),
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.MESSAGING] && hasOnboardedAnyProduct
+                            ? {
+                                  identifier: Scene.MessagingBroadcasts,
+                                  label: 'Messaging',
+                                  icon: <IconMegaphone />,
+                                  to: urls.messagingBroadcasts(),
+                                  tag: 'alpha' as const,
                               }
                             : null,
                     ].filter(isNotNil),
@@ -580,6 +608,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         activeNavbarItemId: [
             (s) => [s.activeNavbarItemIdRaw, featureFlagLogic.selectors.featureFlags],
             (activeNavbarItemIdRaw, featureFlags): string | null => {
+                if (featureFlags[FEATURE_FLAGS.SQL_EDITOR] && activeNavbarItemIdRaw === Scene.SQLEditor) {
+                    return Scene.SQLEditor
+                }
                 if (!featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]) {
                     return null
                 }

@@ -1,25 +1,23 @@
 import { PersonDisplay, TZLabel } from '@posthog/apps-common'
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { Playlist } from 'lib/components/Playlist/Playlist'
-import { dayjs } from 'lib/dayjs'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton'
 import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 
-import { ErrorTrackingEvent, errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
+import { ErrorTrackingEvent, errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
 export const OverviewTab = (): JSX.Element => {
-    const { events, groupLoading, eventsLoading, activeEventUUID } = useValues(errorTrackingGroupSceneLogic)
-    const { loadEvents, setActiveEventUUID } = useActions(errorTrackingGroupSceneLogic)
+    const { events, issueLoading, eventsLoading, activeEventUUID } = useValues(errorTrackingIssueSceneLogic)
+    const { loadEvents, setActiveEventUUID } = useActions(errorTrackingIssueSceneLogic)
 
     return (
-        <div className="ErrorTracking__group">
+        <div className="ErrorTracking__issue">
             <div className="h-full space-y-2">
                 <Playlist
-                    loading={groupLoading || eventsLoading}
+                    loading={issueLoading || eventsLoading}
                     title="Exceptions"
                     sections={[
                         {
@@ -38,7 +36,16 @@ export const OverviewTab = (): JSX.Element => {
                         event ? (
                             <div className="h-full overflow-auto">
                                 <div className="bg-bg-light p-1 flex justify-end border-b min-h-[42px]">
-                                    <ViewSessionButton event={event} />
+                                    <ViewRecordingButton
+                                        size="small"
+                                        sessionId={event.properties.$session_id}
+                                        timestamp={event.timestamp}
+                                        disabledReason={
+                                            mightHaveRecording(event.properties)
+                                                ? undefined
+                                                : 'Replay was not active when capturing this event'
+                                        }
+                                    />
                                 </div>
                                 <div className="pl-2">
                                     <ErrorDisplay eventProperties={event.properties} />
@@ -59,25 +66,6 @@ export const OverviewTab = (): JSX.Element => {
                 />
             </div>
         </div>
-    )
-}
-
-const ViewSessionButton = ({ event }: { event: ErrorTrackingEvent }): JSX.Element | null => {
-    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-
-    const sessionId = event.properties.$session_id
-
-    return (
-        <LemonButton
-            size="small"
-            onClick={() => {
-                const fiveSecondsBeforeEvent = dayjs(event.timestamp).valueOf() - 5000
-                openSessionPlayer({ id: sessionId }, Math.max(fiveSecondsBeforeEvent, 0))
-            }}
-            disabledReason={!sessionId ? 'There was no Session ID associated with this exception' : undefined}
-        >
-            View recording
-        </LemonButton>
     )
 }
 

@@ -1,6 +1,6 @@
-import json
 import re
 import uuid
+from typing import cast
 
 from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
@@ -12,7 +12,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception, set_tag
 
-from ee.hogai.generate_trends_agent import Conversation, GenerateTrendsAgent
+from ee.hogai.assistant import Assistant
+from ee.hogai.utils import Conversation
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
@@ -25,7 +26,6 @@ from posthog.clickhouse.client.execute_async import (
 )
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import report_user_action
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.apply_dashboard_filters import (
@@ -37,11 +37,15 @@ from posthog.models.user import User
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
-    HogQLQueryThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    HogQLQueryThrottle,
 )
-from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
+from posthog.schema import (
+    QueryRequest,
+    QueryResponseAlternative,
+    QueryStatusResponse,
+)
 
 
 class ServerSentEventRenderer(BaseRenderer):
@@ -179,25 +183,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def chat(self, request: Request, *args, **kwargs):
         assert request.user is not None
         validated_body = Conversation.model_validate(request.data)
-        chain = GenerateTrendsAgent(self.team).bootstrap(validated_body.messages)
-
-        def generate():
-            last_message = None
-            for message in chain.stream({"question": validated_body.messages[0].content}):
-                if message:
-                    last_message = message[0].model_dump_json()
-                    yield last_message
-
-            if not last_message:
-                yield json.dumps({"reasoning_steps": ["Schema validation failed"]})
-
-            report_user_action(
-                request.user,  # type: ignore
-                "chat with ai",
-                {"prompt": validated_body.messages[-1].content, "response": last_message},
-            )
-
-        return StreamingHttpResponse(generate(), content_type=ServerSentEventRenderer.media_type)
+        assistant = Assistant(self.team, validated_body, cast(User, request.user))
+        return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):

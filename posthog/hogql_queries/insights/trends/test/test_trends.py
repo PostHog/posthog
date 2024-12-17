@@ -2141,9 +2141,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(response[0]["label"], "sign up")
-        self.assertEqual(response[0]["labels"][4], "day 4")
+        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
         self.assertEqual(response[0]["data"][4], 3.0)
-        self.assertEqual(response[0]["labels"][5], "day 5")
+        self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
         self.assertEqual(response[0]["data"][5], 1.0)
         self.assertEqual(
             response[0]["days"],
@@ -2173,9 +2173,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
         self.assertEqual(response[1]["label"], "sign up")
-        self.assertEqual(response[1]["labels"][3], "day 3")
+        self.assertEqual(response[1]["labels"][3], "24-Dec-2019")
         self.assertEqual(response[1]["data"][3], 1.0)
-        self.assertEqual(response[1]["labels"][4], "day 4")
+        self.assertEqual(response[1]["labels"][4], "25-Dec-2019")
         self.assertEqual(response[1]["data"][4], 0.0)
 
         with freeze_time("2020-01-04T13:00:01Z"):
@@ -8494,7 +8494,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_trends_count_per_group_average_daily(self):
         self._create_event_count_per_actor_events()
-        GroupTypeMapping.objects.create(team=self.team, group_type="shape", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="shape", group_type_index=0
+        )
         self._create_group(team_id=self.team.pk, group_type_index=0, group_key="bouba")
         self._create_group(team_id=self.team.pk, group_type_index=0, group_key="kiki")
 
@@ -8543,7 +8545,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_trends_count_per_group_average_aggregated(self):
         self._create_event_count_per_actor_events()
-        GroupTypeMapping.objects.create(team=self.team, group_type="shape", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="shape", group_type_index=0
+        )
         self._create_group(team_id=self.team.pk, group_type_index=0, group_key="bouba")
         self._create_group(team_id=self.team.pk, group_type_index=0, group_key="kiki")
 
@@ -8604,8 +8608,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert daily_response[2]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
 
     def _create_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         self._create_group(
             team_id=self.team.pk,
@@ -9207,8 +9215,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2020-01-01")
     @snapshot_clickhouse_queries
     def test_filtering_by_multiple_groups_person_on_events(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=2)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=2
+        )
 
         self._create_group(
             team_id=self.team.pk,

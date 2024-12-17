@@ -3,8 +3,7 @@ import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -155,15 +154,13 @@ const WARNING_TYPE_RENDERER = {
                     <li>session_id: {details.session_id}</li>
                 </ul>
                 <div className="max-w-30 mt-2">
-                    <LemonButton
+                    <ViewRecordingButton
+                        sessionId={details.session_id}
+                        timestamp={details.timestamp}
                         type="primary"
                         size="xsmall"
-                        to={urls.replaySingle(details.session_id)}
-                        sideIcon={<IconPlayCircle />}
                         data-attr="skewed-timestamp-view-recording"
-                    >
-                        View recording
-                    </LemonButton>
+                    />
                 </div>
             </>
         )
@@ -188,15 +185,13 @@ const WARNING_TYPE_RENDERER = {
                     <li>skew: {details.daysFromNow} days</li>
                 </ul>
                 <div className="max-w-30 mt-2">
-                    <LemonButton
+                    <ViewRecordingButton
+                        sessionId={details.session_id}
+                        timestamp={details.timestamp}
                         type="primary"
                         size="xsmall"
-                        to={urls.replaySingle(details.session_id)}
-                        sideIcon={<IconPlayCircle />}
                         data-attr="skewed-timestamp-view-recording"
-                    >
-                        View recording
-                    </LemonButton>
+                    />
                 </div>
             </>
         )
@@ -216,15 +211,13 @@ const WARNING_TYPE_RENDERER = {
                     <li>session_id: {details.session_id}</li>
                 </ul>
                 <div className="max-w-30 mt-2">
-                    <LemonButton
+                    <ViewRecordingButton
+                        sessionId={details.session_id}
+                        timestamp={details.timestamp}
                         type="primary"
                         size="xsmall"
-                        to={urls.replaySingle(details.session_id)}
-                        sideIcon={<IconPlayCircle />}
                         data-attr="message-too-large-view-recording"
-                    >
-                        View recording
-                    </LemonButton>
+                    />
                 </div>
             </>
         )

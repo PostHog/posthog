@@ -2,7 +2,7 @@
 {'key': 'value'}
 {'key': 'value', 'other': 'thing'}
 {'key': {'otherKey': 'value'}}
-{3: 'value'}
+{'kk': 'value'}
 value
 value
 value

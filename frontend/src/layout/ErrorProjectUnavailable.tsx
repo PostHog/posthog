@@ -2,6 +2,7 @@ import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
+import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -42,7 +43,9 @@ export function ErrorProjectUnavailable(): JSX.Element {
     return (
         <div>
             <PageHeader />
-            {user?.team && !user.organization?.teams.some((team) => team.id === user?.team?.id) ? (
+            {!user?.organization ? (
+                <CreateOrganizationModal isVisible inline />
+            ) : user?.team && !user.organization?.teams.some((team) => team.id === user?.team?.id) ? (
                 <>
                     <h1>Project access has been removed</h1>
                     <p>

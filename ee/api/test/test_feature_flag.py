@@ -1,6 +1,6 @@
 from ee.api.test.base import APILicensedTest
-from ee.models.organization_resource_access import OrganizationResourceAccess
-from ee.models.role import Role, RoleMembership
+from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
+from ee.models.rbac.role import Role, RoleMembership
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.organization import OrganizationMembership
 

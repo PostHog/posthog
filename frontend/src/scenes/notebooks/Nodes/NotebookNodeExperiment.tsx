@@ -9,35 +9,21 @@ import { NotebookNodeProps } from '../Notebook/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
-import { ExperimentPreview } from 'scenes/experiments/ExperimentPreview'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { EXPERIMENT_INSIGHT_ID } from 'scenes/experiments/constants'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
 import { NotFound } from 'lib/components/NotFound'
 import { IconFlag, IconFlask } from '@posthog/icons'
-import { ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
+import { ResultsQuery, ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
+import { SummaryTable } from 'scenes/experiments/ExperimentView/SummaryTable'
+import { Info } from 'scenes/experiments/ExperimentView/Info'
+import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
-    const { experiment, experimentLoading, experimentMissing, isExperimentRunning } = useValues(
+    const { experiment, experimentLoading, experimentMissing, isExperimentRunning, experimentResults } = useValues(
         experimentLogic({ experimentId: id })
     )
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
     const { expanded } = useValues(notebookNodeLogic)
     const { insertAfter, setActions } = useActions(notebookNodeLogic)
-
-    // experiment progress details
-    const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
-    const { insightProps } = useValues(logic)
-
-    const { conversionMetrics, results } = useValues(funnelDataLogic(insightProps))
-    const { results: trendResults } = useValues(trendsDataLogic(insightProps))
-
-    const conversionRate = conversionMetrics.totalRate * 100
-    const trendCount = trendResults[0]?.count
-    const entrants = results?.[0]?.count
 
     useEffect(() => {
         setActions([
@@ -83,25 +69,16 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                             <>
                                 <LemonDivider className="my-0" />
                                 <div className="p-2">
-                                    {/* TODO: Preview is currently shared between all experiments, so if there are 2 experiments in a notebook,
-                                they will both show the same preview. This is because there is a single experiment insight ID only, i.e. `EXPERIMENT_INSIGHT_ID` */}
-                                    <ExperimentPreview
-                                        experimentId={id}
-                                        trendCount={trendCount}
-                                        trendExposure={experiment?.parameters.recommended_running_time}
-                                        funnelSampleSize={experiment?.parameters.recommended_sample_size}
-                                        funnelEntrants={entrants}
-                                        funnelConversionRate={conversionRate}
-                                    />
+                                    <Info />
                                 </div>
                             </>
                         )}
                         {isExperimentRunning && (
                             <>
-                                {/* show results when the experiment is running */}
                                 <LemonDivider className="my-0" />
                                 <div className="p-2">
-                                    <ExperimentResult />
+                                    <SummaryTable />
+                                    <ResultsQuery targetResults={experimentResults} showTable={true} />
                                 </div>
                             </>
                         )}
@@ -127,9 +104,9 @@ export const NotebookNodeExperiment = createPostHogWidgetNode<NotebookNodeExperi
         id: {},
     },
     pasteOptions: {
-        find: urls.experiment('') + '(.+)',
+        find: urls.experiment(INTEGER_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
-            return { id: match[1] as unknown as number }
+            return { id: parseInt(match[1]) }
         },
     },
 })

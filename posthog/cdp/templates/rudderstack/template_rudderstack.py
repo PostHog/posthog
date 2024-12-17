@@ -5,6 +5,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
+    type="destination",
     id="template-rudderstack",
     name="RudderStack",
     description="Send data to RudderStack",

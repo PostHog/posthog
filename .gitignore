@@ -69,7 +69,18 @@ plugin-transpiler/dist
 *.log
 # pyright config (keep this until we have a standardized one)
 pyrightconfig.json
-ee/support-sidebar-max/max-venv/
-ee/support-sidebar-max/.vscode
-ee/support-sidebar-max/.vscode/settings.json
+
+# Max-specific entries
+ee/support_sidebar_max/max-venv/
+ee/support_sidebar_max/.vscode
+ee/support_sidebar_max/.vscode/settings.json
 max-test-venv/
+
+# Assistant Evaluation with Deepeval
+.deepeval
+.deepeval-cache.json
+.deepeval_telemtry.txt
+.temporal-worker-settings
+temp_test_run_data.json
+.temp-deepeval-cache.json
+.eslintcache

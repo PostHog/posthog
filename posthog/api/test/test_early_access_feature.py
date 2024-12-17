@@ -1,11 +1,14 @@
+import json
 from unittest.mock import ANY
 
 from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
+from unittest.mock import patch
 
 from posthog.models.early_access_feature import EarlyAccessFeature
 from posthog.models import FeatureFlag, Person
+from posthog.models.team.team_caching import set_team_in_cache
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -520,6 +523,36 @@ class TestEarlyAccessFeature(APIBaseTest):
             ],
         }
 
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_creation_context_is_set_to_early_access_features(self, mock_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Hick bondoogling",
+                "description": 'Boondoogle your hicks with one click. Just click "bazinga"!',
+                "stage": "concept",
+            },
+            format="json",
+        )
+        response_data = response.json()
+        ff_instance = FeatureFlag.objects.get(id=response_data["feature_flag"]["id"])
+        mock_capture.assert_called_once_with(
+            ANY,
+            "feature flag created",
+            {
+                "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
+                "has_rollout_percentage": False,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": ff_instance.created_at,
+                "aggregating_by_groups": False,
+                "payload_count": 0,
+                "creation_context": "early_access_features",
+            },
+        )
+
 
 class TestPreviewList(BaseTest, QueryMatchingTest):
     def setUp(self):
@@ -582,6 +615,109 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
         self.client.logout()
 
         with self.assertNumQueries(2):
+            response = self._get_features()
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.get("access-control-allow-origin"), "http://127.0.0.1:8000")
+
+            self.assertListEqual(
+                response.json()["earlyAccessFeatures"],
+                [
+                    {
+                        "id": str(feature.id),
+                        "name": "Sprocket",
+                        "description": "A fancy new sprocket.",
+                        "stage": "beta",
+                        "documentationUrl": "",
+                        "flagKey": "sprocket",
+                    }
+                ],
+            )
+
+    @snapshot_postgres_queries
+    def test_early_access_features_with_pre_env_cached_team(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "example@posthog.com"},
+        )
+
+        # This is precisely what the `set_team_in_cache()` would have set on Dec 9, 2024
+        cache.set(
+            f"team_token:{self.team.api_token}",
+            json.dumps(
+                {
+                    # Important: this serialization doesn't have `project_id`! It wasn't always part of CachingTeamSerializer
+                    "id": self.team.id,
+                    "uuid": str(self.team.uuid),
+                    "name": self.team.name,
+                    "api_token": self.team.api_token,
+                }
+            ),
+        )
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name=f"Feature Flag for Feature Sprocket",
+            key="sprocket",
+            rollout_percentage=0,
+            created_by=self.user,
+        )
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket",
+            description="A fancy new sprocket.",
+            stage="beta",
+            feature_flag=feature_flag,
+        )
+
+        self.client.logout()
+
+        with self.assertNumQueries(1):
+            response = self._get_features()
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.get("access-control-allow-origin"), "http://127.0.0.1:8000")
+
+            self.assertListEqual(
+                response.json()["earlyAccessFeatures"],
+                [
+                    {
+                        "id": str(feature.id),
+                        "name": "Sprocket",
+                        "description": "A fancy new sprocket.",
+                        "stage": "beta",
+                        "documentationUrl": "",
+                        "flagKey": "sprocket",
+                    }
+                ],
+            )
+
+    @snapshot_postgres_queries
+    def test_early_access_features_with_cached_team(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "example@posthog.com"},
+        )
+
+        # Slightly dirty to use the actual implementation of `set_team_in_cache()` here, but this tests how things are
+        set_team_in_cache(self.team.api_token)
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name=f"Feature Flag for Feature Sprocket",
+            key="sprocket",
+            rollout_percentage=0,
+            created_by=self.user,
+        )
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket",
+            description="A fancy new sprocket.",
+            stage="beta",
+            feature_flag=feature_flag,
+        )
+
+        self.client.logout()
+
+        with self.assertNumQueries(1):
             response = self._get_features()
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.get("access-control-allow-origin"), "http://127.0.0.1:8000")

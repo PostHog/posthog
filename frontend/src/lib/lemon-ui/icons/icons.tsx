@@ -1348,3 +1348,38 @@ export function IconSquare(props: LemonIconProps): JSX.Element {
         </LemonIconBase>
     )
 }
+
+export function IconReact(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 23 21" {...props}>
+            <g clipPath="url(#clip0)">
+                <path d="M11.5 12.282a2.05 2.05 0 100-4.1 2.05 2.05 0 000 4.1z" fill="currentColor" />
+                <path
+                    d="M11.5 14.432c6.075 0 11-1.88 11-4.2 0-2.32-4.925-4.2-11-4.2s-11 1.88-11 4.2c0 2.32 4.925 4.2 11 4.2z"
+                    stroke="currentColor"
+                />
+                <path
+                    d="M7.863 12.332c3.038 5.261 7.129 8.586 9.137 7.426 2.01-1.16 1.175-6.365-1.862-11.626C12.1 2.87 8.009-.454 6 .705c-2.008 1.16-1.174 6.366 1.863 11.627z"
+                    stroke="currentColor"
+                />
+                <path
+                    d="M7.863 8.132C4.826 13.392 3.992 18.598 6 19.758c2.01 1.16 6.1-2.165 9.138-7.426C18.175 7.07 19.009 1.865 17 .705c-2.008-1.16-6.1 2.165-9.137 7.427z"
+                    stroke="currentColor"
+                />
+            </g>
+            <defs>
+                <clipPath id="clip0">
+                    <path fill="currentColor" d="M0 0h23v20.463H0z" />
+                </clipPath>
+            </defs>
+        </LemonIconBase>
+    )
+}
+
+export function IconFlutter(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path fill="currentColor" d="M3.5 12.5L6.5 15.5 19 3 13 3zM19 12L13 12 8 17 13 22 19 22 14 17z" />
+        </LemonIconBase>
+    )
+}

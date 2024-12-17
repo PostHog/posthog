@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { isAnyPropertyfilter } from 'lib/components/PropertyFilters/utils'
+import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
     isActionFilter,
@@ -12,11 +12,12 @@ import {
     isLogEntryPropertyFilter,
     isRecordingPropertyFilter,
 } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { NodeKind, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema'
+import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema'
 import {
     EntityTypes,
     FilterLogicalOperator,
@@ -72,8 +73,8 @@ export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the 
 
 export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     type: PropertyFilterType.Recording,
-    key: 'duration',
-    value: 1,
+    key: 'active_seconds',
+    value: 5,
     operator: PropertyOperator.GreaterThan,
 }
 
@@ -120,6 +121,8 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
             actions.push(f)
         } else if (isLogEntryPropertyFilter(f)) {
             console_log_filters.push(f)
+        } else if (isHogQLPropertyFilter(f)) {
+            properties.push(f)
         } else if (isAnyPropertyfilter(f)) {
             if (isRecordingPropertyFilter(f)) {
                 if (f.key === 'visited_page') {
@@ -199,7 +202,7 @@ export function convertLegacyFiltersToUniversalFilters(
                 ? DEFAULT_RECORDING_FILTERS['filter_test_accounts']
                 : filters.filter_test_accounts,
         duration: filters.session_recording_duration
-            ? [{ ...filters.session_recording_duration, key: filters.duration_type_filter || 'duration' }]
+            ? [{ ...filters.session_recording_duration, key: filters.duration_type_filter || 'active_seconds' }]
             : DEFAULT_RECORDING_FILTERS['duration'],
         filter_group: {
             type: FilterLogicalOperator.And,
@@ -225,17 +228,11 @@ function combineLegacyRecordingFilters(
     }
 }
 
-function sortRecordings(recordings: SessionRecordingType[], order: RecordingsQuery['order']): SessionRecordingType[] {
-    const orderKey:
-        | 'recording_duration'
-        | 'activity_score'
-        | 'active_seconds'
-        | 'inactive_seconds'
-        | 'console_error_count'
-        | 'click_count'
-        | 'keypress_count'
-        | 'mouse_activity_count'
-        | 'start_time' = order === 'duration' ? 'recording_duration' : order
+function sortRecordings(
+    recordings: SessionRecordingType[],
+    order: RecordingsQuery['order'] | 'duration' = 'start_time'
+): SessionRecordingType[] {
+    const orderKey: RecordingOrder = order === 'duration' ? 'recording_duration' : order
 
     return recordings.sort((a, b) => {
         const orderA = a[orderKey]
@@ -335,7 +332,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             } as RecordingsQueryResponse & { order: RecordingsQuery['order'] },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
-                    const params: RecordingsQuery = {
+                    // as_query is a temporary parameter as a flag
+                    // to let the backend know not to convert the query to a legacy filter when processing
+                    const params: RecordingsQuery & { as_query?: boolean } = {
                         ...convertUniversalFiltersToRecordingsQuery(values.filters),
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
@@ -351,6 +350,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                     if (direction === 'newer') {
                         params.offset = 0
+                    }
+
+                    if (values.listAPIAsQuery) {
+                        params.as_query = true
                     }
 
                     await breakpoint(400) // Debounce for lots of quick filter changes
@@ -549,6 +552,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
 
+        listAPIAsQuery: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return !!featureFlags[FEATURE_FLAGS.REPLAY_LIST_RECORDINGS_AS_QUERY]
+            },
+        ],
+
         matchingEventsMatchType: [
             (s) => [s.filters],
             (filters): MatchingEventsMatchType => {
@@ -740,6 +750,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
             if (params.filters && !equal(params.filters, values.filters)) {
                 actions.setFilters(params.filters)
+            }
+            if (params.order && !equal(params.order, values.filters.order)) {
+                actions.setFilters({ ...values.filters, order: params.order })
             }
         }
         return {

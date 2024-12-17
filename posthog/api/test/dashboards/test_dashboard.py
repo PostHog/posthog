@@ -267,19 +267,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            with self.assertNumQueries(11):
+            baseline = 3
+
+            with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(baseline + 10 + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(baseline + 10 + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(baseline + 10 + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -296,7 +298,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(9):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
@@ -304,7 +306,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(FuzzyInt(8, 9)):
+            with self.assertNumQueries(FuzzyInt(10, 11)):
                 self.dashboard_api.list_dashboards(query_params={"limit": 300})
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:
@@ -1311,7 +1313,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "effective_privilege_level": 37,
                     "effective_restriction_level": 21,
                     "favorited": False,
-                    "filters": {"filter_test_accounts": True},
+                    "filters": {},
                     "filters_hash": ANY,
                     "hasMore": None,
                     "id": ANY,
@@ -1339,6 +1341,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "tags": [],
                     "timezone": None,
                     "updated_at": ANY,
+                    "user_access_level": "editor",
                     "hogql": ANY,
                     "types": ANY,
                 },

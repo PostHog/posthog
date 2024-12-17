@@ -12,7 +12,7 @@ import pyarrow as pa
 import snowflake.connector
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
-from snowflake.connector.errors import OperationalError
+from snowflake.connector.errors import OperationalError, InterfaceError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -51,10 +51,10 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-from posthog.temporal.common.utils import (
-    BatchExportHeartbeatDetails,
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
     HeartbeatParseError,
-    NotEnoughHeartbeatValuesError,
     should_resume_from_activity_heartbeat,
 )
 
@@ -90,28 +90,38 @@ class SnowflakeRetryableConnectionError(Exception):
 
 
 @dataclasses.dataclass
-class SnowflakeHeartbeatDetails(BatchExportHeartbeatDetails):
+class SnowflakeHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     """The Snowflake batch export details included in every heartbeat.
 
     Attributes:
         file_no: The file number of the last file we managed to upload.
     """
 
-    file_no: int
+    file_no: int = 0
 
     @classmethod
-    def from_activity(cls, activity):
-        details = BatchExportHeartbeatDetails.from_activity(activity)
+    def deserialize_details(cls, details: collections.abc.Sequence[typing.Any]) -> dict[str, typing.Any]:
+        """Attempt to initialize HeartbeatDetails from an activity's details."""
+        file_no = 0
+        remaining = super().deserialize_details(details)
 
-        if details.total_details < 2:
-            raise NotEnoughHeartbeatValuesError(details.total_details, 2)
+        if len(remaining["_remaining"]) == 0:
+            return {"file_no": 0, **remaining}
+
+        first_detail = remaining["_remaining"][0]
+        remaining["_remaining"] = remaining["_remaining"][1:]
 
         try:
-            file_no = int(details._remaining[0])
+            file_no = int(first_detail)
         except (TypeError, ValueError) as e:
             raise HeartbeatParseError("file_no") from e
 
-        return cls(last_inserted_at=details.last_inserted_at, file_no=file_no, _remaining=details._remaining[2:])
+        return {"file_no": file_no, **remaining}
+
+    def serialize_details(self) -> tuple[typing.Any, ...]:
+        """Attempt to initialize HeartbeatDetails from an activity's details."""
+        serialized_parent_details = super().serialize_details()
+        return (*serialized_parent_details[:-1], self.file_no, self._remaining)
 
 
 @dataclasses.dataclass
@@ -206,6 +216,9 @@ class SnowflakeClient:
             else:
                 raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
 
+        except InterfaceError as err:
+            raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
+
         self._connection = connection
 
         await self.use_namespace()
@@ -261,6 +274,15 @@ class SnowflakeClient:
             results = cursor.fetchall()
         return results
 
+    async def aremove_internal_stage_files(self, table_name: str, table_stage_prefix: str) -> None:
+        """Asynchronously remove files from internal table stage.
+
+        Arguments:
+            table_name: The name of the table whose internal stage to clear.
+            table_stage_prefix: Prefix to path of internal stage files.
+        """
+        await self.execute_async_query(f"""REMOVE '@%"{table_name}"/{table_stage_prefix}'""")
+
     async def acreate_table(self, table_name: str, fields: list[SnowflakeField]) -> None:
         """Asynchronously create the table if it doesn't exist.
 
@@ -297,24 +319,30 @@ class SnowflakeClient:
     async def managed_table(
         self,
         table_name: str,
+        table_stage_prefix: str,
         fields: list[SnowflakeField],
         not_found_ok: bool = True,
         delete: bool = True,
         create: bool = True,
     ) -> collections.abc.AsyncGenerator[str, None]:
         """Manage a table in Snowflake by ensure it exists while in context."""
-        if create:
+        if create is True:
             await self.acreate_table(table_name, fields)
+        else:
+            await self.aremove_internal_stage_files(table_name, table_stage_prefix)
 
         try:
             yield table_name
         finally:
             if delete is True:
                 await self.adelete_table(table_name, not_found_ok)
+            else:
+                await self.aremove_internal_stage_files(table_name, table_stage_prefix)
 
     async def put_file_to_snowflake_table(
         self,
         file: BatchExportTemporaryFile,
+        table_stage_prefix: str,
         table_name: str,
         file_no: int,
     ):
@@ -342,7 +370,9 @@ class SnowflakeClient:
         # We comply with the file-like interface of io.IOBase.
         # So we ask mypy to be nice with us.
         reader = io.BufferedReader(file)  # type: ignore
-        query = f'PUT file://{file.name}_{file_no}.jsonl @%"{table_name}"'
+        query = f"""
+        PUT file://{file.name}_{file_no}.jsonl '@%"{table_name}"/{table_stage_prefix}'
+        """
 
         with self.connection.cursor() as cursor:
             cursor = self.connection.cursor()
@@ -366,6 +396,7 @@ class SnowflakeClient:
     async def copy_loaded_files_to_snowflake_table(
         self,
         table_name: str,
+        table_stage_prefix: str,
     ) -> None:
         """Execute a COPY query in Snowflake to load any files PUT into the table.
 
@@ -377,6 +408,7 @@ class SnowflakeClient:
         """
         query = f"""
         COPY INTO "{table_name}"
+        FROM '@%"{table_name}"/{table_stage_prefix}'
         FILE_FORMAT = (TYPE = 'JSON')
         MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
         PURGE = TRUE
@@ -557,16 +589,17 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        should_resume, details = await should_resume_from_activity_heartbeat(
-            activity, SnowflakeHeartbeatDetails, logger
-        )
+        _, details = await should_resume_from_activity_heartbeat(activity, SnowflakeHeartbeatDetails)
+        if details is None:
+            details = SnowflakeHeartbeatDetails()
 
-        if should_resume is True and details is not None:
-            data_interval_start: str | None = details.last_inserted_at.isoformat()
-            current_flush_counter = details.file_no
+        done_ranges: list[DateRange] = details.done_ranges
+        if done_ranges:
+            data_interval_start: str | None = done_ranges[-1][1].isoformat()
         else:
             data_interval_start = inputs.data_interval_start
-            current_flush_counter = 0
+
+        current_flush_counter = details.file_no
 
         rows_exported = get_rows_exported_metric()
         bytes_exported = get_bytes_exported_metric()
@@ -631,9 +664,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
         async with SnowflakeClient.from_inputs(inputs).connect() as snow_client:
             async with (
-                snow_client.managed_table(inputs.table_name, table_fields, delete=False) as snow_table,
                 snow_client.managed_table(
-                    stagle_table_name, table_fields, create=requires_merge, delete=requires_merge
+                    inputs.table_name, data_interval_end_str, table_fields, delete=False
+                ) as snow_table,
+                snow_client.managed_table(
+                    stagle_table_name, data_interval_end_str, table_fields, create=requires_merge, delete=requires_merge
                 ) as snow_stage_table,
             ):
                 record_columns = [field[0] for field in table_fields]
@@ -646,7 +681,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     records_since_last_flush,
                     bytes_since_last_flush,
                     flush_counter: int,
-                    last_inserted_at,
+                    last_date_range: DateRange,
                     last: bool,
                     error: Exception | None,
                 ):
@@ -660,11 +695,15 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
                     table = snow_stage_table if requires_merge else snow_table
 
-                    await snow_client.put_file_to_snowflake_table(local_results_file, table, flush_counter)
+                    await snow_client.put_file_to_snowflake_table(
+                        local_results_file, data_interval_end_str, table, flush_counter
+                    )
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
 
-                    heartbeater.details = (str(last_inserted_at), flush_counter)
+                    details.track_done_range(last_date_range, data_interval_start)
+                    details.file_no = flush_counter
+                    heartbeater.set_from_heartbeat_details(details)
 
                 writer = JSONLBatchExportWriter(
                     max_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
@@ -677,8 +716,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
                         await writer.write_record_batch(record_batch)
 
+                details.complete_done_ranges(inputs.data_interval_end)
+                heartbeater.set_from_heartbeat_details(details)
+
                 await snow_client.copy_loaded_files_to_snowflake_table(
-                    snow_stage_table if requires_merge else snow_table
+                    snow_stage_table if requires_merge else snow_table, data_interval_end_str
                 )
                 if requires_merge:
                     merge_key = (

@@ -76,3 +76,8 @@ print('------')
 let c := [1,2,3]
 print(c[1], c[2], c[3], c[4])
 print(c[-1], c[-2], c[-3], c[-4])
+
+print('------')
+print('a' in ['a', 'b', 'c'])
+print('d' in ['a', 'b', 'c'])
+print('a' in [])

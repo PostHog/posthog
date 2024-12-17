@@ -1,14 +1,18 @@
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconTrending } from '@posthog/icons'
+import { Link, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { UnexpectedNeverError } from 'lib/utils'
+import { percentage, UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
+import { languageCodeToFlag, languageCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -19,15 +23,89 @@ import { DataTableNode, InsightVizNode, NodeKind, QuerySchema, WebStatsBreakdown
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { ChartDisplayType, GraphPointPayload, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
-const PercentageCell: QueryContextColumnComponent = ({ value }) => {
-    if (typeof value === 'number') {
-        return <span>{`${(value * 100).toFixed(1)}%`}</span>
+const toUtcOffsetFormat = (value: number): string => {
+    if (value === 0) {
+        return 'UTC'
     }
-    return null
+
+    const integerPart = Math.floor(value)
+    const sign = integerPart > 0 ? '+' : '-'
+
+    // India has half-hour offsets, and Australia has 45-minute offsets, why?
+    const decimalPart = value - integerPart
+    const decimalPartAsMinutes = decimalPart * 60
+    const formattedMinutes = decimalPartAsMinutes > 0 ? `:${decimalPartAsMinutes}` : ''
+
+    // E.g. UTC-3, UTC, UTC+5:30, UTC+11:45
+    return `UTC${sign}${integerPart}${formattedMinutes}`
 }
 
-const NumericCell: QueryContextColumnComponent = ({ value }) => {
-    return <span>{typeof value === 'number' ? value.toLocaleString() : String(value)}</span>
+type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean }
+const VariationCell = (
+    { isPercentage, reverseColors }: VariationCellProps = { isPercentage: false, reverseColors: false }
+): QueryContextColumnComponent => {
+    const formatNumber = (value: number): string =>
+        isPercentage ? `${(value * 100).toFixed(1)}%` : value.toLocaleString()
+
+    return function Cell({ value }) {
+        if (!value) {
+            return null
+        }
+
+        if (!Array.isArray(value)) {
+            return <span>{String(value)}</span>
+        }
+
+        const [current, previous] = value as [number, number]
+        const pctChangeFromPrevious =
+            previous === 0 && current === 0 // Special case, render as flatline
+                ? 0
+                : current === null
+                ? null
+                : previous === null || previous === 0
+                ? Infinity
+                : current / previous - 1
+
+        const trend =
+            pctChangeFromPrevious === null
+                ? null
+                : pctChangeFromPrevious === 0
+                ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
+                : pctChangeFromPrevious > 0
+                ? {
+                      Icon: IconTrending,
+                      color: reverseColors ? getColorVar('danger') : getColorVar('success'),
+                  }
+                : {
+                      Icon: IconTrendingDown,
+                      color: reverseColors ? getColorVar('success') : getColorVar('danger'),
+                  }
+
+        // If current === previous, say "increased by 0%"
+        const tooltip =
+            pctChangeFromPrevious !== null
+                ? `${current >= previous ? 'Increased' : 'Decreased'} by ${percentage(
+                      Math.abs(pctChangeFromPrevious),
+                      0
+                  )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
+                : null
+
+        return (
+            <div className={clsx({ 'pr-4': !trend })}>
+                <Tooltip title={tooltip}>
+                    <span>
+                        {formatNumber(current)}&nbsp;
+                        {trend && (
+                            // eslint-disable-next-line react/forbid-dom-props
+                            <span style={{ color: trend.color }}>
+                                <trend.Icon color={trend.color} className="ml-1" />
+                            </span>
+                        )}
+                    </span>
+                </Tooltip>
+            </div>
+        )
+    }
 }
 
 const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
@@ -72,6 +150,10 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Region</>
         case WebStatsBreakdown.City:
             return <>City</>
+        case WebStatsBreakdown.Timezone:
+            return <>Timezone</>
+        case WebStatsBreakdown.Language:
+            return <>Language</>
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return <>Source / Medium / Campaign</>
         default:
@@ -115,6 +197,26 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return (
                     <>
                         {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode} - {cityName}
+                    </>
+                )
+            }
+            break
+        case WebStatsBreakdown.Timezone:
+            if (typeof value === 'number') {
+                return <>{toUtcOffsetFormat(value)}</>
+            }
+            break
+        case WebStatsBreakdown.Language:
+            if (typeof value === 'string') {
+                const [languageCode, countryCode] = value.split('-')
+
+                // Locales are complicated, the country code might be hidden in the second part
+                // of the locale
+                const parsedCountryCode = countryCode?.match(/([A-Z]{2})/)?.[0] ?? ''
+                return (
+                    <>
+                        {countryCodeToFlag(parsedCountryCode) ?? languageCodeToFlag(languageCode)}&nbsp;
+                        {languageCodeToName[languageCode] || languageCode}
                     </>
                 )
             }
@@ -167,6 +269,10 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
         case WebStatsBreakdown.City:
             return { key: '$geoip_city_name', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Timezone:
+            return { key: '$timezone', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Language:
+            return { key: '$geoip_language', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return undefined
         default:
@@ -181,48 +287,53 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: BreakdownValueCell,
         },
         bounce_rate: {
-            title: 'Bounce Rate',
-            render: PercentageCell,
+            title: <span className="pr-5">Bounce Rate</span>,
+            render: VariationCell({ isPercentage: true, reverseColors: true }),
             align: 'right',
         },
         views: {
-            title: 'Views',
-            render: NumericCell,
+            title: <span className="pr-5">Views</span>,
+            render: VariationCell(),
             align: 'right',
         },
         clicks: {
-            title: 'Clicks',
-            render: NumericCell,
+            title: <span className="pr-5">Clicks</span>,
+            render: VariationCell(),
             align: 'right',
         },
         visitors: {
-            title: 'Visitors',
-            render: NumericCell,
+            title: <span className="pr-5">Visitors</span>,
+            render: VariationCell(),
             align: 'right',
         },
         average_scroll_percentage: {
-            title: 'Average Scroll',
-            render: PercentageCell,
+            title: <span className="pr-5">Average Scroll</span>,
+            render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         scroll_gt80_percentage: {
-            title: 'Deep Scroll Rate',
-            render: PercentageCell,
+            title: <span className="pr-5">Deep Scroll Rate</span>,
+            render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         total_conversions: {
-            title: 'Total Conversions',
-            render: NumericCell,
+            title: <span className="pr-5">Total Conversions</span>,
+            render: VariationCell(),
+            align: 'right',
+        },
+        unique_conversions: {
+            title: <span className="pr-5">Unique Conversions</span>,
+            render: VariationCell(),
             align: 'right',
         },
         conversion_rate: {
-            title: 'Conversion Rate',
-            render: PercentageCell,
+            title: <span className="pr-5">Conversion Rate</span>,
+            render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         converting_users: {
-            title: 'Converting Users',
-            render: NumericCell,
+            title: <span className="pr-5">Converting Users</span>,
+            render: VariationCell(),
             align: 'right',
         },
         action_name: {
@@ -370,6 +481,7 @@ export const WebStatsTableTile = ({
             if (!key || !type) {
                 return
             }
+
             togglePropertyFilter(type, key, breakdownValue)
         },
         [togglePropertyFilter, type, key]
@@ -386,10 +498,16 @@ export const WebStatsTableTile = ({
                 return {}
             }
 
+            if (breakdownBy === WebStatsBreakdown.Language || breakdownBy === WebStatsBreakdown.Timezone) {
+                // Slightly trickier to calculate, make it non-filterable for now
+                return {}
+            }
+
             const breakdownValue = getBreakdownValue(record, breakdownBy)
             if (breakdownValue === undefined) {
                 return {}
             }
+
             return {
                 onClick: key && type ? () => onClick(breakdownValue) : undefined,
             }
@@ -410,7 +528,20 @@ export const WebStatsTableTile = ({
                         <LemonSwitch
                             label={
                                 <div className="flex flex-row space-x-2">
-                                    <span>Enable path cleaning</span>
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                Check{' '}
+                                                <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
+                                                    our path cleaning rules documentation
+                                                </Link>{' '}
+                                                to learn more about path cleaning
+                                            </>
+                                        }
+                                        interactive
+                                    >
+                                        <span>Enable path cleaning</span>
+                                    </Tooltip>
                                     <LemonButton
                                         icon={<IconGear />}
                                         type="tertiary"

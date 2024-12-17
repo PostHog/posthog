@@ -3,7 +3,7 @@ from inline_snapshot import snapshot
 
 from hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.cdp.filters import hog_function_filters_to_expr
-from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.models.action.action import Action
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
@@ -61,7 +61,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
     def filters_to_bytecode(self, filters: dict):
         res = hog_function_filters_to_expr(filters=filters, team=self.team, actions={self.action.id: self.action})
 
-        return json.loads(json.dumps(create_bytecode(res)))
+        return json.loads(json.dumps(create_bytecode(res).bytecode))
 
     def test_filters_empty(self):
         assert self.filters_to_bytecode(filters={}) == snapshot(["_H", HOGQL_BYTECODE_VERSION, 29])
@@ -139,6 +139,11 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 1,
             ]
         )
+
+        # Also works if we don't pass the actions dict
+        expr = hog_function_filters_to_expr(filters={"actions": self.filters["actions"]}, team=self.team, actions={})
+        bytecode_2 = create_bytecode(expr).bytecode
+        assert bytecode == bytecode_2
 
     def test_filters_properties(self):
         assert self.filters_to_bytecode(filters={"properties": self.filters["properties"]}) == snapshot(

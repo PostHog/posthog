@@ -107,8 +107,6 @@ jobs:
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
                   platforms: linux/arm64,linux/amd64
-                  cache-from: type=gha
-                  cache-to: type=gha,mode=max
                   build-args: BIN=${{ matrix.image }}
 
             - name: Container image digest
@@ -120,7 +118,7 @@ jobs:
 
     deploy:
         name: deploy ${{ matrix.release }}
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         needs: build
         if: github.ref == 'refs/heads/master'
         strategy:
@@ -144,10 +142,10 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.property-defs-rs_digest }}'
-                    # - release: cymbal - disabled until a charts in place, for now we just build
-                    #   values:
-                    #       image:
-                    #           sha: '${{ needs.build.outputs.cymbal_digest }}'
+                    - release: cymbal
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.cymbal_digest }}'
                     - release: hoghooks
                       values:
                           api_image:

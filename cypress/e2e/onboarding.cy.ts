@@ -1,16 +1,11 @@
-import { decideResponse } from '../fixtures/api/decide'
+import { setupFeatureFlags } from '../support/decide'
 
 describe('Onboarding', () => {
     beforeEach(() => {
         cy.intercept('/api/billing/', { fixture: 'api/billing/billing-unsubscribed.json' })
-
-        cy.intercept('**/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'product-intro-pages': 'test',
-                })
-            )
-        )
+        setupFeatureFlags({
+            'product-intro-pages': 'test',
+        })
     })
 
     it('Navigate between /products to /onboarding to a product intro page', () => {
@@ -18,6 +13,9 @@ describe('Onboarding', () => {
 
         // Get started on product analytics onboarding
         cy.get('[data-attr=product_analytics-onboarding-card]').click()
+
+        // Click "Get started" button
+        cy.get('[data-attr=onboarding-continue]').click()
 
         // Confirm product intro is not included as the first step in the upper right breadcrumbs
         cy.get('[data-attr=onboarding-breadcrumbs] > :first-child > * span').should('not.contain', 'Product intro')

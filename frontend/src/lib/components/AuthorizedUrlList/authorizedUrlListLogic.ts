@@ -24,7 +24,7 @@ import { urls } from 'scenes/urls'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
-import { ToolbarParams, ToolbarUserIntent } from '~/types'
+import { ExperimentIdType, ToolbarParams, ToolbarUserIntent } from '~/types'
 
 import type { authorizedUrlListLogicType } from './authorizedUrlListLogicType'
 
@@ -35,6 +35,7 @@ export interface ProposeNewUrlFormType {
 export enum AuthorizedUrlListType {
     TOOLBAR_URLS = 'TOOLBAR_URLS',
     RECORDING_DOMAINS = 'RECORDING_DOMAINS',
+    WEB_EXPERIMENTS = 'WEB_EXPERIMENTS',
 }
 
 /**
@@ -48,9 +49,9 @@ export function sanitizePossibleWildCardedURL(url: string): URL {
 }
 
 /**
- * Checks if the URL has a wildcard (*) in the port position eg http://localhost:*
+ * Checks if the URL has a wildcard (*) in the port position e.g. http://localhost:*
  */
-export function hasPortWildcard(input: string): boolean {
+export function hasPortWildcard(input: unknown): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
@@ -90,12 +91,14 @@ export const validateProposedUrl = (
 /** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
 export function appEditorUrl(
     appUrl: string,
-    options?: { actionId?: number | null; userIntent?: ToolbarUserIntent }
+    options?: { actionId?: number | null; experimentId?: ExperimentIdType; userIntent?: ToolbarUserIntent }
 ): string {
     // See https://github.com/PostHog/posthog-js/blob/f7119c/src/extensions/toolbar.ts#L52 for where these params
     // are passed. `appUrl` is an extra `redirect_to_site` param.
     const params: ToolbarParams & { appUrl: string } = {
-        userIntent: options?.userIntent ?? (options?.actionId ? 'edit-action' : 'add-action'),
+        userIntent:
+            options?.userIntent ??
+            (options?.actionId ? 'edit-action' : options?.experimentId ? 'edit-experiment' : 'add-action'),
         // Make sure to pass the app url, otherwise the api_host will be used by
         // the toolbar, which isn't correct when used behind a reverse proxy as
         // we require e.g. SSO login to the app, which will not work when placed
@@ -103,6 +106,7 @@ export function appEditorUrl(
         apiURL: apiHostOrigin(),
         appUrl,
         ...(options?.actionId ? { actionId: options.actionId } : {}),
+        ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
     }
     return '/api/user/redirect_to_site/' + encodeParams(params, '?')
 }
@@ -135,19 +139,27 @@ export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]
     return false
 }
 
-export const filterNotAuthorizedUrls = (urls: string[], authorizedUrls: string[]): string[] => {
-    const suggestedDomains: string[] = []
+export interface SuggestedDomain {
+    url: string
+    count: number
+}
 
-    urls.forEach((url) => {
+export const filterNotAuthorizedUrls = (
+    suggestions: SuggestedDomain[],
+    authorizedUrls: string[]
+): SuggestedDomain[] => {
+    const suggestedDomains: SuggestedDomain[] = []
+
+    suggestions.forEach(({ url, count }) => {
         const parsedUrl = sanitizePossibleWildCardedURL(url)
         const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
         // Have we already added this domain?
-        if (suggestedDomains.indexOf(urlWithoutPath) > -1) {
+        if (suggestedDomains.some((sd) => sd.url === urlWithoutPath)) {
             return
         }
 
         if (!checkUrlIsAuthorized(parsedUrl, authorizedUrls)) {
-            suggestedDomains.push(urlWithoutPath)
+            suggestedDomains.push({ url: urlWithoutPath, count })
         }
     })
 
@@ -160,15 +172,26 @@ export interface KeyedAppUrl {
     url: string
     type: 'authorized' | 'suggestion'
     originalIndex: number
+    // how many seen in the last three days
+    count?: number
 }
 
 export interface AuthorizedUrlListLogicProps {
     actionId: number | null
+    experimentId: ExperimentIdType | null
     type: AuthorizedUrlListType
+    query: string | null | undefined
 }
+
+export const defaultAuthorizedUrlProperties = {
+    actionId: null,
+    experimentId: null,
+    query: null,
+}
+
 export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),
-    key((props) => `${props.type}-${props.actionId}`),
+    key((props) => (props.experimentId ? `${props.type}-${props.experimentId}` : `${props.type}-${props.actionId}`)),
     props({} as AuthorizedUrlListLogicProps),
     connect({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
@@ -187,7 +210,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     })),
     loaders(({ values }) => ({
         suggestions: {
-            __default: [] as string[],
+            __default: [] as SuggestedDomain[],
             loadSuggestions: async () => {
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -209,7 +232,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 }
 
                 const suggestedDomains = filterNotAuthorizedUrls(
-                    result.map(([url]) => url),
+                    result.map(([url, count]) => ({ url, count })),
                     values.authorizedUrls
                 )
 
@@ -269,7 +292,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         suggestions: [
             [],
             {
-                addUrl: (state, { url }) => [...state].filter((item) => url !== item),
+                addUrl: (state, { url }) => [...state].filter((sd) => url !== sd.url),
             },
         ],
         searchTerm: [
@@ -352,10 +375,11 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                         originalIndex: index,
                     }))
                     .concat(
-                        suggestions.map((url, index) => ({
+                        suggestions.map(({ url, count }, index) => ({
                             url,
                             type: 'suggestion',
                             originalIndex: index,
+                            count,
                         }))
                     ) as KeyedAppUrl[]
 
@@ -372,11 +396,18 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             },
         ],
         launchUrl: [
-            (_, p) => [p.actionId],
-            (actionId) => (url: string) =>
-                appEditorUrl(url, {
+            (_, p) => [p.actionId, p.experimentId],
+            (actionId, experimentId) => (url: string) => {
+                if (experimentId) {
+                    return appEditorUrl(url, {
+                        experimentId,
+                    })
+                }
+
+                return appEditorUrl(url, {
                     actionId,
-                }),
+                })
+            },
         ],
         isAddUrlFormVisible: [(s) => [s.editUrlIndex], (editUrlIndex) => editUrlIndex === -1],
         onlyAllowDomains: [(_, p) => [p.type], (type) => type === AuthorizedUrlListType.RECORDING_DOMAINS],

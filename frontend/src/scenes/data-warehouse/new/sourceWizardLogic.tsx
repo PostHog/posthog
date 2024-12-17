@@ -6,6 +6,7 @@ import api from 'lib/api'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -16,6 +17,7 @@ import {
     manualLinkSources,
     ManualLinkSourceType,
     PipelineTab,
+    ProductKey,
     SourceConfig,
     SourceFieldConfig,
 } from '~/types'
@@ -250,6 +252,23 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 type: 'text',
                 required: true,
                 placeholder: 'public',
+            },
+            {
+                type: 'select',
+                name: 'use_ssl',
+                label: 'Use SSL?',
+                defaultValue: '1',
+                required: true,
+                options: [
+                    {
+                        value: '1',
+                        label: 'Yes',
+                    },
+                    {
+                        value: '0',
+                        label: 'No',
+                    },
+                ],
             },
             {
                 name: 'ssh-tunnel',
@@ -494,18 +513,60 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: 'COMPUTE_WAREHOUSE',
             },
             {
-                name: 'user',
-                label: 'User',
-                type: 'text',
+                type: 'select',
+                name: 'auth_type',
+                label: 'Authentication type',
                 required: true,
-                placeholder: 'user',
-            },
-            {
-                name: 'password',
-                label: 'Password',
-                type: 'password',
-                required: true,
-                placeholder: '',
+                defaultValue: 'password',
+                options: [
+                    {
+                        label: 'Password',
+                        value: 'password',
+                        fields: [
+                            {
+                                name: 'username',
+                                label: 'Username',
+                                type: 'text',
+                                required: true,
+                                placeholder: 'User1',
+                            },
+                            {
+                                name: 'password',
+                                label: 'Password',
+                                type: 'password',
+                                required: true,
+                                placeholder: '',
+                            },
+                        ],
+                    },
+                    {
+                        label: 'Key pair',
+                        value: 'keypair',
+                        fields: [
+                            {
+                                name: 'username',
+                                label: 'Username',
+                                type: 'text',
+                                required: true,
+                                placeholder: 'User1',
+                            },
+                            {
+                                name: 'private_key',
+                                label: 'Private key',
+                                type: 'textarea',
+                                required: true,
+                                placeholder: '',
+                            },
+                            {
+                                name: 'passphrase',
+                                label: 'Passphrase',
+                                type: 'password',
+                                required: false,
+                                placeholder: '',
+                            },
+                        ],
+                    },
+                ],
             },
             {
                 name: 'role',
@@ -623,6 +684,43 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 required: true,
                 placeholder: '',
             },
+            {
+                type: 'switch-group',
+                name: 'temporary-dataset',
+                label: 'Use a different dataset for the temporary tables?',
+                caption:
+                    "We have to create and delete temporary tables when querying your data, this is a requirement of querying large BigQuery tables. We can use a different dataset if you'd like to limit the permissions available to the service account provided.",
+                default: false,
+                fields: [
+                    {
+                        type: 'text',
+                        name: 'temporary_dataset_id',
+                        label: 'Dataset ID for temporary tables',
+                        required: true,
+                        placeholder: '',
+                    },
+                ],
+            },
+        ],
+        caption: '',
+    },
+    Chargebee: {
+        name: 'Chargebee',
+        fields: [
+            {
+                name: 'api_key',
+                label: 'API key',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                type: 'text',
+                name: 'site_name',
+                label: 'Site name (subdomain)',
+                required: true,
+                placeholder: '',
+            },
         ],
         caption: '',
     },
@@ -731,6 +829,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['resetTable', 'createTableSuccess'],
             dataWarehouseSettingsLogic,
             ['loadSources'],
+            teamLogic,
+            ['addProductIntent'],
         ],
     }),
     reducers({
@@ -1128,6 +1228,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         setManualLinkingProvider: () => {
             actions.onNext()
+        },
+        selectConnector: () => {
+            actions.addProductIntent({ product_type: ProductKey.DATA_WAREHOUSE, intent_context: 'selected connector' })
         },
     })),
     urlToAction(({ actions }) => ({

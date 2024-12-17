@@ -99,7 +99,10 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         anomalies_descriptions = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
         assert len(anomalies_descriptions) == 1
-        assert "The insight value for previous day is (1) more than upper threshold (0.0)" in anomalies_descriptions[0]
+        assert (
+            "The insight value ($pageview) for current interval (1) is more than upper threshold (0.0)"
+            in anomalies_descriptions[0]
+        )
 
     def test_alert_is_not_triggered_for_events_beyond_interval(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
@@ -127,7 +130,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert mock_send_notifications_for_breaches.call_count == 1
         anomalies = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
-        assert "The insight value for previous day is (0) less than lower threshold (1.0)" in anomalies
+        assert "The insight value ($pageview) for previous interval (0) is less than lower threshold (1.0)" in anomalies
 
     def test_alert_triggers_but_does_not_send_notification_during_firing(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
@@ -315,7 +318,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert mock_send_notifications_for_breaches.call_count == 1
         anomalies = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
-        assert "The insight value for previous day is (0) less than lower threshold (1.0)" in anomalies
+        assert "The insight value ($pageview) for previous interval (0) is less than lower threshold (1.0)" in anomalies
 
     @patch("posthog.tasks.alerts.utils.EmailMessage")
     def test_send_emails(

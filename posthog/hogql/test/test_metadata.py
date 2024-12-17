@@ -1,10 +1,11 @@
 from typing import Optional
 
-from posthog.hogql.metadata import get_hogql_metadata
-from posthog.models import PropertyDefinition, Cohort
-from posthog.schema import HogQLMetadata, HogQLMetadataResponse, HogQLQuery, HogLanguage
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from django.test import override_settings
+
+from posthog.hogql.metadata import get_hogql_metadata
+from posthog.models import Cohort, PropertyDefinition
+from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLQuery
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
@@ -381,5 +382,85 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "isValid": False,
                 "errors": [{"end": 17, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 11}],
+            },
+        )
+
+    def test_is_valid_view_when_all_fields_have_aliases(self):
+        metadata = self._select("SELECT event AS event FROM events")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": True,
+                "query": "SELECT event AS event FROM events",
+                "errors": [],
+            },
+        )
+
+    def test_is_valid_view_is_true_when_not_all_fields_have_aliases(self):
+        metadata = self._select("SELECT event AS event, uuid FROM events")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": True,
+                "query": "SELECT event AS event, uuid FROM events",
+                "errors": [],
+            },
+        )
+
+    def test_is_valid_view_is_false_when_fields_that_are_transformations_dont_have_aliases(self):
+        metadata = self._select("SELECT toDate(timestamp), count() FROM events GROUP BY toDate(timestamp)")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": False,
+                "query": "SELECT toDate(timestamp), count() FROM events GROUP BY toDate(timestamp)",
+                "errors": [],
+            },
+        )
+
+    def test_is_valid_view_is_true_when_fields_that_are_transformations_have_aliases(self):
+        metadata = self._select(
+            "SELECT toDate(timestamp) as timestamp, count() as total_count FROM events GROUP BY timestamp"
+        )
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": True,
+                "query": "SELECT toDate(timestamp) as timestamp, count() as total_count FROM events GROUP BY timestamp",
+                "errors": [],
+            },
+        )
+
+    def test_is_valid_view_is_false_when_using_asterisk(self):
+        metadata = self._select("SELECT * FROM events")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": False,
+                "query": "SELECT * FROM events",
+                "errors": [],
+            },
+        )
+
+    def test_is_valid_view_is_false_when_using_scoped_asterisk(self):
+        metadata = self._select("SELECT e.* FROM events e")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": False,
+                "query": "SELECT e.* FROM events e",
+                "errors": [],
             },
         )

@@ -247,6 +247,32 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
+        "Opportunity": {
+            "name": "Opportunity",
+            "table_name": "opportunity",
+            **({"primary_key": "Id"} if is_incremental else {}),
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": {
+                        "type": "incremental",
+                        "cursor_path": "SystemModstamp",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Opportunity WHERE SystemModstamp >= {date_str} ORDER BY Id ASC LIMIT 200",
+                    }
+                    if is_incremental
+                    else "SELECT FIELDS(ALL) FROM Opportunity ORDER BY Id ASC LIMIT 200",
+                },
+            },
+            "table_format": "delta",
+        },
         "Account": {
             "name": "Account",
             "table_name": "account",

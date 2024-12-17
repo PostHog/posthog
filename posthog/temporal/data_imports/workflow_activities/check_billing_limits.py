@@ -1,11 +1,11 @@
 import dataclasses
+from django.db import close_old_connections
 from temporalio import activity
 
-from asgiref.sync import sync_to_async
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 from posthog.models.team.team import Team
-from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 
 
 @dataclasses.dataclass
@@ -15,10 +15,11 @@ class CheckBillingLimitsActivityInputs:
 
 
 @activity.defn
-async def check_billing_limits_activity(inputs: CheckBillingLimitsActivityInputs) -> bool:
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+def check_billing_limits_activity(inputs: CheckBillingLimitsActivityInputs) -> bool:
+    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    close_old_connections()
 
-    team: Team = await sync_to_async(Team.objects.get)(id=inputs.team_id)
+    team: Team = Team.objects.get(id=inputs.team_id)
 
     limited_team_tokens_rows_synced = list_limited_team_attributes(
         QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY

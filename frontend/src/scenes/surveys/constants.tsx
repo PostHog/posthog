@@ -142,6 +142,10 @@ export interface NewSurvey
         | 'iteration_frequency_days'
         | 'iteration_start_dates'
         | 'current_iteration'
+        | 'response_sampling_start_date'
+        | 'response_sampling_interval_type'
+        | 'response_sampling_interval'
+        | 'response_sampling_limit'
     > {
     id: 'new'
     linked_flag_id: number | null

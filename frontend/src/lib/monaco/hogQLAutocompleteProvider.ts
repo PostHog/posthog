@@ -3,9 +3,9 @@ import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { languages } from 'monaco-editor'
 
 import { performQuery } from '~/queries/query'
-import { AutocompleteCompletionItem, HogLanguage, HogQLAutocomplete, NodeKind } from '~/queries/schema'
+import { AutocompleteCompletionItemKind, HogLanguage, HogQLAutocomplete, NodeKind } from '~/queries/schema'
 
-const convertCompletionItemKind = (kind: AutocompleteCompletionItem['kind']): languages.CompletionItemKind => {
+const convertCompletionItemKind = (kind: AutocompleteCompletionItemKind): languages.CompletionItemKind => {
     switch (kind) {
         case 'Method':
             return languages.CompletionItemKind.Method
@@ -68,7 +68,7 @@ const convertCompletionItemKind = (kind: AutocompleteCompletionItem['kind']): la
     }
 }
 
-const kindToSortText = (kind: AutocompleteCompletionItem['kind'], label: string): string => {
+const kindToSortText = (kind: AutocompleteCompletionItemKind, label: string): string => {
     if (kind === 'Variable') {
         return `1-${label}`
     }

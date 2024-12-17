@@ -5,7 +5,7 @@ import { AvailableFeature } from '~/types'
 
 import { canConfigurePlugins, canGloballyManagePlugins } from './access'
 import type { pipelineAccessLogicType } from './pipelineAccessLogicType'
-import { Destination, NewDestinationItemType, PipelineBackend } from './types'
+import { Destination, NewDestinationItemType, PipelineBackend, SiteApp, Transformation } from './types'
 
 export const pipelineAccessLogic = kea<pipelineAccessLogicType>([
     path(['scenes', 'pipeline', 'pipelineAccessLogic']),
@@ -20,17 +20,20 @@ export const pipelineAccessLogic = kea<pipelineAccessLogicType>([
         canEnableNewDestinations: [
             (s) => [s.user, s.hasAvailableFeature],
             (user, hasAvailableFeature) =>
-                user?.is_impersonated ||
-                (canConfigurePlugins(user?.organization) && hasAvailableFeature(AvailableFeature.DATA_PIPELINES)),
+                canConfigurePlugins(user?.organization) && hasAvailableFeature(AvailableFeature.DATA_PIPELINES),
         ],
 
         canEnableDestination: [
             (s) => [s.canEnableNewDestinations],
-            (canEnableNewDestinations): ((destination: Destination | NewDestinationItemType) => boolean) => {
-                return (destination: Destination | NewDestinationItemType) => {
+            (
+                canEnableNewDestinations
+            ): ((destination: Destination | NewDestinationItemType | SiteApp | Transformation) => boolean) => {
+                return (destination: Destination | NewDestinationItemType | SiteApp | Transformation) => {
                     return destination.backend === PipelineBackend.HogFunction
                         ? ('hog_function' in destination
-                              ? destination.hog_function.template?.status === 'free'
+                              ? destination.hog_function.type === 'site_destination' ||
+                                destination.hog_function.type === 'site_app' ||
+                                destination.hog_function.template?.status === 'free'
                               : destination.status === 'free') || canEnableNewDestinations
                         : canEnableNewDestinations
                 }

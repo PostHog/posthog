@@ -17,7 +17,11 @@ from posthog.hogql.database.models import (
     LazyTableToAdd,
     LazyJoinToAdd,
 )
-from posthog.hogql.database.schema.channel_type import create_channel_type_expr, POSSIBLE_CHANNEL_TYPES
+from posthog.hogql.database.schema.channel_type import (
+    create_channel_type_expr,
+    ChannelTypeExprs,
+    DEFAULT_CHANNEL_TYPES,
+)
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV1
 from posthog.hogql.errors import ResolutionError
 from posthog.models.property_definition import PropertyType
@@ -235,12 +239,15 @@ def select_from_sessions_table_v1(
         ],
     )
     aggregate_fields["$channel_type"] = create_channel_type_expr(
-        campaign=aggregate_fields["$entry_utm_campaign"],
-        medium=aggregate_fields["$entry_utm_medium"],
-        source=aggregate_fields["$entry_utm_source"],
-        referring_domain=aggregate_fields["$entry_referring_domain"],
-        gclid=aggregate_fields["$entry_gclid"],
-        gad_source=aggregate_fields["$entry_gad_source"],
+        context.modifiers.customChannelTypeRules,
+        ChannelTypeExprs(
+            campaign=aggregate_fields["$entry_utm_campaign"],
+            medium=aggregate_fields["$entry_utm_medium"],
+            source=aggregate_fields["$entry_utm_source"],
+            referring_domain=aggregate_fields["$entry_referring_domain"],
+            gclid=aggregate_fields["$entry_gclid"],
+            gad_source=aggregate_fields["$entry_gad_source"],
+        ),
     )
 
     # aliases for people reverting from v2 to v1
@@ -403,7 +410,7 @@ def get_lazy_session_table_values_v1(key: str, search_term: Optional[str], team:
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":
-        return [[name] for name in POSSIBLE_CHANNEL_TYPES if not search_term or search_term.lower() in name.lower()]
+        return [[entry] for entry in DEFAULT_CHANNEL_TYPES if not search_term or search_term.lower() in entry.lower()]
 
     field_definition = LAZY_SESSIONS_FIELDS.get(key)
     if not field_definition:

@@ -120,6 +120,7 @@ const preIngestionEvent: PreIngestionEvent = {
     },
     timestamp: '2024-04-17T12:06:46.861Z' as ISOTimestamp,
     teamId: 1,
+    projectId: 1,
 }
 
 describe('extractHeatmapDataStep()', () => {

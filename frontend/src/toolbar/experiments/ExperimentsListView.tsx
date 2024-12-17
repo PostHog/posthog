@@ -18,21 +18,19 @@ export function ExperimentsListView({ experiments }: ExperimentsListViewProps): 
         <div key="experiments-list" className="flex flex-col h-full overflow-y-scoll space-y-px">
             {experiments.length ? (
                 experiments.map((experiment, index) => (
-                    <>
-                        <Link
-                            subtle
-                            key={experiment.id}
-                            onClick={() => selectExperiment(experiment.id || null)}
-                            className="font-medium my-1 w-full"
-                        >
-                            <span key={experiment.id + 'index'} className="min-w-[2rem] inline-block text-left">
-                                {index + 1}.
-                            </span>
-                            <span key={experiment.id + 'name'} className="flex-grow">
-                                {experiment.name || <span className="italic text-muted-alt">Untitled</span>}
-                            </span>
-                        </Link>
-                    </>
+                    <Link
+                        subtle
+                        key={experiment.id}
+                        onClick={() => selectExperiment(experiment.id || null)}
+                        className="font-medium my-1 w-full"
+                    >
+                        <span key={experiment.id + 'index'} className="min-w-[2rem] inline-block text-left">
+                            {index + 1}.
+                        </span>
+                        <span key={experiment.id + 'name'} className="flex-grow">
+                            {experiment.name || <span className="italic text-muted-alt">Untitled</span>}
+                        </span>
+                    </Link>
                 ))
             ) : allExperimentsLoading ? (
                 <div className="flex items-center">

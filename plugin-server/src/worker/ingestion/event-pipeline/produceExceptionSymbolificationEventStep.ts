@@ -1,15 +1,15 @@
-import { RawClickHouseEvent } from '../../../types'
+import { RawKafkaEvent } from '../../../types'
 import { status } from '../../../utils/status'
 import { EventPipelineRunner } from './runner'
 
 export function produceExceptionSymbolificationEventStep(
     runner: EventPipelineRunner,
-    event: RawClickHouseEvent
+    event: RawKafkaEvent
 ): Promise<[Promise<void>]> {
     const ack = runner.hub.kafkaProducer
         .produce({
             topic: runner.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
-            key: event.uuid,
+            key: String(event.team_id),
             value: Buffer.from(JSON.stringify(event)),
             waitForAck: true,
         })

@@ -14,6 +14,7 @@ import { asDisplay } from 'scenes/persons/person-utils'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
+    defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -68,7 +69,6 @@ export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
             onClick={() => {
                 openSessionPlayer({
                     id: recording.id,
-                    matching_events: recording.matching_events,
                 })
                 reportRecordingOpenedFromRecentRecordingList()
             }}
@@ -123,6 +123,13 @@ export function WatchNextPanel(): JSX.Element {
         logicKey: 'projectHomepage',
         filters: {
             ...DEFAULT_RECORDING_FILTERS,
+            duration: [
+                {
+                    ...defaultRecordingDurationFilter,
+                    value: 60,
+                },
+            ],
+            date_to: '-15M',
             order: 'activity_score',
         },
     })

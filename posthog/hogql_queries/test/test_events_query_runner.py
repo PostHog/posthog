@@ -1,7 +1,7 @@
 from typing import Any, cast
 
 from freezegun import freeze_time
-
+from datetime import datetime
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
@@ -18,7 +18,9 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_different_timezones,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 
 
@@ -27,17 +29,20 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _create_events(self, data: list[tuple[str, str, Any]], event="$pageview"):
         person_result = []
+        distinct_ids_handled = set()
         for distinct_id, timestamp, event_properties in data:
             with freeze_time(timestamp):
-                person_result.append(
-                    _create_person(
-                        team_id=self.team.pk,
-                        distinct_ids=[distinct_id],
-                        properties={
-                            "name": distinct_id,
-                        },
+                if distinct_id not in distinct_ids_handled:
+                    person_result.append(
+                        _create_person(
+                            team_id=self.team.pk,
+                            distinct_ids=[distinct_id],
+                            properties={
+                                "name": distinct_id,
+                            },
+                        )
                     )
-                )
+                    distinct_ids_handled.add(distinct_id)
                 _create_event(
                     team=self.team,
                     event=event,
@@ -241,3 +246,57 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert isinstance(response, CachedEventsQueryResponse)
             assert len(response.results) == 1
             assert response.results[0][0]["properties"]["arr_field"] == [DOUBLE_QUOTE]
+
+    @also_test_with_different_timezones
+    @snapshot_clickhouse_queries
+    def test_absolute_date_range(self):
+        self._create_events(
+            data=[
+                (  # Event two hours BEFORE THE START of the day
+                    "p17",
+                    "2020-01-11T22:00:00",
+                    {},
+                ),
+                (  # Event one hour after the start of the day
+                    "p2",
+                    "2020-01-12T01:00:00",
+                    {},
+                ),
+                (  # Event right in the middle of the day
+                    "p3",
+                    "2020-01-12T12:00:00",
+                    {},
+                ),
+                (  # Event one hour before the end of the day
+                    "p1",
+                    "2020-01-12T23:00:00",
+                    {},
+                ),
+                (  # Event two hours AFTER THE END of the day
+                    "p3",
+                    "2020-01-13T02:00:00",
+                    {},
+                ),
+            ]
+        )
+
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            after="2020-01-12",
+            before="2020-01-12T23:59:59",
+            event="$pageview",
+            kind="EventsQuery",
+            orderBy=["timestamp ASC"],
+            select=["*"],
+        )
+
+        runner = EventsQueryRunner(query=query, team=self.team)
+
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [row[0]["timestamp"] for row in response.results] == [
+            datetime(2020, 1, 12, 1, 0, 0, tzinfo=self.team.timezone_info),
+            datetime(2020, 1, 12, 12, 0, 0, tzinfo=self.team.timezone_info),
+            datetime(2020, 1, 12, 23, 0, 0, tzinfo=self.team.timezone_info),
+        ]

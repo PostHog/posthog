@@ -5,7 +5,8 @@ import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActionType, Breadcrumb, HogFunctionType } from '~/types'
+import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
+import { ActionType, ActivityScope, Breadcrumb, HogFunctionType } from '~/types'
 
 import { actionEditLogic } from './actionEditLogic'
 import type { actionLogicType } from './actionLogicType'
@@ -40,7 +41,7 @@ export const actionLogic = kea<actionLogicType>([
             null as HogFunctionType[] | null,
             {
                 loadMatchingHogFunctions: async () => {
-                    const res = await api.hogFunctions.list({ filters: { actions: [{ id: `${props.id}` }] } })
+                    const res = await api.hogFunctions.list({ actions: [{ id: `${props.id}` }] })
 
                     return res.results
                 },
@@ -103,6 +104,18 @@ export const actionLogic = kea<actionLogicType>([
         hasCohortFilters: [
             (s) => [s.action],
             (action) => action?.steps?.some((step) => step.properties?.find((p) => p.type === 'cohort')) ?? false,
+        ],
+
+        activityFilters: [
+            (s) => [s.action],
+            (action): ActivityFilters | null => {
+                return action?.id
+                    ? {
+                          scope: ActivityScope.ACTION,
+                          item_id: String(action.id),
+                      }
+                    : null
+            },
         ],
     }),
     listeners(({ actions, values }) => ({

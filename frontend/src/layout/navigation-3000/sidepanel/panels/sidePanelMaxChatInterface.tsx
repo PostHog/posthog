@@ -1,9 +1,13 @@
-import { LemonButton, LemonCollapse, LemonDivider, LemonTextArea } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { memo, useEffect, useRef, useState } from 'react'
+
+import { LemonButton } from '~/lib/lemon-ui/LemonButton'
+import { LemonCollapse } from '~/lib/lemon-ui/LemonCollapse'
+import { LemonDivider } from '~/lib/lemon-ui/LemonDivider'
+import { LemonTextArea } from '~/lib/lemon-ui/LemonTextArea'
+import { Spinner } from '~/lib/lemon-ui/Spinner'
 
 import { sidePanelMaxAILogic } from './sidePanelMaxAILogic'
 import { ChatMessage } from './sidePanelMaxAILogic'

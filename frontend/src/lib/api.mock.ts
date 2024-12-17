@@ -84,12 +84,14 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
+    user_access_level: 'admin',
     access_control: true,
     has_group_types: true,
     primary_dashboard: 1,
     live_events_columns: null,
     person_on_events_querying_enabled: true,
     live_events_token: '123',
+    capture_dead_clicks: false,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -97,6 +99,7 @@ export const MOCK_DEFAULT_PROJECT: ProjectType = {
     name: 'MockHog App + Marketing',
     organization_id: MOCK_ORGANIZATION_ID,
     created_at: '2020-06-30T09:53:35.932534Z',
+    product_description: null,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {

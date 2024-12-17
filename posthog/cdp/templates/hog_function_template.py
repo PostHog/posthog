@@ -24,8 +24,37 @@ class HogFunctionSubTemplate:
 
 
 @dataclasses.dataclass(frozen=True)
+class HogFunctionMapping:
+    filters: Optional[dict] = None
+    inputs: Optional[dict] = None
+    inputs_schema: Optional[list[dict]] = None
+
+
+@dataclasses.dataclass(frozen=True)
+class HogFunctionMappingTemplate:
+    name: str
+    include_by_default: Optional[bool] = None
+    filters: Optional[dict] = None
+    inputs: Optional[dict] = None
+    inputs_schema: Optional[list[dict]] = None
+
+
+@dataclasses.dataclass(frozen=True)
 class HogFunctionTemplate:
-    status: Literal["alpha", "beta", "stable", "free"]
+    status: Literal["alpha", "beta", "stable", "free", "client-side"]
+    type: Literal[
+        "destination",
+        "site_destination",
+        "site_app",
+        "transformation",
+        "shared",
+        "email",
+        "sms",
+        "push",
+        "broadcast",
+        "activity",
+        "alert",
+    ]
     id: str
     name: str
     description: str
@@ -34,6 +63,8 @@ class HogFunctionTemplate:
     category: list[str]
     sub_templates: Optional[list[HogFunctionSubTemplate]] = None
     filters: Optional[dict] = None
+    mappings: Optional[list[HogFunctionMapping]] = None
+    mapping_templates: Optional[list[HogFunctionMappingTemplate]] = None
     masking: Optional[dict] = None
     icon_url: Optional[str] = None
 

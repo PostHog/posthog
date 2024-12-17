@@ -54,9 +54,10 @@ export const DataWarehouseTables = ({ insightProps }: DataWarehousetTablesProps)
 
 interface DatabaseTableTreeProps {
     inline?: boolean
+    collapsible?: boolean
 }
 
-export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): JSX.Element => {
+export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: DatabaseTableTreeProps): JSX.Element => {
     const {
         dataWarehouseTablesBySourceType,
         posthogTables,
@@ -293,13 +294,13 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
     return (
         <div
             className={clsx(
-                `bg-bg-light space-y-px rounded border p-2 overflow-y-auto`,
+                `bg-bg-light rounded space-y-px border p-2 overflow-y-auto`,
                 !collapsed ? 'min-w-80 flex-1' : ''
             )}
         >
             {collapsed ? (
                 <LemonButton icon={<IconDatabase />} onClick={() => setCollapsed(false)} />
-            ) : (
+            ) : collapsible ? (
                 <>
                     <LemonButton
                         size="xsmall"
@@ -310,6 +311,11 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     >
                         <span className="uppercase text-muted-alt tracking-wider">Sources</span>
                     </LemonButton>
+                    <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
+                </>
+            ) : (
+                <>
+                    <span className="text-muted-alt tracking-wider font-normal">Sources</span>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>
             )}

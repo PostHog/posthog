@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 from hogvm.python.debugger import color_bytecode
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.hogql.bytecode import execute_hog
+from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
@@ -106,10 +106,11 @@ def process_query_model(
 
             try:
                 hog_result = execute_hog(query.code or "", team=team)
+                bytecode = hog_result.bytecodes.get("root", None)
                 result = HogQueryResponse(
                     results=hog_result.result,
-                    bytecode=hog_result.bytecode,
-                    coloredBytecode=color_bytecode(hog_result.bytecode),
+                    bytecode=bytecode,
+                    coloredBytecode=color_bytecode(bytecode) if bytecode else None,
                     stdout="\n".join(hog_result.stdout),
                 )
             except Exception as e:

@@ -166,7 +166,7 @@ describe('CDP API', () => {
             console.log(res.body.logs[3].message)
             expect(res.body).toMatchObject({
                 status: 'success',
-                error: 'undefined',
+                error: null,
                 logs: [
                     {
                         level: 'debug',
@@ -174,7 +174,8 @@ describe('CDP API', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 2064 bytes",
+                        message:
+                            "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
                     },
                     {
                         level: 'info',
@@ -205,6 +206,7 @@ describe('CDP API', () => {
                 Promise.resolve({
                     status: 201,
                     text: () => Promise.resolve(JSON.stringify({ real: true })),
+                    headers: new Headers({ 'Content-Type': 'application/json' }),
                 })
             )
             const res = await supertest(app)
@@ -214,7 +216,7 @@ describe('CDP API', () => {
             expect(res.status).toEqual(200)
             expect(res.body).toMatchObject({
                 status: 'success',
-                error: 'undefined',
+                error: null,
                 logs: [
                     {
                         level: 'debug',
@@ -222,7 +224,8 @@ describe('CDP API', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 2064 bytes",
+                        message:
+                            "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
                     },
                     {
                         level: 'debug',
@@ -231,6 +234,44 @@ describe('CDP API', () => {
                     {
                         level: 'info',
                         message: 'Fetch response:, {"status":201,"body":{"real":true}}',
+                    },
+                    {
+                        level: 'debug',
+                        message: expect.stringContaining('Function completed in'),
+                    },
+                ],
+            })
+        })
+
+        it('call exported sendEmail for email provider functions', async () => {
+            hogFunction = await insertHogFunction({
+                ...HOG_EXAMPLES.export_send_email,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            mockFetch.mockImplementationOnce(() =>
+                Promise.resolve({
+                    status: 201,
+                    text: () => Promise.resolve(JSON.stringify({ real: true })),
+                })
+            )
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+                .send({ globals: { ...globals, email: { from: 'me@mycompany.com' } }, mock_async_functions: false })
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toMatchObject({
+                status: 'success',
+                error: null,
+                logs: [
+                    {
+                        level: 'debug',
+                        message: 'Executing function',
+                    },
+                    {
+                        level: 'info',
+                        message: '{"from":"me@mycompany.com"}',
                     },
                     {
                         level: 'debug',

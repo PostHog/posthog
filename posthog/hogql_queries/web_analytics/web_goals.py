@@ -24,12 +24,14 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner):
     response: WebGoalsQueryResponse
     cached_response: CachedWebGoalsQueryResponse
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("date_expr"):
             start = self.query_date_range.date_from_as_hogql()
             end = self.query_date_range.date_to_as_hogql()
 
-        actions = Action.objects.filter(team=self.team).order_by("pinned_at", "-last_calculated_at")[:5]
+        actions = Action.objects.filter(team__project_id=self.team.project_id, deleted=False).order_by(
+            "pinned_at", "-last_calculated_at"
+        )[:5]
         if not actions:
             raise NoActionsError("No actions found")
 

@@ -3,9 +3,12 @@ from typing import Optional
 from collections.abc import Sequence, Iterator
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_order_expr
+from posthog.hogql.printer import print_ast
 from posthog.hogql.property import has_aggregation
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
@@ -142,12 +145,12 @@ class ActorsQueryRunner(QueryRunner):
         return self.strategy.input_columns()
 
     # TODO: Figure out a more sure way of getting the actor id than using the alias or chain name
-    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectUnionQuery) -> list[str]:
+    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectSetQuery) -> list[int | str]:
         # Figure out the id column of the source query, first column that has id in the name
         if isinstance(source_query, ast.SelectQuery):
             select = source_query.select
         else:
-            select = source_query.select_queries[0].select
+            select = next(extract_select_queries(source_query)).select
 
         for column in select:
             if isinstance(column, ast.Alias) and (column.alias in ("group_key", "actor_id", "person_id")):
@@ -247,14 +250,48 @@ class ActorsQueryRunner(QueryRunner):
                 order_by = []
 
         with self.timings.measure("select"):
+            select_query = ast.SelectQuery(
+                select=columns,
+                where=where,
+                having=having,
+                group_by=group_by if has_any_aggregation else None,
+                order_by=order_by,
+                settings=HogQLQuerySettings(join_algorithm="auto", optimize_aggregation_in_order=True),
+            )
             if not self.query.source:
-                join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+                select_query.select_from = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
             else:
                 assert self.source_query_runner is not None  # For type checking
                 source_query = self.source_query_runner.to_actors_query()
-
                 source_id_chain = self.source_id_column(source_query)
                 source_alias = "source"
+
+                # If we aren't joining with the origin, give the source the origin_id
+                for source in (
+                    [source_query] if isinstance(source_query, ast.SelectQuery) else source_query.select_queries()
+                ):
+                    source.select.append(
+                        ast.Alias(alias=self.strategy.origin_id, expr=ast.Field(chain=source_id_chain))
+                    )
+                select_query.select_from = ast.JoinExpr(
+                    table=source_query,
+                    alias=source_alias,
+                )
+
+                try:
+                    print_ast(
+                        select_query,
+                        context=HogQLContext(
+                            team=self.team,
+                            enable_select_queries=True,
+                            timings=self.timings,
+                            modifiers=self.modifiers,
+                        ),
+                        dialect="clickhouse",
+                    )
+                    return select_query
+                except Exception:
+                    pass
 
                 origin = self.strategy.origin
 
@@ -276,7 +313,7 @@ class ActorsQueryRunner(QueryRunner):
                         exprs=[
                             join_on,
                             ast.CompareOperation(
-                                left=ast.Field(chain=[origin, "id"]),
+                                left=ast.Field(chain=[origin, self.strategy.origin_id]),
                                 right=ast.SelectQuery(
                                     select=[ast.Field(chain=[source_alias, *self.source_id_column(source_query)])],
                                     select_from=ast.JoinExpr(table=source_query, alias=source_alias),
@@ -286,7 +323,12 @@ class ActorsQueryRunner(QueryRunner):
                         ]
                     )
 
-                join_expr = ast.JoinExpr(
+                # remove id, which now comes from the origin
+                for source in (
+                    [source_query] if isinstance(source_query, ast.SelectQuery) else source_query.select_queries()
+                ):
+                    source.select.pop()
+                select_query.select_from = ast.JoinExpr(
                     table=source_query,
                     alias=source_alias,
                     next_join=ast.JoinExpr(
@@ -299,14 +341,7 @@ class ActorsQueryRunner(QueryRunner):
                     ),
                 )
 
-        return ast.SelectQuery(
-            select=columns,
-            select_from=join_expr,
-            where=where,
-            having=having,
-            group_by=group_by if has_any_aggregation else None,
-            order_by=order_by,
-        )
+        return select_query
 
     def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()

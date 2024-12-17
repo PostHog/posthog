@@ -1,4 +1,3 @@
-import asyncio
 import collections
 import datetime as dt
 import json
@@ -6,13 +5,12 @@ import typing
 import uuid
 
 import pytest
-import temporalio.client
 from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from posthog.api.test.batch_exports.conftest import describe_schedule, start_test_worker
+from posthog.api.test.batch_exports.conftest import describe_schedule
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.management.commands.create_batch_export_from_app import (
@@ -508,62 +506,3 @@ def test_create_batch_export_from_app_with_disabled_plugin(
     # Type specific inputs
     for key, expected in config.items():
         assert args[key] == expected
-
-
-@async_to_sync
-async def wait_for_workflow_executions(
-    temporal: temporalio.client.Client, query: str, timeout: int = 30, sleep: int = 1
-):
-    """Wait for Workflow Executions matching query."""
-    workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
-
-    total = 0
-    while not workflows:
-        total += sleep
-
-        if total > timeout:
-            raise TimeoutError(f"No backfill Workflow Executions after {timeout} seconds")
-
-        await asyncio.sleep(sleep)
-        workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
-
-    return workflows
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("interval", ("hour", "day"))
-@pytest.mark.parametrize(
-    "plugin_config",
-    (
-        ("S3", False),
-        ("Snowflake", False),
-        ("BigQuery", False),
-        ("Redshift", False),
-        ("Postgres", False),
-        ("Postgres", False, True),
-    ),
-    indirect=True,
-)
-def test_create_batch_export_from_app_with_backfill(interval, plugin_config):
-    """Test a live run of the create_batch_export_from_app command with the backfill flag set."""
-    args = (
-        f"--plugin-config-id={plugin_config.id}",
-        f"--team-id={plugin_config.team.id}",
-        f"--interval={interval}",
-        "--backfill-batch-export",
-    )
-    export_type, _ = map_plugin_config_to_destination(plugin_config)
-
-    temporal = sync_connect()
-
-    with start_test_worker(temporal):
-        output = call_command("create_batch_export_from_app", *args)
-
-        batch_export_data = json.loads(output)
-        batch_export_id = str(batch_export_data["id"])
-        workflows = wait_for_workflow_executions(temporal, query=f'TemporalScheduledById="{batch_export_id}"')
-
-        # In the event the test takes too long, we may spawn more than one run
-        assert len(workflows) >= 1
-        workflow_execution = workflows[0]
-        assert workflow_execution.workflow_type == f"{export_type.lower()}-export"

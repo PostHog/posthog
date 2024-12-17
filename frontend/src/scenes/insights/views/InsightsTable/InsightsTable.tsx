@@ -279,6 +279,7 @@ export function InsightsTable({
             columns={columns}
             rowKey="id"
             loading={insightDataLoading}
+            disableTableWhileLoading={false}
             emptyState="No insight results"
             data-attr="insights-table-graph"
             useURLForSorting={insightMode !== ItemMode.Edit}

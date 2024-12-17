@@ -8,6 +8,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
+import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 import { BillingGaugeItemKind } from './types'
 
 export const PurchaseCreditsModal = (): JSX.Element | null => {
@@ -16,6 +17,8 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
     const { openSupportForm } = useActions(supportLogic)
 
     const creditInputValue: number = +creditForm.creditInput || 0
+    const estimatedMonthlyCreditAmountUsd =
+        creditOverview.estimated_monthly_credit_amount_usd || DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
     return (
         <LemonModal
             onClose={() => showPurchaseCreditsModal(false)}
@@ -56,7 +59,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                         Based on your usage, we think you'll use{' '}
                         <b>
                             $
-                            {(+creditOverview.estimated_monthly_credit_amount_usd).toLocaleString('en-US', {
+                            {(+estimatedMonthlyCreditAmountUsd).toLocaleString('en-US', {
                                 minimumFractionDigits: 0,
                                 maximumFractionDigits: 0,
                             })}
@@ -64,7 +67,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                         of credits per month, for a total of{' '}
                         <b>
                             $
-                            {(+creditOverview.estimated_monthly_credit_amount_usd * 12).toLocaleString('en-US', {
+                            {(+estimatedMonthlyCreditAmountUsd * 12).toLocaleString('en-US', {
                                 minimumFractionDigits: 0,
                                 maximumFractionDigits: 0,
                             })}
@@ -101,14 +104,14 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                             {
                                 type: BillingGaugeItemKind.FreeTier,
                                 text:
-                                    creditInputValue >= 6000 && creditInputValue < 20000 ? (
+                                    creditInputValue >= 3000 && creditInputValue < 20000 ? (
                                         <>
                                             <IconCheckCircle className="text-success" /> 10% off
                                         </>
                                     ) : (
                                         '10% off'
                                     ),
-                                value: 6000,
+                                value: 3000,
                                 prefix: '$',
                                 top: true,
                             },

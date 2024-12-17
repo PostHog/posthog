@@ -1,10 +1,9 @@
 from typing import Optional
 
 from freezegun import freeze_time
-from parameterized import parameterized
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.models import Cohort
+from posthog.models import Action, Cohort, Element
 from posthog.models.utils import uuid7
 from posthog.schema import (
     DateRange,
@@ -14,6 +13,8 @@ from posthog.schema import (
     PropertyOperator,
     SessionTableVersion,
     HogQLQueryModifiers,
+    CustomEventConversionGoal,
+    ActionConversionGoal,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -39,13 +40,27 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         },
                     )
                 )
-            for timestamp, session_id, pathname in timestamps:
+            for timestamp, session_id, *extra in timestamps:
+                url = None
+                elements = None
+                if event == "$pageview":
+                    url = extra[0] if extra else None
+                elif event == "$autocapture":
+                    elements = extra[0] if extra else None
+                properties = extra[1] if extra and len(extra) > 1 else {}
+
                 _create_event(
                     team=self.team,
                     event=event,
                     distinct_id=id,
                     timestamp=timestamp,
-                    properties={"$session_id": session_id, "$pathname": pathname},
+                    properties={
+                        "$session_id": session_id,
+                        "$pathname": url,
+                        "$current_url": url,
+                        **properties,
+                    },
+                    elements=elements,
                 )
         return person_result
 
@@ -108,7 +123,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         include_bounce_rate=False,
         include_scroll_depth=False,
         properties=None,
-        session_table_version: SessionTableVersion = SessionTableVersion.V1,
+        action: Optional[Action] = None,
+        custom_event: Optional[str] = None,
+        session_table_version: SessionTableVersion = SessionTableVersion.V2,
         filter_test_accounts: Optional[bool] = False,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
@@ -120,21 +137,25 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             doPathCleaning=bool(path_cleaning_filters),
             includeBounceRate=include_bounce_rate,
             includeScrollDepth=include_scroll_depth,
+            conversionGoal=ActionConversionGoal(actionId=action.id)
+            if action
+            else CustomEventConversionGoal(customEventName=custom_event)
+            if custom_event
+            else None,
             filterTestAccounts=filter_test_accounts,
         )
         self.team.path_cleaning_filters = path_cleaning_filters or []
         runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
         return runner.calculate()
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_no_crash_when_no_data(self, session_table_version: SessionTableVersion):
+    def test_no_crash_when_no_data(self):
         results = self._run_web_stats_table_query(
-            "2023-12-08", "2023-12-15", session_table_version=session_table_version
+            "2023-12-08",
+            "2023-12-15",
         ).results
         self.assertEqual([], results)
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_increase_in_users(self, session_table_version: SessionTableVersion):
+    def test_increase_in_users(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-13"))
         s2 = str(uuid7("2023-12-10"))
@@ -145,20 +166,17 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        results = self._run_web_stats_table_query(
-            "2023-12-01", "2023-12-11", session_table_version=session_table_version
-        ).results
+        results = self._run_web_stats_table_query("2023-12-01", "2023-12-11").results
 
         self.assertEqual(
             [
-                ["/", 2, 2],
-                ["/login", 1, 1],
+                ["/", (2, 0), (2, 0)],
+                ["/login", (1, 0), (1, 0)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_all_time(self, session_table_version: SessionTableVersion):
+    def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-13"))
         s2 = str(uuid7("2023-12-10"))
@@ -169,51 +187,42 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        results = self._run_web_stats_table_query(
-            "all", "2023-12-15", session_table_version=session_table_version
-        ).results
+        results = self._run_web_stats_table_query("all", "2023-12-15").results
 
         self.assertEqual(
             [
-                ["/", 2, 2],
-                ["/docs", 1, 1],
-                ["/login", 1, 1],
+                ["/", (2, 0), (2, 0)],
+                ["/docs", (1, 0), (1, 0)],
+                ["/login", (1, 0), (1, 0)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_filter_test_accounts(self, session_table_version: SessionTableVersion):
+    def test_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
         self._create_events([("test", [("2023-12-02", s1, "/"), ("2023-12-03", s1, "/login")])])
 
-        results = self._run_web_stats_table_query(
-            "2023-12-01", "2023-12-03", session_table_version=session_table_version, filter_test_accounts=True
-        ).results
+        results = self._run_web_stats_table_query("2023-12-01", "2023-12-03", filter_test_accounts=True).results
 
         self.assertEqual(
             [],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_dont_filter_test_accounts(self, session_table_version: SessionTableVersion):
+    def test_dont_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
         self._create_events([("test", [("2023-12-02", s1, "/"), ("2023-12-03", s1, "/login")])])
 
-        results = self._run_web_stats_table_query(
-            "2023-12-01", "2023-12-03", session_table_version=session_table_version, filter_test_accounts=False
-        ).results
+        results = self._run_web_stats_table_query("2023-12-01", "2023-12-03", filter_test_accounts=False).results
 
         self.assertEqual(
-            [["/", 1, 1], ["/login", 1, 1]],
+            [["/", (1, 0), (1, 0)], ["/login", (1, 0), (1, 0)]],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_breakdown_channel_type_doesnt_throw(self, session_table_version: SessionTableVersion):
+    def test_breakdown_channel_type_doesnt_throw(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-13"))
         s2 = str(uuid7("2023-12-10"))
@@ -229,7 +238,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01",
             "2023-12-03",
             breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
@@ -237,8 +245,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             len(results),
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_limit(self, session_table_version: SessionTableVersion):
+    def test_limit(self):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2023-12-10"))
         self._create_events(
@@ -248,12 +255,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        response_1 = self._run_web_stats_table_query(
-            "all", "2023-12-15", limit=1, session_table_version=session_table_version
-        )
+        response_1 = self._run_web_stats_table_query("all", "2023-12-15", limit=1)
         self.assertEqual(
             [
-                ["/", 2, 2],
+                ["/", (2, 0), (2, 0)],
             ],
             response_1.results,
         )
@@ -262,15 +267,14 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response_2 = self._run_web_stats_table_query("all", "2023-12-15", limit=2)
         self.assertEqual(
             [
-                ["/", 2, 2],
-                ["/login", 1, 1],
+                ["/", (2, 0), (2, 0)],
+                ["/login", (1, 0), (1, 0)],
             ],
             response_2.results,
         )
         self.assertEqual(False, response_2.hasMore)
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_path_filters(self, session_table_version: SessionTableVersion):
+    def test_path_filters(self):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2023-12-10"))
         s3 = str(uuid7("2023-12-10"))
@@ -295,21 +299,19 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"regex": "thing_a", "alias": "thing_b"},
                 {"regex": "thing_b", "alias": "thing_c"},
             ],
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
             [
-                ["/cleaned/:id", 2, 2],
-                ["/cleaned/:id/path/:id", 1, 1],
-                ["/not-cleaned", 1, 1],
-                ["/thing_c", 1, 1],
+                ["/cleaned/:id", (2, 0), (2, 0)],
+                ["/cleaned/:id/path/:id", (1, 0), (1, 0)],
+                ["/not-cleaned", (1, 0), (1, 0)],
+                ["/thing_c", (1, 0), (1, 0)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_scroll_depth_bounce_rate_one_user(self, session_table_version: SessionTableVersion):
+    def test_scroll_depth_bounce_rate_one_user(self):
         self._create_pageviews(
             "p1",
             [
@@ -325,20 +327,18 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
             [
-                ["/a", 1, 1, 0, 0.1, 0],
-                ["/b", 1, 1, None, 0.2, 0],
-                ["/c", 1, 1, None, 0.9, 1],
+                ["/a", (1, 0), (1, 0), (0, None), (0.1, None), (0, None)],
+                ["/b", (1, 0), (1, 0), (None, None), (0.2, None), (0, None)],
+                ["/c", (1, 0), (1, 0), (None, None), (0.9, None), (1, None)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_scroll_depth_bounce_rate(self, session_table_version: SessionTableVersion):
+    def test_scroll_depth_bounce_rate(self):
         self._create_pageviews(
             "p1",
             [
@@ -369,20 +369,18 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
             [
-                ["/a", 3, 4, 1 / 3, 0.5, 0.5],
-                ["/b", 2, 2, None, 0.2, 0],
-                ["/c", 2, 2, None, 0.9, 1],
+                ["/a", (3, 0), (4, 0), (1 / 3, None), (0.5, None), (0.5, None)],
+                ["/b", (2, 0), (2, 0), (None, None), (0.2, None), (0, None)],
+                ["/c", (2, 0), (2, 0), (None, None), (0.9, None), (1, None)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_scroll_depth_bounce_rate_with_filter(self, session_table_version: SessionTableVersion):
+    def test_scroll_depth_bounce_rate_with_filter(self):
         self._create_pageviews(
             "p1",
             [
@@ -414,18 +412,16 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             include_scroll_depth=True,
             include_bounce_rate=True,
             properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
             [
-                ["/a", 3, 4, 1 / 3, 0.5, 0.5],
+                ["/a", (3, 0), (4, 0), (1 / 3, None), (0.5, None), (0.5, None)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_scroll_depth_bounce_rate_path_cleaning(self, session_table_version: SessionTableVersion):
+    def test_scroll_depth_bounce_rate_path_cleaning(self):
         self._create_pageviews(
             "p1",
             [
@@ -446,20 +442,18 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"regex": "\\/b\\/\\d+", "alias": "/b/:id"},
                 {"regex": "\\/c\\/\\d+", "alias": "/c/:id"},
             ],
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
             [
-                ["/a/:id", 1, 1, 0, 0.1, 0],
-                ["/b/:id", 1, 1, None, 0.2, 0],
-                ["/c/:id", 1, 1, None, 0.9, 1],
+                ["/a/:id", (1, 0), (1, 0), (0, None), (0.1, None), (0, None)],
+                ["/b/:id", (1, 0), (1, 0), (None, None), (0.2, None), (0, None)],
+                ["/c/:id", (1, 0), (1, 0), (None, None), (0.9, None), (1, None)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_bounce_rate_one_user(self, session_table_version: SessionTableVersion):
+    def test_bounce_rate_one_user(self):
         self._create_pageviews(
             "p1",
             [
@@ -474,20 +468,18 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
             [
-                ["/a", 1, 1, 0],
-                ["/b", 1, 1, None],
-                ["/c", 1, 1, None],
+                ["/a", (1, 0), (1, 0), (0, None)],
+                ["/b", (1, 0), (1, 0), (None, None)],
+                ["/c", (1, 0), (1, 0), (None, None)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_bounce_rate(self, session_table_version: SessionTableVersion):
+    def test_bounce_rate(self):
         self._create_pageviews(
             "p1",
             [
@@ -517,20 +509,18 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
             [
-                ["/a", 3, 4, 1 / 3],
-                ["/b", 2, 2, None],
-                ["/c", 2, 2, None],
+                ["/a", (3, 0), (4, 0), (1 / 3, None)],
+                ["/b", (2, 0), (2, 0), (None, None)],
+                ["/c", (2, 0), (2, 0), (None, None)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_bounce_rate_with_property(self, session_table_version: SessionTableVersion):
+    def test_bounce_rate_with_property(self):
         self._create_pageviews(
             "p1",
             [
@@ -561,18 +551,16 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
             properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
             [
-                ["/a", 3, 4, 1 / 3],
+                ["/a", (3, 0), (4, 0), (1 / 3, None)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_bounce_rate_path_cleaning(self, session_table_version: SessionTableVersion):
+    def test_bounce_rate_path_cleaning(self):
         self._create_pageviews(
             "p1",
             [
@@ -592,20 +580,18 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"regex": "\\/b\\/\\d+", "alias": "/b/:id"},
                 {"regex": "\\/c\\/\\d+", "alias": "/c/:id"},
             ],
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
             [
-                ["/a/:id", 1, 1, 0],
-                ["/b/:id", 1, 1, None],
-                ["/c/:id", 1, 1, None],
+                ["/a/:id", (1, 0), (1, 0), (0, None)],
+                ["/b/:id", (1, 0), (1, 0), (None, None)],
+                ["/c/:id", (1, 0), (1, 0), (None, None)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_entry_bounce_rate_one_user(self, session_table_version: SessionTableVersion):
+    def test_entry_bounce_rate_one_user(self):
         self._create_pageviews(
             "p1",
             [
@@ -620,18 +606,16 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
             [
-                ["/a", 1, 3, 0],
+                ["/a", (1, 0), (3, 0), (0, None)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_entry_bounce_rate(self, session_table_version: SessionTableVersion):
+    def test_entry_bounce_rate(self):
         self._create_pageviews(
             "p1",
             [
@@ -661,18 +645,16 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
             [
-                ["/a", 3, 8, 1 / 3],
+                ["/a", (3, 0), (8, 0), (1 / 3, None)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_entry_bounce_rate_with_property(self, session_table_version: SessionTableVersion):
+    def test_entry_bounce_rate_with_property(self):
         self._create_pageviews(
             "p1",
             [
@@ -703,18 +685,16 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
             properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
             [
-                ["/a", 3, 4, 1 / 3],
+                ["/a", (3, 0), (4, 0), (1 / 3, None)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_entry_bounce_rate_path_cleaning(self, session_table_version: SessionTableVersion):
+    def test_entry_bounce_rate_path_cleaning(self):
         self._create_pageviews(
             "p1",
             [
@@ -734,18 +714,16 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"regex": "\\/b\\/\\d+", "alias": "/b/:id"},
                 {"regex": "\\/c\\/\\d+", "alias": "/c/:id"},
             ],
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
             [
-                ["/a/:id", 1, 3, 0],
+                ["/a/:id", (1, 0), (3, 0), (0, None)],
             ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_source_medium_campaign(self, session_table_version: SessionTableVersion):
+    def test_source_medium_campaign(self):
         d1 = "d1"
         s1 = str(uuid7("2024-06-26"))
 
@@ -785,16 +763,17 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2024-06-27",
             breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN,
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
-            [["google / (none) / (none)", 1, 1], ["news.ycombinator.com / referral / (none)", 1, 1]],
+            [
+                ["google / (none) / (none)", (1, 0), (1, 0)],
+                ["news.ycombinator.com / referral / (none)", (1, 0), (1, 0)],
+            ],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_null_in_utm_tags(self, session_table_version: SessionTableVersion):
+    def test_null_in_utm_tags(self):
         d1 = "d1"
         s1 = str(uuid7("2024-06-26"))
 
@@ -836,16 +815,14 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2024-06-27",
             breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
-            [["google", 1.0, 1.0], [None, 1.0, 1.0]],
+            [["google", (1, 0), (1, 0)], [None, (1, 0), (1, 0)]],
             results,
         )
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_is_not_set_filter(self, session_table_version: SessionTableVersion):
+    def test_is_not_set_filter(self):
         d1 = "d1"
         s1 = str(uuid7("2024-06-26"))
 
@@ -888,11 +865,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2024-06-27",
             breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
             properties=[EventPropertyFilter(key="utm_source", operator=PropertyOperator.IS_NOT_SET)],
-            session_table_version=session_table_version,
         ).results
 
         self.assertEqual(
-            [[None, 1.0, 1.0]],
+            [[None, (1, 0), (1, 0)]],
             results,
         )
 
@@ -928,7 +904,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2024-07-31",
             breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
         ).results
-        assert [["google", 1, 2]] == results_session
+        assert [["google", (1, 0), (2, 0)]] == results_session
 
         # Try this with a query that uses event properties
         results_event = self._run_web_stats_table_query(
@@ -936,13 +912,13 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2024-07-31",
             breakdown_by=WebStatsBreakdown.PAGE,
         ).results
-        assert [["/path", 1, 2]] == results_event
+        assert [["/path", (1, 0), (2, 0)]] == results_event
 
         # Try this with a query using the bounce rate
         results_event = self._run_web_stats_table_query(
             "all", "2024-07-31", breakdown_by=WebStatsBreakdown.PAGE, include_bounce_rate=True
         ).results
-        assert [["/path", 1, 2, None]] == results_event
+        assert [["/path", (1, 0), (2, 0), (None, None)]] == results_event
 
         # Try this with a query using the scroll depth
         results_event = self._run_web_stats_table_query(
@@ -952,7 +928,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             include_bounce_rate=True,
             include_scroll_depth=True,
         ).results
-        assert [["/path", 1, 2, None, None, None]] == results_event
+        assert [["/path", (1, 0), (2, 0), (None, None), (None, None), (None, None)]] == results_event
 
     def test_no_session_id(self):
         d1 = "d1"
@@ -985,13 +961,16 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
         assert [] == results
 
-        # Do show event property breakdowns of events of events with no session id
+        # Do show event property breakdowns of events with no session id
+        # but it will return 0 views because we depend on session.$start_timestamp
+        # to figure out the previous/current values
         results = self._run_web_stats_table_query(
             "all",
             "2024-07-31",
             breakdown_by=WebStatsBreakdown.PAGE,
         ).results
-        assert [["/path", 1, 1]] == results
+
+        assert [["/path", (0, 0), (0, 0)]] == results
 
     def test_cohort_test_filters(self):
         d1 = "d1"
@@ -1053,4 +1032,463 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
         ).results
 
-        assert results == [["/path1", 1, 1]]
+        assert results == [["/path1", (1, 0), (1, 0)]]
+
+    def test_language_filter(self):
+        d1, s1 = "d1", str(uuid7("2024-07-30"))
+        d2, s2 = "d2", str(uuid7("2024-07-30"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={"name": d1, "email": "test@example.com"},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "$pathname": "/path1", "$browser_language": "en-US"},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "$pathname": "/path2", "$browser_language": "en-US"},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "$pathname": "/path3", "$browser_language": "en-GB"},
+        )
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d2],
+            properties={"name": d2, "email": "d2@hedgebox.net"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "$pathname": "/path2", "$browser_language": "pt-BR"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "$pathname": "/path3", "$browser_language": "pt-BR"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "$pathname": "/path4", "$browser_language": "nl"},
+        )
+
+        flush_persons_and_events()
+
+        results = self._run_web_stats_table_query(
+            "all",
+            None,
+            breakdown_by=WebStatsBreakdown.LANGUAGE,
+            filter_test_accounts=True,
+        ).results
+
+        # We can't assert on this directly because we're using topK and that's probabilistic
+        # which is causing this to be flaky (en-GB happens sometimes),
+        # we'll instead assert on a reduced form where we're
+        # not counting the country, but only the locale
+        # assert results == [["en-US", (1, 0), (3, 0)], ["pt-BR", (1, 0), (2, 0)], ["nl-", (1, 0), (1, 0)]]
+
+        country_results = [result[0].split("-")[0] for result in results]
+        assert country_results == ["en", "pt", "nl"]
+
+    def test_timezone_filter_general(self):
+        before_date = "2024-07-14"
+        after_date = "2024-07-16"
+
+        for idx, (distinct_id, before_session_id, after_session_id) in enumerate(
+            [
+                ("UTC", str(uuid7(before_date)), str(uuid7(after_date))),
+                ("Asia/Calcutta", str(uuid7(before_date)), str(uuid7(after_date))),
+                ("America/New_York", str(uuid7(before_date)), str(uuid7(after_date))),
+                ("America/Sao_Paulo", str(uuid7(before_date)), str(uuid7(after_date))),
+            ]
+        ):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[distinct_id],
+                properties={"name": before_session_id, "email": f"{distinct_id}@example.com"},
+            )
+
+            # Always one event in the before_date
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=before_date,
+                properties={"$session_id": before_session_id, "$pathname": f"/path/landing", "$timezone": distinct_id},
+            )
+
+            # Several events in the actual range
+            for i in range(idx + 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=after_date,
+                    properties={"$session_id": after_session_id, "$pathname": f"/path{i}", "$timezone": distinct_id},
+                )
+
+        results = self._run_web_stats_table_query(
+            "2024-07-15",  # Period is since July first, we create some events before that date, and some after
+            None,
+            breakdown_by=WebStatsBreakdown.TIMEZONE,
+        ).results
+
+        # Brasilia UTC-3, New York UTC-4, Calcutta UTC+5:30, UTC
+        assert results == [
+            [-3, (1, 1), (4, 1)],
+            [-4, (1, 1), (3, 1)],
+            [5.5, (1, 1), (2, 1)],
+            [0, (1, 1), (1, 1)],
+        ]
+
+    def test_timezone_filter_dst_change(self):
+        did = "id"
+        sid = str(uuid7("2019-02-17"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[did],
+            properties={"name": sid, "email": f"test@example.com"},
+        )
+
+        # Cross daylight savings time change in Brazil
+        for i in range(6):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=did,
+                timestamp=f"2019-02-17 0{i}:00:00",
+                properties={"$session_id": sid, "$pathname": f"/path1", "$timezone": "America/Sao_Paulo"},
+            )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            None,
+            breakdown_by=WebStatsBreakdown.TIMEZONE,
+        ).results
+
+        # Change from UTC-2 to UTC-3 in the middle of the night
+        assert results == [[-3, (1, 0), (4, 0)], [-2, (1, 0), (2, 0)]]
+
+    def test_timezone_filter_with_invalid_timezone(self):
+        date = "2024-07-30"
+
+        for idx, (distinct_id, session_id) in enumerate(
+            [
+                ("UTC", str(uuid7(date))),
+                ("Timezone_not_exists", str(uuid7(date))),
+            ]
+        ):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[distinct_id],
+                properties={"name": session_id, "email": f"{distinct_id}@example.com"},
+            )
+
+            for i in range(idx + 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=date,
+                    properties={"$session_id": session_id, "$pathname": f"/path{i}", "$timezone": distinct_id},
+                )
+
+        with self.assertRaisesRegex(Exception, "Cannot load time zone"):
+            self._run_web_stats_table_query(
+                "all",
+                None,
+                breakdown_by=WebStatsBreakdown.TIMEZONE,
+            )
+
+    def test_timezone_filter_with_empty_timezone(self):
+        did = "id"
+        sid = str(uuid7("2019-02-17"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[did],
+            properties={"name": sid, "email": f"test@example.com"},
+        )
+
+        # Key not exists
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=did,
+            timestamp=f"2019-02-17 00:00:00",
+            properties={"$session_id": sid, "$pathname": f"/path1"},
+        )
+
+        # Key exists, it's null
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=did,
+            timestamp=f"2019-02-17 00:00:00",
+            properties={"$session_id": sid, "$pathname": f"/path1", "$timezone": None},
+        )
+
+        # Key exists, it's empty string
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=did,
+            timestamp=f"2019-02-17 00:00:00",
+            properties={"$session_id": sid, "$pathname": f"/path1", "$timezone": ""},
+        )
+
+        # Key exists, it's set to the invalid 'Etc/Unknown' timezone
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=did,
+            timestamp=f"2019-02-17 00:00:00",
+            properties={"$session_id": sid, "$pathname": f"/path1", "$timezone": "Etc/Unknown"},
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            None,
+            breakdown_by=WebStatsBreakdown.TIMEZONE,
+        ).results
+
+        # Don't crash, treat all of them null
+        assert results == []
+
+    def test_conversion_goal_no_conversions(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Bar",
+            steps_json=[{"event": "$pageview", "url": "https://www.example.com/bar", "url_matching": "regex"}],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+        )
+
+        assert [["https://www.example.com/foo", (1, 0), (0, 0), (0, 0), (0, None)]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+        ] == response.columns
+
+    def test_conversion_goal_one_pageview_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://www.example.com/foo",
+                    "url_matching": "regex",
+                }
+            ],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+        )
+
+        assert [["https://www.example.com/foo", (1, 0), (1, 0), (1, 0), (1, None)]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+        ] == response.columns
+
+    def test_conversion_goal_one_custom_event_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ],
+            event="custom_event",
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,  # Allow the breakdown value to be non-null
+            custom_event="custom_event",
+        )
+
+        assert [[None, (1, 0), (1, 0), (1, 0), (1, None)]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+        ] == response.columns
+
+    def test_conversion_goal_one_custom_action_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1)]),
+            ],
+            event="custom_event",
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Did Custom Event",
+            steps_json=[
+                {
+                    "event": "custom_event",
+                }
+            ],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,  # Allow the breakdown value to be non-null
+            action=action,
+        )
+
+        assert [[None, (1, 0), (1, 0), (1, 0), (1, None)]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+        ] == response.columns
+
+    def test_conversion_goal_one_autocapture_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, [Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")])]),
+            ],
+            event="$autocapture",
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Paid $10",
+            steps_json=[
+                {
+                    "event": "$autocapture",
+                    "tag_name": "button",
+                    "text": "Pay $10",
+                }
+            ],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,  # Allow the breakdown value to be non-null
+            action=action,
+        )
+
+        assert [[None, (1, 0), (1, 0), (1, 0), (1, None)]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+        ] == response.columns
+
+    def test_conversion_rate(self):
+        s1 = str(uuid7("2023-12-01"))
+        s2 = str(uuid7("2023-12-01"))
+        s3 = str(uuid7("2023-12-01"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        ("2023-12-01", s1, "https://www.example.com/foo"),
+                        ("2023-12-01", s1, "https://www.example.com/foo"),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        ("2023-12-01", s2, "https://www.example.com/foo"),
+                        ("2023-12-01", s2, "https://www.example.com/bar"),
+                    ],
+                ),
+                ("p3", [("2023-12-01", s3, "https://www.example.com/bar")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://www.example.com/foo",
+                    "url_matching": "regex",
+                }
+            ],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+        )
+
+        assert [
+            ["https://www.example.com/foo", (2, 0), (3, 0), (2, 0), (1, None)],
+            ["https://www.example.com/bar", (2, 0), (0, 0), (0, 0), (0, None)],
+        ] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+        ] == response.columns

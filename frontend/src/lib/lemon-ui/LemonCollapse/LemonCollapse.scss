@@ -32,6 +32,11 @@
     &.LemonButton:active {
         transform: inherit;
     }
+
+    &--disabled:hover {
+        cursor: default;
+        background-color: var(--bg-light) !important;
+    }
 }
 
 .LemonCollapsePanel__body {
