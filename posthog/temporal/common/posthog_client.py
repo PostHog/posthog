@@ -15,9 +15,12 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> Any:
         ph_client = Client(api_key="sTMFPsFhdP1Ssg", enable_exception_autocapture=True)
 
-        activity_result = await super().execute_activity(input)
-
-        ph_client.flush()
+        try:
+            activity_result = await super().execute_activity(input)
+        except:
+            raise
+        finally:
+            await asyncio.to_thread(ph_client.flush)
 
         return activity_result
 
