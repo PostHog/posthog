@@ -863,6 +863,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             else if (segment?.kind === 'buffer') {
                 const isStillLoading = values.isRealtimePolling || values.snapshotsLoading
                 const isPastEnd = values.sessionPlayerData.end && timestamp > values.sessionPlayerData.end.valueOf()
+                const isAtStart =
+                    values.sessionPlayerData.start && timestamp <= values.sessionPlayerData.start.valueOf()
                 if (isStillLoading) {
                     values.player?.replayer?.pause()
                     actions.startBuffer()
@@ -870,7 +872,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 } else {
                     if (isPastEnd) {
                         actions.setEndReached(true)
-                    } else {
+                    } else if (!isAtStart) {
                         // If not currently loading anything,
                         // not past the end of the recording,
                         // and part of the recording hasn't loaded,
