@@ -160,6 +160,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --yellow-300: hsl(40deg 94% 69%);
     --yellow-400: hsl(40deg 94% 59%);
     --yellow-500: hsl(40deg 98% 49%);
+    --yellow-500-20: hsl(40deg 98% 49% / 20%);
     --yellow-600: hsl(40deg 98% 39%);
     --yellow-700: hsl(40deg 97% 29%);
     --yellow-800: hsl(40deg 98% 20%);
@@ -253,6 +254,9 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --content-success: var(--green-500);
     --background-success: var(--green-500);
     --background-success-subtle: var(--green-500-20);
+
+    // Highlight
+    --background-mark: var(--yellow-500-20);
 
     // Border colors
     --border-primary: var(--neutral-600);
@@ -374,7 +378,7 @@ input[type='search'] {
 }
 
 mark {
-    background-color: var(--mark) !important;
+    background-color: var(--background-mark) !important;
     border-radius: var(--radius);
 }
 

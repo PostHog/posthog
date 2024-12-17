@@ -498,7 +498,7 @@ export function PropertiesTable({
                     onRow={(record) =>
                         highlightedKeys?.includes(record[0])
                             ? {
-                                  style: { background: 'var(--mark)' },
+                                  style: { background: 'var(--background-mark)' },
                               }
                             : {}
                     }

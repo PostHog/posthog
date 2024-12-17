@@ -11,7 +11,7 @@ export const BillingHero = (): JSX.Element => {
             <div className="p-4">
                 <p className="text-xs uppercase my-0">How pricing works</p>
                 <h1 className="ingestion-title">Get the whole hog.</h1>
-                <h1 className="ingestion-title text-danger">Only pay for what you use.</h1>
+                <h1 className="ingestion-title text-[var(--content-accent)]">Only pay for what you use.</h1>
                 <p className="mt-2 mb-0">
                     Upgrade to get access to premium product and platform features. Set billing limits as low as $0 to
                     control spend.
