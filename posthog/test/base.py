@@ -89,6 +89,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
+    GROUPED_SESSION_REPLAY_EVENTS_VIEW_SQL,
 )
 from posthog.test.assert_faster_than import assert_faster_than
 
@@ -1042,6 +1043,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
                 DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
+                GROUPED_SESSION_REPLAY_EVENTS_VIEW_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(

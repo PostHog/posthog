@@ -9,7 +9,7 @@
   SELECT groups.group_type_index AS index, groups.group_key AS key 
   FROM groups 
   WHERE equals(groups.team_id, 420) 
-  GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), events__some_field.events__some_field___key) 
+  GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(nullIf(nullIf(mat_pp_email, ''), 'null'), events__some_field.events__some_field___key) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
   '''
@@ -734,12 +734,32 @@
                   "table": null,
                   "type": "string"
               },
+              "all_urls": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "all_urls",
+                  "id": null,
+                  "name": "all_urls",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "array"
+              },
               "click_count": {
                   "chain": null,
                   "fields": null,
                   "hogql_value": "click_count",
                   "id": null,
                   "name": "click_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "active_milliseconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "active_milliseconds",
+                  "id": null,
+                  "name": "active_milliseconds",
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
@@ -760,16 +780,6 @@
                   "hogql_value": "mouse_activity_count",
                   "id": null,
                   "name": "mouse_activity_count",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
-              },
-              "active_milliseconds": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "active_milliseconds",
-                  "id": null,
-                  "name": "active_milliseconds",
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
@@ -843,6 +853,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "snapshot_library": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "snapshot_library",
+                  "id": null,
+                  "name": "snapshot_library",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "_timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "_timestamp",
+                  "id": null,
+                  "name": "_timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
               },
               "events": {
                   "chain": null,
@@ -2545,12 +2575,32 @@
                   "table": null,
                   "type": "string"
               },
+              "all_urls": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "all_urls",
+                  "id": null,
+                  "name": "all_urls",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "array"
+              },
               "click_count": {
                   "chain": null,
                   "fields": null,
                   "hogql_value": "click_count",
                   "id": null,
                   "name": "click_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "active_milliseconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "active_milliseconds",
+                  "id": null,
+                  "name": "active_milliseconds",
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
@@ -2571,16 +2621,6 @@
                   "hogql_value": "mouse_activity_count",
                   "id": null,
                   "name": "mouse_activity_count",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
-              },
-              "active_milliseconds": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "active_milliseconds",
-                  "id": null,
-                  "name": "active_milliseconds",
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
@@ -2654,6 +2694,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "snapshot_library": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "snapshot_library",
+                  "id": null,
+                  "name": "snapshot_library",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "_timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "_timestamp",
+                  "id": null,
+                  "name": "_timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
               },
               "events": {
                   "chain": null,
