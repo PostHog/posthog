@@ -175,7 +175,7 @@
 .Sidebar3000 {
     --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
-    --sidebar-row-height: 2.5rem;
+    --sidebar-row-height: 3rem;
     --sidebar-background: var(--bg-3000);
 
     position: relative;
@@ -533,8 +533,6 @@
 
     position: relative;
     display: flex;
-    flex-direction: column;
-    justify-content: center;
     width: 100%;
     height: 100%;
     color: inherit;
@@ -549,7 +547,9 @@
 }
 
 .SidebarListItem__link {
+    flex-direction: column;
     row-gap: 1px;
+    justify-content: center;
     padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
     color: inherit !important; // Disable link color
     .SidebarListItem[aria-disabled='true'] & {
@@ -558,8 +558,12 @@
 }
 
 .SidebarListItem__button {
+    flex-direction: row;
+    gap: 0.25rem;
     row-gap: 1px;
+    align-items: center;
     padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
+    font-size: 1.125rem; // Make icons bigger
     color: inherit !important; // Disable link color
     cursor: pointer;
 
@@ -569,6 +573,9 @@
 }
 
 .SidebarListItem__rename {
+    flex-direction: column;
+    justify-content: center;
+
     // Pseudo-elements don't work on inputs, so we use a wrapper div
     background: var(--bg-light);
 
