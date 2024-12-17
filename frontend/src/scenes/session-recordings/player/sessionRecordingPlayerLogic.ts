@@ -138,11 +138,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
             eventUsageLogic,
-            [
-                'reportNextRecordingTriggered',
-                'reportRecordingPlayerSkipInactivityToggled',
-                'reportRecordingExportedToFile',
-            ],
+            ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
         ],
     })),
     actions({
@@ -671,7 +667,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
-            actions.reportRecordingPlayerSkipInactivityToggled(skipInactivitySetting)
             if (!values.currentSegment?.isActive && skipInactivitySetting) {
                 actions.setSkippingInactivity(true)
             } else {

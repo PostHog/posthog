@@ -128,5 +128,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSpeed: ({ speed }) => {
             posthog.capture('recording player speed changed', { new_speed: speed })
         },
+        setSkipInactivitySetting: ({ skipInactivitySetting }) => {
+            posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivitySetting })
+        },
     }),
 ])
