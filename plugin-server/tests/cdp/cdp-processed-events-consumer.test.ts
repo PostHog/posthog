@@ -377,7 +377,8 @@ describe('CDP Processed Events Consumer', () => {
                     {
                         topic: 'log_entries_test',
                         value: {
-                            message: 'Error filtering: Invalid HogQL bytecode, stack is empty, can not pop',
+                            message:
+                                'Error filtering event b3a1fe86-b10c-43cc-acaf-d208977608d0: Invalid HogQL bytecode, stack is empty, can not pop',
                         },
                     },
                 ])

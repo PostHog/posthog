@@ -209,7 +209,7 @@ abstract class CdpConsumerBase {
             instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
             timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
             level: 'error',
-            message: `Error filtering: ${error}`,
+            message: error,
         }
 
         this.messagesToProduce.push({
