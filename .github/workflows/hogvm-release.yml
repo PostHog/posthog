@@ -1,0 +1,47 @@
+name: 'HogVM Release'
+on:
+    release:
+        types: [published]
+    workflow_dispatch:
+jobs:
+    check-package-version:
+        name: Check package version and detect an update
+        runs-on: ubuntu-24.04
+        outputs:
+            committed-version: ${{ steps.check-package-version.outputs.committed-version }}
+            published-version: ${{ steps.check-package-version.outputs.published-version }}
+            is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
+        steps:
+            - name: Checkout the repository
+              uses: actions/checkout@v2
+            - name: Check package version and detect an update
+              id: check-package-version
+              uses: PostHog/check-package-version@v2
+              path: hogvm/typescript
+    release:
+        name: Release new TypeScript version if available
+        runs-on: ubuntu-24.04
+        needs: check-package-version
+        if: needs.check-package-version.outputs.is-new-version == 'true'
+        env:
+            COMMITTED_VERSION: ${{ needs.check-package-version.outputs.committed-version }}
+            PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
+        steps:
+            - name: Checkout the repository
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+            - name: Setup Yarn
+              uses: threeal/setup-yarn-action@v2.0.0
+            - name: Set up Node 18
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 18
+                  registry-url: https://registry.npmjs.org
+            - name: Install package.json dependencies with yarn
+              run: cd hogvm/typescript && yarn install
+            - name: Publish the package in the npm registry
+              run: cd hogvm/typescript && npm publish --access public
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
