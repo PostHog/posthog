@@ -204,13 +204,13 @@ jobs:
                   mv package.json package.old.json
                   jq --indent 4 '.dependencies."@posthog/hogvm" = "^'$VERSION'"' package.old.json > package.json
                   rm package.old.json
-                  pnpm install
+                  pnpm install --no-frozen-lockfile
 
                   cd plugin-server
                   mv package.json package.old.json
                   jq --indent 4 '.dependencies."@posthog/hogvm" = "^'$VERSION'"' package.old.json > package.json
                   rm package.old.json
-                  pnpm install
+                  pnpm install --no-frozen-lockfile
             - uses: EndBug/add-and-commit@v9
               # Skip on forks
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
