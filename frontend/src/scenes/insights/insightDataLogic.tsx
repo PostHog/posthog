@@ -16,6 +16,7 @@ import { DataVisualizationNode, InsightVizNode, Node, NodeKind } from '~/queries
 import { isDataTableNode, isDataVisualizationNode, isHogQuery, isInsightVizNode } from '~/queries/utils'
 import { ExportContext, InsightLogicProps, InsightType, ItemMode } from '~/types'
 
+import { teamLogic } from '../teamLogic'
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
@@ -35,6 +36,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['insight', 'savedInsight'],
             insightSceneLogic,
             ['insightId', 'insightMode', 'activeScene'],
+            teamLogic,
+            ['currentTeamId'],
             dataNodeLogic({
                 key: insightVizDataNodeKey(props),
                 loadPriority: props.loadPriority,
@@ -214,10 +217,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
 
             if (isQueryTooLarge(query)) {
-                localStorage.removeItem('draft-query')
+                localStorage.removeItem(`draft-query-${values.currentTeamId}`)
             }
             localStorage.setItem(
-                'draft-query',
+                `draft-query-${values.currentTeamId}`,
                 JSON.stringify({
                     query,
                     timestamp: Date.now(),

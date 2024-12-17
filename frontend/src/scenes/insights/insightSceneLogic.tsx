@@ -36,7 +36,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         logic: [eventUsageLogic],
         values: [
             teamLogic,
-            ['currentTeam'],
+            ['currentTeam', 'currentTeamId'],
             sceneLogic,
             ['activeScene'],
             preflightLogic,
@@ -414,14 +414,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             const metadataChanged = !!values.insightLogicRef?.logic.values.insightChanged
             const queryChanged = !!values.insightDataLogicRef?.logic.values.queryChanged
-            const draftQueryFromLocalStorage = localStorage.getItem('draft-query')
+            const draftQueryFromLocalStorage = localStorage.getItem(`draft-query-${values.currentTeamId}`)
             let draftQuery: { query: Node; timestamp: number } | null = null
             if (draftQueryFromLocalStorage) {
                 try {
                     draftQuery = JSON.parse(draftQueryFromLocalStorage)
                 } catch (e) {
                     // If the draft query is invalid, remove it
-                    localStorage.removeItem('draft-query')
+                    localStorage.removeItem(`draft-query-${values.currentTeamId}`)
                 }
             }
             const query = values.insightDataLogicRef?.logic.values.query

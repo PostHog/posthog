@@ -8,14 +8,15 @@ describe('ReloadInsight component', () => {
         // Visit the new insight creation page
         cy.visit('/insights/new')
 
-        cy.wait(1000)
+        cy.wait(2000)
 
         cy.get('[data-attr="math-selector-0"]').click({ force: true })
         cy.get('[data-attr="math-dau-0"]').click({ force: true })
 
         // Check that the 'draft-query' item is stored in localStorage
         cy.window().then((window) => {
-            const draftQuery = window.localStorage.getItem('draft-query')
+            const currentTeamId = window.POSTHOG_APP_CONTEXT.current_team.id
+            const draftQuery = window.localStorage.getItem(`draft-query-${currentTeamId}`)
             expect(draftQuery).to.not.be.null
 
             const draftQueryObj = JSON.parse(draftQuery)
