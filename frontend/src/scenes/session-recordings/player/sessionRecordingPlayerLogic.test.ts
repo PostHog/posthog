@@ -149,7 +149,7 @@ describe('sessionRecordingPlayerLogic', () => {
                     snapshotsByWindowId: {},
                     bufferedToTime: 0,
                 },
-                isErrored: true,
+                isErrored: 'loadSnapshotSourcesFailure',
             })
             resumeKeaLoadersErrors()
         })
