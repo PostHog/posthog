@@ -65,9 +65,17 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Error tracking',
     },
-    [Scene.ErrorTrackingConfiguration]: {
+    [Scene.ErrorTrackingAlerts]: {
         projectBased: true,
-        name: 'Error tracking configuration',
+        name: 'Alerts',
+    },
+    [Scene.ErrorTrackingAlert]: {
+        projectBased: true,
+        name: 'Alert',
+    },
+    [Scene.ErrorTrackingSymbolSets]: {
+        projectBased: true,
+        name: 'Symbol sets',
     },
     [Scene.ErrorTrackingIssue]: {
         projectBased: true,
@@ -563,7 +571,9 @@ export const routes: Record<string, Scene> = {
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.errorTracking()]: Scene.ErrorTracking,
-    [urls.errorTrackingConfiguration()]: Scene.ErrorTrackingConfiguration,
+    [urls.errorTrackingAlert(':id')]: Scene.ErrorTrackingAlert,
+    [urls.errorTrackingAlerts()]: Scene.ErrorTrackingAlerts,
+    [urls.errorTrackingSymbolSets()]: Scene.ErrorTrackingSymbolSets,
     [urls.errorTrackingIssue(':id')]: Scene.ErrorTrackingIssue,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,

@@ -29,7 +29,6 @@ from .zendesk.template_zendesk import template as zendesk
 from .knock.template_knock import template as knock
 from .meta_ads.template_meta_ads import template as meta_ads
 from .activecampaign.template_activecampaign import template as activecampaign
-from .google_ads.template_google_ads import template as google_ads
 from .attio.template_attio import template as attio
 from .mailchimp.template_mailchimp import template as mailchimp
 from .microsoft_teams.template_microsoft_teams import template as microsoft_teams
@@ -46,11 +45,13 @@ from ._siteapps.template_notification_bar import template as notification_bar
 from ._siteapps.template_pineapple_mode import template as pineapple_mode
 from ._siteapps.template_debug_posthog import template as debug_posthog
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
+from ._internal.template_error_tracking import template_error_tracking_alert as _error_tracking_alert
 from ._internal.template_blank import blank_site_destination, blank_site_app
 from ._transformations.template_pass_through import template as pass_through_transformation
 
 HOG_FUNCTION_TEMPLATES = [
     _broadcast,
+    _error_tracking_alert,
     blank_site_destination,
     blank_site_app,
     slack,

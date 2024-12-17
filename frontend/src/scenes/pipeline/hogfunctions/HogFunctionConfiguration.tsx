@@ -152,7 +152,13 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
-    const showFilters = ['destination', 'site_destination', 'broadcast', 'transformation'].includes(type)
+    const showFilters = [
+        'destination',
+        'site_destination',
+        'broadcast',
+        'transformation',
+        'error_tracking_alert',
+    ].includes(type)
     const showExpectedVolume = ['destination', 'site_destination'].includes(type)
     const showStatus = ['destination', 'email', 'transformation'].includes(type)
     const showEnabled = ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)

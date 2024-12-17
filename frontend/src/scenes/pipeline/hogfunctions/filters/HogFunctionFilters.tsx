@@ -72,6 +72,33 @@ export function HogFunctionFilters(): JSX.Element {
                 </LemonField>
             </div>
         )
+    } else if (type === 'error_tracking_alert') {
+        return (
+            <div className="p-3 space-y-2 border rounded bg-bg-light">
+                <LemonField name="filters" label="Trigger">
+                    {({ value, onChange }) => (
+                        <LemonSelect
+                            options={[
+                                {
+                                    value: 'created',
+                                    label: 'New issue created',
+                                },
+                                {
+                                    value: 'reoccurred',
+                                    label: 'Resolved issue reoccurs',
+                                },
+                                {
+                                    value: 'assigned',
+                                    label: 'Assigned issue',
+                                },
+                            ]}
+                            value={value?.trigger ?? null}
+                            onChange={(val) => onChange({ trigger: val })}
+                        />
+                    )}
+                </LemonField>
+            </div>
+        )
     }
 
     const showMasking = type === 'destination'

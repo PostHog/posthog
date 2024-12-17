@@ -10,10 +10,10 @@ import { ErrorTrackingIssue } from '~/queries/schema'
 
 import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
-import { SymbolSetUploadModal } from './configuration/SymbolSetUploadModal'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { OverviewTab } from './groups/OverviewTab'
+import { SymbolSetUploadModal } from './symbol-sets/SymbolSetUploadModal'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,

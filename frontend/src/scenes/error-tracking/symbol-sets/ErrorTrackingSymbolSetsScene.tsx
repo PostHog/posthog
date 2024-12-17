@@ -6,11 +6,17 @@ import { ErrorTrackingSymbolSet } from 'lib/components/Errors/types'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { useEffect, useState } from 'react'
+import { SceneExport } from 'scenes/sceneTypes'
 
 import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 import { SymbolSetUploadModal } from './SymbolSetUploadModal'
 
-export default function SymbolSets(): JSX.Element {
+export const scene: SceneExport = {
+    component: ErrorTrackingSymbolSetsScene,
+    logic: errorTrackingSymbolSetLogic,
+}
+
+export default function ErrorTrackingSymbolSetsScene(): JSX.Element {
     const { missingSymbolSets, validSymbolSets } = useValues(errorTrackingSymbolSetLogic)
     const { loadSymbolSets } = useActions(errorTrackingSymbolSetLogic)
 
@@ -20,6 +26,7 @@ export default function SymbolSets(): JSX.Element {
 
     return (
         <div className="space-y-4">
+            <h2>Symbol sets</h2>
             <p>
                 Source maps are required to demangle any minified code in your exception stack traces. PostHog
                 automatically retrieves source maps where possible. Cases where it was not possible are listed below.
