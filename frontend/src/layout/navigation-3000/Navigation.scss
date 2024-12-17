@@ -570,6 +570,15 @@
     &:hover {
         background: var(--border-3000);
     }
+
+    .SidebarListItem__icon {
+        flex-shrink: 0;
+    }
+
+    .SidebarListItem__name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
 }
 
 .SidebarListItem__rename {
