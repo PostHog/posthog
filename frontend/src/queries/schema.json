@@ -546,22 +546,6 @@
             },
             "type": "object"
         },
-        "AssistantCompareFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "compare": {
-                    "default": false,
-                    "description": "Whether to compare the current date range to a previous date range.",
-                    "type": "boolean"
-                },
-                "compare_to": {
-                    "default": "-7d",
-                    "description": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
-                    "type": "string"
-                }
-            },
-            "type": "object"
-        },
         "AssistantDateTimePropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -742,7 +726,7 @@
                     "description": "Breakdown the chart by a property"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantInsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -1043,27 +1027,11 @@
                 }
             ]
         },
-        "AssistantInsightDateRange": {
-            "additionalProperties": false,
-            "properties": {
-                "date_from": {
-                    "default": "-7d",
-                    "description": "Start date. The value can be:\n- a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-1w` for 1 week ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.\n- an absolute ISO 8601 date string. a constant `yStart` for the current year start. a constant `mStart` for the current month start. a constant `dStart` for the current day start. Prefer using relative dates.",
-                    "type": ["string", "null"]
-                },
-                "date_to": {
-                    "default": null,
-                    "description": "Right boundary of the date range. Use `null` for the current date. You can not use relative dates here.",
-                    "type": ["string", "null"]
-                }
-            },
-            "type": "object"
-        },
         "AssistantInsightsQueryBase": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantInsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -1365,7 +1333,7 @@
                     "description": "Compare to date range"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantInsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -3803,9 +3771,12 @@
             "additionalProperties": false,
             "properties": {
                 "compare": {
+                    "default": false,
+                    "description": "Whether to compare the current date range to a previous date range.",
                     "type": "boolean"
                 },
                 "compare_to": {
+                    "description": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
                     "type": "string"
                 }
             },
@@ -6873,7 +6844,7 @@
                     "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7792,24 +7763,6 @@
             },
             "type": "object"
         },
-        "InsightDateRange": {
-            "additionalProperties": false,
-            "properties": {
-                "date_from": {
-                    "default": "-7d",
-                    "type": ["string", "null"]
-                },
-                "date_to": {
-                    "type": ["string", "null"]
-                },
-                "explicitDate": {
-                    "default": false,
-                    "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
-                    "type": ["boolean", "null"]
-                }
-            },
-            "type": "object"
-        },
         "InsightFilter": {
             "anyOf": [
                 {
@@ -7972,7 +7925,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8029,7 +7982,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8086,7 +8039,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8143,7 +8096,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8200,7 +8153,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8310,7 +8263,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8719,7 +8672,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -11493,7 +11446,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -12165,7 +12118,7 @@
                     "description": "Compare to date range"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -12716,7 +12669,7 @@
                     "description": "Whether we should be comparing against a specific conversion goal"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -12907,6 +12860,9 @@
         "WebExternalClicksTableQuery": {
             "additionalProperties": false,
             "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
                 "conversionGoal": {
                     "anyOf": [
                         {
@@ -13020,6 +12976,9 @@
         "WebGoalsQuery": {
             "additionalProperties": false,
             "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
                 "conversionGoal": {
                     "anyOf": [
                         {
@@ -13160,14 +13119,7 @@
             "additionalProperties": false,
             "properties": {
                 "compareFilter": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/CompareFilter"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "$ref": "#/definitions/CompareFilter"
                 },
                 "conversionGoal": {
                     "anyOf": [
@@ -13299,14 +13251,7 @@
                     "$ref": "#/definitions/WebStatsBreakdown"
                 },
                 "compareFilter": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/CompareFilter"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "$ref": "#/definitions/CompareFilter"
                 },
                 "conversionGoal": {
                     "anyOf": [

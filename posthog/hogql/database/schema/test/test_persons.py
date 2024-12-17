@@ -5,7 +5,7 @@ from posthog.schema import (
     TrendsQuery,
     ActorsQuery,
     EventsNode,
-    InsightDateRange,
+    DateRange,
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -102,7 +102,7 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
     def test_person_modal_not_optimized_yet(self):
         source_query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
-            dateRange=InsightDateRange(date_from="2024-01-01", date_to="2024-01-07"),
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-07"),
             # breakdownFilter=BreakdownFilter(breakdown="$", breakdown_type=BreakdownType.PERSON),
         )
         insight_actors_query = InsightActorsQuery(
