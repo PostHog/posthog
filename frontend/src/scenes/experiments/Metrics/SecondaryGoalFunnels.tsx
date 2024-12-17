@@ -2,14 +2,14 @@ import { LemonLabel } from '@posthog/lemon-ui'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { getHogQLValue } from 'scenes/insights/filters/AggregationSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { actionsAndEventsToSeries, filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema'
@@ -25,7 +25,7 @@ import {
 
 export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
+    const { experiment, isExperimentRunning } = useValues(experimentLogic)
     const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     const currentMetric = experiment.metrics_secondary[metricIdx] as ExperimentFunnelsQuery
@@ -35,104 +35,31 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
             <div className="mb-4">
                 <LemonLabel>Name (optional)</LemonLabel>
                 <LemonInput
-                    value={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            return currentMetric.name
-                        }
-                        return experiment.secondary_metrics[metricIdx].name
-                    })()}
+                    value={currentMetric.name}
                     onChange={(newName) => {
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsMetric({
-                                metricIdx,
-                                name: newName,
-                                isSecondary: true,
-                            })
-                        } else {
-                            setExperiment({
-                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
-                                    idx === metricIdx ? { ...metric, name: newName } : metric
-                                ),
-                            })
-                        }
+                        setFunnelsMetric({
+                            metricIdx,
+                            name: newName,
+                            isSecondary: true,
+                        })
                     }}
                 />
             </div>
             <ActionFilter
                 bordered
-                filters={(() => {
-                    // :FLAG: CLEAN UP AFTER MIGRATION
-                    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        return queryNodeToFilter(currentMetric.funnels_query)
-                    }
-                    return experiment.secondary_metrics[metricIdx].filters
-                })()}
+                filters={queryNodeToFilter(currentMetric.funnels_query)}
                 setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-                    // :FLAG: CLEAN UP AFTER MIGRATION
-                    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        const series = actionsAndEventsToSeries(
-                            { actions, events, data_warehouse } as any,
-                            true,
-                            MathAvailability.None
-                        )
+                    const series = actionsAndEventsToSeries(
+                        { actions, events, data_warehouse } as any,
+                        true,
+                        MathAvailability.None
+                    )
 
-                        setFunnelsMetric({
-                            metricIdx,
-                            series,
-                            isSecondary: true,
-                        })
-                    } else {
-                        if (actions?.length) {
-                            setExperiment({
-                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
-                                    idx === metricIdx
-                                        ? {
-                                              ...metric,
-                                              filters: {
-                                                  ...metric.filters,
-                                                  actions,
-                                                  events: undefined,
-                                                  data_warehouse: undefined,
-                                              },
-                                          }
-                                        : metric
-                                ),
-                            })
-                        } else if (events?.length) {
-                            setExperiment({
-                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
-                                    idx === metricIdx
-                                        ? {
-                                              ...metric,
-                                              filters: {
-                                                  ...metric.filters,
-                                                  events,
-                                                  actions: undefined,
-                                                  data_warehouse: undefined,
-                                              },
-                                          }
-                                        : metric
-                                ),
-                            })
-                        } else if (data_warehouse?.length) {
-                            setExperiment({
-                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
-                                    idx === metricIdx
-                                        ? {
-                                              ...metric,
-                                              filters: {
-                                                  ...metric.filters,
-                                                  data_warehouse,
-                                                  actions: undefined,
-                                                  events: undefined,
-                                              },
-                                          }
-                                        : metric
-                                ),
-                            })
-                        }
-                    }
+                    setFunnelsMetric({
+                        metricIdx,
+                        series,
+                        isSecondary: true,
+                    })
                 }}
                 typeKey="experiment-metric"
                 mathAvailability={MathAvailability.None}
@@ -145,85 +72,27 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
             />
             <div className="mt-4 space-y-4">
                 <FunnelAggregationSelect
-                    value={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            return getHogQLValue(
-                                currentMetric.funnels_query.aggregation_group_type_index ?? undefined,
-                                currentMetric.funnels_query.funnelsFilter?.funnelAggregateByHogQL ?? undefined
-                            )
-                        }
-                        return getHogQLValue(
-                            experiment.secondary_metrics[metricIdx].filters.aggregation_group_type_index,
-                            (experiment.secondary_metrics[metricIdx].filters as FunnelsFilterType)
-                                .funnel_aggregate_by_hogql
-                        )
-                    })()}
+                    value={getHogQLValue(
+                        currentMetric.funnels_query.aggregation_group_type_index ?? undefined,
+                        currentMetric.funnels_query.funnelsFilter?.funnelAggregateByHogQL ?? undefined
+                    )}
                     onChange={(value) => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsMetric({
-                                metricIdx,
-                                funnelAggregateByHogQL: value,
-                                isSecondary: true,
-                            })
-                        } else {
-                            setExperiment({
-                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
-                                    idx === metricIdx
-                                        ? {
-                                              ...metric,
-                                              filters: {
-                                                  ...metric.filters,
-                                                  funnel_aggregate_by_hogql: value,
-                                              },
-                                          }
-                                        : metric
-                                ),
-                            })
-                        }
+                        setFunnelsMetric({
+                            metricIdx,
+                            funnelAggregateByHogQL: value,
+                            isSecondary: true,
+                        })
                     }}
                 />
                 <FunnelConversionWindowFilter
-                    funnelWindowInterval={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            return currentMetric.funnels_query?.funnelsFilter?.funnelWindowInterval
-                        }
-                        return (experiment.secondary_metrics[metricIdx].filters as FunnelsFilterType)
-                            .funnel_window_interval
-                    })()}
-                    funnelWindowIntervalUnit={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            return currentMetric.funnels_query?.funnelsFilter?.funnelWindowIntervalUnit
-                        }
-                        return (experiment.secondary_metrics[metricIdx].filters as FunnelsFilterType)
-                            .funnel_window_interval_unit
-                    })()}
+                    funnelWindowInterval={currentMetric.funnels_query?.funnelsFilter?.funnelWindowInterval}
+                    funnelWindowIntervalUnit={currentMetric.funnels_query?.funnelsFilter?.funnelWindowIntervalUnit}
                     onFunnelWindowIntervalChange={(funnelWindowInterval) => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsMetric({
-                                metricIdx,
-                                funnelWindowInterval: funnelWindowInterval,
-                                isSecondary: true,
-                            })
-                        } else {
-                            setExperiment({
-                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
-                                    idx === metricIdx
-                                        ? {
-                                              ...metric,
-                                              filters: {
-                                                  ...metric.filters,
-                                                  funnel_window_interval: funnelWindowInterval,
-                                              },
-                                          }
-                                        : metric
-                                ),
-                            })
-                        }
+                        setFunnelsMetric({
+                            metricIdx,
+                            funnelWindowInterval: funnelWindowInterval,
+                            isSecondary: true,
+                        })
                     }}
                     onFunnelWindowIntervalUnitChange={(funnelWindowIntervalUnit) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
@@ -323,40 +192,13 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                     })()}
                 />
                 <TestAccountFilterSwitch
-                    checked={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            const val = (experiment.metrics_secondary[metricIdx] as ExperimentFunnelsQuery)
-                                .funnels_query?.filterTestAccounts
-                            return hasFilters ? !!val : false
-                        }
-                        return hasFilters
-                            ? !!experiment.secondary_metrics[metricIdx].filters.filter_test_accounts
-                            : false
-                    })()}
+                    checked={hasFilters ? !!currentMetric.funnels_query?.filterTestAccounts : false}
                     onChange={(checked: boolean) => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsMetric({
-                                metricIdx,
-                                filterTestAccounts: checked,
-                                isSecondary: true,
-                            })
-                        } else {
-                            setExperiment({
-                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
-                                    idx === metricIdx
-                                        ? {
-                                              ...metric,
-                                              filters: {
-                                                  ...metric.filters,
-                                                  filter_test_accounts: checked,
-                                              },
-                                          }
-                                        : metric
-                                ),
-                            })
-                        }
+                        setFunnelsMetric({
+                            metricIdx,
+                            filterTestAccounts: checked,
+                            isSecondary: true,
+                        })
                     }}
                     fullWidth
                 />
@@ -368,17 +210,10 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                 </LemonBanner>
             )}
             <div className="mt-4">
-                {/* :FLAG: CLEAN UP AFTER MIGRATION */}
                 <Query
                     query={{
                         kind: NodeKind.InsightVizNode,
-                        source: (() => {
-                            // :FLAG: CLEAN UP AFTER MIGRATION
-                            if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                                return currentMetric.funnels_query
-                            }
-                            return filtersToQueryNode(experiment.secondary_metrics[metricIdx].filters)
-                        })(),
+                        source: currentMetric.funnels_query,
                         showTable: false,
                         showLastComputation: true,
                         showLastComputationRefresh: false,
