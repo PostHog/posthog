@@ -569,7 +569,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message"],
+            "enum": ["status", "message", "conversation"],
             "type": "string"
         },
         "AssistantFunnelsBreakdownFilter": {
@@ -1060,9 +1060,8 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "description": "We only need this \"done\" value to tell when the particular message is finished during its streaming. It won't be necessary when we optimize streaming to NOT send the entire message every time a character is added.",
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "type": {
                     "const": "ai",
@@ -1436,6 +1435,15 @@
                 "Snippet"
             ],
             "type": "string"
+        },
+        "BaseAssistantMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "BaseMathType": {
             "enum": [
@@ -6191,16 +6199,15 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "const": true,
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "type": {
                     "const": "ai/failure",
                     "type": "string"
                 }
             },
-            "required": ["type", "done"],
+            "required": ["type"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -7530,17 +7537,15 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "const": true,
-                    "description": "Human messages are only appended when done.",
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "type": {
                     "const": "human",
                     "type": "string"
                 }
             },
-            "required": ["type", "content", "done"],
+            "required": ["type", "content"],
             "type": "object"
         },
         "InsightActorsQuery": {
@@ -11128,9 +11133,8 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "const": true,
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "substeps": {
                     "items": {
@@ -11143,7 +11147,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "content", "done"],
+            "required": ["type", "content"],
             "type": "object"
         },
         "RecordingOrder": {
@@ -11590,17 +11594,15 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "const": true,
-                    "description": "Router messages are not streamed, so they can only be done.",
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "type": {
                     "const": "ai/router",
                     "type": "string"
                 }
             },
-            "required": ["type", "content", "done"],
+            "required": ["type", "content"],
             "type": "object"
         },
         "SamplingRate": {
@@ -12780,8 +12782,11 @@
                         }
                     ]
                 },
-                "done": {
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
+                },
+                "initiator": {
+                    "type": "string"
                 },
                 "plan": {
                     "type": "string"

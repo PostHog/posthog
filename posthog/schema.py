@@ -98,6 +98,7 @@ class AssistantEventMultipleBreakdownFilterType(StrEnum):
 class AssistantEventType(StrEnum):
     STATUS = "status"
     MESSAGE = "message"
+    CONVERSATION = "conversation"
 
 
 class AssistantFunnelsBreakdownType(StrEnum):
@@ -209,14 +210,7 @@ class AssistantMessage(BaseModel):
         extra="forbid",
     )
     content: str
-    done: Optional[bool] = Field(
-        default=None,
-        description=(
-            'We only need this "done" value to tell when the particular message is finished during its streaming. It'
-            " won't be necessary when we optimize streaming to NOT send the entire message every time a character is"
-            " added."
-        ),
-    )
+    id: Optional[str] = None
     type: Literal["ai"] = "ai"
 
 
@@ -373,6 +367,13 @@ class AutocompleteCompletionItemKind(StrEnum):
     USER = "User"
     ISSUE = "Issue"
     SNIPPET = "Snippet"
+
+
+class BaseAssistantMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Optional[str] = None
 
 
 class BaseMathType(StrEnum):
@@ -851,7 +852,7 @@ class FailureMessage(BaseModel):
         extra="forbid",
     )
     content: Optional[str] = None
-    done: Literal[True] = True
+    id: Optional[str] = None
     type: Literal["ai/failure"] = "ai/failure"
 
 
@@ -1049,7 +1050,7 @@ class HumanMessage(BaseModel):
         extra="forbid",
     )
     content: str
-    done: Literal[True] = Field(default=True, description="Human messages are only appended when done.")
+    id: Optional[str] = None
     type: Literal["human"] = "human"
 
 
@@ -1378,7 +1379,7 @@ class ReasoningMessage(BaseModel):
         extra="forbid",
     )
     content: str
-    done: Literal[True] = True
+    id: Optional[str] = None
     substeps: Optional[list[str]] = None
     type: Literal["ai/reasoning"] = "ai/reasoning"
 
@@ -1441,7 +1442,7 @@ class RouterMessage(BaseModel):
         extra="forbid",
     )
     content: str
-    done: Literal[True] = Field(default=True, description="Router messages are not streamed, so they can only be done.")
+    id: Optional[str] = None
     type: Literal["ai/router"] = "ai/router"
 
 
@@ -5345,7 +5346,8 @@ class VisualizationMessage(BaseModel):
         extra="forbid",
     )
     answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
-    done: Optional[bool] = None
+    id: Optional[str] = None
+    initiator: Optional[str] = None
     plan: Optional[str] = None
     type: Literal["ai/viz"] = "ai/viz"
 

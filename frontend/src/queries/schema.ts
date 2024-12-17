@@ -2452,48 +2452,41 @@ export enum AssistantMessageType {
     Router = 'ai/router',
 }
 
-export interface HumanMessage {
+export interface BaseAssistantMessage {
+    id?: string
+}
+
+export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
-    /** Human messages are only appended when done. */
-    done: true
 }
 
-export interface AssistantMessage {
+export interface AssistantMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Assistant
     content: string
-    /**
-     * We only need this "done" value to tell when the particular message is finished during its streaming.
-     * It won't be necessary when we optimize streaming to NOT send the entire message every time a character is added.
-     */
-    done?: boolean
 }
 
-export interface ReasoningMessage {
+export interface ReasoningMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Reasoning
     content: string
     substeps?: string[]
-    done: true
 }
 
-export interface VisualizationMessage {
+export interface VisualizationMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Visualization
     plan?: string
     answer?: AssistantTrendsQuery | AssistantFunnelsQuery
-    done?: boolean
+    initiator?: string
 }
 
-export interface FailureMessage {
+export interface FailureMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Failure
     content?: string
-    done: true
 }
 
-export interface RouterMessage {
+export interface RouterMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Router
     content: string
-    /** Router messages are not streamed, so they can only be done. */
-    done: true
 }
 
 export type RootAssistantMessage =
@@ -2507,6 +2500,7 @@ export type RootAssistantMessage =
 export enum AssistantEventType {
     Status = 'status',
     Message = 'message',
+    Conversation = 'conversation',
 }
 
 export enum AssistantGenerationStatusType {
