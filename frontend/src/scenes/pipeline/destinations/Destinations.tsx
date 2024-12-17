@@ -21,7 +21,7 @@ import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, PipelineBackend, SiteApp, Transformation } from '../types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
-import { DestinationsFilters } from './DestinationsFilters'
+import { DestinationsFilters, DestinationsFiltersProps } from './DestinationsFilters'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { DestinationOptionsTable } from './NewDestinations'
@@ -79,15 +79,20 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
 }
 export type DestinationsTableProps = {
     types: HogFunctionTypeType[]
-    hideFeedback?: boolean
-    hideAddDestinationButton?: boolean
 }
 
 export function DestinationsTable({
+    hideSearch,
     hideFeedback,
     hideAddDestinationButton,
+    hideKind,
+    hideShowPaused,
     types,
-}: DestinationsTableProps): JSX.Element {
+}: DestinationsTableProps &
+    Pick<
+        DestinationsFiltersProps,
+        'hideSearch' | 'hideFeedback' | 'hideAddDestinationButton' | 'hideShowPaused' | 'hideKind'
+    >): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
     const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(
         pipelineDestinationsLogic({ types })
@@ -107,8 +112,11 @@ export function DestinationsTable({
         <div className="space-y-2">
             <DestinationsFilters
                 types={types}
+                hideSearch={hideSearch}
                 hideFeedback={hideFeedback}
                 hideAddDestinationButton={hideAddDestinationButton}
+                hideKind={hideKind}
+                hideShowPaused={hideShowPaused}
             />
 
             <LemonTable

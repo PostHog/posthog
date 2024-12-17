@@ -44,6 +44,7 @@ class HogFunctionType(models.TextChoices):
     ACTIVITY = "activity"
     ALERT = "alert"
     BROADCAST = "broadcast"
+    ERROR_TRACKING_ALERT = "error_tracking_alert"
 
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (HogFunctionType.DESTINATION, HogFunctionType.EMAIL, HogFunctionType.TRANSFORMATION)
