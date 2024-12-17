@@ -66,6 +66,321 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
     )
 }
 
+export const AllButtons: Story = () => {
+    return (
+        <div className="space-y-12">
+            <div className="space-y-2">
+                <h5>Primary</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="primary">
+                        Primary Default
+                    </LemonButton>
+                    <LemonButton status="alt" type="primary">
+                        Primary Alt
+                    </LemonButton>
+                    <LemonButton status="danger" type="primary">
+                        Primary Danger
+                    </LemonButton>
+                </div>
+                <h5>Primary (loading)</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="primary" loading>
+                        Primary Default
+                    </LemonButton>
+                    <LemonButton status="alt" type="primary" loading>
+                        Primary Alt
+                    </LemonButton>
+                    <LemonButton status="danger" type="primary" loading>
+                        Primary Danger
+                    </LemonButton>
+                </div>
+                <h5>Primary (with side action)</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton
+                        status="default"
+                        type="primary"
+                        sideAction={{
+                            icon: <IconPlus />,
+                            tooltip: 'Create new',
+                            onClick: () => alert('Side action!'),
+                        }}
+                    >
+                        Primary Default
+                    </LemonButton>
+                    <LemonButton
+                        status="alt"
+                        type="primary"
+                        sideAction={{
+                            icon: <IconPlus />,
+                            tooltip: 'Create new',
+                            onClick: () => alert('Side action!'),
+                        }}
+                    >
+                        Primary Alt
+                    </LemonButton>
+                    <LemonButton
+                        status="danger"
+                        type="primary"
+                        sideAction={{
+                            icon: <IconPlus />,
+                            tooltip: 'Create new',
+                            onClick: () => alert('Side action!'),
+                        }}
+                    >
+                        Primary Danger
+                    </LemonButton>
+                </div>
+                <h5>Primary (active / hover)</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="primary" active>
+                        Primary Default
+                    </LemonButton>
+                    <LemonButton status="alt" type="primary" active>
+                        Primary Alt
+                    </LemonButton>
+                    <LemonButton status="danger" type="primary" active>
+                        Primary Danger
+                    </LemonButton>
+                </div>
+                <h5>Primary (disabled)</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="primary" disabledReason="You're not cool enough to click this.">
+                        Primary Default
+                    </LemonButton>
+                    <LemonButton status="alt" type="primary" disabledReason="You're not cool enough to click this.">
+                        Primary Alt
+                    </LemonButton>
+                    <LemonButton status="danger" type="primary" disabledReason="You're not cool enough to click this.">
+                        Primary Danger
+                    </LemonButton>
+                </div>
+                <h5>Primary just icon</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="primary" noPadding icon={<IconCalculate />} />
+                    <LemonButton status="alt" type="primary" noPadding icon={<IconCalculate />} />
+                    <LemonButton status="danger" type="primary" noPadding icon={<IconCalculate />} />
+                </div>
+                <h5>Primary (active / hover) just icon</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="primary" active noPadding icon={<IconCalculate />} />
+                    <LemonButton status="alt" type="primary" active noPadding icon={<IconCalculate />} />
+                    <LemonButton status="danger" type="primary" active noPadding icon={<IconCalculate />} />
+                </div>
+            </div>
+            <div className="space-y-2">
+                <h5>Secondary</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="secondary">
+                        Secondary Default
+                    </LemonButton>
+                    <LemonButton status="alt" type="secondary">
+                        Secondary Alt
+                    </LemonButton>
+                    <LemonButton status="danger" type="secondary">
+                        Secondary Danger
+                    </LemonButton>
+                </div>
+                <h5>Secondary (loading)</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="secondary" loading>
+                        Secondary Default
+                    </LemonButton>
+                    <LemonButton status="alt" type="secondary" loading>
+                        Secondary Alt
+                    </LemonButton>
+                    <LemonButton status="danger" type="secondary" loading>
+                        Secondary Danger
+                    </LemonButton>
+                </div>
+                <h5>Secondary (with side action)</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton
+                        status="default"
+                        type="secondary"
+                        sideAction={{
+                            icon: <IconPlus />,
+                            tooltip: 'Create new',
+                            onClick: () => alert('Side action!'),
+                        }}
+                    >
+                        Secondary Default
+                    </LemonButton>
+                    <LemonButton
+                        status="alt"
+                        type="secondary"
+                        sideAction={{
+                            icon: <IconPlus />,
+                            tooltip: 'Create new',
+                            onClick: () => alert('Side action!'),
+                        }}
+                    >
+                        Secondary Alt
+                    </LemonButton>
+                    <LemonButton
+                        status="danger"
+                        type="secondary"
+                        sideAction={{
+                            icon: <IconPlus />,
+                            tooltip: 'Create new',
+                            onClick: () => alert('Side action!'),
+                        }}
+                    >
+                        Secondary Danger
+                    </LemonButton>
+                </div>
+                <h5>Secondary active</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="secondary" active>
+                        Secondary Default
+                    </LemonButton>
+                    <LemonButton status="alt" type="secondary" active>
+                        Secondary Alt
+                    </LemonButton>
+                    <LemonButton status="danger" type="secondary" active>
+                        Secondary Danger
+                    </LemonButton>
+                </div>
+                <h5>Secondary (disabled)</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton
+                        status="default"
+                        type="secondary"
+                        disabledReason="You're not cool enough to click this."
+                    >
+                        Secondary Default
+                    </LemonButton>
+                    <LemonButton status="alt" type="secondary" disabledReason="You're not cool enough to click this.">
+                        Secondary Alt
+                    </LemonButton>
+                    <LemonButton
+                        status="danger"
+                        type="secondary"
+                        disabledReason="You're not cool enough to click this."
+                    >
+                        Secondary Danger
+                    </LemonButton>
+                </div>
+                <h5>Secondary just icon</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="secondary" noPadding icon={<IconCalculate />} />
+                    <LemonButton status="alt" type="secondary" noPadding icon={<IconCalculate />} />
+                    <LemonButton status="danger" type="secondary" noPadding icon={<IconCalculate />} />
+                </div>
+                <h5>Secondary (active / hover) just icon</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="secondary" active noPadding icon={<IconCalculate />} />
+                    <LemonButton status="alt" type="secondary" active noPadding icon={<IconCalculate />} />
+                    <LemonButton status="danger" type="secondary" active noPadding icon={<IconCalculate />} />
+                </div>
+            </div>
+            <div className="space-y-2">
+                <h5>Tertiary</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="tertiary">
+                        Tertiary Default
+                    </LemonButton>
+                    <LemonButton status="alt" type="tertiary">
+                        Tertiary Alt
+                    </LemonButton>
+                    <LemonButton status="danger" type="tertiary">
+                        Tertiary Danger
+                    </LemonButton>
+                </div>
+                <h5>Tertiary (loading)</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="tertiary" loading>
+                        Tertiary Default
+                    </LemonButton>
+                    <LemonButton status="alt" type="tertiary" loading>
+                        Tertiary Alt
+                    </LemonButton>
+                    <LemonButton status="danger" type="tertiary" loading>
+                        Tertiary Danger
+                    </LemonButton>
+                </div>
+                <h5>Tertiary (with side action)</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton
+                        status="default"
+                        type="tertiary"
+                        sideAction={{
+                            icon: <IconPlus />,
+                            tooltip: 'Create new',
+                            onClick: () => alert('Side action!'),
+                        }}
+                    >
+                        Tertiary Default
+                    </LemonButton>
+                    <LemonButton
+                        status="alt"
+                        type="tertiary"
+                        sideAction={{
+                            icon: <IconPlus />,
+                            tooltip: 'Create new',
+                            onClick: () => alert('Side action!'),
+                        }}
+                    >
+                        Tertiary Alt
+                    </LemonButton>
+                    <LemonButton
+                        status="danger"
+                        type="tertiary"
+                        sideAction={{
+                            icon: <IconPlus />,
+                            tooltip: 'Create new',
+                            onClick: () => alert('Side action!'),
+                        }}
+                    >
+                        Tertiary Danger
+                    </LemonButton>
+                </div>
+                <h5>Tertiary (active / hover)</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="tertiary" active>
+                        Tertiary Default
+                    </LemonButton>
+                    <LemonButton status="alt" type="tertiary" active>
+                        Tertiary Alt
+                    </LemonButton>
+                    <LemonButton status="danger" type="tertiary" active>
+                        Tertiary Danger
+                    </LemonButton>
+                </div>
+                <h5>Tertiary (disabled)</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton
+                        status="default"
+                        type="tertiary"
+                        disabledReason="You're not cool enough to click this."
+                    >
+                        Tertiary Default
+                    </LemonButton>
+                    <LemonButton status="alt" type="tertiary" disabledReason="You're not cool enough to click this.">
+                        Tertiary Alt
+                    </LemonButton>
+                    <LemonButton status="danger" type="tertiary" disabledReason="You're not cool enough to click this.">
+                        Tertiary Danger
+                    </LemonButton>
+                </div>
+                <h5>Tertiary just icon</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="tertiary" noPadding icon={<IconCalculate />} />
+                    <LemonButton status="alt" type="tertiary" noPadding icon={<IconCalculate />} />
+                    <LemonButton status="danger" type="tertiary" noPadding icon={<IconCalculate />} />
+                </div>
+                <h5>Tertiary (active / hover) just icon</h5>
+                <div className="flex gap-2 p-2 rounded-lg border">
+                    <LemonButton status="default" type="tertiary" active noPadding icon={<IconCalculate />} />
+                    <LemonButton status="alt" type="tertiary" active noPadding icon={<IconCalculate />} />
+                    <LemonButton status="danger" type="tertiary" active noPadding icon={<IconCalculate />} />
+                </div>
+            </div>
+        </div>
+    )
+}
+
+AllButtons.args = { ...Default.args }
+
 export const TypesAndStatuses: Story = () => {
     return (
         <div className="space-y-12">
