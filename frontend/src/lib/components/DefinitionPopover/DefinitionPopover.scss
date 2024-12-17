@@ -17,7 +17,7 @@
             .definition-popover-header-row-title {
                 font-size: 0.6875rem;
                 font-weight: 600;
-                color: var(--muted);
+                color: var(--content-tertiary);
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
             }
@@ -33,7 +33,7 @@
                 }
 
                 .definition-popover-disabled-button {
-                    color: var(--muted);
+                    color: var(--content-tertiary);
                     cursor: not-allowed;
                 }
             }
@@ -80,7 +80,7 @@
 
         &.empty {
             font-style: italic;
-            color: var(--muted);
+            color: var(--content-tertiary);
         }
     }
 
@@ -124,7 +124,7 @@
             .definition-popover-grid-card-title {
                 font-size: 0.6875rem;
                 font-weight: 600;
-                color: var(--muted);
+                color: var(--content-tertiary);
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
             }

@@ -166,9 +166,9 @@ export function PreflightCheck(): JSX.Element {
                                 <LemonButton
                                     icon={
                                         areChecksExpanded ? (
-                                            <IconCollapse style={{ color: 'var(--muted-alt)' }} />
+                                            <IconCollapse style={{ color: 'var(--content-tertiary)' }} />
                                         ) : (
-                                            <IconExpand style={{ color: 'var(--muted-alt)' }} />
+                                            <IconExpand style={{ color: 'var(--content-tertiary)' }} />
                                         )
                                     }
                                     onClick={() => {

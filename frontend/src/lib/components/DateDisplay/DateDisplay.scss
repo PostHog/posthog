@@ -1,7 +1,7 @@
 .dated-highlight {
     padding: 0.125rem 0.25rem;
     margin-right: 4px;
-    color: var(--muted);
+    color: var(--content-tertiary);
     white-space: nowrap;
     background-color: var(--background-primary);
     border: 1px solid var(--border-light);
@@ -14,6 +14,6 @@
     .secondary-date {
         margin-left: 2px;
         font-weight: normal;
-        color: var(--muted-alt);
+        color: var(--content-tertiary);
     }
 }

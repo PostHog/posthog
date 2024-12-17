@@ -869,7 +869,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     style={{
                                                         marginLeft: '0.5rem',
                                                     }}
-                                                    iconStyle={{ color: 'var(--muted-alt)' }}
+                                                    iconStyle={{ color: 'var(--content-tertiary)' }}
                                                 >
                                                     {variant.key}
                                                 </CopyToClipboardInline>

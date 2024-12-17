@@ -58,17 +58,13 @@ interface ExperimentVariantNumberProps {
     index: number
 }
 export function ExperimentVariantNumber({ className, index }: ExperimentVariantNumberProps): JSX.Element {
-    const { isDarkModeOn } = useValues(themeLogic)
-
     return (
         <SeriesGlyph
             className={className}
             style={{
-                borderColor: 'var(--muted)',
-                color: 'var(--muted)',
-                backgroundColor: isDarkModeOn
-                    ? RGBToRGBA(lightenDarkenColor('var(--muted)', -20), 0.3)
-                    : hexToRGBA('var(--muted)', 0.2),
+                borderColor: 'var(--border-primary)',
+                color: 'var(--content-primary)',
+                backgroundColor: 'var(--background-primary)',
             }}
         >
             {index}

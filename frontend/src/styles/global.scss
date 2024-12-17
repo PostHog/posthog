@@ -315,7 +315,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 }
 
 input[type='radio'] {
-    accent-color: var(--primary-3000);
+    accent-color: var(--background-accent);
 }
 
 input[type='search'] {
@@ -372,7 +372,7 @@ input[type='search'] {
 .card-secondary {
     font-size: 11px;
     font-weight: 600;
-    color: var(--muted);
+    color: var(--content-tertiary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
@@ -460,7 +460,7 @@ input::-ms-clear {
     height: 1.5rem;
     margin-right: 0.75rem;
     font-size: 1.5rem;
-    color: var(--muted-alt);
+    color: var(--content-tertiary);
 
     .Toastify__toast--success & {
         color: var(--toastify-color-success);
@@ -621,7 +621,7 @@ html {
 
 input::placeholder,
 textarea::placeholder {
-    color: var(--muted); // Overrides Tailwind's default
+    color: var(--content-tertiary); // Overrides Tailwind's default
 }
 
 // Global styles nested under body to ensure they're more specific than Tailwind's base
@@ -759,7 +759,7 @@ body {
             border-radius: var(--radius);
 
             &:hover {
-                background: var(--muted-3000);
+                background: var(--content-tertiary);
             }
         }
     }

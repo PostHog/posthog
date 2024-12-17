@@ -69,7 +69,7 @@
     .LemonActionableTooltip__navigation {
         display: flex;
         align-items: center;
-        color: var(--muted);
+        color: var(--content-tertiary);
 
         > * + * {
             margin-left: 0.25rem;

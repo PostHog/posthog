@@ -56,7 +56,7 @@
         margin-bottom: 0;
         overflow: hidden;
         line-height: 1rem;
-        color: var(--muted);
+        color: var(--content-tertiary);
         text-overflow: ellipsis;
         white-space: nowrap;
     }
@@ -125,7 +125,7 @@
     align-self: stretch;
     width: 0.375rem;
     margin: 0 0.75rem 0 -0.25rem;
-    background: var(--muted); // Just a fallback value in case there's some unrecognized value
+    background: var(--content-tertiary); // Just a fallback value in case there's some unrecognized value
     border-radius: var(--radius);
 
     &.blue {

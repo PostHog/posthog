@@ -420,14 +420,14 @@
 }
 
 .SidebarListItem {
-    --sidebar-list-item-status-color: var(--muted);
+    --sidebar-list-item-status-color: var(--content-tertiary);
     --sidebar-list-item-fold-size: 0.5rem;
     --sidebar-list-item-ribbon-width: 0.1875rem;
     --sidebar-list-item-background: var(--sidebar-background);
 
     position: relative;
     line-height: 1.125rem;
-    color: var(--muted);
+    color: var(--content-tertiary);
     list-style: none;
     background: var(--sidebar-list-item-background);
     border-bottom-width: 1px;

@@ -50,7 +50,7 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
                     <CopyToClipboardInline
                         description={lastUrl}
                         explicitValue={lastUrl}
-                        iconStyle={{ color: 'var(--muted-alt)' }}
+                        iconStyle={{ color: 'var(--content-tertiary)' }}
                         selectable={true}
                     />
                 </span>
