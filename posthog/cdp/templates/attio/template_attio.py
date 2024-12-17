@@ -43,9 +43,9 @@ if (res.status >= 400) {
         {
             "key": "apiKey",
             "type": "string",
-            "label": "Attio API Key",
-            "description": "Check out this page on how to get your API key: https://attio.com/help/reference/integrations-automations/generating-an-api-key",
-            "secret": False,
+            "label": "Access token",
+            "description": "Check out this page to get your API key: https://attio.com/help/reference/integrations-automations/generating-an-api-key",
+            "secret": True,
             "required": True,
         },
         {
