@@ -1,8 +1,8 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { Dayjs } from 'lib/dayjs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -95,34 +95,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 setIssue: ({ issue }) => issue,
             },
         ],
-        events: [
-            [] as ErrorTrackingEvent[],
-            {
-                loadEvents: async () => {
-                    const response = await api.query(values.eventsQuery)
-
-                    const newResults = response.results.map((r) => ({
-                        uuid: r[0],
-                        properties: JSON.parse(r[1]),
-                        timestamp: dayjs(r[2]),
-                        person: r[3],
-                    }))
-
-                    return [...values.events, ...newResults]
-                },
-            },
-        ],
-    })),
-
-    listeners(({ values, actions }) => ({
-        loadIssueSuccess: () => {
-            actions.loadEvents()
-        },
-        loadEventsSuccess: () => {
-            if (!values.activeEventUUID) {
-                actions.setActiveEventUUID(values.events[0]?.uuid)
-            }
-        },
     })),
 
     selectors({
@@ -145,30 +117,27 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
 
         eventsQuery: [
-            (s, p) => [p.id, s.dateRange, s.filterTestAccounts, s.filterGroup, s.events],
-            (id, dateRange, filterTestAccounts, filterGroup, events) =>
+            (s, p) => [p.id, s.dateRange, s.filterTestAccounts, s.filterGroup],
+            (id, dateRange, filterTestAccounts, filterGroup) =>
                 errorTrackingIssueEventsQuery({
-                    select: ['uuid', 'properties', 'timestamp', 'person'],
                     issueId: id,
                     dateRange: dateRange,
                     filterTestAccounts: filterTestAccounts,
                     filterGroup: filterGroup,
-                    offset: events.length,
                 }),
         ],
 
-        activeEvent: [(s) => [s.events, s.activeEventUUID], (events, uuid) => events.find((e) => e.uuid === uuid)],
         issueProperties: [(s) => [s.issue], (issue) => (issue ? JSON.parse(issue.earliest) : {})],
     }),
 
     actionToUrl(({ values }) => ({
         setTab: () => {
             const searchParams = router.values.searchParams
-
-            if (values.tab != IssueTab.Overview) {
+            if (values.tab == IssueTab.Overview) {
+                delete searchParams['tab']
+            } else {
                 searchParams['tab'] = values.tab
             }
-
             return [router.values.location.pathname, searchParams]
         },
     })),

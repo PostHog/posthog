@@ -114,3 +114,7 @@ export function getExceptionProperties(
 export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
     return exceptionList?.length > 0 && exceptionList.some((e) => !!e.stacktrace)
 }
+
+export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
+    return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
+}

@@ -2540,7 +2540,7 @@ const api = {
             data: {
                 query,
                 client_query_id: queryId,
-                refresh,
+                refresh: 'force_blocking',
                 filters_override: filtersOverride,
                 variables_override: variablesOverride,
             },

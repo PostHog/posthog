@@ -145,20 +145,20 @@ export const errorTrackingIssueQuery = ({
 }
 
 export const errorTrackingIssueEventsQuery = ({
-    select,
     issueId,
     dateRange,
     filterTestAccounts,
     filterGroup,
-    offset,
 }: {
-    select: string[]
     issueId: ErrorTrackingIssue['id']
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
-    offset: number
-}): EventsQuery => {
+}): DataTableNode => {
+    // const select = ['person', 'timestamp', 'recording_button(properties.$session_id)']
+    // row expansion only works when you fetch the entire event with '*'
+    const columns = ['*', 'person', 'timestamp', 'recording_button(properties.$session_id)']
+
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = group.values as AnyPropertyFilter[]
 
@@ -166,25 +166,30 @@ export const errorTrackingIssueEventsQuery = ({
     // associated with issues that have been merged into this primary issue
     const where = [`'${issueId}' == properties.$exception_issue_id`]
 
-    const query: EventsQuery = {
+    const eventsQuery: EventsQuery = {
         kind: NodeKind.EventsQuery,
         event: '$exception',
-        select,
+        select: columns,
         where,
         properties,
         filterTestAccounts: filterTestAccounts,
-        offset: offset,
-        limit: 50,
     }
 
     if (dateRange.date_from) {
-        query.after = dateRange.date_from
+        eventsQuery.after = dateRange.date_from
     }
     if (dateRange.date_to) {
-        query.before = dateRange.date_to
+        eventsQuery.before = dateRange.date_to
     }
 
-    return query
+    return {
+        kind: NodeKind.DataTableNode,
+        source: eventsQuery,
+        showActions: false,
+        showTimings: false,
+        columns: columns,
+        expandable: true,
+    }
 }
 
 export const errorTrackingIssueBreakdownQuery = ({

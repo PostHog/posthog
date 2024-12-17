@@ -1,7 +1,9 @@
 .StackTrace {
-    .LemonCollapse.LemonCollapse--embedded {
-        border-top: 1px solid var(--border);
-        border-bottom: 1px solid var(--border);
+    .LemonCollapse {
+        &.LemonCollapse--embedded {
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
 
         .LemonCollapsePanel__header {
             min-height: 1.875rem !important;

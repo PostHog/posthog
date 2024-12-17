@@ -1,13 +1,16 @@
+import { IconMinus } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { PropsWithChildren } from 'react'
+import { useState } from 'react'
 
 type PanelContainerProps = {
     children: React.ReactNode
     primary: boolean
     className?: string
     column?: boolean
+    title: string
+    header?: JSX.Element | null
 }
 
 interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
@@ -21,9 +24,9 @@ interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
 }
 
 type SettingsButtonProps = Omit<LemonButtonProps, 'status' | 'sideAction' | 'className'> & {
-    title?: string
+    tooltip?: string
     icon?: JSX.Element | null
-    label: JSX.Element | string
+    label?: JSX.Element | string
 }
 
 type SettingsToggleProps = SettingsButtonProps & {
@@ -50,20 +53,17 @@ function Container({ children, primary, className, column }: Omit<PanelContainer
     )
 }
 
-function Panel({ children, primary, className }: Omit<PanelContainerProps, 'column'>): JSX.Element {
-    return <div className={clsx(primary && 'flex-1', 'border bg-bg-light rounded-sm', className)}>{children}</div>
-}
+function Panel({ children, primary, className, title, header }: Omit<PanelContainerProps, 'column'>): JSX.Element {
+    const [open, setOpen] = useState<boolean>(true)
 
-export function PanelHeader({
-    title,
-    children,
-}: PropsWithChildren<{
-    title: string
-}>): JSX.Element {
     return (
-        <div className={clsx('flex flex-row w-full border-b overflow-hidden bg-bg-3000 items-center justify-between')}>
-            <span className="pl-1 font-medium">{title}</span>
-            <div className="font-light text-xs">{children}</div>
+        <div className={clsx(primary && 'flex-1', 'border bg-bg-light rounded-sm', className)}>
+            <div className="flex flex-row w-full border-b overflow-hidden bg-bg-3000 items-center justify-between">
+                <span className="pl-1 font-medium">{title}</span>
+                <div className="font-light text-xs">{header}</div>
+                <SettingsButton onClick={() => setOpen(!open)} icon={<IconMinus />} />
+            </div>
+            {open ? children : null}
         </div>
     )
 }
@@ -98,7 +98,7 @@ export function SettingsMenu({
     )
 }
 
-export function SettingsToggle({ title, icon, label, active, ...props }: SettingsToggleProps): JSX.Element {
+export function SettingsToggle({ tooltip, icon, label, active, ...props }: SettingsToggleProps): JSX.Element {
     const button = (
         <LemonButton
             className="rounded-[0px]"
@@ -112,7 +112,7 @@ export function SettingsToggle({ title, icon, label, active, ...props }: Setting
     )
 
     // otherwise the tooltip shows instead of the disabled reason
-    return props.disabledReason ? button : <Tooltip title={title}>{button}</Tooltip>
+    return props.disabledReason ? button : <Tooltip title={tooltip}>{button}</Tooltip>
 }
 
 export function SettingsButton(props: SettingsButtonProps): JSX.Element {
@@ -121,7 +121,6 @@ export function SettingsButton(props: SettingsButtonProps): JSX.Element {
 
 PanelLayout.Panel = Panel
 PanelLayout.Container = Container
-PanelLayout.PanelHeader = PanelHeader
 PanelLayout.SettingsMenu = SettingsMenu
 PanelLayout.SettingsToggle = SettingsToggle
 PanelLayout.SettingsButton = SettingsButton

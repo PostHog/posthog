@@ -12,21 +12,14 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
-export const FilterGroup = (): JSX.Element => {
-    const { filterGroup, filterTestAccounts, searchQuery } = useValues(errorTrackingLogic)
-    const { setFilterGroup, setFilterTestAccounts, setSearchQuery } = useActions(errorTrackingLogic)
+export const FilterGroup = ({ children }: { children?: React.ReactNode }): JSX.Element => {
+    const { filterGroup, filterTestAccounts } = useValues(errorTrackingLogic)
+    const { setFilterGroup, setFilterTestAccounts } = useActions(errorTrackingLogic)
 
     return (
         <div className="flex flex-1 items-center justify-between space-x-2">
             <div className="flex flex-1 items-center gap-2 mx-2">
-                <LemonInput
-                    type="search"
-                    placeholder="Search..."
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    className="flex-grow max-w-none"
-                    size="small"
-                />
+                {children}
                 <UniversalFilters
                     rootKey="error-tracking"
                     group={filterGroup}
@@ -155,7 +148,24 @@ export const Options = (): JSX.Element => {
     )
 }
 
+export const UniversalSearch = (): JSX.Element => {
+    const { searchQuery } = useValues(errorTrackingLogic)
+    const { setSearchQuery } = useActions(errorTrackingLogic)
+
+    return (
+        <LemonInput
+            type="search"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={setSearchQuery}
+            className="flex-grow max-w-none"
+            size="small"
+        />
+    )
+}
+
 export default {
     FilterGroup,
     Options,
+    UniversalSearch,
 }

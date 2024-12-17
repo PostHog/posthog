@@ -5,7 +5,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
-import { getExceptionProperties, hasStacktrace } from 'scenes/error-tracking/utils'
+import { getExceptionProperties, hasAnyInAppFrames, hasStacktrace } from 'scenes/error-tracking/utils'
 
 import { EventType } from '~/types'
 
@@ -77,7 +77,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
 }
 
 const StackTrace = ({ exceptionList }: { exceptionList: ErrorTrackingException[] }): JSX.Element => {
-    const hasAnyInApp = exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
+    const hasAnyInApp = hasAnyInAppFrames(exceptionList)
     const [showAllFrames, setShowAllFrames] = useState(!hasAnyInApp)
 
     return (
@@ -88,9 +88,7 @@ const StackTrace = ({ exceptionList }: { exceptionList: ErrorTrackingException[]
                     <LemonSwitch
                         checked={showAllFrames}
                         label="Show entire stack trace"
-                        onChange={() => {
-                            setShowAllFrames(!showAllFrames)
-                        }}
+                        onChange={() => setShowAllFrames(!showAllFrames)}
                     />
                 ) : null}
             </div>
