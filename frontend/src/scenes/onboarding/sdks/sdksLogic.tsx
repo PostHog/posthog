@@ -2,7 +2,9 @@ import { actions, afterMount, connect, events, kea, listeners, path, reducers, s
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
@@ -39,10 +41,25 @@ Products that will often be installed in multiple places, eg. web and mobile
 */
 export const multiInstallProducts = [ProductKey.PRODUCT_ANALYTICS, ProductKey.FEATURE_FLAGS]
 
+const getOrderedSDKs = (sdks: SDK[]): SDK[] => {
+    return [
+        ...sdks.filter((sdk) => sdk.key === 'html'),
+        ...sdks.filter((sdk) => sdk.key === 'javascript-web'),
+        ...sdks.filter((sdk) => !['html', 'javascript-web'].includes(sdk.key)),
+    ]
+}
+
 export const sdksLogic = kea<sdksLogicType>([
     path(['scenes', 'onboarding', 'sdks', 'sdksLogic']),
     connect({
-        values: [onboardingLogic, ['productKey'], liveEventsTableLogic, ['eventHosts']],
+        values: [
+            onboardingLogic,
+            ['productKey'],
+            liveEventsTableLogic,
+            ['eventHosts'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     }),
     actions({
         setSourceFilter: (sourceFilter: string | null) => ({ sourceFilter }),
@@ -173,7 +190,7 @@ export const sdksLogic = kea<sdksLogicType>([
     })),
     listeners(({ actions, values }) => ({
         filterSDKs: () => {
-            const filteredSDks: SDK[] = allSDKs
+            let filteredSDks: SDK[] = allSDKs
                 .filter((sdk) => {
                     if (!values.sourceFilter || !sdk) {
                         return true
@@ -181,6 +198,13 @@ export const sdksLogic = kea<sdksLogicType>([
                     return sdk.tags.includes(values.sourceFilter)
                 })
                 .filter((sdk) => Object.keys(values.availableSDKInstructionsMap).includes(sdk.key))
+
+            if (
+                values.featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_ONBOARDING] &&
+                values.productKey === ProductKey.PRODUCT_ANALYTICS
+            ) {
+                filteredSDks = getOrderedSDKs(filteredSDks)
+            }
             actions.setSDKs(filteredSDks)
             actions.setSourceOptions(getSourceOptions(values.availableSDKInstructionsMap))
         },
@@ -196,8 +220,16 @@ export const sdksLogic = kea<sdksLogicType>([
             actions.setSelectedSDK(null)
             actions.filterSDKs()
         },
-        [onboardingLogic.actionTypes.setProductKey]: () => {
-            // TODO: This doesn't seem to run when the setProductKey action is called in onboardingLogic...
+        [onboardingLogic.actionTypes.setProductKey]: ({ productKey }) => {
+            // Set default source filter for Product Analytics
+            if (
+                productKey === ProductKey.PRODUCT_ANALYTICS &&
+                values.featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_ONBOARDING]
+            ) {
+                actions.setSourceFilter('Recommended')
+            } else {
+                actions.setSourceFilter(null)
+            }
             actions.resetSDKs()
         },
         resetSDKs: () => {
@@ -225,8 +257,14 @@ export const sdksLogic = kea<sdksLogicType>([
     afterMount(({ actions }) => {
         actions.loadSnippetEvents()
     }),
-    urlToAction(({ actions }) => ({
-        '/onboarding/:productKey': (_productKey, { sdk }) => {
+    urlToAction(({ actions, values }) => ({
+        '/onboarding/:productKey': (_product_key, { sdk }) => {
+            if (
+                values.productKey === ProductKey.PRODUCT_ANALYTICS &&
+                values.featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_ONBOARDING]
+            ) {
+                actions.setSourceFilter('Recommended')
+            }
             const matchedSDK = allSDKs.find((s) => s.key === sdk)
             if (matchedSDK) {
                 actions.setSelectedSDK(matchedSDK)
