@@ -7,6 +7,7 @@ from django.db import models
 from django.http import HttpRequest
 from django.utils import timezone
 from prometheus_client import Counter
+import requests
 from sentry_sdk import capture_exception
 import structlog
 
@@ -35,6 +36,12 @@ CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
 REMOTE_CONFIG_CACHE_COUNTER = Counter(
     "posthog_remote_config_via_cache",
     "Metric tracking whether a remote config was fetched from cache or not",
+    labelnames=["result"],
+)
+
+REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
+    "posthog_remote_config_cdn_purge",
+    "Number of times the remote config CDN purge task has been run",
     labelnames=["result"],
 )
 
@@ -328,8 +335,11 @@ class RemoteConfig(UUIDModel):
         config = sanitize_config_for_public_cdn(config, request=request)
 
         js_content = f"""(function() {{
-  window._POSTHOG_CONFIG = {json.dumps(config)};
-  window._POSTHOG_JS_APPS = [{','.join(site_apps_js)}];
+  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {{}};
+  window._POSTHOG_REMOTE_CONFIG['{token}'] = {{
+    config: {json.dumps(config)},
+    siteApps: [{','.join(site_apps_js)}]
+  }}
 }})();
         """.strip()
 
@@ -355,6 +365,8 @@ class RemoteConfig(UUIDModel):
 
             cache.set(cache_key_for_team_token(self.team.api_token, "config"), config, timeout=CACHE_TIMEOUT)
 
+            self._purge_cdn()
+
             # TODO: Invalidate caches - in particular this will be the Cloudflare CDN cache
             self.synced_at = timezone.now()
             self.save()
@@ -365,6 +377,41 @@ class RemoteConfig(UUIDModel):
             logger.exception(f"Failed to sync RemoteConfig for team {self.team_id}", exception=str(e))
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="failure").inc()
             raise
+
+    def _purge_cdn(self):
+        if (
+            not settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT
+            or not settings.REMOTE_CONFIG_CDN_PURGE_TOKEN
+            or not settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS
+        ):
+            return
+
+        data: dict[str, Any] = {"files": []}
+
+        for domain in settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS:
+            # Check if the domain starts with https:// and if not add it
+            full_domain = domain if domain.startswith("https://") else f"https://{domain}"
+            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config"})
+            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config.js"})
+            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/array.js"})
+
+        logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
+
+        try:
+            res = requests.post(
+                settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
+                headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
+                json=data,
+            )
+
+            if res.status_code != 200:
+                raise Exception(f"Failed to purge CDN for team {self.team_id}: {res.status_code} {res.text}")
+
+        except Exception:
+            logger.exception(f"Failed to purge CDN for team {self.team_id}")
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
+        else:
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
 
     def __str__(self):
         return f"RemoteConfig {self.team_id}"

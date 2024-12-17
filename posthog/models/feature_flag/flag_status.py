@@ -23,6 +23,7 @@ class FeatureFlagStatus(StrEnum):
 # - ACTIVE: The feature flag is actively evaluated and the evaluations continue to vary.
 # - STALE: The feature flag has been fully rolled out to users. Its evaluations can not vary.
 # - INACTIVE: The feature flag is not being actively evaluated. STALE takes precedence over INACTIVE.
+#       NOTE: The "inactive" status is not currently used, but may be used in the future to automatically archive flags.
 # - DELETED: The feature flag has been soft deleted.
 # - UNKNOWN: The feature flag is not found in the database.
 class FeatureFlagStatusChecker:
@@ -48,10 +49,6 @@ class FeatureFlagStatusChecker:
         is_flag_fully_rolled_out, fully_rolled_out_explanation = self.is_flag_fully_rolled_out(flag)
         if is_flag_fully_rolled_out:
             return FeatureFlagStatus.STALE, fully_rolled_out_explanation
-
-        # Final, and most expensive check: see if the flag has been evaluated recently.
-        if self.is_flag_unevaluated_recently(flag):
-            return FeatureFlagStatus.INACTIVE, "Flag has not been evaluated recently"
 
         return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be active"
 

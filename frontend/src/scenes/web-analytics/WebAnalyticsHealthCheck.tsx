@@ -1,14 +1,12 @@
 import { useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { ConversionGoalWarning, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
     const { statusCheck, conversionGoalWarning } = useValues(webAnalyticsLogic)
-    const isFlagConversionGoalWarningsSet = useFeatureFlag('WEB_ANALYTICS_WARN_CUSTOM_EVENT_NO_SESSION')
 
-    if (conversionGoalWarning && isFlagConversionGoalWarningsSet) {
+    if (conversionGoalWarning) {
         switch (conversionGoalWarning) {
             case ConversionGoalWarning.CustomEventWithNoSessionId:
                 return (
