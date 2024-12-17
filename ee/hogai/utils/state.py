@@ -1,22 +1,8 @@
-from collections.abc import Sequence
 from typing import Any, Literal, TypedDict, TypeGuard, Union
 
 from langchain_core.messages import AIMessageChunk
 
-from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState, PartialAssistantState
-
-
-class ReplaceMessages(list[AssistantMessageUnion]):
-    pass
-
-
-def add_messages(
-    left: Sequence[AssistantMessageUnion], right: Sequence[AssistantMessageUnion]
-) -> Sequence[AssistantMessageUnion]:
-    if isinstance(right, ReplaceMessages):
-        return list(right)
-    return list(left) + list(right)
-
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 
 # A state update can have a partial state or a LangGraph's reserved dataclasses like Interrupt.
 GraphValueUpdate = dict[AssistantNodeName, dict[Any, Any] | Any]

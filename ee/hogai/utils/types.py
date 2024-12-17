@@ -1,3 +1,4 @@
+import operator
 from collections.abc import Sequence
 from enum import StrEnum
 from typing import Annotated, Optional, Union
@@ -19,18 +20,6 @@ AIMessageUnion = Union[AssistantMessage, VisualizationMessage, FailureMessage, R
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
 
 
-class ReplaceMessages(list[AssistantMessageUnion]):
-    pass
-
-
-def add_messages(
-    left: Sequence[AssistantMessageUnion], right: Sequence[AssistantMessageUnion]
-) -> Sequence[AssistantMessageUnion]:
-    if isinstance(right, ReplaceMessages):
-        return list(right)
-    return list(left) + list(right)
-
-
 class _SharedAssistantState(BaseModel):
     intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
     start_id: Optional[str] = Field(default=None)
@@ -41,11 +30,11 @@ class _SharedAssistantState(BaseModel):
 
 
 class AssistantState(_SharedAssistantState):
-    messages: Annotated[Sequence[AssistantMessageUnion], add_messages]
+    messages: Annotated[Sequence[AssistantMessageUnion], operator.add]
 
 
 class PartialAssistantState(_SharedAssistantState):
-    messages: Optional[Annotated[Sequence[AssistantMessageUnion], add_messages]] = Field(default=None)
+    messages: Optional[Annotated[Sequence[AssistantMessageUnion], operator.add]] = Field(default=None)
 
 
 class AssistantNodeName(StrEnum):

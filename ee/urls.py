@@ -26,6 +26,7 @@ from .session_recordings import session_recording_playlist
 def extend_api_router() -> None:
     from posthog.api import (
         environment_dashboards_router,
+        environments_router,
         legacy_project_dashboards_router,
         organizations_router,
         project_feature_flags_router,
@@ -37,7 +38,6 @@ def extend_api_router() -> None:
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
-    root_router.register(r"conversation", conversation.ConversationViewSet, "conversation")
     organization_roles_router = organizations_router.register(
         r"roles",
         role.RoleViewSet,
@@ -95,7 +95,7 @@ def extend_api_router() -> None:
         ["project_id"],
     )
 
-    register_grandfathered_environment_nested_viewset(
+    environments_router.register(
         r"conversations", conversation.ConversationViewSet, "environment_conversations", ["team_id"]
     )
 
