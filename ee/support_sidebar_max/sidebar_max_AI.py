@@ -11,8 +11,8 @@ import readline  # noqa: F401
 import logging
 import traceback  # noqa: F401
 from typing import Any, Dict  # noqa: F401, UP035
-from config import API_KEY, API_ENDPOINT, MODEL
-from supportSidebarMax_system_prompt import get_system_prompt
+from .config import API_KEY, API_ENDPOINT, MODEL
+from .supportSidebarMax_system_prompt import get_system_prompt
 
 try:
     import anthropic
@@ -23,7 +23,7 @@ except ImportError as e:
     print("Please ensure you have installed: anthropic flask flask-cors")  # noqa: T201
     sys.exit(1)
 
-from max_search_tool import max_search_tool
+from .max_search_tool import max_search_tool
 
 
 class ConversationHistory:
@@ -487,6 +487,10 @@ def chat():
             pass
         # Fall back to generic error handling
         return jsonify({"error": str(e)}), 500
+
+
+# Expose the chat function as chat_endpoint for Django to import
+chat_endpoint = chat
 
 
 def mock_post(url, headers, json_data):
