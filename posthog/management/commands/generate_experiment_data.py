@@ -99,11 +99,12 @@ class Command(BaseCommand):
             )[0]
             variant_counts[variant] += 1
             distinct_id = str(uuid.uuid4())
-            random_timestamp = random.uniform(
-                experiment_config.start_timestamp.timestamp(),
-                experiment_config.end_timestamp.timestamp() - 3600,
+            random_timestamp = datetime.fromtimestamp(
+                random.uniform(
+                    experiment_config.start_timestamp.timestamp(),
+                    experiment_config.end_timestamp.timestamp() - 3600,
+                )
             )
-            random_timestamp = datetime.fromtimestamp(random_timestamp)
 
             posthoganalytics.capture(
                 distinct_id=distinct_id,
