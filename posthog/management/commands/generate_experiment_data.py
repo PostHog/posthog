@@ -123,6 +123,9 @@ class Command(BaseCommand):
                             distinct_id=distinct_id,
                             event=action.event,
                             timestamp=random_timestamp + timedelta(minutes=1),
+                            properties={
+                                f"$feature/{experiment_id}": variant,
+                            },
                         )
 
         # TODO: need to figure out how to wait for the data to be flushed. shutdown() doesn't work as expected.
