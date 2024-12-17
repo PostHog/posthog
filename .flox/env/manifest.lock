@@ -70,13 +70,13 @@
       "POSTHOG_SKIP_MIGRATION_CHECKS": "1"
     },
     "hook": {
-      "on-activate": "export CARGO_HOME=\"$FLOX_ENV_CACHE/cargo\"\nexport PATH=\"$CARGO_HOME/bin:$PATH\"\n\n# Set up a Python virtual environment\nexport PYTHON_DIR=\"$FLOX_ENV_CACHE/venv\"\nuv venv \"$PYTHON_DIR\" --allow-existing\n\nsource \"$PYTHON_DIR/bin/activate\"\n\n# Install Python dependencies (this is practically instant thanks to uv)\nuv pip install -q -r requirements.txt -r requirements-dev.txt\n"
+      "on-activate": "export CARGO_HOME=\"$FLOX_ENV_CACHE/cargo\"\nexport PATH=\"$CARGO_HOME/bin:$PATH\"\n\n# Set up a Python virtual environment\nexport PYTHON_DIR=\"$FLOX_ENV_CACHE/venv\"\nuv venv \"$PYTHON_DIR\" --allow-existing\necho -e \"Python interpreter path for your code editor: \\033[32m.flox/cache/venv/bin/python\\033[0m\"\n\nsource \"$PYTHON_DIR/bin/activate\"\n\n# Install Python dependencies (this is practically instant thanks to uv)\nuv pip install -q -r requirements.txt -r requirements-dev.txt\n\n# Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)\n# This also sets up pre-commit hooks via Husky\nif [ ! -d \"node_modules\" ]; then\n  pnpm install -s\nfi\n\n# Add required entries to /etc/hosts if not present\nif ! grep -q \"127.0.0.1 kafka clickhouse\" /etc/hosts; then\n  echo \"\"\n  echo \"🚨 Amending /etc/hosts to map hostnames 'kafka' and 'clickhouse' to 127.0.0.1...\"\n  echo \"127.0.0.1 kafka clickhouse\" | sudo tee -a /etc/hosts 1> /dev/null\n  echo \"✅ /etc/hosts amended\"\nfi\n\necho -e \"\n👉 IT'S DANGEROUS TO GO ALONE! RUN THIS:\n\\033[38;2;255;0;0m1.\\033[0m bin/migrate - to run all migrations\n\\033[38;2;0;255;0m2.\\033[0m bin/start - to start the entire stack\n\\033[38;2;0;0;255m3.\\033[0m ./manage.py generate_demo_data - to create a user with demo data\n\"\n"
     },
     "profile": {
-      "bash": "  source \"$PYTHON_DIR/bin/activate\"\n  cat .flox/env/greeting.txt\n",
-      "zsh": "  source \"$PYTHON_DIR/bin/activate\"\n  cat .flox/env/greeting.txt\n",
-      "fish": "  source \"$PYTHON_DIR/bin/activate.fish\"\n  cat .flox/env/greeting.txt\n",
-      "tcsh": "  source \"$PYTHON_DIR/bin/activate.csh\"\n  cat .flox/env/greeting.txt\n"
+      "bash": "  source \"$PYTHON_DIR/bin/activate\"\n",
+      "zsh": "  source \"$PYTHON_DIR/bin/activate\"\n",
+      "fish": "  source \"$PYTHON_DIR/bin/activate.fish\"\n",
+      "tcsh": "  source \"$PYTHON_DIR/bin/activate.csh\"\n"
     },
     "options": {
       "systems": [

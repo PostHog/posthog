@@ -54,11 +54,33 @@ export PATH="$CARGO_HOME/bin:$PATH"
 # Set up a Python virtual environment
 export PYTHON_DIR="$FLOX_ENV_CACHE/venv"
 uv venv "$PYTHON_DIR" --allow-existing
+echo -e "Python interpreter path for your code editor: \033[32m.flox/cache/venv/bin/python\033[0m"
 
 source "$PYTHON_DIR/bin/activate"
 
 # Install Python dependencies (this is practically instant thanks to uv)
 uv pip install -q -r requirements.txt -r requirements-dev.txt
+
+# Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)
+# This also sets up pre-commit hooks via Husky
+if [ ! -d "node_modules" ]; then
+  pnpm install -s
+fi
+
+# Add required entries to /etc/hosts if not present
+if ! grep -q "127.0.0.1 kafka clickhouse" /etc/hosts; then
+  echo ""
+  echo "🚨 Amending /etc/hosts to map hostnames 'kafka' and 'clickhouse' to 127.0.0.1..."
+  echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts 1> /dev/null
+  echo "✅ /etc/hosts amended"
+fi
+
+echo -e "
+👉 IT'S DANGEROUS TO GO ALONE! RUN THIS:
+\033[38;2;255;0;0m1.\033[0m bin/migrate - to run all migrations
+\033[38;2;0;255;0m2.\033[0m bin/start - to start the entire stack
+\033[38;2;0;0;255m3.\033[0m ./manage.py generate_demo_data - to create a user with demo data
+"
 '''
 
 # Scripts defined in the `[profile]` section are *sourced* by *your shell* and
@@ -69,19 +91,15 @@ uv pip install -q -r requirements.txt -r requirements-dev.txt
 [profile]
 bash = '''
   source "$PYTHON_DIR/bin/activate"
-  cat .flox/env/greeting.txt
 '''
 fish = '''
   source "$PYTHON_DIR/bin/activate.fish"
-  cat .flox/env/greeting.txt
 '''
 tcsh = '''
   source "$PYTHON_DIR/bin/activate.csh"
-  cat .flox/env/greeting.txt
 '''
 zsh = '''
   source "$PYTHON_DIR/bin/activate"
-  cat .flox/env/greeting.txt
 '''
 
 # The `[services]` section of the manifest allows you to define services.
