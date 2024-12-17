@@ -90,7 +90,8 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@v4
               with:
-                  node-version: 18.12.1
+                  node-version: 18
+                  cache: pnpm
 
             - name: Check if ANTLR definitions are up to date
               run: |
@@ -189,6 +190,7 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 18
+                  cache: pnpm
                   registry-url: https://registry.npmjs.org
             - name: Install package.json dependencies
               run: cd hogvm/typescript && pnpm install
@@ -217,6 +219,7 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 18
+                  cache: pnpm
                   registry-url: https://registry.npmjs.org
 
             - name: Check for version mismatches
