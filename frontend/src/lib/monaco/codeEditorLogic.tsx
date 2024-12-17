@@ -1,6 +1,7 @@
 import type { Monaco } from '@monaco-editor/react'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 // Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
@@ -48,6 +49,8 @@ export interface CodeEditorLogicProps {
     editor?: editor.IStandaloneCodeEditor | null
     globals?: Record<string, any>
     multitab?: boolean
+    onError?: (error: string | null, isValidView: boolean) => void
+    onMetadata?: (metadata: HogQLMetadataResponse) => void
 }
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
@@ -98,6 +101,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         variables,
                     })
                     breakpoint()
+                    props.onMetadata?.(response)
                     return [query, response]
                 },
             },
@@ -270,6 +274,14 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             },
         ],
     }),
+    subscriptions(({ props, values }) => ({
+        isValidView: (isValidView) => {
+            props.onError?.(values.error, isValidView)
+        },
+        error: (error) => {
+            props.onError?.(error, values.isValidView)
+        },
+    })),
     propsChanged(({ actions, props }, oldProps) => {
         if (
             props.query !== oldProps.query ||

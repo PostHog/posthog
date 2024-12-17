@@ -24,7 +24,7 @@ jobs:
     # Job to decide if we should run plugin server ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run plugin server checks
         outputs:
@@ -53,7 +53,7 @@ jobs:
         name: Code quality
         needs: changes
         if: needs.changes.outputs.plugin-server == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         defaults:
             run:
                 working-directory: 'plugin-server'
@@ -81,7 +81,7 @@ jobs:
     tests:
         name: Plugin Server Tests (${{matrix.shard}})
         needs: changes
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
 
         strategy:
             fail-fast: false
@@ -193,7 +193,7 @@ jobs:
     functional-tests:
         name: Functional tests
         needs: changes
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
 
         env:
             REDIS_URL: 'redis://localhost'

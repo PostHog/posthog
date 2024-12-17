@@ -1,17 +1,78 @@
-from typing import cast, Optional
+from typing import cast, Optional, runtime_checkable
 
 from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase, JOIN_ALGOS
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP
+
+from typing import Protocol
+
+
+@runtime_checkable
+class FunnelProtocol(Protocol):
+    context: FunnelQueryContext
+
+    def _query_has_array_breakdown(self) -> bool: ...
+
+    def _default_breakdown_selector(self) -> str: ...
+
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
-class FunnelUDF(FunnelBase):
+class FunnelUDFMixin:
+    def _add_breakdown_attribution_subquery(self: FunnelProtocol, inner_query: ast.SelectQuery) -> ast.SelectQuery:
+        breakdown, breakdownAttributionType = (
+            self.context.breakdown,
+            self.context.breakdownAttributionType,
+        )
+
+        if breakdownAttributionType in [
+            BreakdownAttributionType.FIRST_TOUCH,
+            BreakdownAttributionType.LAST_TOUCH,
+        ]:
+            # When breaking down by first/last touch, each person can only have one prop value
+            # so just select that. Except for the empty case, where we select the default.
+
+            if self._query_has_array_breakdown():
+                assert isinstance(breakdown, list)
+                default_breakdown_value = f"""[{','.join(["''" for _ in range(len(breakdown or []))])}]"""
+                # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
+                breakdown_selector = parse_expr(
+                    f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
+                )
+            else:
+                breakdown_selector = ast.Field(chain=["prop_vals"])
+
+            return ast.SelectQuery(
+                select=[ast.Field(chain=["*"]), ast.Alias(alias="prop", expr=breakdown_selector)],
+                select_from=ast.JoinExpr(table=inner_query),
+            )
+
+        return inner_query
+
+    def _prop_vals(self: FunnelProtocol):
+        prop_vals = f"[{self._default_breakdown_selector()}]"
+        if self.context.breakdown:
+            if self.context.breakdownAttributionType == BreakdownAttributionType.STEP:
+                prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
+            else:
+                prop = "prop"
+            if self._query_has_array_breakdown():
+                prop_vals = f"groupUniqArrayIf({prop}, {prop} != [])"
+            else:
+                prop_vals = f"groupUniqArray({prop})"
+        return prop_vals
+
+    def _default_breakdown_selector(self: FunnelProtocol) -> str:
+        return "[]" if self._query_has_array_breakdown() else "''"
+
+
+class FunnelUDF(FunnelUDFMixin, FunnelBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # In base, these fields only get added if you're running an actors query
@@ -50,8 +111,6 @@ class FunnelUDF(FunnelBase):
         else:
             inner_event_query = self._get_inner_event_query_for_udf(entity_name="events")
 
-        default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "''"
-
         # stores the steps as an array of integers from 1 to max_steps
         # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]
 
@@ -73,8 +132,9 @@ class FunnelUDF(FunnelBase):
             fn = "aggregate_funnel"
             breakdown_prop = ""
 
-        prop_selector = "prop" if self.context.breakdown else default_breakdown_selector
-        prop_vals = "groupUniqArray(prop)" if self.context.breakdown else f"[{default_breakdown_selector}]"
+        prop_selector = "prop" if self.context.breakdown else self._default_breakdown_selector()
+
+        prop_vals = self._prop_vals()
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 

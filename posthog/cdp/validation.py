@@ -56,7 +56,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
         choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field", "email"]
     )
     key = serializers.CharField()
-    label = serializers.CharField(required=False)  # type: ignore
+    label = serializers.CharField(required=False, allow_blank=True)  # type: ignore
     choices = serializers.ListField(child=serializers.DictField(), required=False)
     required = serializers.BooleanField(default=False)  # type: ignore
     default = serializers.JSONField(required=False)
@@ -65,6 +65,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     integration = serializers.CharField(required=False)
     integration_key = serializers.CharField(required=False)
     integration_field = serializers.ChoiceField(choices=["slack_channel"], required=False)
+    requiredScopes = serializers.CharField(required=False)
 
     # TODO Validate choices if type=choice
 
@@ -184,13 +185,16 @@ def validate_inputs(
     return validated_inputs
 
 
-def compile_hog(hog: str, supported_functions: Optional[set[str]] = None, in_repl: Optional[bool] = False) -> list[Any]:
+def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> list[Any]:
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
-        return create_bytecode(
-            program, supported_functions=supported_functions or {"fetch", "postHogCapture"}, in_repl=in_repl
-        ).bytecode
+        supported_functions = set()
+
+        if hog_type == "destination":
+            supported_functions = {"fetch", "postHogCapture"}
+
+        return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})

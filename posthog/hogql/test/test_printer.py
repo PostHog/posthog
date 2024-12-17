@@ -460,11 +460,19 @@ class TestPrinter(BaseTest):
             self.assertEqual(1 + 2, 3)
             return
 
-        materialize("events", "withmat")
         context = HogQLContext(team_id=self.team.pk)
+        materialize("events", "withmat")
         self.assertEqual(
             self._expr("properties.withmat.json.yet", context),
             "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(nullIf(nullIf(events.mat_withmat, ''), 'null'), %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
+        )
+        self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
+
+        context = HogQLContext(team_id=self.team.pk)
+        materialize("events", "withmat_nullable", is_nullable=True)
+        self.assertEqual(
+            self._expr("properties.withmat_nullable.json.yet", context),
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.mat_withmat_nullable, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
 
@@ -497,6 +505,12 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("properties['$browser%%%#@!@']"),
             "nullIf(nullIf(events.`mat_$browser_______`, ''), 'null')",
+        )
+
+        materialize("events", "nullable_property", is_nullable=True)
+        self.assertEqual(
+            self._expr("properties['nullable_property']"),
+            "events.mat_nullable_property",
         )
 
     def test_property_groups(self):
@@ -832,9 +846,7 @@ class TestPrinter(BaseTest):
             self._expr("toUUID('470f9b15-ff43-402a-af9f-2ed7c526a6cf')", context),
             "accurateCastOrNull(%(hogql_val_4)s, %(hogql_val_5)s)",
         )
-        self.assertEqual(
-            self._expr("toDecimal('3.14')", context), "accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)"
-        )
+        self.assertEqual(self._expr("toDecimal('3.14', 2)", context), "toDecimal64OrNull(%(hogql_val_6)s, 2)")
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
     def test_expr_parse_errors(self):
@@ -1603,18 +1615,18 @@ class TestPrinter(BaseTest):
         )
         assert generated_sql_statements1 == (
             f"SELECT "
-            "ifNull(equals(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL), 1), 0), "
-            "ifNull(equals(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_2)s, %(hogql_val_3)s, NULL), 0), 0), "
-            "isNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_4)s, %(hogql_val_5)s, NULL)) "
+            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL)), 1), 0), "
+            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_2)s, %(hogql_val_3)s, NULL)), 0), 0), "
+            "isNull(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_4)s, %(hogql_val_5)s, NULL))) "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
         assert context.values == {
             "hogql_val_0": ["true", "false"],
-            "hogql_val_1": [True, False],
+            "hogql_val_1": [1, 0],
             "hogql_val_2": ["true", "false"],
-            "hogql_val_3": [True, False],
+            "hogql_val_3": [1, 0],
             "hogql_val_4": ["true", "false"],
-            "hogql_val_5": [True, False],
+            "hogql_val_5": [1, 0],
         }
 
     def test_field_nullable_like(self):

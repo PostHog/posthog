@@ -247,7 +247,7 @@ class SessionRecordingListFromQuery:
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=DateRange(date_from=self._query.date_from, date_to=self._query.date_to),
+            date_range=DateRange(date_from=self._query.date_from, date_to=self._query.date_to, explicitDate=True),
             team=self._team,
             interval=None,
             now=datetime.now(),
@@ -303,7 +303,10 @@ class SessionRecordingListFromQuery:
         if events_sub_query:
             optional_exprs.append(
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
+                    # this hits the distributed events table from the distributed session_replay_events table
+                    # so we should use GlobalIn
+                    # see https://clickhouse.com/docs/en/sql-reference/operators/in#distributed-subqueries
+                    op=ast.CompareOperationOp.GlobalIn,
                     left=ast.Field(chain=["s", "session_id"]),
                     right=events_sub_query,
                 )
@@ -498,7 +501,10 @@ class PersonsIdCompareOperation:
 
         if poe_is_active(self._team):
             return ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
+                # this hits the distributed events table from the distributed session_replay_events table
+                # so we should use GlobalIn
+                # see https://clickhouse.com/docs/en/sql-reference/operators/in#distributed-subqueries
+                op=ast.CompareOperationOp.GlobalIn,
                 left=ast.Field(chain=["session_id"]),
                 right=q,
             )

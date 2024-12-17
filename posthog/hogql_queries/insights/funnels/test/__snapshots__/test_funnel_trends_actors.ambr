@@ -1,12 +1,13 @@
 # serializer version: 1
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recordings
   '''
-  SELECT persons.id,
-         persons.id AS id,
+  SELECT source.id,
+         source.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT aggregation_target AS actor_id,
-            step_1_matching_events AS matching_events
+            step_1_matching_events AS matching_events,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                toStartOfDay(timestamp) AS entrance_period_start,
@@ -140,15 +141,11 @@
                  entrance_period_start)
      WHERE ifNull(greaterOrEquals(steps_completed, 2), 0)
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -174,12 +171,13 @@
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_with_drop_off
   '''
-  SELECT persons.id,
-         persons.id AS id,
+  SELECT source.id,
+         source.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT aggregation_target AS actor_id,
-            final_matching_events AS matching_events
+            final_matching_events AS matching_events,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                toStartOfDay(timestamp) AS entrance_period_start,
@@ -313,15 +311,11 @@
                  entrance_period_start)
      WHERE and(ifNull(greaterOrEquals(steps_completed, 1), 0), ifNull(less(steps_completed, 3), 0))
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -347,12 +341,13 @@
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_with_no_to_step
   '''
-  SELECT persons.id,
-         persons.id AS id,
+  SELECT source.id,
+         source.id AS id,
          source.matching_events AS matching_events
   FROM
     (SELECT aggregation_target AS actor_id,
-            final_matching_events AS matching_events
+            final_matching_events AS matching_events,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                toStartOfDay(timestamp) AS entrance_period_start,
@@ -486,15 +481,11 @@
                  entrance_period_start)
      WHERE ifNull(greaterOrEquals(steps_completed, 3), 0)
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,

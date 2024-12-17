@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS posthog_eventdefinition (
     volume_30_day INTEGER,
     query_usage_30_day INTEGER,
     team_id INTEGER NOT NULL,
+    project_id BIGINT NULL,
     last_seen_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
     CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq UNIQUE (team_id, name)
@@ -24,6 +25,7 @@ CREATE TABLE IF NOT EXISTS posthog_propertydefinition (
     property_type_format VARCHAR(50),
     volume_30_day INTEGER,
     team_id INTEGER NOT NULL,
+    project_id BIGINT NULL,
     group_type_index SMALLINT,
     type SMALLINT NOT NULL DEFAULT 1
 );
@@ -35,7 +37,8 @@ CREATE TABLE IF NOT EXISTS posthog_eventproperty (
     id SERIAL PRIMARY KEY,
     event VARCHAR(400)NOT NULL,
     property VARCHAR(400) NOT NULL,
-    team_id INTEGER NOT NULL
+    team_id INTEGER NOT NULL,
+    project_id BIGINT NULL
 );
 
 CREATE UNIQUE INDEX posthog_event_property_unique_team_event_property ON posthog_eventproperty (team_id, event, property);

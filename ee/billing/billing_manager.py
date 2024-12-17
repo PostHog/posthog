@@ -74,9 +74,14 @@ class BillingManager:
         self.license = license or get_cached_instance_license()
         self.user = user
 
-    def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> dict[str, Any]:
+    def get_billing(
+        self,
+        organization: Optional[Organization],
+        plan_keys: Optional[str],
+        query_params: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
         if organization and self.license and self.license.is_v2_license:
-            billing_service_response = self._get_billing(organization)
+            billing_service_response = self._get_billing(organization, query_params)
 
             # Ensure the license and org are updated with the latest info
             if billing_service_response.get("license"):
@@ -225,7 +230,7 @@ class BillingManager:
 
         return self.license
 
-    def _get_billing(self, organization: Organization) -> BillingStatus:
+    def _get_billing(self, organization: Organization, query_params: Optional[dict[str, Any]] = None) -> BillingStatus:
         """
         Retrieves billing info and updates local models if necessary
         """
@@ -235,6 +240,7 @@ class BillingManager:
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=self.get_auth_headers(organization),
+            params=query_params,
         )
         handle_billing_service_error(res)
 

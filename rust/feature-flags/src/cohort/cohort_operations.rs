@@ -302,8 +302,6 @@ mod tests {
             .find(|c| c.id == main_cohort.id)
             .expect("Failed to find main cohort");
 
-        println!("fetched_main_cohort: {:?}", fetched_main_cohort);
-
         let dependencies = fetched_main_cohort.extract_dependencies().unwrap();
         let expected_dependencies: HashSet<CohortId> =
             [dependent_cohort.id].iter().cloned().collect();

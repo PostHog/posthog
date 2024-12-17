@@ -59,12 +59,13 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(new_select.select_from, ast.JoinExpr)
         assert isinstance(new_select.select_from.next_join, ast.JoinExpr)
         assert isinstance(new_select.select_from.next_join.next_join, ast.JoinExpr)
-        assert isinstance(new_select.select_from.next_join.next_join.table, ast.SelectQuery)
+        assert isinstance(new_select.select_from.next_join.next_join.next_join, ast.JoinExpr)
+        assert isinstance(new_select.select_from.next_join.next_join.next_join.table, ast.SelectQuery)
 
-        assert new_select.select_from.next_join.alias == "events__pdi"
-        assert new_select.select_from.next_join.next_join.alias == "events__pdi__person"
+        assert new_select.select_from.next_join.next_join.alias == "events__pdi"
+        assert new_select.select_from.next_join.next_join.next_join.alias == "events__pdi__person"
 
-        where = new_select.select_from.next_join.next_join.table.where
+        where = new_select.select_from.next_join.next_join.next_join.table.where
         if where is None:
             return None
 
@@ -194,6 +195,6 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         )
         actual = self.print_query("SELECT * FROM events WHERE person.properties.person_boolean = false")
         assert (
-            f"ifNull(equals(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties"
+            f"ifNull(equals(toBool(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties"
             in actual
         )

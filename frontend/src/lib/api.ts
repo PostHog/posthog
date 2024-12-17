@@ -54,6 +54,7 @@ import {
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
     FeatureFlagAssociatedRoleType,
+    FeatureFlagStatusResponse,
     FeatureFlagType,
     Group,
     GroupListParams,
@@ -424,8 +425,8 @@ class ApiRequest {
         return this.events(teamId).addPathComponent(id)
     }
 
-    public tags(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('tags')
+    public tags(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('tags')
     }
 
     // # Data management
@@ -520,8 +521,11 @@ class ApiRequest {
         return this.dashboards(teamId).addPathComponent(dashboardId)
     }
 
-    public dashboardCollaborators(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.dashboardsDetail(dashboardId, teamId).addPathComponent('collaborators')
+    public dashboardCollaborators(
+        dashboardId: DashboardType['id'],
+        projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId() // Collaborators endpoint is project-level, not team-level
+    ): ApiRequest {
+        return this.dashboardsDetail(dashboardId, projectId).addPathComponent('collaborators')
     }
 
     public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -531,9 +535,9 @@ class ApiRequest {
     public dashboardCollaboratorsDetail(
         dashboardId: DashboardType['id'],
         userUuid: UserType['uuid'],
-        teamId?: TeamType['id']
+        projectId?: ProjectType['id']
     ): ApiRequest {
-        return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
+        return this.dashboardCollaborators(dashboardId, projectId).addPathComponent(userUuid)
     }
 
     // # Dashboard templates
@@ -661,6 +665,13 @@ class ApiRequest {
                     record_id: featureFlagId,
                 })
             )
+    }
+
+    public featureFlagStatus(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('feature_flags')
+            .addPathComponent(String(featureFlagId))
+            .addPathComponent('status')
     }
 
     public featureFlagCreateScheduledChange(teamId: TeamType['id']): ApiRequest {
@@ -834,9 +845,9 @@ class ApiRequest {
         return apiRequest
     }
 
-    // Chat
-    public chat(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query').addPathComponent('chat')
+    // Conversations
+    public conversations(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('conversations')
     }
 
     // Notebooks
@@ -919,6 +930,10 @@ class ApiRequest {
 
     public async update(options?: ApiMethodOptions & { data: any }): Promise<any> {
         return await api.update(this.assembleFullUrl(), options?.data, options)
+    }
+
+    public async put(options?: ApiMethodOptions & { data: any }): Promise<any> {
+        return await api.put(this.assembleFullUrl(), options?.data, options)
     }
 
     public async create(options?: ApiMethodOptions & { data: any }): Promise<any> {
@@ -1037,6 +1052,12 @@ const api = {
             scheduledChangeId: ScheduledChangeType['id']
         ): Promise<{ scheduled_change: ScheduledChangeType }> {
             return await new ApiRequest().featureFlagDeleteScheduledChange(teamId, scheduledChangeId).delete()
+        },
+        async getStatus(
+            teamId: TeamType['id'],
+            featureFlagId: FeatureFlagType['id']
+        ): Promise<FeatureFlagStatusResponse> {
+            return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
         },
     },
 
@@ -1279,8 +1300,8 @@ const api = {
     },
 
     tags: {
-        async list(teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<string[]> {
-            return new ApiRequest().tags(teamId).get()
+        async list(projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()): Promise<string[]> {
+            return new ApiRequest().tags(projectId).get()
         },
     },
 
@@ -2526,12 +2547,10 @@ const api = {
         })
     },
 
-    chatURL: (): string => {
-        return new ApiRequest().chat().assembleFullUrl()
-    },
-
-    async chat(data: any): Promise<Response> {
-        return await api.createResponse(this.chatURL(), data)
+    conversations: {
+        async create(data: { content: string; conversation?: string | null }): Promise<Response> {
+            return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data)
+        },
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */
@@ -2554,14 +2573,19 @@ const api = {
         })
     },
 
-    async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
+    async _update<T = any, P = any>(
+        method: 'PATCH' | 'PUT',
+        url: string,
+        data: P,
+        options?: ApiMethodOptions
+    ): Promise<T> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
-        const response = await handleFetch(url, 'PATCH', async () => {
+        const response = await handleFetch(url, method, async () => {
             return await fetch(url, {
-                method: 'PATCH',
+                method: method,
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
@@ -2576,7 +2600,15 @@ const api = {
         return await getJSONOrNull(response)
     },
 
-    async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
+    async update<T = any, P = any>(url: string, data: P, options?: ApiMethodOptions): Promise<T> {
+        return api._update('PATCH', url, data, options)
+    },
+
+    async put<T = any, P = any>(url: string, data: P, options?: ApiMethodOptions): Promise<T> {
+        return api._update('PUT', url, data, options)
+    },
+
+    async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
         const res = await api.createResponse(url, data, options)
         return await getJSONOrNull(res)
     },

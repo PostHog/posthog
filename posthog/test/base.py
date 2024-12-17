@@ -30,7 +30,6 @@ from rest_framework.test import APITestCase as DRFTestCase
 from posthog import rate_limit, redis
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
-from posthog.clickhouse.materialized_columns import get_materialized_columns
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
@@ -121,6 +120,8 @@ def clean_varying_query_parts(query, replace_all_numbers):
 
     else:
         query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
+        query = re.sub(r"(team|cohort)_id(\"?) IN \(\d+(, ?\d+)*\)", r"\1_id\2 IN (1, 2, 3, 4, 5 /* ... */)", query)
+        query = re.sub(r"(team|cohort)_id(\"?) IN \[\d+(, ?\d+)*\]", r"\1_id\2 IN [1, 2, 3, 4, 5 /* ... */]", query)
         query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"99999 as \1_id\2", query)
     # feature flag conditions use primary keys as columns in queries, so replace those always
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
@@ -142,8 +143,8 @@ def clean_varying_query_parts(query, replace_all_numbers):
     )
     # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
     query = re.sub(
-        r"\"posthog_survey_actions\".\"survey_id\" IN \('[^']+'::uuid, '[^']+'::uuid\)",
-        r"'posthog_survey_actions'.'survey_id' IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
+        r"\"posthog_survey_actions\"\.\"survey_id\" IN \('[^']+'::uuid(, '[^']+'::uuid)*\)",
+        r"'posthog_survey_actions'.'survey_id' IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid, /* ... */])",
         query,
     )
     # replace session uuids
@@ -156,7 +157,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
     #### Cohort replacements
     # replace cohort id lists in queries too
     query = re.sub(
-        r"in\(([^,]+\.?cohort_id), \[(\d+(, ?\d+)*)]\)",
+        r"in\(([^,]*cohort_id),\s*\[(\d+(?:,\s*\d+)*)]\)",
         r"in(\1, [1, 2, 3, 4, 5 /* ... */])",
         query,
     )
@@ -575,35 +576,31 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
     return response
 
 
-def default_materialised_columns():
+def cleanup_materialized_columns():
     try:
+        from ee.clickhouse.materialized_columns.columns import get_materialized_columns
         from ee.clickhouse.materialized_columns.test.test_columns import EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
     except:
         # EE not available? Skip
-        return []
+        return
 
-    default_columns = []
-    for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS:
-        column_name = get_materialized_columns("events")[(prop, "properties")]
-        default_columns.append(column_name)
-
-    return default_columns
-
-
-def cleanup_materialized_columns():
     def optionally_drop(table, filter=None):
         drops = ",".join(
             [
-                f"DROP COLUMN {column_name}"
-                for column_name in get_materialized_columns(table).values()
-                if filter is None or filter(column_name)
+                f"DROP COLUMN {column.name}"
+                for column in get_materialized_columns(table).values()
+                if filter is None or filter(column.name)
             ]
         )
         if drops:
             sync_execute(f"ALTER TABLE {table} {drops} SETTINGS mutations_sync = 2")
 
-    default_columns = default_materialised_columns()
-    optionally_drop("events", lambda name: name not in default_columns)
+    default_column_names = {
+        get_materialized_columns("events")[(prop, "properties")].name
+        for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
+    }
+
+    optionally_drop("events", lambda name: name not in default_column_names)
     optionally_drop("person")
     optionally_drop("groups")
 
@@ -794,6 +791,14 @@ class BaseTestMigrations(QueryMatchingTest):
 
     def setUpBeforeMigration(self, apps):
         pass
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()  # type: ignore
+        executor = MigrationExecutor(connection)  # Reset Django's migration state
+        targets = executor.loader.graph.leaf_nodes()
+        executor.migrate(targets)  # Migrate to the latest migration
+        executor.loader.build_graph()  # Reload.
 
 
 class TestMigrations(BaseTestMigrations, BaseTest):

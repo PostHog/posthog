@@ -10,6 +10,7 @@ import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { projectLogic } from 'scenes/projectLogic'
 
+import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { ActivityFilters, activityForSceneLogic } from './activityForSceneLogic'
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 
@@ -29,12 +30,14 @@ export interface ChangesResponse {
 export enum SidePanelActivityTab {
     Unread = 'unread',
     All = 'all',
+    Metalytics = 'metalytics',
 }
 
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
     connect({
         values: [activityForSceneLogic, ['sceneActivityFilters'], projectLogic, ['currentProjectId']],
+        actions: [sidePanelStateLogic, ['openSidePanel']],
     }),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -171,7 +174,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         ],
     })),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         setActiveTab: ({ tab }) => {
             if (tab === SidePanelActivityTab.All && !values.allActivityResponseLoading) {
                 actions.loadAllActivity()
@@ -181,6 +184,18 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         maybeLoadOlderActivity: () => {
             if (!values.allActivityResponseLoading && values.allActivityResponse?.next) {
                 actions.loadOlderActivity()
+            }
+        },
+        openSidePanel: ({ options }) => {
+            if (options) {
+                actions.setActiveTab(options as SidePanelActivityTab)
+            }
+        },
+        togglePolling: ({ pageIsVisible }) => {
+            if (pageIsVisible) {
+                actions.loadImportantChanges()
+            } else {
+                clearTimeout(cache.pollTimeout)
             }
         },
     })),

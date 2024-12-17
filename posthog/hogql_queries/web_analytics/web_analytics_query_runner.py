@@ -11,12 +11,17 @@ from django.utils.timezone import datetime
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    ActionConversionGoal,
+    CustomEventConversionGoal,
     EventPropertyFilter,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -45,6 +50,73 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         )
 
     @cached_property
+    def query_compare_to_date_range(self):
+        if self.query.compareFilter is not None:
+            if isinstance(self.query.compareFilter.compare_to, str):
+                return QueryCompareToDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=None,
+                    now=datetime.now(),
+                    compare_to=self.query.compareFilter.compare_to,
+                )
+            elif self.query.compareFilter.compare:
+                return QueryPreviousPeriodDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=None,
+                    now=datetime.now(),
+                )
+
+        return None
+
+    def _current_period_expression(self, field="start_timestamp"):
+        return ast.Call(
+            name="and",
+            args=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_date_range.date_from_as_hogql(),
+                    op=ast.CompareOperationOp.GtEq,
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_date_range.date_to_as_hogql(),
+                    op=ast.CompareOperationOp.Lt,
+                ),
+            ],
+        )
+
+    def _previous_period_expression(self, field="start_timestamp"):
+        if not self.query_compare_to_date_range:
+            return ast.Constant(value=None)
+
+        return ast.Call(
+            name="and",
+            args=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_compare_to_date_range.date_from_as_hogql(),
+                    op=ast.CompareOperationOp.GtEq,
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_compare_to_date_range.date_to_as_hogql(),
+                    op=ast.CompareOperationOp.Lt,
+                ),
+            ],
+        )
+
+    def _periods_expression(self, field="timestamp"):
+        return ast.Call(
+            name="or",
+            args=[
+                self._current_period_expression(field),
+                self._previous_period_expression(field),
+            ],
+        )
+
+    @cached_property
     def pathname_property_filter(self) -> Optional[EventPropertyFilter]:
         for p in self.query.properties:
             if isinstance(p, EventPropertyFilter) and p.key == "$pathname":
@@ -56,6 +128,57 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         self,
     ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
+
+    @cached_property
+    def conversion_goal_expr(self) -> Optional[ast.Expr]:
+        if isinstance(self.query.conversionGoal, ActionConversionGoal):
+            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
+            return action_to_expr(action)
+        elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
+            return ast.CompareOperation(
+                left=ast.Field(chain=["events", "event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=self.query.conversionGoal.customEventName),
+            )
+        else:
+            return None
+
+    @cached_property
+    def conversion_count_expr(self) -> Optional[ast.Expr]:
+        if self.conversion_goal_expr:
+            return ast.Call(name="countIf", args=[self.conversion_goal_expr])
+        else:
+            return None
+
+    @cached_property
+    def conversion_person_id_expr(self) -> Optional[ast.Expr]:
+        if self.conversion_goal_expr:
+            return ast.Call(
+                name="any",
+                args=[
+                    ast.Call(
+                        name="if",
+                        args=[
+                            self.conversion_goal_expr,
+                            ast.Field(chain=["events", "person_id"]),
+                            ast.Constant(value=None),
+                        ],
+                    )
+                ],
+            )
+        else:
+            return None
+
+    @cached_property
+    def event_type_expr(self) -> ast.Expr:
+        pageview_expr = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
+        )
+
+        if self.conversion_goal_expr:
+            return ast.Call(name="or", args=[pageview_expr, self.conversion_goal_expr])
+        else:
+            return pageview_expr
 
     def period_aggregate(self, function_name, column_name, start, end, alias=None, params=None):
         expr = ast.Call(

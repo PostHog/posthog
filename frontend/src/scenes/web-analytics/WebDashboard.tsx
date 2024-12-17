@@ -1,6 +1,7 @@
 import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -38,10 +39,10 @@ const Filters = (): JSX.Element => {
     const {
         webAnalyticsFilters,
         dateFilter: { dateTo, dateFrom },
+        compareFilter,
     } = useValues(webAnalyticsLogic)
-    const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
+    const { setWebAnalyticsFilters, setDates, setCompareFilter } = useActions(webAnalyticsLogic)
     const { mobileLayout } = useValues(navigationLogic)
-    const { conversionGoal } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
@@ -53,13 +54,15 @@ const Filters = (): JSX.Element => {
         >
             <div className="flex flex-row flex-wrap gap-2">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PERIOD_COMPARISON] ? (
+                    <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+                ) : null}
+
                 <WebPropertyFilters
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
                 />
-                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS] || conversionGoal ? (
-                    <WebConversionGoal />
-                ) : null}
+                <WebConversionGoal />
                 <ReloadAll />
             </div>
             <div className="bg-border h-px w-full mt-2" />

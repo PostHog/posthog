@@ -2,13 +2,13 @@ import {
     IconAI,
     IconChevronDown,
     IconDatabase,
-    IconDecisionTree,
     IconFeatures,
     IconGraph,
     IconHelmet,
     IconMap,
     IconMessage,
     IconPieChart,
+    IconPlug,
     IconRewindPlay,
     IconStack,
     IconTestTube,
@@ -74,7 +74,7 @@ const PRODUCTS = [
     {
         name: 'Data pipelines',
         slug: 'cdp',
-        icon: <IconDecisionTree className="text-[#2EA2D3] h-5 w-5" />,
+        icon: <IconPlug className="text-[#2EA2D3] h-5 w-5" />,
     },
     {
         name: 'Data warehouse',

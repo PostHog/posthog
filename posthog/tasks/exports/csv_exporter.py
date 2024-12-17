@@ -170,19 +170,21 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
                 yield line
             return
         elif isinstance(first_result.get("data"), list):
+            is_comparison = first_result.get("compare_label")
+
+            # take date labels from current results, when comparing against previous
+            # as previous results will be indexed with offset
+            date_labels_item = next((x for x in results if x.get("compare_label") == "current"), None)
+
             # TRENDS LIKE
             for index, item in enumerate(results):
                 label = item.get("label", f"Series #{index + 1}")
                 compare_label = item.get("compare_label", "")
                 series_name = f"{label} - {compare_label}" if compare_label else label
+
                 line = {"series": series_name}
 
-                # take labels from current results, when comparing against previous
-                if item.get("compare_label") == "previous":
-                    label_item = results[index - 1]
-                else:
-                    label_item = item
-
+                label_item = date_labels_item if is_comparison else item
                 action = item.get("action")
 
                 if isinstance(action, dict) and action.get("custom_name"):

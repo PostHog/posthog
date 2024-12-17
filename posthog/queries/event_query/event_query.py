@@ -10,7 +10,6 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyGroup, PropertyName
 from posthog.models.property.util import parse_prop_grouped_clauses
@@ -52,7 +51,6 @@ class EventQuery(metaclass=ABCMeta):
             PathFilter,
             RetentionFilter,
             StickinessFilter,
-            SessionRecordingsFilter,
             PropertiesTimelineFilter,
         ],
         team: Team,
@@ -191,7 +189,7 @@ class EventQuery(metaclass=ABCMeta):
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
         try:
-            cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+            cohort: Cohort = Cohort.objects.get(pk=prop.value)
         except Cohort.DoesNotExist:
             return False
         if is_precalculated_query(cohort):

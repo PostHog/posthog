@@ -1,29 +1,31 @@
 import { LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
 import { RollingDateRangeFilter } from 'lib/components/DateFilter/RollingDateRangeFilter'
 import { dateFromToText } from 'lib/utils'
 import { useEffect, useState } from 'react'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-export function CompareFilter(): JSX.Element | null {
-    const { insightProps, canEditInsight } = useValues(insightLogic)
+import { CompareFilter as CompareFilterType } from '~/queries/schema'
 
-    const { compareFilter, supportsCompare } = useValues(insightVizDataLogic(insightProps))
-    const { updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
+type CompareFilterProps = {
+    compareFilter?: CompareFilterType | null
+    updateCompareFilter: (compareFilter: CompareFilterType) => void
+    disabled?: boolean
+}
 
+export function CompareFilter({
+    compareFilter,
+    updateCompareFilter,
+    disabled,
+}: CompareFilterProps): JSX.Element | null {
     // This keeps the state of the rolling date range filter, even when different drop down options are selected
     // The default value for this is one month
     const [tentativeCompareTo, setTentativeCompareTo] = useState<string>(compareFilter?.compare_to || '-1m')
-
-    const disabled: boolean = !canEditInsight || !supportsCompare
 
     useEffect(() => {
         const newCompareTo = compareFilter?.compare_to
         if (!!newCompareTo && tentativeCompareTo != newCompareTo) {
             setTentativeCompareTo(newCompareTo)
         }
-    }, [compareFilter?.compare_to])
+    }, [compareFilter?.compare_to]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Hide compare filter control when disabled to avoid states where control is "disabled but checked"
     if (disabled) {

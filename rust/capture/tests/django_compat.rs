@@ -7,6 +7,7 @@ use base64::Engine;
 use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use capture::config::CaptureMode;
 use capture::limiters::redis::{QuotaResource, RedisLimiter, QUOTA_LIMITER_CACHE_KEY};
+use capture::limiters::token_dropper::TokenDropper;
 use capture::redis::MockRedisClient;
 use capture::router::router;
 use capture::sinks::Event;
@@ -117,6 +118,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             sink.clone(),
             redis,
             billing_limiter,
+            TokenDropper::default(),
             false,
             CaptureMode::Events,
             None,
