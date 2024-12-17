@@ -4,4 +4,4 @@ from ee.hogai.memory.prompts import INITIALIZE_CORE_MEMORY_PROMPT
 
 
 def initialize_memory():
-    _ = ChatPromptTemplate.from_messages([("human", INITIALIZE_CORE_MEMORY_PROMPT)])
+    _ = ChatPromptTemplate.from_messages([("human", INITIALIZE_CORE_MEMORY_PROMPT)], template_format="mustache")
