@@ -386,8 +386,6 @@ class RemoteConfig(UUIDModel):
         ):
             return
 
-        logger.info(f"Purging CDN for team {self.team_id}")
-
         data: dict[str, Any] = {"files": []}
 
         for domain in settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS:
@@ -396,6 +394,8 @@ class RemoteConfig(UUIDModel):
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config"})
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config.js"})
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/array.js"})
+
+        logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
 
         try:
             res = requests.post(
