@@ -15,7 +15,7 @@ export function LemonTableLink({
                 <div className="flex flex-row items-center font-semibold text-sm gap-1">{title}</div>
 
                 {description ? (
-                    <div className="content-secondary text-xs mt-1">
+                    <div className="text-[var(--content-secondary)] text-xs mt-1">
                         {typeof description === 'string' ? (
                             <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
                                 {description}

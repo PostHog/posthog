@@ -294,7 +294,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
     return (
         <div
             className={clsx(
-                `background-primary rounded space-y-px border p-2 overflow-y-auto`,
+                `bg-[var(--background-primary)] rounded space-y-px border p-2 overflow-y-auto`,
                 !collapsed ? 'min-w-80 flex-1' : ''
             )}
         >
@@ -309,13 +309,13 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                         icon={<IconDatabase />}
                         className="font-normal"
                     >
-                        <span className="uppercase content-tertiary tracking-wider">Sources</span>
+                        <span className="uppercase text-[var(--content-tertiary)] tracking-wider">Sources</span>
                     </LemonButton>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>
             ) : (
                 <>
-                    <span className="content-tertiary tracking-wider font-normal">Sources</span>
+                    <span className="text-[var(--content-tertiary)] tracking-wider font-normal">Sources</span>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>
             )}

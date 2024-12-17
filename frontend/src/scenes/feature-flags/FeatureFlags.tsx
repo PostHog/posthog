@@ -374,7 +374,7 @@ export function OverViewTab({
             <div>{filtersSection}</div>
             <LemonDivider className="my-4" />
             <div className="mb-4">
-                <span className="content-tertiary ">
+                <span className="text-[var(--content-tertiary)] ">
                     {count
                         ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
                               count === 1 ? '' : 's'

@@ -348,7 +348,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
     const matchedRecordings = actor.matched_recordings || []
 
     return (
-        <div className="relative border rounded background-primary">
+        <div className="relative border rounded bg-[var(--background-primary)]">
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding
@@ -376,7 +376,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                                     explicitValue={actor.distinct_ids[0]}
                                     iconStyle={{ color: 'var(--primary)' }}
                                     iconPosition="end"
-                                    className="text-xs content-tertiary"
+                                    className="text-xs text-[var(--content-tertiary)]"
                                 >
                                     {midEllipsis(actor.distinct_ids[0], 32)}
                                 </CopyToClipboardInline>
@@ -401,7 +401,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
             </div>
 
             {expanded ? (
-                <div className="PersonsModal__tabs background-primary border-t rounded-b">
+                <div className="PersonsModal__tabs bg-[var(--background-primary)] border-t rounded-b">
                     <LemonTabs
                         activeKey={tab}
                         onChange={setTab}

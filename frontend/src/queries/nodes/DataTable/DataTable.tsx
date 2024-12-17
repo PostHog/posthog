@@ -567,7 +567,7 @@ export function DataTable({
                                           expandedRowClassName: ({ result }) => {
                                               const record = Array.isArray(result) ? result[0] : result
                                               return record && record['event'] === '$exception'
-                                                  ? 'border border-x-danger-subtle background-danger-subtle'
+                                                  ? 'border border-x-danger-subtle bg-[var(background-danger-subtle)]'
                                                   : null
                                           },
                                       }
@@ -577,7 +577,7 @@ export function DataTable({
                                 clsx('DataTable__row', {
                                     'DataTable__row--highlight_once': result && highlightedRows.has(result),
                                     'DataTable__row--category_row': !!label,
-                                    'border border-x-danger-subtle background-danger-subtle':
+                                    'border border-x-danger-subtle bg-[var(background-danger-subtle)]':
                                         result && result[0] && result[0]['event'] === '$exception',
                                 })
                             }

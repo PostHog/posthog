@@ -49,7 +49,7 @@ export function HogFunctionFilters(): JSX.Element {
 
     if (type === 'broadcast') {
         return (
-            <div className="p-3 space-y-2 border rounded background-primary">
+            <div className="p-3 space-y-2 border rounded bg-[var(--background-primary)]">
                 <LemonField name="filters" label="Filters">
                     {({ value, onChange }) => (
                         <PropertyFilters
@@ -78,7 +78,7 @@ export function HogFunctionFilters(): JSX.Element {
     const showDropEvents = type === 'transformation'
 
     return (
-        <div className="p-3 space-y-2 border rounded background-primary">
+        <div className="p-3 space-y-2 border rounded bg-[var(--background-primary)]">
             <LemonField
                 name="filters"
                 label={useMapping ? 'Global filters' : 'Filters'}
@@ -116,7 +116,7 @@ export function HogFunctionFilters(): JSX.Element {
                                     <div className="flex justify-between w-full gap-2">
                                         <LemonLabel>Match events and actions</LemonLabel>
                                     </div>
-                                    <p className="mb-0 text-xs content-tertiary">
+                                    <p className="mb-0 text-xs text-[var(--content-tertiary)]">
                                         If set, the destination will only run if the <b>event matches any</b> of the
                                         below.
                                     </p>

@@ -40,7 +40,7 @@ export function HogFunctionInputIntegrationField({
 
     if (!integration) {
         return (
-            <div className="border border-dashed h-10 rounded p-2 content-tertiary italic">
+            <div className="border border-dashed h-10 rounded p-2 text-[var(--content-tertiary)] italic">
                 Configure {relatedSchemaIntegration.label} to continue
             </div>
         )

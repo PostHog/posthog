@@ -92,7 +92,10 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
     const [successfulUserId, setSuccessfulUserId] = useState<number | null>(null)
 
     return (
-        <ScrollableShadows direction="vertical" className="background-primary border rounded mt-1 max-h-64 *:p-1">
+        <ScrollableShadows
+            direction="vertical"
+            className="bg-[var(--background-primary)] border rounded mt-1 max-h-64 *:p-1"
+        >
             <LemonMenuOverlay
                 items={suggestedUsers.map((user) => ({
                     icon: <ProfilePicture user={user} size="md" />,

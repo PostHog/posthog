@@ -1,4 +1,4 @@
-import { Link } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
@@ -28,26 +28,26 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
     }
 
     return (
-        <div className="flex items-center content-tertiary z-10">
+        <div className="flex items-center text-[var(--content-tertiary)] z-10">
             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
             {!disableRefresh && (
                 <>
                     <span className="px-1">•</span>
-                    {/* <Tooltip
+                    <Tooltip
                         title={
                             canBypassRefreshDisabled && disabledReason
-                                ? `xxxxx ${disabledReason} (you can bypass this due to dev env / staff permissions)`
+                                ? `${disabledReason} (you can bypass this due to dev env / staff permissions)`
                                 : undefined
                         }
-                    > */}
-                    <Link
-                        onClick={() => loadData(true)}
-                        // className={disabledReason ? 'opacity-50' : ''}
-                        disabledReason={canBypassRefreshDisabled ? false : `999999 ${disabledReason}`}
                     >
-                        Refresh
-                    </Link>
-                    {/* </Tooltip> */}
+                        <Link
+                            onClick={() => loadData(true)}
+                            className={disabledReason ? 'opacity-50' : ''}
+                            disabledReason={canBypassRefreshDisabled ? '' : disabledReason}
+                        >
+                            Refresh
+                        </Link>
+                    </Tooltip>
                 </>
             )}
         </div>

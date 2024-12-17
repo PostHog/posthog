@@ -62,7 +62,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                 }}
                 prefix={
                     <span className="-mr-2 flex items-center">
-                        <div className="background-primary rounded">
+                        <div className="bg-[var(--background-primary)] rounded">
                             <LemonInputSelect
                                 mode="single"
                                 value={[browserUrl || 'my-website.com']}
@@ -233,7 +233,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
             <>
                 {dashboardCreatedDuringOnboarding ? (
                     <div className="mb-8 max-w-screen-md mx-auto">
-                        <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
+                        <div className="bg-[var(--background-success-subtle)] rounded p-6 flex justify-between items-center">
                             <div className="flex gap-x-4">
                                 <IconCheckCircle className="text-success text-3xl mb-6" />
                                 <div>

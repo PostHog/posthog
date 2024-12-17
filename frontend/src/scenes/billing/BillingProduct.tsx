@@ -104,8 +104,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             ref={ref}
             data-attr={`billing-product-${product.type}`}
         >
-            <div className="border border-border rounded w-full background-primary" ref={productRef}>
-                <div className="border-b border-border rounded-t background-primary p-4">
+            <div className="border border-border rounded w-full bg-[var(--background-primary)]" ref={productRef}>
+                <div className="border-b border-border rounded-t bg-[var(--background-primary)] p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {getProductIcon(product.name, product.icon_key, 'text-2xl')}
                         <div>
@@ -375,7 +375,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     <div
                         data-attr={`upgrade-card-${product.type}`}
                         className={`border-t border-border p-8 flex justify-between ${
-                            !upgradePlan ? 'bg-success-highlight' : 'bg-warning-highlight'
+                            !upgradePlan ? 'bg-[var(--background-success-subtle)]' : 'bg-warning-highlight'
                         }`}
                     >
                         <div>

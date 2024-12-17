@@ -71,7 +71,10 @@ function AccountInfo(): JSX.Element {
                 <ProfilePicture user={user} size="xl" />
                 <div className="AccountInfo__identification AccountPopover__main-info font-sans font-normal">
                     <div className="font-semibold mb-1">{user?.first_name}</div>
-                    <div className="overflow-hidden content-tertiary truncate text-[0.8125rem]" title={user?.email}>
+                    <div
+                        className="overflow-hidden text-[var(--content-tertiary)] truncate text-[0.8125rem]"
+                        title={user?.email}
+                    >
                         {user?.email}
                     </div>
                 </div>

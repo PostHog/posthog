@@ -35,7 +35,7 @@ export const OverviewTab = (): JSX.Element => {
                     content={({ activeItem: event }) =>
                         event ? (
                             <div className="h-full overflow-auto">
-                                <div className="background-primary p-1 flex justify-end border-b min-h-[42px]">
+                                <div className="bg-[var(--background-primary)] p-1 flex justify-end border-b min-h-[42px]">
                                     <ViewRecordingButton
                                         size="small"
                                         sessionId={event.properties.$session_id}

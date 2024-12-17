@@ -155,7 +155,7 @@ export function AddToDashboardModal({
                     value={searchQuery}
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
-                <div className="content-tertiary">
+                <div className="text-[var(--content-tertiary)]">
                     This insight is referenced on <strong className="text-text-3000">{currentDashboards.length}</strong>{' '}
                     {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
                 </div>

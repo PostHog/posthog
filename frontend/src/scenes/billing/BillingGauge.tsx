@@ -31,7 +31,7 @@ const BillingGaugeItem = ({ item, maxValue, isWithinUsageLimit }: BillingGaugeIt
             // eslint-disable-next-line react/forbid-dom-props
             style={{ '--billing-gauge-item-width': width } as React.CSSProperties}
         >
-            <div className="absolute right-0 w-px h-full background-primary" />
+            <div className="absolute right-0 w-px h-full bg-[var(--background-primary)]" />
             <Tooltip
                 title={item.prefix ? `${item.prefix}${item.value.toLocaleString()}` : item.value.toLocaleString()}
                 placement="right"

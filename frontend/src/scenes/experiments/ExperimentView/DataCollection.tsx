@@ -58,7 +58,7 @@ export function DataCollection(): JSX.Element {
                     </div>
                 }
             >
-                <IconInfo className="content-tertiary text-base" />
+                <IconInfo className="text-[var(--content-tertiary)] text-base" />
             </Tooltip>
         )
     }
@@ -71,7 +71,7 @@ export function DataCollection(): JSX.Element {
                     title="Estimated target for the number of participants. Actual data may reveal significance earlier or later
                     than predicted."
                 >
-                    <IconInfo className="content-tertiary text-base" />
+                    <IconInfo className="text-[var(--content-tertiary)] text-base" />
                 </Tooltip>
             </div>
             <div className="flex">
@@ -149,7 +149,7 @@ export function DataCollection(): JSX.Element {
                             }
                             closeDelayMs={200}
                         >
-                            <IconInfo className="content-tertiary text-base" />
+                            <IconInfo className="text-[var(--content-tertiary)] text-base" />
                         </Tooltip>
                     </div>
                     {!experiment.end_date && (

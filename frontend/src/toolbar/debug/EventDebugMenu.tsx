@@ -136,7 +136,7 @@ export const EventDebugMenu = (): JSX.Element => {
                                         expandedEvent === e.uuid ? markExpanded(null) : markExpanded(e.uuid || null)
                                     }}
                                 >
-                                    <div className="flex flex-row justify-between hover:background-primary hover:text-text-3000-light">
+                                    <div className="flex flex-row justify-between hover:bg-[var(--background-primary)] hover:text-text-3000-light">
                                         <EventTimestamp e={e} />
                                         <PropertyKeyInfo
                                             value={e.event}

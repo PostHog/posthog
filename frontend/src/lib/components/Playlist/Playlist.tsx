@@ -155,7 +155,7 @@ export function Playlist<
 }
 
 const CollapsedList = ({ onClickOpen }: { onClickOpen: () => void }): JSX.Element => (
-    <div className="flex items-start h-full background-primary border-r p-1">
+    <div className="flex items-start h-full bg-[var(--background-primary)] border-r p-1">
         <LemonButton size="xsmall" icon={<IconChevronRight />} onClick={onClickOpen} />
     </div>
 )
@@ -250,10 +250,10 @@ function List<
     const initiallyOpenSections = sections.filter((s) => s.initiallyOpen).map((s) => s.key)
 
     return (
-        <div className="flex flex-col w-full background-primary overflow-hidden border-r h-full">
+        <div className="flex flex-col w-full bg-[var(--background-primary)] overflow-hidden border-r h-full">
             <DraggableToNotebook href={notebooksHref}>
                 <div className="flex flex-col gap-1">
-                    <div className="shrink-0 background-primary relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                    <div className="shrink-0 bg-[var(--background-primary)] relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                         <TitleWithCount title={title} count={itemsCount} onClickCollapse={onClickCollapse} />
                         {headerActions}
                     </div>

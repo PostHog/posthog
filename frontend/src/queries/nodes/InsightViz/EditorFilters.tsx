@@ -182,7 +182,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                           </div>
                                       }
                                   >
-                                      <IconInfo className="text-xl content-tertiary shrink-0 ml-1" />
+                                      <IconInfo className="text-xl text-[var(--content-tertiary)] shrink-0 ml-1" />
                                   </Tooltip>
                               </div>
                           ),
@@ -256,7 +256,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                           </div>
                                       }
                                   >
-                                      <IconInfo className="text-xl content-tertiary shrink-0 ml-1" />
+                                      <IconInfo className="text-xl text-[var(--content-tertiary)] shrink-0 ml-1" />
                                   </Tooltip>
                               </div>
                           ),

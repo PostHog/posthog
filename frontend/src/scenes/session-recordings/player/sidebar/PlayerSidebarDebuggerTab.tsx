@@ -64,7 +64,7 @@ export function PlayerSidebarDebuggerTab(): JSX.Element {
     const sourceValues = debugSettings.incrementalSources.map((t) => t.toString())
 
     return (
-        <div className="h-full background-primary overflow-auto">
+        <div className="h-full bg-[var(--background-primary)] overflow-auto">
             <div className="p-2 flex gap-1">
                 <LemonInputSelect
                     size="xsmall"

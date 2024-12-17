@@ -28,7 +28,7 @@ export function ExperimentsListView({ experiments }: ExperimentsListViewProps): 
                             {index + 1}.
                         </span>
                         <span key={experiment.id + 'name'} className="flex-grow">
-                            {experiment.name || <span className="italic content-tertiary">Untitled</span>}
+                            {experiment.name || <span className="italic text-[var(--content-tertiary)]">Untitled</span>}
                         </span>
                     </Link>
                 ))

@@ -73,7 +73,7 @@ const SelectOption = ({ title, description, value, selectedValue }: SelectOption
     <div className="flex p-1 items-center">
         <div
             className={`flex shrink-0 font-bold w-10 h-10 mr-3 justify-center items-center rounded text-xs ${
-                value === selectedValue ? 'bg-primary text-white' : 'background-primary text-primary-alt'
+                value === selectedValue ? 'bg-primary text-white' : 'bg-[var(--background-primary)] text-primary-alt'
             }`}
         >
             {value}

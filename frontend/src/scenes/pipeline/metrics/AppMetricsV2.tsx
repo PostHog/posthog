@@ -79,7 +79,7 @@ function AppMetricBigNumber({
 }): JSX.Element {
     return (
         <Tooltip title={tooltip}>
-            <div className="border p-2 rounded background-primary flex-1 flex flex-col gap-2 items-center">
+            <div className="border p-2 rounded bg-[var(--background-primary)] flex-1 flex flex-col gap-2 items-center">
                 <div className="uppercase font-bold text-xs">{label.replace(/_/g, ' ')}</div>
                 <div className="text-2xl flex-1 mb-2 flex items-center">{humanFriendlyNumber(value ?? 0)}</div>
             </div>
@@ -196,7 +196,7 @@ function AppMetricsGraph(): JSX.Element {
     }, [appMetrics])
 
     return (
-        <div className="relative border rounded p-6 background-primary h-[50vh]">
+        <div className="relative border rounded p-6 bg-[var(--background-primary)] h-[50vh]">
             {appMetricsLoading && <SpinnerOverlay />}
             {!!appMetrics && <canvas ref={canvasRef} />}
             <Popover

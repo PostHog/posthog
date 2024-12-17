@@ -187,7 +187,7 @@ export function SessionRecordingPreview({
     const loading = !recordingProperties && recordingPropertiesLoading
     const iconProperties = gatherIconProperties(recordingProperties, recording)
 
-    const iconClassNames = 'content-tertiary shrink-0'
+    const iconClassNames = 'text-[var(--content-tertiary)] shrink-0'
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>

@@ -71,7 +71,9 @@ export function Settings({
                                             fullWidth
                                             active={selectedLevel === level && !selectedSectionId}
                                         >
-                                            <span className="content-tertiary">{capitalizeFirstLetter(level)}</span>
+                                            <span className="text-[var(--content-tertiary)]">
+                                                {capitalizeFirstLetter(level)}
+                                            </span>
                                         </LemonButton>
 
                                         <ul className="space-y-px">

@@ -47,7 +47,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
         creditOverview?.estimated_monthly_credit_amount_usd || DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
     return (
         <div
-            className="flex relative justify-between items-start rounded-lg background-primary border mb-2 gap-2"
+            className="flex relative justify-between items-start rounded-lg bg-[var(--background-primary)] border mb-2 gap-2"
             ref={heroRef}
         >
             <div className="absolute top-2 right-2 z-10">
@@ -90,8 +90,10 @@ export const CreditCTAHero = (): JSX.Element | null => {
                     <>
                         <h2 className="mb-0">
                             Stop burning money.{' '}
-                            <span className="text-success-light">Prepay and save {computedDiscount * 100}%</span> over
-                            the next 12 months.
+                            <span className="text-[var(---content-success)]">
+                                Prepay and save {computedDiscount * 100}%
+                            </span>{' '}
+                            over the next 12 months.
                         </h2>
                         <p className="mt-2 mb-0 max-w-xl">
                             Based on your usage, your monthly bill is forecasted to be an average of{' '}

@@ -46,7 +46,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                                     </>
                                 }
                             >
-                                <IconInfo className="text-xl content-tertiary ml-1 shrink-0" />
+                                <IconInfo className="text-xl text-[var(--content-tertiary)] ml-1 shrink-0" />
                             </Tooltip>
                         </div>
                     }

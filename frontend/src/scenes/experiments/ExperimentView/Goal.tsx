@@ -272,7 +272,7 @@ export function Goal(): JSX.Element {
                             </>
                         }
                     >
-                        <IconInfo className="content-tertiary text-base" />
+                        <IconInfo className="text-[var(--content-tertiary)] text-base" />
                     </Tooltip>
                 </div>
             </div>

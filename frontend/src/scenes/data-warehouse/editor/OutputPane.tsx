@@ -71,7 +71,7 @@ export function OutputPane(): JSX.Element {
     }, [response])
 
     return (
-        <div className="flex flex-col w-full flex-1 background-primary">
+        <div className="flex flex-col w-full flex-1 bg-[var(--background-primary)]">
             {variablesForInsight.length > 0 && (
                 <div className="py-2 px-4">
                     <VariablesForInsight />
@@ -197,7 +197,7 @@ function InternalDataTableVisualization(
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
     if (!showEditingUI && (!response || responseLoading)) {
         component = (
-            <div className="flex flex-col flex-1 justify-center items-center border rounded background-primary">
+            <div className="flex flex-col flex-1 justify-center items-center border rounded bg-[var(--background-primary)]">
                 <Animation type={AnimationType.LaptopHog} />
             </div>
         )

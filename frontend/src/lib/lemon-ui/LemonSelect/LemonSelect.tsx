@@ -168,7 +168,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                         ? renderButtonContent(activeLeaf)
                         : activeLeaf
                         ? activeLeaf.label
-                        : value ?? <span className="content-primary">{placeholder}</span>}
+                        : value ?? <span className="text-[var(--content-primary)]">{placeholder}</span>}
                 </span>
             </LemonButton>
         </LemonMenu>

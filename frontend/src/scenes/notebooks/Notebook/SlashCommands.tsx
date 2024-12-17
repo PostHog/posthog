@@ -484,7 +484,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             ))}
 
             {filteredSlashCommands.length === 0 && (
-                <div className="content-tertiary p-1">
+                <div className="text-[var(--content-tertiary)] p-1">
                     Nothing matching <code>/{query}</code>
                 </div>
             )}
@@ -492,7 +492,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             {mode === 'add' && (
                 <>
                     <LemonDivider className="my-0" />
-                    <div className="text-xs content-tertiary p-1">
+                    <div className="text-xs text-[var(--content-tertiary)] p-1">
                         You can trigger this menu by typing <KeyboardShortcut forwardslash />
                     </div>
                 </>

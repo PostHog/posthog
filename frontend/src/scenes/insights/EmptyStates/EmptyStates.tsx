@@ -148,7 +148,7 @@ export function StatelessInsightLoadingState({
                 {suggestion ? (
                     suggestion
                 ) : (
-                    <div className="flex items-center p-4 rounded background-primary gap-x-3 max-w-120">
+                    <div className="flex items-center p-4 rounded bg-[var(--background-primary)] gap-x-3 max-w-120">
                         <IconInfo className="text-xl shrink-0" />
                         <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
                     </div>
@@ -235,7 +235,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                     </div>
                     <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
                 </>
-                <div className="flex items-center p-4 rounded background-primary gap-x-3 max-w-120">
+                <div className="flex items-center p-4 rounded bg-[var(--background-primary)] gap-x-3 max-w-120">
                     <IconInfo className="text-xl shrink-0" />
                     <p className="text-xs m-0">
                         <>

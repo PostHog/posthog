@@ -341,7 +341,7 @@ export const AllProductsPlanComparison = ({
                                 </span>
                             </span>
                         ),
-                        className: 'background-primary',
+                        className: 'bg-[var(--background-primary)]',
                         key: currentProduct.type,
                         content: (
                             <table className="w-full table-fixed max-w-[920px]" ref={planComparisonRef}>
@@ -519,7 +519,7 @@ export const AllProductsPlanComparisonModal = ({
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
             <div className="PlanComparisonModal flex w-full h-full justify-center p-6">
-                <div className="text-left background-primary rounded relative w-full">
+                <div className="text-left bg-[var(--background-primary)] rounded relative w-full">
                     {title ? <h2>{title}</h2> : <h2>{product.name} plans</h2>}
                     <AllProductsPlanComparison product={product} includeAddons={includeAddons} />
                 </div>

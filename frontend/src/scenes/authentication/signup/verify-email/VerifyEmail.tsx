@@ -68,7 +68,7 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
     const allChecked = checklist.every((_, index) => checkListValues[index])
 
     return (
-        <div className="background-primary p-4 rounded relative w-full max-w-160">
+        <div className="bg-[var(--background-primary)] p-4 rounded relative w-full max-w-160">
             <div className="flex flex-col justify-center">
                 <div className="space-y-2 text-left">
                     {checklist.map((item, index) => (

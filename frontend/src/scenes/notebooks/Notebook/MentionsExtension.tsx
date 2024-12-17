@@ -129,7 +129,7 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
             ))}
 
             {filteredMembers.length === 0 && (
-                <div className="content-tertiary p-1">
+                <div className="text-[var(--content-tertiary)] p-1">
                     No member matching <code>@{query}</code>
                 </div>
             )}

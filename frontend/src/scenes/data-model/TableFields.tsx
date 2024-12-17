@@ -35,7 +35,7 @@ export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: 
                     <h4>Schema</h4>
                 </div>
                 <LemonTable
-                    className="background-primary rounded-none"
+                    className="bg-[var(--background-primary)] rounded-none"
                     columns={[
                         {
                             key: 'column',
@@ -67,7 +67,7 @@ export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: 
                     </LemonButton>
                 </div>
                 <LemonTable
-                    className="background-primary rounded-none"
+                    className="bg-[var(--background-primary)] rounded-none"
                     columns={[
                         {
                             key: 'name',

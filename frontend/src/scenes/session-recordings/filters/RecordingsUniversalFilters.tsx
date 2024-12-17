@@ -47,7 +47,7 @@ export const RecordingsUniversalFilters = ({
     }
 
     return (
-        <div className={clsx('divide-y background-primary rounded', className)}>
+        <div className={clsx('divide-y bg-[var(--background-primary)] rounded', className)}>
             <div className="flex justify-between px-2 py-1.5 flex-wrap gap-1">
                 <div className="flex flex-wrap gap-2 items-center">
                     <div className="flex items-center">

@@ -123,7 +123,7 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                 Cancel
             </LemonButton>
             <br />
-            <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 background-primary pt-4">
+            <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-[var(--background-primary)] pt-4">
                 <div className="col-span-full flex justify-between border-b bg-bg-white py-1">
                     {/* If placing a support message, replace the line below with explanation */}
                     <strong>Avg support response times</strong>
@@ -185,7 +185,7 @@ export const SidePanelSupport = (): JSX.Element => {
                             </Section>
 
                             <Section title="Explore the docs">
-                                <ul className="border rounded divide-y background-primary dark:bg-transparent font-title font-medium">
+                                <ul className="border rounded divide-y bg-[var(--background-primary)] dark:bg-transparent font-title font-medium">
                                     {PRODUCTS.map((product, index) => (
                                         <li key={index}>
                                             <Link

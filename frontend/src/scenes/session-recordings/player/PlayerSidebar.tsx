@@ -69,7 +69,7 @@ export function PlayerSidebar(): JSX.Element {
             />
             {sidebarOpen ? (
                 <>
-                    <div className="flex background-primary">
+                    <div className="flex bg-[var(--background-primary)]">
                         <div className="w-2.5 border-b shrink-0" />
                         <LemonTabs
                             activeKey={activeTab}

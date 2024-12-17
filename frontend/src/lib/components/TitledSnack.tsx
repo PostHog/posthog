@@ -19,11 +19,11 @@ export function TitledSnack({
                     'border-r',
                     'rounded-l rounded-r-none',
                     'overflow-hidden text-ellipsis',
-                    type === 'success' ? 'bg-success-highlight' : 'bg-primary-highlight'
+                    type === 'success' ? 'bg-[var(--background-success-subtle)]' : 'bg-primary-highlight'
                 )}
             >
                 <strong>
-                    {title}
+                    {title} xxxx
                     {titleSuffix}
                 </strong>
             </span>

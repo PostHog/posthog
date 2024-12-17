@@ -14,7 +14,7 @@ export const SearchResultPreview = (): JSX.Element | null => {
     const result = combinedSearchResults[activeResultIndex]
 
     return (
-        <div className="border background-primary rounded p-6">
+        <div className="border bg-[var(--background-primary)] rounded p-6">
             <div>{tabToName[result.type]}</div>
             <div className="text-text-3000 font-bold text-lg">
                 <ResultName result={result} />

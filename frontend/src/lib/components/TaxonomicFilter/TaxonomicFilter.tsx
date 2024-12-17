@@ -118,7 +118,10 @@ export function TaxonomicFilter({
                                         </>
                                     }
                                 >
-                                    <IconKeyboard style={{ fontSize: '1.2rem' }} className="content-tertiary" />
+                                    <IconKeyboard
+                                        style={{ fontSize: '1.2rem' }}
+                                        className="text-[var(--content-tertiary)]"
+                                    />
                                 </Tooltip>
                             }
                             onKeyDown={(e) => {

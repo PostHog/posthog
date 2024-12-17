@@ -91,7 +91,7 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                 ]}
             />
             {hiddenDestinations.length > 0 && (
-                <div className="content-tertiary">
+                <div className="text-[var(--content-tertiary)]">
                     {hiddenDestinations.length} hidden. <Link onClick={() => resetFilters()}>Show all</Link>
                 </div>
             )}

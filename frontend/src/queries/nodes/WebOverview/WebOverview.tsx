@@ -24,7 +24,7 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS = 10
 
-const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 background-primary rounded min-w-[${OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS}rem] h-30 flex flex-col items-center text-center justify-between`
+const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-[var(--background-primary)] rounded min-w-[${OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS}rem] h-30 flex flex-col items-center text-center justify-between`
 
 let uniqueNode = 0
 export function WebOverview(props: {

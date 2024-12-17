@@ -172,7 +172,7 @@ export function PipelinePluginConfiguration({
             >
                 <div className="flex flex-wrap gap-4 items-start">
                     <div className="flex flex-col gap-4 flex-1 min-w-100">
-                        <div className="border background-primary rounded p-3 space-y-2">
+                        <div className="border bg-[var(--background-primary)] rounded p-3 space-y-2">
                             <div className="flex flex-row gap-2 min-h-16 items-center">
                                 <RenderApp plugin={plugin} imageSize="medium" />
                                 <div className="flex flex-col py-1 flex-1">
@@ -218,12 +218,12 @@ export function PipelinePluginConfiguration({
                     </div>
 
                     <div className="flex-2 min-w-100 space-y-4">
-                        <div className="border background-primary rounded p-3  space-y-2">
+                        <div className="border bg-[var(--background-primary)] rounded p-3  space-y-2">
                             <>
                                 {fields.length ? (
                                     fields
                                 ) : (
-                                    <span className="italic content-tertiary">
+                                    <span className="italic text-[var(--content-tertiary)]">
                                         This app does not have specific configuration options
                                     </span>
                                 )}

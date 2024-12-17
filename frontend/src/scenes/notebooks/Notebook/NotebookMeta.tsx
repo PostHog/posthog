@@ -77,7 +77,7 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
 
     return shown ? (
         <Tooltip title={content.tooltip} placement="left">
-            <span className="flex items-center gap-1 content-tertiary">{content.content}</span>
+            <span className="flex items-center gap-1 text-[var(--content-tertiary)]">{content.content}</span>
         </Tooltip>
     ) : null
 }

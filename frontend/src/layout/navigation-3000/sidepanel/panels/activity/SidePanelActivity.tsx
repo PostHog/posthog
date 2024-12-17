@@ -229,7 +229,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                             />
                                         ))
                                     ) : (
-                                        <div className="p-6 text-center border border-dashed rounded content-tertiary">
+                                        <div className="p-6 text-center border border-dashed rounded text-[var(--content-tertiary)]">
                                             You're all caught up!
                                         </div>
                                     )}
@@ -248,7 +248,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                                 />
                                             ))}
 
-                                            <div className="flex items-center justify-center h-10 gap-2 m-4 content-tertiary">
+                                            <div className="flex items-center justify-center h-10 gap-2 m-4 text-[var(--content-tertiary)]">
                                                 {allActivityResponseLoading ? (
                                                     <>
                                                         <Spinner textColored /> Loading older activity

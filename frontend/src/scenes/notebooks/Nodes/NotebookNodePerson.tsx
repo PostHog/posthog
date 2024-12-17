@@ -86,7 +86,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                                 </div>
                             }
                         >
-                            <PropertyIcon className="content-tertiary" property={property} value={value} />
+                            <PropertyIcon
+                                className="text-[var(--content-tertiary)]"
+                                property={property}
+                                value={value}
+                            />
                         </Tooltip>
                     )
                 })

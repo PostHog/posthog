@@ -27,7 +27,7 @@ export const FunnelCorrelationFeedbackForm = (): JSX.Element | null => {
     return (
         <div className="border rounded p-4 space-y-2 mt-4">
             <div className="flex items-center justify-between">
-                <h4 className="content-tertiary">
+                <h4 className="text-[var(--content-tertiary)]">
                     <IconComment style={{ marginRight: 4 }} />
                     Was this correlation analysis report useful?
                 </h4>

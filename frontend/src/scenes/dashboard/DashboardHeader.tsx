@@ -167,7 +167,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         <>
                                             {dashboard.created_by && (
                                                 <>
-                                                    <div className="flex p-2 content-tertiary">
+                                                    <div className="flex p-2 text-[var(--content-tertiary)]">
                                                         Created by{' '}
                                                         {dashboard.created_by.first_name ||
                                                             dashboard.created_by.email ||

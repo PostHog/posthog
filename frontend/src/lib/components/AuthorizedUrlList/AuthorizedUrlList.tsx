@@ -31,7 +31,7 @@ function EmptyState({
     }
 
     return isSearching || !isAddingEntry ? (
-        <div className="border rounded p-4 content-tertiary">
+        <div className="border rounded p-4 text-[var(--content-tertiary)]">
             {isSearching ? (
                 <>
                     There are no authorized {type === AuthorizedUrlListType.RECORDING_DOMAINS ? 'domains' : 'URLs'} that
@@ -129,13 +129,13 @@ export function AuthorizedUrlList({
                 </LemonButton>
             </div>
             {suggestionsLoading ? (
-                <div className="border rounded p-4 background-primary" key={-1}>
+                <div className="border rounded p-4 bg-[var(--background-primary)]" key={-1}>
                     <Spinner className="text-xl" />
                 </div>
             ) : (
                 <div className="space-y-2">
                     {isAddUrlFormVisible && (
-                        <div className="border rounded p-2 background-primary">
+                        <div className="border rounded p-2 bg-[var(--background-primary)]">
                             <AuthorizedUrlForm
                                 type={type}
                                 actionId={actionId}
@@ -152,13 +152,15 @@ export function AuthorizedUrlList({
                     />
                     {urlsKeyed.map((keyedURL, index) => {
                         return editUrlIndex === index ? (
-                            <div className="border rounded p-2 background-primary">
+                            <div className="border rounded p-2 bg-[var(--background-primary)]">
                                 <AuthorizedUrlForm type={type} actionId={actionId} />
                             </div>
                         ) : (
                             <div
                                 key={index}
-                                className={clsx('border rounded flex items-center p-2 pl-4 background-primary')}
+                                className={clsx(
+                                    'border rounded flex items-center p-2 pl-4 bg-[var(--background-primary)]'
+                                )}
                             >
                                 {keyedURL.type === 'suggestion' && (
                                     <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>

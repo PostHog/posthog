@@ -121,7 +121,7 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                 </>
             }
         >
-            <span className="content-tertiary text-xs">
+            <span className="text-[var(--content-tertiary)] text-xs">
                 {resolution && (
                     <>
                         {resolution.width} x {resolution.height} {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
@@ -153,17 +153,17 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
 
     const windowOptions: LemonSelectOption<string | null>[] = [
         {
-            label: <IconWindow value={currentWindowIndex} className="content-tertiary" />,
+            label: <IconWindow value={currentWindowIndex} className="text-[var(--content-tertiary)]" />,
             value: null,
             labelInMenu: <>Follow the user</>,
         },
     ]
     windowIds.forEach((windowId, index) => {
         windowOptions.push({
-            label: <IconWindow value={index + 1} className="content-tertiary" />,
+            label: <IconWindow value={index + 1} className="text-[var(--content-tertiary)]" />,
             labelInMenu: (
                 <div className="flex flex-row gap-2 space-between items-center">
-                    Follow window: <IconWindow value={index + 1} className="content-tertiary" />
+                    Follow window: <IconWindow value={index + 1} className="text-[var(--content-tertiary)]" />
                 </div>
             ),
             value: windowId,

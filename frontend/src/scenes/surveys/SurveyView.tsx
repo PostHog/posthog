@@ -484,7 +484,9 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                 {question.scale === 10 && (
                                     <>
                                         <div className="text-4xl font-bold">{surveyNPSScore}</div>
-                                        <div className="font-semibold content-tertiary mb-2">Latest NPS Score</div>
+                                        <div className="font-semibold text-[var(--content-tertiary)] mb-2">
+                                            Latest NPS Score
+                                        </div>
                                         <SurveyNPSResults survey={survey as Survey} />
                                     </>
                                 )}

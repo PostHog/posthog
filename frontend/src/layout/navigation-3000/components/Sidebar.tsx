@@ -225,7 +225,7 @@ function SidebarOverlay({
 
     return (
         <div
-            className={clsx('absolute top-0 left-0 h-full background-primary', className)}
+            className={clsx('absolute top-0 left-0 h-full bg-[var(--background-primary)]', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: `${width}px` }}
         >

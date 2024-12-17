@@ -53,8 +53,8 @@ export function NotebookScene(): JSX.Element {
 
     if (visibility === 'visible' && selectedNotebook === notebookId) {
         return (
-            <div className="flex flex-col justify-center items-center h-full content-tertiary mx-10 flex-1">
-                <h2 className="content-tertiary">
+            <div className="flex flex-col justify-center items-center h-full text-[var(--content-tertiary)] mx-10 flex-1">
+                <h2 className="text-[var(--content-tertiary)]">
                     This Notebook is open in the side panel <IconOpenSidebar />
                 </h2>
 
@@ -78,7 +78,7 @@ export function NotebookScene(): JSX.Element {
 
     return (
         <div className="NotebookScene">
-            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 background-primary z-10">
+            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-[var(--background-primary)] z-10">
                 <div className="flex gap-2 items-center">
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />

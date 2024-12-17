@@ -114,7 +114,7 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                         }
                         closeDelayMs={200}
                     >
-                        <IconInfo className="content-tertiary text-base ml-1" />
+                        <IconInfo className="text-[var(--content-tertiary)] text-base ml-1" />
                     </Tooltip>
                 </div>
             ),

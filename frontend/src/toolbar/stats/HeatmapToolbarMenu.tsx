@@ -27,7 +27,7 @@ const HeatmapsJSWarning = (): JSX.Element | null => {
     }
 
     return (
-        <p className="my-2 background-danger-subtle border border-danger rounded p-2">
+        <p className="my-2 bg-[var(background-danger-subtle)] border border-danger rounded p-2">
             {!posthog.heatmaps ? (
                 <>The version of posthog-js you are using does not support collecting heatmap data.</>
             ) : !posthog.heatmaps.isEnabled ? (

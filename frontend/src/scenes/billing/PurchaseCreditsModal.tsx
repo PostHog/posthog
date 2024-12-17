@@ -235,7 +235,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                             {
                                 item: 'Discount',
                                 value: (
-                                    <span className="text-success-light">
+                                    <span className="text-[var(---content-success)]">
                                         -$
                                         {Math.round(creditInputValue * creditDiscount).toLocaleString('en-US', {
                                             minimumFractionDigits: 0,

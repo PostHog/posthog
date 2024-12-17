@@ -196,7 +196,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                 >
                     <div className="flex flex-wrap items-start gap-4">
                         <div className="flex flex-col flex-1 gap-4 min-w-100">
-                            <div className="p-3 space-y-2 border rounded background-primary">
+                            <div className="p-3 space-y-2 border rounded bg-[var(--background-primary)]">
                                 <div className="flex flex-row items-center gap-2 min-h-16">
                                     <LemonField name="icon_url">
                                         {({ value, onChange }) => (
@@ -271,7 +271,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                             </div>
                                         }
                                     >
-                                        <div className="text-xs border border-dashed rounded content-tertiary">
+                                        <div className="text-xs border border-dashed rounded text-[var(--content-tertiary)]">
                                             <Link subtle className="flex flex-wrap items-center gap-1 p-2">
                                                 Built from template:
                                                 <span className="font-semibold">{hogFunction?.template.name}</span>
@@ -288,7 +288,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                             {showFilters && <HogFunctionFilters />}
 
                             {showPersonsCount && (
-                                <div className="relative p-3 space-y-2 border rounded background-primary">
+                                <div className="relative p-3 space-y-2 border rounded bg-[var(--background-primary)]">
                                     <div>
                                         <LemonLabel>Matching persons</LemonLabel>
                                     </div>
@@ -318,7 +318,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                             )}
 
                             {showExpectedVolume && (
-                                <div className="relative p-3 space-y-2 border rounded background-primary">
+                                <div className="relative p-3 space-y-2 border rounded bg-[var(--background-primary)]">
                                     <LemonLabel>Expected volume</LemonLabel>
                                     {sparkline && !sparklineLoading ? (
                                         <>
@@ -361,7 +361,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                         <div className="space-y-4 flex-2 min-w-100">
                             {!forcedSubTemplateId && template?.sub_templates && (
                                 <>
-                                    <div className="p-3 space-y-2 border rounded background-primary">
+                                    <div className="p-3 space-y-2 border rounded bg-[var(--background-primary)]">
                                         <div className="flex items-center gap-2">
                                             <LemonLabel className="flex-1">Choose template</LemonLabel>
                                             <LemonSelect
@@ -394,7 +394,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                 </>
                             )}
 
-                            <div className="p-3 space-y-2 border rounded background-primary">
+                            <div className="p-3 space-y-2 border rounded bg-[var(--background-primary)]">
                                 <div className="space-y-2">
                                     <HogFunctionInputs
                                         configuration={configuration}
@@ -430,7 +430,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                 <div
                                     className={clsx(
                                         'border rounded p-3 space-y-2',
-                                        showSource ? 'background-primary' : 'bg-accent-3000'
+                                        showSource ? 'bg-[var(--background-primary)]' : 'bg-accent-3000'
                                     )}
                                 >
                                     <div className="flex items-center justify-end gap-2">
@@ -467,7 +467,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                             {({ value, onChange }) => (
                                                 <>
                                                     {!type.startsWith('site_') ? (
-                                                        <span className="text-xs content-tertiary">
+                                                        <span className="text-xs text-[var(--content-tertiary)]">
                                                             This is the underlying Hog code that will run whenever the
                                                             filters match.{' '}
                                                             <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}

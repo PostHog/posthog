@@ -277,7 +277,7 @@ export function PlayerInspectorListItem({
                 'ml-1 flex flex-col items-center',
                 isExpanded && 'border border-primary',
                 isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
-                isHovering && 'background-primary'
+                isHovering && 'bg-[var(--background-primary)]'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -364,7 +364,7 @@ export function PlayerInspectorListItem({
                             className="flex justify-end cursor-pointer mx-2 my-1"
                             onClick={() => setItemExpanded(index, false)}
                         >
-                            <span className="content-tertiary">Collapse</span>
+                            <span className="text-[var(--content-tertiary)]">Collapse</span>
                         </div>
                     </div>
                 </div>

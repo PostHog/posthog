@@ -413,7 +413,7 @@ export const PlanComparison = ({
                                         <tr>
                                             <th
                                                 colSpan={3}
-                                                className="PlanTable__th__section background-primary justify-left rounded text-left mb-2"
+                                                className="PlanTable__th__section bg-[var(--background-primary)] justify-left rounded text-left mb-2"
                                             >
                                                 <div className="flex items-center gap-x-2 my-2">
                                                     {getProductIcon(
@@ -506,7 +506,7 @@ export const PlanComparisonModal = ({
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
             <div className="PlanComparisonModal flex w-full h-full justify-center p-6">
-                <div className="text-left background-primary rounded relative w-full">
+                <div className="text-left bg-[var(--background-primary)] rounded relative w-full">
                     {title ? <h2>{title}</h2> : <h2>{product.name} plans</h2>}
                     <PlanComparison product={product} includeAddons={includeAddons} />
                 </div>

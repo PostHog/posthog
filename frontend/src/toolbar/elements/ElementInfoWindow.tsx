@@ -65,7 +65,7 @@ export function ElementInfoWindow(): JSX.Element | null {
 
     return (
         <div
-            className="absolute z-[1] opacity-100 origin-top-left transition-opacity transition-shadow duration-200 bg-white"
+            className="absolute z-[1] opacity-100 origin-top-left transition-[opacity,shadow] duration-200 bg-white"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 pointerEvents: pointerEvents ? 'all' : 'none',

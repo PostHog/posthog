@@ -269,7 +269,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                             <h2 className="mb-0 font-semibold text-lg">Secondary metrics</h2>
                             {metrics.length > 0 && (
                                 <Tooltip title="Monitor side effects of your experiment.">
-                                    <IconInfo className="content-tertiary text-base" />
+                                    <IconInfo className="text-[var(--content-tertiary)] text-base" />
                                 </Tooltip>
                             )}
                         </div>
@@ -298,7 +298,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                         emptyState={<div>Waiting for experiment to start&hellip;</div>}
                     />
                 ) : (
-                    <div className="border rounded background-primary pt-6 pb-8 text-muted mt-2">
+                    <div className="border rounded bg-[var(--background-primary)] pt-6 pb-8 text-muted mt-2">
                         <div className="flex flex-col items-center mx-auto space-y-3">
                             <IconAreaChart fontSize="30" />
                             <div className="text-sm text-center text-balance">

@@ -88,7 +88,7 @@ function CountButton({ count, percentage, onClick }: CountButtonProps): JSX.Elem
         <LemonButton size="small" onClick={onClick}>
             <span className="text-xs">
                 {count}
-                <span className="content-tertiary ml-2">({percentage}%)</span>
+                <span className="text-[var(--content-tertiary)] ml-2">({percentage}%)</span>
             </span>
         </LemonButton>
     )

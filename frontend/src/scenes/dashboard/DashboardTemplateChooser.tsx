@@ -144,7 +144,7 @@ function TemplateItem({
                 ))}
             </div>
             <div className="px-2 py-1 overflow-y-auto grow">
-                <p className={clsx('content-tertiary text-xs', isHovering ? '' : 'line-clamp-2')}>
+                <p className={clsx('text-[var(--content-tertiary)] text-xs', isHovering ? '' : 'line-clamp-2')}>
                     {template?.dashboard_description ?? ' '}
                 </p>
             </div>

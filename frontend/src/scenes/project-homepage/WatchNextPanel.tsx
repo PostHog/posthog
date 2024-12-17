@@ -32,19 +32,19 @@ type ACTIVITY_DESCRIPTIONS = 'very low' | 'low' | 'medium' | 'high' | 'very high
 
 function ActivityScoreLabel({ score }: { score: number | undefined }): JSX.Element {
     const n = score ?? 0
-    let backgroundColor = 'bg-primary-alt-highlight'
+    let backgroundColor = 'bg-[var(--background-accent)]'
     let description: ACTIVITY_DESCRIPTIONS = 'very low'
     if (n >= 90) {
-        backgroundColor = 'bg-success-highlight'
+        backgroundColor = 'bg-[var(--background-success-subtle)]'
         description = 'very high'
     } else if (n >= 75) {
-        backgroundColor = 'bg-success-highlight'
+        backgroundColor = 'bg-[var(--background-success-subtle)]'
         description = 'high'
     } else if (n >= 50) {
-        backgroundColor = 'bg-warning-highlight'
+        backgroundColor = 'bg-[var(--background-warning-subtle)]'
         description = 'medium'
     } else if (n >= 25) {
-        backgroundColor = 'bg-warning-highlight'
+        backgroundColor = 'bg-[var(--background-warning-subtle)]'
         description = 'low'
     }
 

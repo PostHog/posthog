@@ -64,7 +64,7 @@ export const OnboardingBillingStep = ({
                 <div className="mt-6">
                     {product.subscribed && (
                         <div className="mb-8">
-                            <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
+                            <div className="bg-[var(--background-success-subtle)] rounded p-6 flex justify-between items-center">
                                 <div className="flex gap-x-4 min-w-0">
                                     <IconCheckCircle className="text-success text-3xl mb-6 flex-shrink-0" />
                                     <div className="flex-1 min-w-0">

@@ -80,11 +80,14 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
                         type={TaxonomicFilterGroupType.Events}
                     />
                     {item.data.event === '$autocapture' ? (
-                        <span className="content-tertiary">(Autocapture)</span>
+                        <span className="text-[var(--content-tertiary)]">(Autocapture)</span>
                     ) : null}
                 </div>
                 {subValue ? (
-                    <div className="content-tertiary truncate" title={isString(subValue) ? subValue : undefined}>
+                    <div
+                        className="text-[var(--content-tertiary)] truncate"
+                        title={isString(subValue) ? subValue : undefined}
+                    >
                         {subValue}
                     </div>
                 ) : null}
@@ -185,7 +188,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                     key: 'raw',
                                     label: 'Raw',
                                     content: (
-                                        <pre className="text-xs content-tertiary whitespace-pre-wrap">
+                                        <pre className="text-xs text-[var(--content-tertiary)] whitespace-pre-wrap">
                                             {JSON.stringify(item.data.properties, null, 2)}
                                         </pre>
                                     ),
@@ -194,7 +197,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                         />
                     )
                 ) : (
-                    <div className="content-tertiary flex gap-1 items-center">
+                    <div className="text-[var(--content-tertiary)] flex gap-1 items-center">
                         <Spinner textColored />
                         Loading...
                     </div>

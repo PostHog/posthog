@@ -52,8 +52,11 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col rounded background-primary border overflow-hidden mb-3" title={session.sessionId}>
-            <div className="flex items-center justify-between background-primary p-0.5 pr-2 text-xs">
+        <div
+            className="flex flex-col rounded bg-[var(--background-primary)] border overflow-hidden mb-3"
+            title={session.sessionId}
+        >
+            <div className="flex items-center justify-between bg-[var(--background-primary)] p-0.5 pr-2 text-xs">
                 <div className="flex items-center">
                     <LemonButton
                         size="small"

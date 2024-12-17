@@ -2,7 +2,6 @@ import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import React, { forwardRef } from 'react'
-import { twMerge } from 'tailwind-merge'
 
 export interface LemonSnackProps {
     type?: 'regular' | 'pill'
@@ -22,8 +21,8 @@ export const LemonSnack: React.FunctionComponent<LemonSnackProps & React.RefAttr
         return (
             <span
                 ref={ref}
-                className={twMerge(
-                    'inline-flex text-primary-alt max-w-full overflow-hidden break-all items-center py-1 leading-5',
+                className={clsx(
+                    'lemon-snack inline-flex text-primary-alt max-w-full overflow-hidden break-all items-center py-1 leading-5',
                     !wrap && 'whitespace-nowrap',
                     isRegular
                         ? 'bg-primary-highlight px-1.5 rounded'

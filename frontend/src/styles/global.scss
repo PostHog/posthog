@@ -128,53 +128,55 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --violet-900: #250a33;
 
     // Red colors
-    --red-50: #f9ebe6;
-    --red-100: #f8d7cd;
-    --red-200: #f1af9c;
-    --red-300: #e9876a;
-    --red-400: #e25f39;
-    --red-500: #db3707;
-    --red-600: #af2c06;
-    --red-xxx: #992705;
-    --red-700: #832104;
-    --red-800: #581603;
-    --red-900: #2c0b01;
+    --red-50: hsl(16deg 61% 94%);
+    --red-100: hsl(14deg 75% 89%);
+    --red-200: hsl(13deg 75% 78%);
+    --red-300: hsl(14deg 74% 66%);
+    --red-400: hsl(13deg 74% 55%);
+    --red-500: hsl(14deg 94% 44%);
+    --red-500-20: hsl(14deg 94% 44% / 20%);
+    --red-600: hsl(13deg 93% 35%);
+    --red-700: hsl(14deg 94% 26%);
+    --red-800: hsl(13deg 93% 18%);
+    --red-900: hsl(14deg 96% 9%);
 
     // Orange colors
-    --orange-50: #fff3e5;
-    --orange-100: #ffe6cc;
-    --orange-200: #fc9;
-    --orange-300: #ffb366;
-    --orange-400: #f93;
-    --orange-500: #ff8000;
-    --orange-600: #c60;
-    --orange-700: #994d00;
-    --orange-800: #630;
-    --orange-850: #4c3201;
-    --orange-900: #331a00;
+    --orange-50: hsl(32deg 100% 95%);
+    --orange-100: hsl(31deg 100% 90%);
+    --orange-200: hsl(30deg 100% 80%);
+    --orange-300: hsl(30deg 100% 70%);
+    --orange-400: hsl(30deg 100% 60%);
+    --orange-500: hsl(30deg 100% 50%);
+    --orange-500-20: hsl(30deg 100% 50% / 20%);
+    --orange-600: hsl(30deg 100% 40%);
+    --orange-700: hsl(30deg 100% 30%);
+    --orange-800: hsl(30deg 100% 20%);
+    --orange-850: hsl(39deg 97% 15%);
+    --orange-900: hsl(31deg 100% 10%);
 
     // Yellow colors
-    --yellow-100: #fdedcd;
-    --yellow-200: #fcdb9a;
-    --yellow-300: #fac968;
-    --yellow-400: #f9b735;
-    --yellow-500: #f7a503;
-    --yellow-600: #c68402;
-    --yellow-700: #946302;
-    --yellow-800: #634201;
-    --yellow-900: #312101;
+    --yellow-100: hsl(40deg 92% 90%);
+    --yellow-200: hsl(40deg 94% 80%);
+    --yellow-300: hsl(40deg 94% 69%);
+    --yellow-400: hsl(40deg 94% 59%);
+    --yellow-500: hsl(40deg 98% 49%);
+    --yellow-600: hsl(40deg 98% 39%);
+    --yellow-700: hsl(40deg 97% 29%);
+    --yellow-800: hsl(40deg 98% 20%);
+    --yellow-900: hsl(40deg 96% 10%);
 
     // Green colors
-    --green-50: #ebf3e5;
-    --green-100: #d7e7cc;
-    --green-200: #afcf99;
-    --green-300: #88b666;
-    --green-400: #609e33;
-    --green-500: #388600;
-    --green-600: #2d6b00;
-    --green-700: #225000;
-    --green-800: #163600;
-    --green-900: #0b1b00;
+    --green-50: hsl(94deg 37% 93%);
+    --green-100: hsl(96deg 36% 85%);
+    --green-200: hsl(96deg 36% 71%);
+    --green-300: hsl(95deg 35% 56%);
+    --green-400: hsl(95deg 51% 41%);
+    --green-500: hsl(95deg 100% 26%);
+    --green-500-20: hsl(95deg 100% 26% / 20%);
+    --green-600: hsl(95deg 100% 21%);
+    --green-700: hsl(95deg 100% 16%);
+    --green-800: hsl(96deg 100% 11%);
+    --green-900: hsl(96deg 100% 5%);
 
     // Teal colors
     --teal-100: #d9f5f3;
@@ -238,19 +240,19 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     // Warning
     --content-warning: var(--orange-700);
     --background-warning: var(--orange-500);
-    --background-warning-subtle: var(--orange-50);
+    --background-warning-subtle: var(--orange-500-20);
 
     // Danger
     --content-danger: var(--red-600);
     --background-danger: var(--red-500);
-    --background-danger-subtle: var(--red-50);
+    --background-danger-subtle: var(--red-500-20);
     --background-danger-bold: var(--red-200);
     --border-danger: var(--red-500);
 
     // Success
-    --content-success: var(--green-600);
+    --content-success: var(--green-500);
     --background-success: var(--green-500);
-    --background-success-subtle: var(--green-50);
+    --background-success-subtle: var(--green-500-20);
 
     // Border colors
     --border-primary: var(--neutral-600);
@@ -681,30 +683,19 @@ body {
         --content-accent-active: var(--accent-500);
         --background-accent: var(--accent-500);
         --background-accent-pressed: var(--accent-700);
-
-        // NOT USED --background-accent-25: var(--accent-500-25);
         --border-accent: var(--accent-500);
         --border-accent-hover: var(--accent-500);
 
-        // NOT USED --background-accent-subtle-08: var(--accent-500-08);
-
         // Warning
         --content-warning: var(--orange-100);
-        --background-warning-subtle: var(--orange-850);
-
-        // NOT USED --background-warning-subtle: var(--orange-50);
 
         // Danger
-        --content-danger-subtle: var(--red-700);
         --content-danger: var(--red-200);
-        --background-danger-subtle: var(--red-800);
         --background-danger-bold: var(--red-600);
         --border-danger: var(--red-500);
-        --border-danger-hover: var(--red-400);
 
         // Success
         --content-success: var(--green-100);
-        --background-success-subtle: var(--green-800);
 
         // Border colors
         --border-primary: var(--neutral-cool-400);
@@ -918,72 +909,6 @@ img {
 }
 
 @layer utilities {
-    /* Content Disabled State */
-    .content-disabled {
-        color: var(--content-disabled);
-    }
-
-    /* Content Link States */
-    .content-link {
-        color: var(--content-link);
-    }
-
-    .content-link:hover {
-        color: var(--content-link-hover);
-    }
-
-    .content-link:active {
-        color: var(--content-link-pressed);
-    }
-
-    .content-accent {
-        color: var(--content-accent);
-    }
-
-    .content-primary {
-        color: var(--content-primary);
-    }
-
-    .content-primary-inverse {
-        color: var(--content-primary-inverse);
-    }
-
-    .content-secondary {
-        color: var(--content-secondary);
-    }
-
-    .content-tertiary {
-        color: var(--content-tertiary);
-    }
-
-    .content-tertiary-inverse {
-        color: var(--content-tertiary-inverse);
-    }
-
-    .background-primary {
-        background-color: var(--background-primary);
-    }
-
-    .background-secondary {
-        background-color: var(--background-secondary);
-    }
-
-    .background-tertiary {
-        background-color: var(--background-tertiary);
-    }
-
-    .background-warning {
-        background-color: var(--background-warning-subtle);
-    }
-
-    .background-danger-subtle {
-        background-color: var(--background-danger-subtle);
-    }
-
-    .background-success {
-        background-color: var(--background-success-subtle);
-    }
-
     .border-primary {
         border-color: var(--border-primary);
     }

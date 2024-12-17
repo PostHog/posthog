@@ -250,7 +250,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                           ))
                         : null}
                     {!debugResponseLoading && !!debugResponse.stats ? (
-                        <div className="flex flex-row space-x-4 p-4 border rounded background-primary">
+                        <div className="flex flex-row space-x-4 p-4 border rounded bg-[var(--background-primary)]">
                             <div className="flex flex-col items-center">
                                 <span className="text-sm font-bold">last 14 days</span>
                             </div>

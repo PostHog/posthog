@@ -215,7 +215,7 @@ export function CodeInstructions({
                                 checked={showPayloadCode}
                                 disabled={!PAYLOAD_LIBRARIES.includes(selectedOption.key)}
                             />
-                            <IconInfo className="text-xl content-tertiary shrink-0" />
+                            <IconInfo className="text-xl text-[var(--content-tertiary)] shrink-0" />
                         </div>
                     </Tooltip>
                     <>
@@ -237,7 +237,7 @@ export function CodeInstructions({
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <IconInfo className="text-xl content-tertiary shrink-0" />
+                                <IconInfo className="text-xl text-[var(--content-tertiary)] shrink-0" />
                             </div>
                         </Tooltip>
                         <Tooltip
@@ -258,7 +258,7 @@ export function CodeInstructions({
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <IconInfo className="text-xl content-tertiary shrink-0" />
+                                <IconInfo className="text-xl text-[var(--content-tertiary)] shrink-0" />
                             </div>
                         </Tooltip>
                     </>

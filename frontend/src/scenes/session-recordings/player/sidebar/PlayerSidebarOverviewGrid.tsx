@@ -10,7 +10,7 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
     const { overviewItems } = useValues(playerMetaLogic(logicProps))
 
     return (
-        <div className="rounded border background-primary m-2">
+        <div className="rounded border bg-[var(--background-primary)] m-2">
             <OverviewGrid>
                 {overviewItems.map((item) => (
                     <OverviewGridItem

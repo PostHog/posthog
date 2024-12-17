@@ -75,7 +75,7 @@ export function CorrelationMatrix(): JSX.Element {
                     </div>
                 ) : correlationDetails ? (
                     <>
-                        <p className="content-tertiary mb-4">
+                        <p className="text-[var(--content-tertiary)] mb-4">
                             The table below displays the correlation details for users who {action} <b>{displayName}</b>
                             .
                         </p>

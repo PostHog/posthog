@@ -8,7 +8,7 @@
     .NotebookNode__box {
         overflow: hidden;
         background-color: var(--background-primary);
-        border: 1px solid var(--border-color);
+        border: 1px solid var(--border-tertiary);
         border-radius: var(--radius);
         transition: border 150ms linear, margin-bottom 150ms linear;
         transform: translate3d(0, 0, 0);

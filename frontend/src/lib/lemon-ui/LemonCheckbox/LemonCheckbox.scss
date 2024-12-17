@@ -28,12 +28,12 @@
             width: 1rem;
             height: 1rem;
             background: var(--background-primary);
-            border: 1.5px solid var(--border-bold);
+            border: 1.5px solid var(--border-secondary);
             border-radius: 0.25rem; // Intentionally a bit smaller than --radius
             transition: border 200ms ease, background 200ms ease;
 
             path {
-                stroke: var(--bg-light);
+                stroke: var(--content-primary-inverse);
                 stroke-dasharray: var(--tick-length);
                 stroke-dashoffset: var(--tick-length);
                 transition: stroke-dashoffset 200ms ease;
@@ -42,7 +42,7 @@
     }
 
     &.LemonCheckbox--disabled label {
-        color: var(--muted);
+        color: var(--content-secondary);
         cursor: not-allowed;
     }
 
@@ -61,7 +61,7 @@
     &.LemonCheckbox:not(.LemonCheckbox--disabled):hover,
     &.LemonCheckbox:not(.LemonCheckbox--disabled):active {
         label {
-            --box-color: var(background-brand);
+            --box-color: var(--background-brand);
 
             .LemonCheckbox__box {
                 border-color: var(--border-accent);
