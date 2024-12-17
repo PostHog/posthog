@@ -13,7 +13,7 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema'
-import { BreakdownAttributionType, FilterType, FunnelsFilterType } from '~/types'
+import { BreakdownAttributionType, FilterType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import {
@@ -26,7 +26,7 @@ import {
 export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { experiment, isExperimentRunning } = useValues(experimentLogic)
-    const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
+    const { setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     const currentMetric = experiment.metrics_secondary[metricIdx] as ExperimentFunnelsQuery
 
@@ -95,48 +95,19 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         })
                     }}
                     onFunnelWindowIntervalUnitChange={(funnelWindowIntervalUnit) => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsMetric({
-                                metricIdx,
-                                funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
-                                isSecondary: true,
-                            })
-                        } else {
-                            setExperiment({
-                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
-                                    idx === metricIdx
-                                        ? {
-                                              ...metric,
-                                              filters: {
-                                                  ...metric.filters,
-                                                  funnel_window_interval_unit: funnelWindowIntervalUnit || undefined,
-                                              },
-                                          }
-                                        : metric
-                                ),
-                            })
-                        }
+                        setFunnelsMetric({
+                            metricIdx,
+                            funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
+                            isSecondary: true,
+                        })
                     }}
                 />
                 <FunnelAttributionSelect
                     value={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        let breakdownAttributionType
-                        let breakdownAttributionValue
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            breakdownAttributionType =
-                                currentMetric.funnels_query?.funnelsFilter?.breakdownAttributionType
-                            breakdownAttributionValue =
-                                currentMetric.funnels_query?.funnelsFilter?.breakdownAttributionValue
-                        } else {
-                            breakdownAttributionType = (
-                                experiment.secondary_metrics[metricIdx].filters as FunnelsFilterType
-                            ).breakdown_attribution_type
-                            breakdownAttributionValue = (
-                                experiment.secondary_metrics[metricIdx].filters as FunnelsFilterType
-                            ).breakdown_attribution_value
-                        }
+                        const breakdownAttributionType =
+                            currentMetric.funnels_query?.funnelsFilter?.breakdownAttributionType
+                        const breakdownAttributionValue =
+                            currentMetric.funnels_query?.funnelsFilter?.breakdownAttributionValue
 
                         const currentValue: BreakdownAttributionType | `${BreakdownAttributionType.Step}/${number}` =
                             !breakdownAttributionType
@@ -149,47 +120,16 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                     })()}
                     onChange={(value) => {
                         const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsMetric({
-                                metricIdx,
-                                breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
-                                breakdownAttributionValue: breakdownAttributionValue
-                                    ? parseInt(breakdownAttributionValue)
-                                    : undefined,
-                                isSecondary: true,
-                            })
-                        } else {
-                            setExperiment({
-                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
-                                    idx === metricIdx
-                                        ? {
-                                              ...metric,
-                                              filters: {
-                                                  ...metric.filters,
-                                                  breakdown_attribution_type:
-                                                      breakdownAttributionType as BreakdownAttributionType,
-                                                  breakdown_attribution_value: breakdownAttributionValue
-                                                      ? parseInt(breakdownAttributionValue)
-                                                      : 0,
-                                              },
-                                          }
-                                        : metric
-                                ),
-                            })
-                        }
+                        setFunnelsMetric({
+                            metricIdx,
+                            breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
+                            breakdownAttributionValue: breakdownAttributionValue
+                                ? parseInt(breakdownAttributionValue)
+                                : undefined,
+                            isSecondary: true,
+                        })
                     }}
-                    stepsLength={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            return currentMetric.funnels_query?.series?.length
-                        }
-                        return Math.max(
-                            experiment.secondary_metrics[metricIdx].filters.actions?.length ?? 0,
-                            experiment.secondary_metrics[metricIdx].filters.events?.length ?? 0,
-                            experiment.secondary_metrics[metricIdx].filters.data_warehouse?.length ?? 0
-                        )
-                    })()}
+                    stepsLength={currentMetric.funnels_query?.series?.length}
                 />
                 <TestAccountFilterSwitch
                     checked={hasFilters ? !!currentMetric.funnels_query?.filterTestAccounts : false}
