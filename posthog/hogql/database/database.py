@@ -53,7 +53,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
-    join_with_person_distinct_ids_table,
+    join_data_warehouse_experiment_table_with_person_distinct_ids_table,
 )
 from posthog.hogql.database.schema.persons import (
     PersonsTable,
@@ -462,8 +462,7 @@ def create_hogql_database(
                 source_table.fields["pdi"] = LazyJoin(
                     from_field=from_field,
                     join_table=PersonDistinctIdsTable(),
-                    join_function=join_with_person_distinct_ids_table,
-                    override_source_table_key=join.source_table_key,
+                    join_function=join_data_warehouse_experiment_table_with_person_distinct_ids_table,
                 )
                 source_table.fields["person"] = FieldTraverser(chain=["pdi", "person"])
 
