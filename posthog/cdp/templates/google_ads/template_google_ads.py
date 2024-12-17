@@ -55,6 +55,7 @@ if (res.status >= 400) {
             "type": "integration",
             "integration": "google-ads",
             "label": "Google Ads account",
+            "requiredScopes": "https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
             "secret": False,
             "required": True,
         },

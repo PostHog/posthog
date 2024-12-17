@@ -2,19 +2,13 @@ import { IconInfo, IconPencil, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { useState } from 'react'
 
 import { Experiment, InsightType } from '~/types'
 
-import {
-    experimentLogic,
-    getDefaultFilters,
-    getDefaultFunnelsMetric,
-    TabularSecondaryMetricResults,
-} from '../experimentLogic'
+import { experimentLogic, getDefaultFunnelsMetric, TabularSecondaryMetricResults } from '../experimentLogic'
 import { SecondaryMetricChartModal } from '../Metrics/SecondaryMetricChartModal'
 import { SecondaryMetricModal } from '../Metrics/SecondaryMetricModal'
 import { VariantTag } from './components'
@@ -39,7 +33,6 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
         credibleIntervalForVariant,
         experimentMathAggregationForTrends,
         getHighestProbabilityVariant,
-        featureFlags,
     } = useValues(experimentLogic({ experimentId }))
     const { loadExperiment } = useActions(experimentLogic({ experimentId }))
 
@@ -64,13 +57,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
         setModalMetricIdx(null)
     }
 
-    // :FLAG: CLEAN UP AFTER MIGRATION
-    let metrics
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-        metrics = experiment.metrics_secondary
-    } else {
-        metrics = experiment.secondary_metrics
-    }
+    const metrics = experiment.metrics_secondary
 
     const columns: LemonTableColumns<any> = [
         {
@@ -149,16 +136,18 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                         ),
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
-                            return <div>{targetResults ? countDataForVariant(targetResults, variant) : '—'}</div>
+                            const count = targetResults ? countDataForVariant(targetResults, variant) : null
+                            return <div>{count === null ? '—' : humanFriendlyNumber(count)}</div>
                         },
                     },
                     {
                         title: 'Exposure',
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
-                            return (
-                                <div>{targetResults ? exposureCountDataForVariant(targetResults, variant) : '—'}</div>
-                            )
+                            const exposureCount = targetResults
+                                ? exposureCountDataForVariant(targetResults, variant)
+                                : null
+                            return <div>{exposureCount === null ? '—' : humanFriendlyNumber(exposureCount)}</div>
                         },
                     },
                     {
@@ -337,7 +326,7 @@ const AddSecondaryMetricButton = ({
     metrics: any
     openEditModal: (metricIdx: number) => void
 }): JSX.Element => {
-    const { experiment, featureFlags } = useValues(experimentLogic({ experimentId }))
+    const { experiment } = useValues(experimentLogic({ experimentId }))
     const { setExperiment } = useActions(experimentLogic({ experimentId }))
     return (
         <LemonButton
@@ -345,26 +334,11 @@ const AddSecondaryMetricButton = ({
             type="secondary"
             size="small"
             onClick={() => {
-                // :FLAG: CLEAN UP AFTER MIGRATION
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    const newMetricsSecondary = [...experiment.metrics_secondary, getDefaultFunnelsMetric()]
-                    setExperiment({
-                        metrics_secondary: newMetricsSecondary,
-                    })
-                    openEditModal(newMetricsSecondary.length - 1)
-                } else {
-                    const newSecondaryMetrics = [
-                        ...experiment.secondary_metrics,
-                        {
-                            name: '',
-                            filters: getDefaultFilters(InsightType.FUNNELS, undefined),
-                        },
-                    ]
-                    setExperiment({
-                        secondary_metrics: newSecondaryMetrics,
-                    })
-                    openEditModal(newSecondaryMetrics.length - 1)
-                }
+                const newMetricsSecondary = [...experiment.metrics_secondary, getDefaultFunnelsMetric()]
+                setExperiment({
+                    metrics_secondary: newMetricsSecondary,
+                })
+                openEditModal(newMetricsSecondary.length - 1)
             }}
             disabledReason={
                 metrics.length >= MAX_SECONDARY_METRICS

@@ -115,6 +115,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         model = Team
         fields = [
             "id",
+            "project_id",
             "uuid",
             "name",
             "api_token",
@@ -141,6 +142,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "heatmaps_opt_in",
             "capture_dead_clicks",
         ]
+        read_only_fields = fields
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):

@@ -83,10 +83,12 @@ function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupInde
                 )}
             >
                 {messages.map((message, messageIndex) => {
+                    const key = message.id || messageIndex
+
                     if (isHumanMessage(message)) {
                         return (
                             <MessageTemplate
-                                key={messageIndex}
+                                key={key}
                                 type="human"
                                 boxClassName={message.status === 'error' ? 'border-danger' : undefined}
                             >
@@ -96,7 +98,7 @@ function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupInde
                     } else if (isAssistantMessage(message) || isFailureMessage(message)) {
                         return (
                             <TextAnswer
-                                key={messageIndex}
+                                key={key}
                                 message={message}
                                 rateable={messageIndex === messages.length - 1}
                                 retriable={messageIndex === messages.length - 1 && isGroupFinal}
@@ -107,7 +109,7 @@ function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupInde
                         return <VisualizationAnswer key={messageIndex} message={message} status={message.status} />
                     } else if (isReasoningMessage(message)) {
                         return (
-                            <MessageTemplate key={messageIndex} type="ai">
+                            <MessageTemplate key={key} type="ai">
                                 <div className="flex items-center gap-2">
                                     <span>{message.content}…</span>
                                     <Spinner className="text-xl" />
