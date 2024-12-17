@@ -1,3 +1,4 @@
+from .assistant import Conversation, ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
 from .dashboard_privilege import DashboardPrivilege
 from .event_definition import EnterpriseEventDefinition
 from .explicit_team_membership import ExplicitTeamMembership
@@ -10,7 +11,11 @@ from .rbac.role import Role, RoleMembership
 
 __all__ = [
     "AccessControl",
+    "ConversationCheckpoint",
+    "ConversationCheckpointBlob",
+    "ConversationCheckpointWrite",
     "DashboardPrivilege",
+    "Conversation",
     "EnterpriseEventDefinition",
     "EnterprisePropertyDefinition",
     "ExplicitTeamMembership",

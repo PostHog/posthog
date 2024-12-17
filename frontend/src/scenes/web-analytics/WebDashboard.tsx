@@ -43,7 +43,6 @@ const Filters = (): JSX.Element => {
     } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates, setCompareFilter } = useActions(webAnalyticsLogic)
     const { mobileLayout } = useValues(navigationLogic)
-    const { conversionGoal } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
@@ -63,9 +62,7 @@ const Filters = (): JSX.Element => {
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
                 />
-                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS] || conversionGoal ? (
-                    <WebConversionGoal />
-                ) : null}
+                <WebConversionGoal />
                 <ReloadAll />
             </div>
             <div className="bg-border h-px w-full mt-2" />
