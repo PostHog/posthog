@@ -25,13 +25,10 @@ amqp==5.1.1
     # via kombu
 annotated-types==0.7.0
     # via pydantic
-anthropic==0.40.0
-    # via -r requirements.in
 antlr4-python3-runtime==4.13.1
     # via -r requirements.in
-anyio==4.7.0
+anyio==4.6.2.post1
     # via
-    #   anthropic
     #   httpx
     #   langfuse
     #   openai
@@ -42,7 +39,9 @@ asn1crypto==1.5.1
 astunparse==1.6.3
     # via dlt
 async-timeout==4.0.2
-    # via aiokafka
+    # via
+    #   aiokafka
+    #   redis
 attrs==23.2.0
     # via
     #   aiohttp
@@ -57,12 +56,8 @@ backoff==2.2.1
     #   posthoganalytics
 bcrypt==4.1.3
     # via paramiko
-beautifulsoup4==4.12.3
-    # via -r requirements.in
 billiard==4.1.0
     # via celery
-blinker==1.9.0
-    # via flask
 boto3==1.28.16
     # via
     #   -r requirements.in
@@ -107,7 +102,6 @@ click==8.1.7
     #   click-plugins
     #   click-repl
     #   dlt
-    #   flask
 click-didyoumean==0.3.0
     # via celery
 click-plugins==1.1.1
@@ -143,9 +137,7 @@ defusedxml==0.6.0
 deltalake==0.19.1
     # via dlt
 distro==1.9.0
-    # via
-    #   anthropic
-    #   openai
+    # via openai
 dj-database-url==0.5.0
     # via -r requirements.in
 django==4.2.15
@@ -178,7 +170,7 @@ django-extensions==3.1.2
     # via -r requirements.in
 django-filter==2.4.0
     # via -r requirements.in
-django-formtools==2.5.1
+django-formtools==2.4
     # via django-two-factor-auth
 django-ipware==3.0.2
     # via
@@ -186,7 +178,7 @@ django-ipware==3.0.2
     #   django-structlog
 django-loginas==0.3.11
     # via -r requirements.in
-django-otp==1.5.4
+django-otp==1.1.4
     # via django-two-factor-auth
 django-phonenumber-field==6.4.0
     # via django-two-factor-auth
@@ -229,15 +221,7 @@ drf-spectacular==0.27.2
 et-xmlfile==1.1.0
     # via openpyxl
 filelock==3.12.0
-    # via
-    #   huggingface-hub
-    #   snowflake-connector-python
-flask==3.1.0
-    # via
-    #   -r requirements.in
-    #   flask-cors
-flask-cors==5.0.0
-    # via -r requirements.in
+    # via snowflake-connector-python
 frozenlist==1.4.1
     # via
     #   aiohttp
@@ -245,7 +229,6 @@ frozenlist==1.4.1
 fsspec==2023.10.0
     # via
     #   dlt
-    #   huggingface-hub
     #   s3fs
 future==0.18.3
     # via lzstring
@@ -308,17 +291,12 @@ hogql-parser==1.0.47
     # via -r requirements.in
 httpcore==1.0.2
     # via httpx
-httpx==0.28.1
+httpx==0.26.0
     # via
-    #   -r requirements.in
-    #   anthropic
     #   langfuse
+    #   langgraph-sdk
     #   langsmith
     #   openai
-huggingface-hub==0.26.5
-    # via
-    #   -r requirements.in
-    #   tokenizers
 humanize==4.9.0
     # via dlt
 idna==3.10
@@ -341,15 +319,8 @@ isodate==0.6.1
     # via
     #   python3-saml
     #   zeep
-itsdangerous==2.2.0
-    # via flask
-jinja2==3.1.4
-    # via flask
-jiter==0.8.2
-    # via
-    #   -r requirements.in
-    #   anthropic
-    #   openai
+jiter==0.5.0
+    # via openai
 jmespath==1.0.0
     # via
     #   boto3
@@ -376,28 +347,29 @@ kombu==5.3.2
     # via
     #   -r requirements.in
     #   celery
-langchain==0.3.3
+langchain==0.3.9
     # via -r requirements.in
-langchain-core==0.3.25
+langchain-core==0.3.21
     # via
     #   langchain
     #   langchain-openai
     #   langchain-text-splitters
     #   langgraph
     #   langgraph-checkpoint
-langchain-openai==0.2.2
+langchain-openai==0.2.11
     # via -r requirements.in
-langchain-text-splitters==0.3.3
+langchain-text-splitters==0.3.0
     # via langchain
-langfuse==2.52.1
+langfuse==2.55.0
     # via -r requirements.in
-langgraph==0.2.34
+langgraph==0.2.56
     # via -r requirements.in
-langgraph-checkpoint==2.0.9
+langgraph-checkpoint==2.0.8
+    # via langgraph
+langgraph-sdk==0.1.43
     # via langgraph
 langsmith==0.1.132
     # via
-    #   -r requirements.in
     #   langchain
     #   langchain-core
 lxml==4.9.4
@@ -411,10 +383,6 @@ lzstring==1.0.4
     # via -r requirements.in
 makefun==1.15.2
     # via dlt
-markupsafe==3.0.2
-    # via
-    #   jinja2
-    #   werkzeug
 maxminddb==2.2.0
     # via geoip2
 mimesis==5.2.1
@@ -438,7 +406,7 @@ natsort==8.4.0
     # via -r requirements.in
 nh3==0.2.14
     # via -r requirements.in
-numpy==1.26.4
+numpy==1.23.3
     # via
     #   -r requirements.in
     #   langchain
@@ -450,7 +418,7 @@ oauthlib==3.1.0
     # via
     #   requests-oauthlib
     #   social-auth-core
-openai==1.51.2
+openai==1.56.2
     # via
     #   -r requirements.in
     #   langchain-openai
@@ -461,6 +429,7 @@ orjson==3.10.7
     # via
     #   -r requirements.in
     #   dlt
+    #   langgraph-sdk
     #   langsmith
 outcome==1.3.0.post0
     # via trio
@@ -469,7 +438,6 @@ packaging==24.1
     #   aiokafka
     #   dlt
     #   google-cloud-bigquery
-    #   huggingface-hub
     #   langchain-core
     #   langfuse
     #   snowflake-connector-python
@@ -546,7 +514,6 @@ pycparser==2.20
 pydantic==2.9.2
     # via
     #   -r requirements.in
-    #   anthropic
     #   langchain
     #   langchain-core
     #   langfuse
@@ -586,10 +553,8 @@ python-dateutil==2.8.2
     #   pandas
     #   pendulum
     #   posthoganalytics
-python-dotenv==1.0.1
-    # via
-    #   -r requirements.in
-    #   webdriver-manager
+python-dotenv==0.21.0
+    # via webdriver-manager
 python-statsd==2.1.0
     # via django-statsd
 python3-openid==3.1.0
@@ -612,7 +577,6 @@ pyyaml==6.0.1
     # via
     #   dlt
     #   drf-spectacular
-    #   huggingface-hub
     #   langchain
     #   langchain-core
 qrcode==7.4.2
@@ -635,9 +599,9 @@ requests==2.32.0
     #   geoip2
     #   google-api-core
     #   google-cloud-bigquery
-    #   huggingface-hub
     #   infi-clickhouse-orm
     #   langchain
+    #   langfuse
     #   langsmith
     #   pdpyras
     #   posthoganalytics
@@ -708,8 +672,8 @@ smmap==5.0.1
     # via gitdb
 sniffio==1.3.1
     # via
-    #   anthropic
     #   anyio
+    #   httpx
     #   openai
     #   trio
 snowflake-connector-python==3.6.0
@@ -728,8 +692,6 @@ sortedcontainers==2.4.0
     # via
     #   snowflake-connector-python
     #   trio
-soupsieve==2.6
-    # via beautifulsoup4
 sqlalchemy==2.0.31
     # via
     #   -r requirements.in
@@ -770,8 +732,6 @@ tiktoken==0.8.0
     #   sentry-sdk
 token-bucket==0.3.0
     # via -r requirements.in
-tokenizers==0.21.0
-    # via -r requirements.in
 tomlkit==0.12.3
     # via
     #   dlt
@@ -779,9 +739,7 @@ tomlkit==0.12.3
 toronado==0.1.0
     # via -r requirements.in
 tqdm==4.64.1
-    # via
-    #   huggingface-hub
-    #   openai
+    # via openai
 trio==0.26.0
     # via
     #   selenium
@@ -794,10 +752,7 @@ types-setuptools==69.0.0.0
     # via requirements-parser
 typing-extensions==4.12.2
     # via
-    #   anthropic
-    #   anyio
     #   dlt
-    #   huggingface-hub
     #   langchain-core
     #   openai
     #   psycopg
@@ -841,8 +796,6 @@ wcwidth==0.2.6
     # via prompt-toolkit
 webdriver-manager==4.0.1
     # via -r requirements.in
-werkzeug==3.1.3
-    # via flask
 wheel==0.42.0
     # via astunparse
 whitenoise==6.5.0

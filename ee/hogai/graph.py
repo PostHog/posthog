@@ -1,10 +1,10 @@
 from collections.abc import Hashable
 from typing import Optional, cast
 
-from langfuse.callback import CallbackHandler
+from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
-from ee import settings
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.funnels.nodes import (
     FunnelGeneratorNode,
     FunnelGeneratorToolsNode,
@@ -19,15 +19,10 @@ from ee.hogai.trends.nodes import (
     TrendsPlannerNode,
     TrendsPlannerToolsNode,
 )
-from ee.hogai.utils import AssistantNodeName, AssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
 
-if settings.LANGFUSE_PUBLIC_KEY:
-    langfuse_handler = CallbackHandler(
-        public_key=settings.LANGFUSE_PUBLIC_KEY, secret_key=settings.LANGFUSE_SECRET_KEY, host=settings.LANGFUSE_HOST
-    )
-else:
-    langfuse_handler = None
+checkpointer = DjangoCheckpointer()
 
 
 class AssistantGraph:
@@ -45,10 +40,14 @@ class AssistantGraph:
         self._graph.add_edge(from_node, to_node)
         return self
 
+    def add_node(self, node: AssistantNodeName, action: RunnableLike):
+        self._graph.add_node(node, action)
+        return self
+
     def compile(self):
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
-        return self._graph.compile()
+        return self._graph.compile(checkpointer=checkpointer)
 
     def add_start(self):
         return self.add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)

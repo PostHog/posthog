@@ -1,19 +1,15 @@
 import re
 import uuid
-from typing import cast
 
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotAuthenticated, ValidationError
-from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception, set_tag
 
-from ee.hogai.assistant import Assistant
-from ee.hogai.utils import Conversation
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
@@ -48,14 +44,6 @@ from posthog.schema import (
 )
 
 
-class ServerSentEventRenderer(BaseRenderer):
-    media_type = "text/event-stream"
-    format = "txt"
-
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        return data
-
-
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
@@ -65,7 +53,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     sharing_enabled_actions = ["retrieve"]
 
     def get_throttles(self):
-        if self.action in ("draft_sql", "chat"):
+        if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if query := self.request.data.get("query"):
             if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
@@ -178,13 +166,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except PromptUnclear as e:
             raise ValidationError({"prompt": [str(e)]}, code="unclear")
         return Response({"sql": result})
-
-    @action(detail=False, methods=["POST"], renderer_classes=[ServerSentEventRenderer])
-    def chat(self, request: Request, *args, **kwargs):
-        assert request.user is not None
-        validated_body = Conversation.model_validate(request.data)
-        assistant = Assistant(self.team, validated_body, cast(User, request.user))
-        return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):
