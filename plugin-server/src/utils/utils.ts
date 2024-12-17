@@ -212,10 +212,15 @@ export class UUIDT extends UUID {
 }
 
 export class UUID7 extends UUID {
-    constructor(unixTimeMs?: number, rand?: Buffer) {
-        if (!unixTimeMs) {
-            unixTimeMs = DateTime.utc().toMillis()
+    constructor(bufferOrUnixTimeMs?: number | Buffer, rand?: Buffer) {
+        if (bufferOrUnixTimeMs instanceof Buffer) {
+            if (bufferOrUnixTimeMs.length !== 16) {
+                throw new Error(`UUID7 from buffer requires 16 bytes, got ${bufferOrUnixTimeMs.length}`)
+            }
+            super(bufferOrUnixTimeMs)
+            return
         }
+        const unixTimeMs = bufferOrUnixTimeMs ? bufferOrUnixTimeMs : DateTime.utc().toMillis()
         let unixTimeMsBig = BigInt(unixTimeMs)
 
         if (!rand) {

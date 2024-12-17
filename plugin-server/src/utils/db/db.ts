@@ -228,6 +228,22 @@ export class DB {
         })
     }
 
+    public redisGetBuffer(key: string, tag: string): Promise<Buffer | null> {
+        return instrumentQuery('query.redisGetBuffer', tag, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('Getting redis key delayed. Waiting over 30 sec to get key.', { key })
+            try {
+                return await tryTwice(
+                    async () => await client.getBuffer(key),
+                    `Waited 5 sec to get redis key: ${key}, retrying once!`
+                )
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
     public redisSet(
         key: string,
         value: unknown,
@@ -246,6 +262,23 @@ export class DB {
                     await client.set(key, serializedValue, 'EX', ttlSeconds)
                 } else {
                     await client.set(key, serializedValue)
+                }
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
+    public redisSetBuffer(key: string, value: Buffer, tag: string, ttlSeconds?: number): Promise<void> {
+        return instrumentQuery('query.redisSetBuffer', tag, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key', { key })
+            try {
+                if (ttlSeconds) {
+                    await client.setBuffer(key, value, 'EX', ttlSeconds)
+                } else {
+                    await client.setBuffer(key, value)
                 }
             } finally {
                 clearTimeout(timeout)

@@ -189,31 +189,30 @@ export async function cookielessServerHashStep(
 
         const sessionRedisKey = getRedisSessionsKey(hashValue, teamId)
         // do we have a session id for this user already?
-        // TODO optimise the value size here by using binary
-        let sessionInfo = await runner.hub.db.redisGet<{ s: string; t: number } | null>(
-            sessionRedisKey,
-            null,
-            'cookielessServerHashStep',
-            {
-                jsonSerialize: true,
-            }
-        )
+        const sessionInfoBuffer = await runner.hub.db.redisGetBuffer(sessionRedisKey, 'cookielessServerHashStep')
+        let sessionState = sessionInfoBuffer ? bufferToSessionState(sessionInfoBuffer) : undefined
+
         // if not, or the TTL has expired, create a new one. Don't rely on redis TTL, as ingestion lag could approach the 30-minute session inactivity timeout
-        if (!sessionInfo || timestampMs - sessionInfo.t > 60 * 30 * 1000) {
-            const sessionId = new UUID7(timestampMs).toString()
-            sessionInfo = { s: sessionId, t: timestampMs }
-            await runner.hub.db.redisSet(sessionRedisKey, sessionInfo, 'cookielessServerHashStep', SESSION_TTL_SECONDS)
+        if (!sessionState || timestampMs - sessionState.lastActivityTimestamp > 60 * 30 * 1000) {
+            const sessionId = new UUID7(timestampMs)
+            sessionState = { sessionId: sessionId, lastActivityTimestamp: timestampMs }
+            await runner.hub.db.redisSetBuffer(
+                sessionRedisKey,
+                sessionStateToBuffer(sessionState),
+                'cookielessServerHashStep',
+                SESSION_TTL_SECONDS
+            )
         } else {
             // otherwise, update the timestamp
-            await runner.hub.db.redisSet(
+            await runner.hub.db.redisSetBuffer(
                 sessionRedisKey,
-                { s: sessionInfo.s, t: timestampMs },
+                sessionStateToBuffer({ sessionId: sessionState.sessionId, lastActivityTimestamp: timestampMs }),
                 'cookielessServerHashStep',
                 SESSION_TTL_SECONDS
             )
         }
 
-        event.properties['$session_id'] = sessionInfo.s
+        event.properties['$session_id'] = sessionState.sessionId
 
         return [event]
     }
@@ -440,6 +439,28 @@ export function createStatelessSessionId(
     const fakeRandomBytes = Buffer.from(hash.buffer).subarray(0, 10)
 
     return new UUID7(timestampOfStartOfDay, fakeRandomBytes)
+}
+
+interface SessionState {
+    sessionId: UUID7 // 16 bytes
+    // 8 bytes, LE uint64 (I couldn't bring myself to store a timestamp as a double, even in JS where everything is a double)
+    // log2(Date.now()) ~= 40, so 52 bits of mantissa *would* be fine, I'm just being an unreasonable pedant
+    lastActivityTimestamp: number
+}
+export function bufferToSessionState(buffer: Buffer): SessionState {
+    // the first 16 bytes are the session id
+    const sessionId = new UUID7(buffer.subarray(0, 16))
+    // the next 8 bytes are the last activity timestamp
+    const lastActivityTimestamp = Number(buffer.readBigUInt64LE(16))
+
+    return { sessionId, lastActivityTimestamp }
+}
+
+export function sessionStateToBuffer({ sessionId, lastActivityTimestamp }: SessionState): Buffer {
+    const buffer = Buffer.alloc(24)
+    buffer.set(sessionId.array, 0)
+    buffer.writeBigUInt64LE(BigInt(lastActivityTimestamp), 16)
+    return buffer
 }
 
 export function deleteExpiredSalts(): void {
