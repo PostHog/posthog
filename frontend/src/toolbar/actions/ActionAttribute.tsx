@@ -70,7 +70,7 @@ export function ActionAttribute({
                     sliderColorOverrideUnchecked="muted-3000-light"
                 />
             )}
-            <div className="text-muted text-xl">{icon}</div>
+            <div className="text-[var(--content-tertiary)] text-xl">{icon}</div>
             <div className="grow">{text}</div>
         </div>
     )

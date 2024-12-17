@@ -16,7 +16,9 @@ export const SearchTabs = ({ inputRef }: SearchTabsProps): JSX.Element | null =>
             {Object.entries(tabsGrouped).map(([group, tabs]) => (
                 <div key={group} className={group !== 'all' ? 'pt-1.5' : ''}>
                     {group !== 'all' && (
-                        <span className="ml-4 text-xxs text-muted uppercase">{groupToName[group]}</span>
+                        <span className="ml-4 text-xxs text-[var(--content-tertiary)] uppercase">
+                            {groupToName[group]}
+                        </span>
                     )}
                     {tabs.map((tab) => (
                         <SearchBarTab key={tab} tab={tab} inputRef={inputRef} />

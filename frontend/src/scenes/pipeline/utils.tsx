@@ -195,7 +195,7 @@ export function LogLevelDisplay(level: LogEntryLevel): JSX.Element {
     let color: string | undefined
     switch (level) {
         case 'DEBUG':
-            color = 'text-muted'
+            color = 'text-[var(--content-tertiary)]'
             break
         case 'LOG':
             color = 'text-text-3000'

@@ -456,7 +456,7 @@ export function FeatureFlagReleaseConditions({
                             {!excludeTitle && (
                                 <>
                                     <h3 className="l3">Release conditions</h3>
-                                    <div className="text-muted mb-4">
+                                    <div className="text-[var(--content-tertiary)] mb-4">
                                         Specify {aggregationTargetName} for flag release. Condition sets roll out
                                         independently.
                                         {aggregationTargetName === 'users' && (

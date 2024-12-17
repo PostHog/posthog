@@ -310,7 +310,7 @@ const Content = ({
         return responseLoading ? (
             <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
         ) : !response ? (
-            <span className="text-muted mt-3">Query results will appear here</span>
+            <span className="text-[var(--content-tertiary)] mt-3">Query results will appear here</span>
         ) : (
             <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
                 <DataGrid
@@ -335,7 +335,7 @@ const Content = ({
         }
 
         return !response ? (
-            <span className="text-muted mt-3">Query be results will be visualized here</span>
+            <span className="text-[var(--content-tertiary)] mt-3">Query be results will be visualized here</span>
         ) : (
             <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
                 <InternalDataTableVisualization

@@ -140,7 +140,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     </div>
                     <div className="table-options flex grow items-center justify-end flex-wrap">
                         <div className="flex">
-                            <p className="flex items-center m-1 font-sans text-xs text-muted font-semibold">
+                            <p className="flex items-center m-1 font-sans text-xs text-[var(--content-tertiary)] font-semibold">
                                 PROPERTIES
                             </p>
                             <Popover
@@ -189,7 +189,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                             </Popover>
                         </div>
                         <div className="flex">
-                            <p className="flex items-center m-1 font-sans text-xs text-muted font-semibold ml-2">
+                            <p className="flex items-center m-1 font-sans text-xs text-[var(--content-tertiary)] font-semibold ml-2">
                                 CORRELATION
                             </p>
                             <div className="flex">

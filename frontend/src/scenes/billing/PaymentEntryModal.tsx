@@ -42,7 +42,7 @@ export const PaymentForm = (): JSX.Element => {
     return (
         <div>
             <PaymentElement />
-            <p className="text-xs text-muted mt-0.5">
+            <p className="text-xs text-[var(--content-tertiary)] mt-0.5">
                 Your card will not be charged but we place a $0.50 hold on it to verify your card that will be released
                 in 7 days.
             </p>
@@ -103,7 +103,9 @@ export const PaymentEntryModal = ({
                     </Elements>
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">
-                        <p className="text-muted text-md mt-4">We're contacting the Hedgehogs for approval.</p>
+                        <p className="text-[var(--content-tertiary)] text-md mt-4">
+                            We're contacting the Hedgehogs for approval.
+                        </p>
                         <div className="flex items-center space-x-2">
                             <div className="text-4xl">
                                 <Spinner />

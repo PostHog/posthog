@@ -128,7 +128,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                         className="flex gap-x-2 items-center mb-2"
                                         key={'addon-features-' + addon.type + index}
                                     >
-                                        <IconCheckCircle className="text-success" />
+                                        <IconCheckCircle className="text-[var(--content-success)]" />
                                         <Tooltip key={feature.key} title={feature.description}>
                                             <b>
                                                 {feature.name}

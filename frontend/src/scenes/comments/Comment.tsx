@@ -76,7 +76,9 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                         </LemonMenu>
                     </div>
                     <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
-                    {comment.version ? <span className="text-xs text-muted italic">(edited)</span> : null}
+                    {comment.version ? (
+                        <span className="text-xs text-[var(--content-tertiary)] italic">(edited)</span>
+                    ) : null}
                 </div>
             </div>
 

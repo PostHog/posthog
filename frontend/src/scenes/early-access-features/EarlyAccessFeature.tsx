@@ -292,7 +292,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         {earlyAccessFeature.description ? (
                                             earlyAccessFeature.description
                                         ) : (
-                                            <span className="text-muted">No description</span>
+                                            <span className="text-[var(--content-tertiary)]">No description</span>
                                         )}
                                     </div>
                                 </div>
@@ -317,7 +317,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                                 {earlyAccessFeature.documentation_url}
                                             </Link>
                                         ) : (
-                                            <span className="text-muted">No documentation URL</span>
+                                            <span className="text-[var(--content-tertiary)]">No documentation URL</span>
                                         )}
                                     </div>
                                 </div>

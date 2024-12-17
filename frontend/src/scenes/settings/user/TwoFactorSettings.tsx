@@ -82,7 +82,7 @@ export function TwoFactorSettings(): JSX.Element {
                             </>
                         ) : (
                             <div className="bg-[var(--background-primary)] p-4 rounded font-mono space-y-1 relative">
-                                <p className="text-muted mb-0">No backup codes generated</p>
+                                <p className="text-[var(--content-tertiary)] mb-0">No backup codes generated</p>
                             </div>
                         )}
                         <LemonButton

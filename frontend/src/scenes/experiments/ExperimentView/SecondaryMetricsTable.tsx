@@ -190,7 +190,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
                             return (
-                                <div className={variant === winningVariant ? 'text-success' : ''}>
+                                <div className={variant === winningVariant ? 'text-[var(--content-success)]' : ''}>
                                     <b>
                                         {targetResults?.probability?.[variant] != undefined
                                             ? `${(targetResults.probability?.[variant] * 100).toFixed(1)}%`
@@ -245,7 +245,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
                             return (
-                                <div className={variant === winningVariant ? 'text-success' : ''}>
+                                <div className={variant === winningVariant ? 'text-[var(--content-success)]' : ''}>
                                     <b>
                                         {targetResults?.probability?.[variant] != undefined
                                             ? `${(targetResults.probability?.[variant] * 100).toFixed(1)}%`
@@ -298,7 +298,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                         emptyState={<div>Waiting for experiment to start&hellip;</div>}
                     />
                 ) : (
-                    <div className="border rounded bg-[var(--background-primary)] pt-6 pb-8 text-muted mt-2">
+                    <div className="border rounded bg-[var(--background-primary)] pt-6 pb-8 text-[var(--content-tertiary)] mt-2">
                         <div className="flex flex-col items-center mx-auto space-y-3">
                             <IconAreaChart fontSize="30" />
                             <div className="text-sm text-center text-balance">

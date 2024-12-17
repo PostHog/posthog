@@ -26,7 +26,7 @@ export const SidePanelActivation = (): JSX.Element => {
                         <LemonProgressCircle progress={completionPercent / 100} size={100} className="text-primary">
                             <span className="text-2xl">{activeTasks.length}</span>
                         </LemonProgressCircle>
-                        <p className="text-muted mt-2 ">still to go</p>
+                        <p className="text-[var(--content-tertiary)] mt-2 ">still to go</p>
                     </div>
                     <div className="h-60">
                         <ProfessorHog className="max-h-full w-auto object-contain" />

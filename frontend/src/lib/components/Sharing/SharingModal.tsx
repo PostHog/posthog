@@ -167,7 +167,7 @@ export function SharingModalContent({
                                                             <span>Show PostHog branding</span>
                                                             {!whitelabelAvailable && (
                                                                 <Tooltip title="This is a premium feature, click to learn more.">
-                                                                    <IconLock className="ml-1.5 text-muted text-lg" />
+                                                                    <IconLock className="ml-1.5 text-[var(--content-tertiary)] text-lg" />
                                                                 </Tooltip>
                                                             )}
                                                         </div>

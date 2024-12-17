@@ -152,7 +152,7 @@ export function PerformanceDuration({
             className={clsx({
                 'text-danger-dark': !loading && value >= benchmarks[1],
                 'text-warning-dark': !loading && value >= benchmarks[0] && value < benchmarks[1],
-                'text-success-dark': !loading && value < benchmarks[0],
+                'text-[var(--content-success)]-dark': !loading && value < benchmarks[0],
             })}
         >
             {loading ? <Spinner textColored={true} /> : humanFriendlyMilliseconds(value)}

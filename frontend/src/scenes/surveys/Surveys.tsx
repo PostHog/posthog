@@ -373,7 +373,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Launch this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-muted">
+                                                                                <div className="text-sm text-[var(--content-tertiary)]">
                                                                                     The survey will immediately start
                                                                                     displaying to users matching the
                                                                                     display conditions.
@@ -411,7 +411,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Stop this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-muted">
+                                                                                <div className="text-sm text-[var(--content-tertiary)]">
                                                                                     The survey will no longer be visible
                                                                                     to your users.
                                                                                 </div>
@@ -448,7 +448,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Resume this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-muted">
+                                                                                <div className="text-sm text-[var(--content-tertiary)]">
                                                                                     Once resumed, the survey will be
                                                                                     visible to your users again.
                                                                                 </div>
@@ -498,7 +498,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Archive this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-muted">
+                                                                                <div className="text-sm text-[var(--content-tertiary)]">
                                                                                     This action will remove the survey
                                                                                     from your active surveys list. It
                                                                                     can be restored at any time.
@@ -534,7 +534,7 @@ export function Surveys(): JSX.Element {
                                                                     LemonDialog.open({
                                                                         title: 'Delete this survey?',
                                                                         content: (
-                                                                            <div className="text-sm text-muted">
+                                                                            <div className="text-sm text-[var(--content-tertiary)]">
                                                                                 This action cannot be undone. All survey
                                                                                 data will be permanently removed.
                                                                             </div>

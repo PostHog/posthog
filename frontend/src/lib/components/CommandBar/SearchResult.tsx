@@ -51,7 +51,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
             ref={ref}
         >
             <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
-                <span className="text-muted-3000 text-xs">
+                <span className="text-[var(--content-tertiary)]-3000 text-xs">
                     {result.type !== 'group'
                         ? tabToName[result.type]
                         : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}

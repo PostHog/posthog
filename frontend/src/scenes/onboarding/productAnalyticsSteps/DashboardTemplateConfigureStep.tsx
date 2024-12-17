@@ -142,7 +142,7 @@ export const SiteChooser = (): JSX.Element => {
                                 the HTML snippet wherever you want to track events, then come back here.
                             </p>
                             {isCloud && (
-                                <p className="text-muted italic">
+                                <p className="text-[var(--content-tertiary)] italic">
                                     Note: Sites must be served over HTTPS to be selected.
                                 </p>
                             )}
@@ -165,13 +165,13 @@ export const SiteChooser = (): JSX.Element => {
                         </>
                     ) : (
                         <>
-                            <p className="text-muted">
+                            <p className="text-[var(--content-tertiary)]">
                                 Hm, it looks like you haven't ingested any events from a website yet. To select actions
                                 from your site, head back to the{' '}
                                 <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>install step</Link> to
                                 install posthog-js in your frontend.
                             </p>
-                            <p className="text-muted">
+                            <p className="text-[var(--content-tertiary)]">
                                 You can still create a dashboard using custom event names, though it's not quite as fun.
                             </p>
                             <LemonButton onClick={() => setStepKey(OnboardingStepKey.INSTALL)} type="primary">
@@ -235,7 +235,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                     <div className="mb-8 max-w-screen-md mx-auto">
                         <div className="bg-[var(--background-success-subtle)] rounded p-6 flex justify-between items-center">
                             <div className="flex gap-x-4">
-                                <IconCheckCircle className="text-success text-3xl mb-6" />
+                                <IconCheckCircle className="text-[var(--content-success)] text-3xl mb-6" />
                                 <div>
                                     <h3 className="text-lg font-bold mb-1 text-left">Dashboard created!</h3>
                                     <p className="mx-0 mb-0">We'll take you there when you're done onboarding.</p>

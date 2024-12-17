@@ -52,13 +52,16 @@ const ExportsContent = (): JSX.Element => {
                                         <span className="text-xs mt-1">{dayjs(asset.created_at).fromNow()}</span>
                                     )}
                                     {asset.expires_after && (
-                                        <span className="text-xs text-muted mt-1">
+                                        <span className="text-xs text-[var(--content-tertiary)] mt-1">
                                             {' '}
                                             · expires {dayjs(asset.expires_after).fromNow()}
                                         </span>
                                     )}
                                     {isNotDownloaded && (
-                                        <span className="text-xs text-muted mt-1"> · not downloaded yet</span>
+                                        <span className="text-xs text-[var(--content-tertiary)] mt-1">
+                                            {' '}
+                                            · not downloaded yet
+                                        </span>
                                     )}
                                 </div>
                                 <div>{!asset.has_content && <Spinner />}</div>

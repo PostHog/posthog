@@ -483,7 +483,7 @@ export function SavedInsights(): JSX.Element {
             key: 'id',
             width: 32,
             render: function renderType(_, insight) {
-                return <InsightIcon insight={insight} className="text-muted text-2xl" />
+                return <InsightIcon insight={insight} className="text-[var(--content-tertiary)] text-2xl" />
             },
         },
         {
@@ -510,7 +510,7 @@ export function SavedInsights(): JSX.Element {
                                             insight.favorited ? (
                                                 <IconStarFilled className="text-warning" />
                                             ) : (
-                                                <IconStar className="text-muted" />
+                                                <IconStar className="text-[var(--content-tertiary)]" />
                                             )
                                         }
                                         tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}

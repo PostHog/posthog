@@ -114,7 +114,7 @@ export function WebExperimentTransformField({
                         label: 'HTML',
                         icon:
                             transform.html && transform.html.length > 0 ? (
-                                <IconCheckCircle className="text-success" />
+                                <IconCheckCircle className="text-[var(--content-success)]" />
                             ) : (
                                 <IconCode />
                             ),
@@ -124,7 +124,7 @@ export function WebExperimentTransformField({
                         label: 'Text',
                         icon:
                             transform.text && transform.text.length > 0 ? (
-                                <IconCheckCircle className="text-success" />
+                                <IconCheckCircle className="text-[var(--content-success)]" />
                             ) : (
                                 <IconMessage />
                             ),
@@ -134,7 +134,7 @@ export function WebExperimentTransformField({
                         label: 'CSS',
                         icon:
                             transform.css && transform.css.length > 0 ? (
-                                <IconCheckCircle className="text-success" />
+                                <IconCheckCircle className="text-[var(--content-success)]" />
                             ) : (
                                 <IconAIText />
                             ),

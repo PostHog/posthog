@@ -22,7 +22,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
             <div className="flex flex-col justify-center items-center p-6 bg-[var(--background-primary)] rounded m-6 gap-2 max-w-120 shadow">
                 <IconErrorOutline className="text-danger text-5xl" />
                 <div className="font-bold text-text-3000 text-lg">We're unable to play this recording</div>
-                <div className="text-muted text-sm text-center">
+                <div className="text-[var(--content-tertiary)] text-sm text-center">
                     An error occurred that is preventing this recording from being played. You can refresh the page to
                     reload the recording.
                 </div>

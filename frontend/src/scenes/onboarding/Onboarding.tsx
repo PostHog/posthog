@@ -95,7 +95,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     if (!currentOnboardingStep) {
         return (
             <div className="flex items-center justify-center my-20">
-                <Spinner className="text-2xl text-muted w-10 h-10" />
+                <Spinner className="text-2xl text-[var(--content-tertiary)] w-10 h-10" />
             </div>
         )
     }

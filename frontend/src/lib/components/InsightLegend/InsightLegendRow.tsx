@@ -81,7 +81,7 @@ export function InsightLegendRow({ rowIndex, item, totalItems }: InsightLegendRo
                 />
             </div>
             {display === ChartDisplayType.ActionsPie && (
-                <div className="text-muted grow-0">
+                <div className="text-[var(--content-tertiary)] grow-0">
                     {formatAggregationAxisValue(trendsFilter, item.aggregated_value)}
                 </div>
             )}

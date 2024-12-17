@@ -267,7 +267,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                                 : 0))
                                                                 )}
                                                             </div>
-                                                            <span className="text-xs text-muted">
+                                                            <span className="text-xs text-[var(--content-tertiary)]">
                                                                 {capitalizeFirstLetter(
                                                                     billing?.billing_period?.interval || ''
                                                                 )}
@@ -284,7 +284,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             } and the remaining time left in this billing period. This number updates once daily.`}
                                                         >
                                                             <div className="flex flex-col items-center justify-end">
-                                                                <div className="font-bold text-muted text-lg leading-5">
+                                                                <div className="font-bold text-[var(--content-tertiary)] text-lg leading-5">
                                                                     {humanFriendlyCurrency(
                                                                         parseFloat(
                                                                             product.projected_amount_usd || '0'
@@ -295,7 +295,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                                     : 0))
                                                                     )}
                                                                 </div>
-                                                                <span className="text-xs text-muted">Projected</span>
+                                                                <span className="text-xs text-[var(--content-tertiary)]">
+                                                                    Projected
+                                                                </span>
                                                             </div>
                                                         </Tooltip>
                                                     )}
@@ -311,7 +313,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <div className="font-bold text-3xl leading-7">
                                                         {humanFriendlyCurrency(product.current_amount_usd)}
                                                     </div>
-                                                    <span className="text-xs text-muted">
+                                                    <span className="text-xs text-[var(--content-tertiary)]">
                                                         per {billing?.billing_period?.interval || 'period'}
                                                     </span>
                                                 </div>
@@ -380,7 +382,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     >
                         <div>
                             {currentPlan && (
-                                <h4 className={`${!upgradePlan ? 'text-success' : 'text-warning-dark'}`}>
+                                <h4
+                                    className={`${
+                                        !upgradePlan ? 'text-[var(--content-success)]' : 'text-warning-dark'
+                                    }`}
+                                >
                                     You're on the {currentPlan.name} plan for {product.name}.
                                 </h4>
                             )}
@@ -395,7 +401,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         className="flex gap-x-2 items-center mb-2"
                                                         key={'additional-features-' + product.type + i}
                                                     >
-                                                        <IconCheckCircle className="text-success" />
+                                                        <IconCheckCircle className="text-[var(--content-success)]" />
                                                         <Tooltip key={feature.key} title={feature.description}>
                                                             <b>{feature.name} </b>
                                                         </Tooltip>
@@ -405,14 +411,14 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         })}
                                         {!billing?.has_active_subscription && (
                                             <div className="flex gap-x-2 items-center mb-2">
-                                                <IconCheckCircle className="text-success" />
+                                                <IconCheckCircle className="text-[var(--content-success)]" />
                                                 <Tooltip title="Multiple projects, Feature flags, Experiments, Integrations, Apps, and more">
                                                     <b>Upgraded platform features</b>
                                                 </Tooltip>
                                             </div>
                                         )}
                                         <div className="flex gap-x-2 items-center mb-2">
-                                            <IconCheckCircle className="text-success" />
+                                            <IconCheckCircle className="text-[var(--content-success)]" />
                                             <Link onClick={() => toggleIsPlanComparisonModalOpen()}>
                                                 <b>And more...</b>
                                             </Link>
@@ -504,7 +510,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
 export const FeatureFlagUsageNotice = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     return product.type === 'feature_flags' ? (
-        <p className="mt-4 ml-0 text-sm text-muted italic">
+        <p className="mt-4 ml-0 text-sm text-[var(--content-tertiary)] italic">
             <IconInfo className="mr-1" />
             Questions? Here's{' '}
             <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">

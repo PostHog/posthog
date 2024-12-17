@@ -92,7 +92,7 @@ export function ConfirmOrganization(): JSX.Element {
                 </LemonButton>
             </Form>
 
-            <div className="text-center terms-and-conditions-text mt-4 text-muted">
+            <div className="text-center terms-and-conditions-text mt-4 text-[var(--content-tertiary)]">
                 By creating an account, you agree to our{' '}
                 <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service
@@ -104,7 +104,7 @@ export function ConfirmOrganization(): JSX.Element {
                 .
             </div>
             <LemonDivider thick dashed className="my-6" />
-            <div className="text-center terms-and-conditions-text mt-4 text-muted">
+            <div className="text-center terms-and-conditions-text mt-4 text-[var(--content-tertiary)]">
                 Have questions?{' '}
                 <Link to="https://posthog.com/support" target="_blank">
                     Visit support

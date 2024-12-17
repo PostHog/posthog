@@ -25,7 +25,11 @@ export function PropertyDefinitionsTable(): JSX.Element {
             key: 'icon',
             width: 0,
             render: function Render(_, definition: PropertyDefinition) {
-                return <span className="text-xl text-muted">{getPropertyDefinitionIcon(definition)}</span>
+                return (
+                    <span className="text-xl text-[var(--content-tertiary)]">
+                        {getPropertyDefinitionIcon(definition)}
+                    </span>
+                )
             },
         },
         {
@@ -51,7 +55,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                         {definition.property_type}
                     </LemonTag>
                 ) : (
-                    <span className="text-muted">—</span>
+                    <span className="text-[var(--content-tertiary)]">—</span>
                 )
             },
         },

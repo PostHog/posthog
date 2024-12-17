@@ -30,14 +30,14 @@ export interface SessionRecordingPreviewProps {
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
     if (recordingDuration === undefined) {
-        return <div className="flex text-muted text-xs">-</div>
+        return <div className="flex text-[var(--content-tertiary)] text-xs">-</div>
     }
 
     const formattedDuration = colonDelimitedDuration(recordingDuration)
     const [hours, minutes, seconds] = formattedDuration.split(':')
 
     return (
-        <div className="flex text-muted text-xs">
+        <div className="flex text-[var(--content-tertiary)] text-xs">
             {hours != '00' && <span>{hours}:</span>}
             <span>
                 {minutes}:{seconds}
@@ -129,7 +129,7 @@ export function PropertyIcons({ recordingProperties, loading, iconClassNames }: 
 function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
     const firstPath = props.startUrl?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
     return (
-        <span className="flex overflow-hidden text-muted text-xs">
+        <span className="flex overflow-hidden text-[var(--content-tertiary)] text-xs">
             <span title={`First URL: ${props.startUrl}`} className="truncate">
                 {firstPath}
             </span>
@@ -207,7 +207,7 @@ export function SessionRecordingPreview({
 
                         {playlistTimestampFormat === TimestampFormat.Relative ? (
                             <TZLabel
-                                className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
+                                className="overflow-hidden text-ellipsis text-xs text-[var(--content-tertiary)] shrink-0"
                                 time={recording.start_time}
                                 placement="right"
                             />
@@ -219,7 +219,7 @@ export function SessionRecordingPreview({
                     </div>
 
                     <div className="flex justify-between items-center space-x-0.5">
-                        <div className="flex space-x-2 text-muted text-sm">
+                        <div className="flex space-x-2 text-[var(--content-tertiary)] text-sm">
                             <PropertyIcons
                                 recordingProperties={iconProperties}
                                 iconClassNames={iconClassNames}

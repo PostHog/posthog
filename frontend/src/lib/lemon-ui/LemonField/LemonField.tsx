@@ -65,7 +65,7 @@ const LemonPureField = ({
                 </LemonLabel>
             ) : null}
             {children}
-            {help ? <div className="text-muted text-xs">{help}</div> : null}
+            {help ? <div className="text-[var(--content-tertiary)] text-xs">{help}</div> : null}
             {typeof error === 'string' ? (
                 renderError ? (
                     renderError(error)

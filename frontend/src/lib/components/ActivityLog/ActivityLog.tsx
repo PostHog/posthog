@@ -89,7 +89,7 @@ export const ActivityLogRow = ({
                 {showExtendedDescription && logItem.extendedDescription && (
                     <div className="ActivityLogRow__description__extended">{logItem.extendedDescription}</div>
                 )}
-                <div className="text-muted">
+                <div className="text-[var(--content-tertiary)]">
                     <TZLabel time={logItem.created_at} />
                 </div>
             </div>

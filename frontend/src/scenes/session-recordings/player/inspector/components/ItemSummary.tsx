@@ -21,7 +21,7 @@ export function ItemSummary({ item }: { item: InspectorListItemSummary }): JSX.E
             <div
                 className={clsx(
                     'flex text-danger items-center justify-end',
-                    (item.errorCount || 0) > 0 ? 'text-danger' : 'text-success'
+                    (item.errorCount || 0) > 0 ? 'text-danger' : 'text-[var(--content-success)]'
                 )}
             >
                 <IconWarning className="mr-1" />

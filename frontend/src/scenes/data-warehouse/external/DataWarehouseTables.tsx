@@ -187,7 +187,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                             })),
                         })),
                     })),
-                    emptyLabel: <span className="text-muted">No tables found</span>,
+                    emptyLabel: <span className="text-[var(--content-tertiary)]">No tables found</span>,
                     isLoading: databaseLoading,
                 },
                 {
@@ -216,7 +216,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                             icon: <IconDatabase />,
                         })),
                     })),
-                    emptyLabel: <span className="text-muted">No views found</span>,
+                    emptyLabel: <span className="text-[var(--content-tertiary)]">No views found</span>,
                     isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
                 },
                 ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
@@ -233,7 +233,9 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                                       icon: <IconDatabase />,
                                   })),
                               })),
-                              emptyLabel: <span className="text-muted">No materialized views found</span>,
+                              emptyLabel: (
+                                  <span className="text-[var(--content-tertiary)]">No materialized views found</span>
+                              ),
                               isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
                           },
                       ]
@@ -253,7 +255,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                         icon: <IconDatabase />,
                     })),
                 })),
-                emptyLabel: <span className="text-muted">No tables found</span>,
+                emptyLabel: <span className="text-[var(--content-tertiary)]">No tables found</span>,
                 isLoading: databaseLoading,
             },
             {
@@ -270,7 +272,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                     table: table,
                     icon: <IconBrackets />,
                 })),
-                emptyLabel: <span className="text-muted">No views found</span>,
+                emptyLabel: <span className="text-[var(--content-tertiary)]">No views found</span>,
                 isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
             },
             ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
@@ -281,7 +283,9 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                               table: table,
                               icon: <IconBrackets />,
                           })),
-                          emptyLabel: <span className="text-muted">No materialized views found</span>,
+                          emptyLabel: (
+                              <span className="text-[var(--content-tertiary)]">No materialized views found</span>
+                          ),
                           isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
                       },
                   ]

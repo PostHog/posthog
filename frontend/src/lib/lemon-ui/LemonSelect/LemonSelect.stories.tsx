@@ -57,13 +57,13 @@ SectionedOptions.args = {
             title: (
                 <div>
                     <h5>I am a Custom label!</h5>
-                    <div className="text-muted mx-2 mb-2">I can put whatever I want here</div>
+                    <div className="text-[var(--content-tertiary)] mx-2 mb-2">I can put whatever I want here</div>
                 </div>
             ),
             options: [{ value: 'tomato', label: 'Tomato??', disabled: true }],
             footer: (
                 <div className="bg-[var(--background-primary)] rounded p-2">
-                    <p className="text-muted max-w-60">
+                    <p className="text-[var(--content-tertiary)] max-w-60">
                         I am a custom footer! <br />
                         This might be a good time to tell you about our premium features...
                     </p>

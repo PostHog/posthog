@@ -19,7 +19,7 @@ export function ProjectHomePageCompactListItem({
     return (
         <LemonButton fullWidth to={to} onClick={onClick} className="h-12">
             <div className="flex items-start justify-between overflow-hidden gap-2 flex-1">
-                {prefix ? <span className="flex shrink-0 text-muted text-xl">{prefix}</span> : null}
+                {prefix ? <span className="flex shrink-0 text-[var(--content-tertiary)] text-xl">{prefix}</span> : null}
 
                 <div className="truncate space-y-0.5 flex-1">
                     <div className="text-link truncate">{title}</div>

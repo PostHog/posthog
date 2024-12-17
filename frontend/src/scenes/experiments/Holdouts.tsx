@@ -215,7 +215,9 @@ export function Holdouts(): JSX.Element {
 
             <LemonTable
                 emptyState={
-                    <div className="py-4 text-muted text-sm text-center">You have not created any holdouts yet.</div>
+                    <div className="py-4 text-[var(--content-tertiary)] text-sm text-center">
+                        You have not created any holdouts yet.
+                    </div>
                 }
                 loading={holdoutsLoading}
                 dataSource={holdouts}

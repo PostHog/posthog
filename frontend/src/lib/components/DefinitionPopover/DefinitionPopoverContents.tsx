@@ -58,7 +58,7 @@ export function VerifiedDefinitionCheckbox({
                         Mark as verified {isProperty ? 'property' : 'event'}
                         {compact && (
                             <Tooltip title={copy}>
-                                <IconInfo className="ml-2 text-muted text-xl shrink-0" />
+                                <IconInfo className="ml-2 text-[var(--content-tertiary)] text-xl shrink-0" />
                             </Tooltip>
                         )}
                     </>

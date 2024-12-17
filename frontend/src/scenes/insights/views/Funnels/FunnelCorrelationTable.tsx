@@ -85,7 +85,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             <>
                 <div className="font-semibold text-text-3000">
                     {is_success ? (
-                        <IconTrending className="text-success" />
+                        <IconTrending className="text-[var(--content-success)]" />
                     ) : (
                         <IconTrendingDown className="text-danger" />
                     )}{' '}
@@ -144,7 +144,9 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 <div className="flex flex-col items-center py-2">
                     <Spinner className="text-2xl mb-2" />
                     <h3 className="mb-1 font-semibold">Loading correlation results…</h3>
-                    <p className="m-0 text-xs text-muted">This process can take up to 20 seconds.</p>
+                    <p className="m-0 text-xs text-[var(--content-tertiary)]">
+                        This process can take up to 20 seconds.
+                    </p>
                 </div>
             )
         }
@@ -213,7 +215,9 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         CORRELATED EVENTS
                     </span>
                     <span className="table-options flex grow items-center justify-end">
-                        <p className="flex items-center m-1 font-sans text-xs text-muted font-semibold">CORRELATION</p>
+                        <p className="flex items-center m-1 font-sans text-xs text-[var(--content-tertiary)] font-semibold">
+                            CORRELATION
+                        </p>
                         <div className="flex">
                             <LemonCheckbox
                                 checked={correlationTypes.includes(FunnelCorrelationType.Success)}

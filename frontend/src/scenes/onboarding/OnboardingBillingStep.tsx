@@ -66,7 +66,7 @@ export const OnboardingBillingStep = ({
                         <div className="mb-8">
                             <div className="bg-[var(--background-success-subtle)] rounded p-6 flex justify-between items-center">
                                 <div className="flex gap-x-4 min-w-0">
-                                    <IconCheckCircle className="text-success text-3xl mb-6 flex-shrink-0" />
+                                    <IconCheckCircle className="text-[var(--content-success)] text-3xl mb-6 flex-shrink-0" />
                                     <div className="flex-1 min-w-0">
                                         <h3 className="text-lg font-bold mb-1 text-left">{action} successful</h3>
                                         <p className="mx-0 mb-0">You're all ready to use {product.name}.</p>
@@ -99,7 +99,7 @@ export const OnboardingBillingStep = ({
                 </div>
             ) : (
                 <div className="flex items-center justify-center my-20">
-                    <Spinner className="text-2xl text-muted w-10 h-10" />
+                    <Spinner className="text-2xl text-[var(--content-tertiary)] w-10 h-10" />
                 </div>
             )}
         </OnboardingStep>

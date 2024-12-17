@@ -393,16 +393,16 @@ function Chart({
                         <div className="flex flex-col gap-1">
                             <VariantTag experimentId={experimentId} variantKey={tooltipData.variant} />
                             <div className="flex justify-between items-center">
-                                <span className="text-muted font-semibold">Conversion rate:</span>
+                                <span className="text-[var(--content-tertiary)] font-semibold">Conversion rate:</span>
                                 <span className="font-semibold">
                                     {conversionRateForVariant(results, tooltipData.variant)?.toFixed(2)}%
                                 </span>
                             </div>
                             <div className="flex justify-between items-center">
-                                <span className="text-muted font-semibold">Delta:</span>
+                                <span className="text-[var(--content-tertiary)] font-semibold">Delta:</span>
                                 <span className="font-semibold">
                                     {tooltipData.variant === 'control' ? (
-                                        <em className="text-muted">Baseline</em>
+                                        <em className="text-[var(--content-tertiary)]">Baseline</em>
                                     ) : (
                                         (() => {
                                             const variantRate = conversionRateForVariant(results, tooltipData.variant)
@@ -412,7 +412,11 @@ function Chart({
                                                     ? (variantRate - controlRate) / controlRate
                                                     : 0
                                             return delta ? (
-                                                <span className={delta > 0 ? 'text-success' : 'text-danger'}>
+                                                <span
+                                                    className={
+                                                        delta > 0 ? 'text-[var(--content-success)]' : 'text-danger'
+                                                    }
+                                                >
                                                     {`${delta > 0 ? '+' : ''}${(delta * 100).toFixed(2)}%`}
                                                 </span>
                                             ) : (
@@ -423,7 +427,7 @@ function Chart({
                                 </span>
                             </div>
                             <div className="flex justify-between items-center">
-                                <span className="text-muted font-semibold">Credible interval:</span>
+                                <span className="text-[var(--content-tertiary)] font-semibold">Credible interval:</span>
                                 <span className="font-semibold">
                                     {(() => {
                                         const interval = credibleIntervalForVariant(

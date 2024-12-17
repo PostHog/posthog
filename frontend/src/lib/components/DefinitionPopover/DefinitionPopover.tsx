@@ -190,7 +190,9 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
                     <span className="pl-2 inline-flex font-semibold pl-1 whitespace-nowrap">{user.first_name}</span>
                 </div>
             ) : (
-                <span className="text-muted italic inline-flex font-semibold pl-1 whitespace-nowrap">No owner</span>
+                <span className="text-[var(--content-tertiary)] italic inline-flex font-semibold pl-1 whitespace-nowrap">
+                    No owner
+                </span>
             )}
         </>
     )

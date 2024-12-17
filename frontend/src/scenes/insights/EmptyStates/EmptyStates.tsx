@@ -154,7 +154,7 @@ export function StatelessInsightLoadingState({
                     </div>
                 )}
                 {queryId ? (
-                    <div className="text-muted text-xs mx-auto text-center mt-5">
+                    <div className="text-[var(--content-tertiary)] text-xs mx-auto text-center mt-5">
                         Query ID: <span className="font-mono">{queryId}</span>
                     </div>
                 ) : null}
@@ -253,7 +253,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                     </p>
                 </div>
                 {queryId ? (
-                    <div className="text-muted text-xs mx-auto text-center mt-5">
+                    <div className="text-[var(--content-tertiary)] text-xs mx-auto text-center mt-5">
                         Query ID: <span className="font-mono">{queryId}</span>
                     </div>
                 ) : null}
@@ -308,7 +308,7 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
                     </div>
                 )}
                 {queryId && (
-                    <div className="text-muted text-xs text-center">
+                    <div className="text-[var(--content-tertiary)] text-xs text-center">
                         Query ID: <span className="font-mono">{queryId}</span>
                     </div>
                 )}

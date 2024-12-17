@@ -63,7 +63,7 @@ export function ManagedReverseProxy(): JSX.Element {
                         className={clsx(
                             'space-x-1',
                             status === 'valid'
-                                ? 'text-success'
+                                ? 'text-[var(--content-success)]'
                                 : status == 'erroring'
                                 ? 'text-danger'
                                 : 'text-warning-dark'
@@ -117,7 +117,10 @@ export function ManagedReverseProxy(): JSX.Element {
                                 },
                             ]}
                         >
-                            <LemonButton size="small" icon={<IconEllipsis className="text-muted" />} />
+                            <LemonButton
+                                size="small"
+                                icon={<IconEllipsis className="text-[var(--content-tertiary)]" />}
+                            />
                         </LemonMenu>
                     )
                 )

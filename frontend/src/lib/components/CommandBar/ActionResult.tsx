@@ -36,7 +36,7 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
                 ref={ref}
             >
                 <div className="px-2 py-3 w-full space-y-0.5 flex items-center">
-                    <result.icon className="text-muted-3000" />
+                    <result.icon className="text-[var(--content-tertiary)]-3000" />
                     <span className="ml-2 text-text-3000 font-bold">{result.display}</span>
                 </div>
                 {focused && <div className="shrink-0 content-brand">Run command</div>}

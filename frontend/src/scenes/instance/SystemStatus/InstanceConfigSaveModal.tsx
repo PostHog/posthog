@@ -24,7 +24,7 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
             <div>
                 <code>{metricKey}</code>
             </div>
-            <div className="text-muted">
+            <div className="text-[var(--content-tertiary)]">
                 Value will be changed
                 {!isSecret && (
                     <>
@@ -121,7 +121,7 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                     />
                 ))}
                 {loading && (
-                    <div className="mt-4 text-success">
+                    <div className="mt-4 text-[var(--content-success)]">
                         <b>{pluralize(updatedInstanceConfigCount || 0, 'change')} updated successfully.</b>
                     </div>
                 )}

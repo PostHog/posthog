@@ -118,7 +118,7 @@ export function Experiments(): JSX.Element {
                                                 LemonDialog.open({
                                                     title: 'Archive this experiment?',
                                                     content: (
-                                                        <div className="text-sm text-muted">
+                                                        <div className="text-sm text-[var(--content-tertiary)]">
                                                             This action will move the experiment to the archived tab. It
                                                             can be restored at any time.
                                                         </div>
@@ -149,7 +149,7 @@ export function Experiments(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Delete this experiment?',
                                             content: (
-                                                <div className="text-sm text-muted">
+                                                <div className="text-sm text-[var(--content-tertiary)]">
                                                     This action cannot be undone. All experiment data will be
                                                     permanently removed.
                                                 </div>

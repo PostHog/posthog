@@ -27,7 +27,7 @@ export function PathRegexPopover({ filter = {}, onSave, onCancel, isNew = false 
                 <div>
                     <span>Regex</span>
                     <LemonInput defaultValue={regex} onChange={(regex) => setRegex(regex)} onPressEnter={() => false} />
-                    <div className="text-muted mb-3">
+                    <div className="text-[var(--content-tertiary)] mb-3">
                         For example: <code>\/merchant\/\d+\/dashboard$</code>
                     </div>
                 </div>

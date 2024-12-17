@@ -1164,7 +1164,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                     <>Current value is {((experimentResults?.expected_loss || 0) * 100)?.toFixed(2)}%</>
                                 }
                             >
-                                <IconInfo className="ml-1 text-muted text-xl" />
+                                <IconInfo className="ml-1 text-[var(--content-tertiary)] text-xl" />
                             </Tooltip>
                             .
                         </>
@@ -1179,7 +1179,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 placement="right"
                                 title={<>Current value is {experimentResults?.p_value?.toFixed(3) || 1}.</>}
                             >
-                                <IconInfo className="ml-1 text-muted text-xl" />
+                                <IconInfo className="ml-1 text-[var(--content-tertiary)] text-xl" />
                             </Tooltip>
                             .
                         </>

@@ -41,13 +41,13 @@ function StackTrace({
                             <span>{source}</span>
                             {resolved_name ? (
                                 <div className="flex space-x-0.5">
-                                    <span className="text-muted">in</span>
+                                    <span className="text-[var(--content-tertiary)]">in</span>
                                     <span>{resolved_name}</span>
                                 </div>
                             ) : null}
                             {line ? (
                                 <div className="flex space-x-0.5">
-                                    <span className="text-muted">@</span>
+                                    <span className="text-[var(--content-tertiary)]">@</span>
                                     <span>
                                         {line}
                                         {column && `:${column}`}

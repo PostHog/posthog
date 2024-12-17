@@ -173,7 +173,9 @@ function EditKeyModal(): JSX.Element {
                                                                         )?.name
                                                                     }
                                                                 </span>
-                                                                <span className="text-muted mx-1">/</span>
+                                                                <span className="text-[var(--content-tertiary)] mx-1">
+                                                                    /
+                                                                </span>
                                                                 <span className="flex-1 font-semibold">
                                                                     {team.name}
                                                                 </span>
@@ -247,14 +249,15 @@ function EditKeyModal(): JSX.Element {
                                                             <div
                                                                 className={clsx(
                                                                     'flex items-center gap-1',
-                                                                    disabledDueToProjectScope && 'text-muted'
+                                                                    disabledDueToProjectScope &&
+                                                                        'text-[var(--content-tertiary)]'
                                                                 )}
                                                             >
                                                                 <b>{capitalizeFirstLetter(key.replace(/_/g, ' '))}</b>
 
                                                                 {info ? (
                                                                     <Tooltip title={info}>
-                                                                        <IconInfo className="text-muted text-base" />
+                                                                        <IconInfo className="text-[var(--content-tertiary)] text-base" />
                                                                     </Tooltip>
                                                                 ) : null}
                                                             </div>
@@ -291,7 +294,7 @@ function EditKeyModal(): JSX.Element {
                                                         </div>
                                                         {warnings?.[formScopeRadioValues[key]] && (
                                                             <div className="flex items-start gap-2 text-xs italic pb-2">
-                                                                <IconWarning className="text-base text-muted mt-0.5" />
+                                                                <IconWarning className="text-base text-[var(--content-tertiary)] mt-0.5" />
                                                                 <span>{warnings[formScopeRadioValues[key]]}</span>
                                                             </div>
                                                         )}

@@ -31,7 +31,7 @@ export const AssigneeSelect = ({
                         user ? (
                             <ProfilePicture size="md" user={user} />
                         ) : (
-                            <IconPerson className="rounded-full border border-dashed border-muted text-muted p-0.5" />
+                            <IconPerson className="rounded-full border border-dashed border-muted text-[var(--content-tertiary)] p-0.5" />
                         )
                     }
                     sideIcon={null}

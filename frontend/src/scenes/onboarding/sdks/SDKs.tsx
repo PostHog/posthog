@@ -139,22 +139,22 @@ export function SDKs({
                                             </LemonButton>
                                         </div>
                                         {hasCheckedInstallation && !showListeningFor && (
-                                            <p className="italic text-muted mt-2 text-xs">
+                                            <p className="italic text-[var(--content-tertiary)] mt-2 text-xs">
                                                 No {listeningForName}s received. Please check your implementation and
                                                 try again.
                                             </p>
                                         )}
                                     </>
                                 ) : (
-                                    <p className="flex items-center italic text-muted">
+                                    <p className="flex items-center italic text-[var(--content-tertiary)]">
                                         {!currentTeam?.[teamPropertyToVerify] ? (
                                             <>
                                                 <Spinner className="text-3xl mr-2" /> Verifying installation...
                                             </>
                                         ) : (
                                             <>
-                                                <IconCheck className="text-xl text-success mr-2" /> Installation
-                                                complete
+                                                <IconCheck className="text-xl text-[var(--content-success)] mr-2" />{' '}
+                                                Installation complete
                                             </>
                                         )}
                                     </p>

@@ -140,7 +140,7 @@ function SizeDescription({ sizeInfo }: { sizeInfo: PerformanceEventSizeInfo }): 
             {sizeInfo.isFromLocalCache ? (
                 <>
                     {' '}
-                    <span className="text-muted">(from local cache)</span>
+                    <span className="text-[var(--content-tertiary)]">(from local cache)</span>
                 </>
             ) : null}
             {sizeInfo.formattedCompressionPercentage &&
@@ -472,7 +472,9 @@ export function StatusTag({ item, detailed }: { item: PerformanceEvent; detailed
             {detailed ? <div className="font-semibold">Status code</div> : null}
             <div>
                 <LemonTag type={statusType}>{statusDescription}</LemonTag>
-                {detailed && fromDiskCache ? <span className="text-muted"> (from cache)</span> : null}
+                {detailed && fromDiskCache ? (
+                    <span className="text-[var(--content-tertiary)]"> (from cache)</span>
+                ) : null}
             </div>
         </div>
     )

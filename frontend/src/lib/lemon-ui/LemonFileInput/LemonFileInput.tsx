@@ -143,7 +143,7 @@ export const LemonFileInput = ({
                     !alternativeDropTargetRef?.current && drag && 'FileDropTarget--active'
                 )}
             >
-                <label className="text-muted inline-flex flow-row items-center gap-1 cursor-pointer">
+                <label className="text-[var(--content-tertiary)] inline-flex flow-row items-center gap-1 cursor-pointer">
                     <input
                         className="hidden"
                         type="file"

@@ -109,7 +109,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.SessionProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
-            <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
+            <div className={clsx('taxonomic-list-row-contents', isStale && 'text-[var(--content-tertiary)]')}>
                 {icon}
                 <PropertyKeyInfo
                     value={item.name ?? ''}

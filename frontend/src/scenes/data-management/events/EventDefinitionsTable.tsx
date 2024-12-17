@@ -40,7 +40,9 @@ export function EventDefinitionsTable(): JSX.Element {
             key: 'icon',
             width: 0,
             render: function Render(_, definition: EventDefinition) {
-                return <span className="text-xl text-muted">{getEventDefinitionIcon(definition)}</span>
+                return (
+                    <span className="text-xl text-[var(--content-tertiary)]">{getEventDefinitionIcon(definition)}</span>
+                )
             },
         },
         {

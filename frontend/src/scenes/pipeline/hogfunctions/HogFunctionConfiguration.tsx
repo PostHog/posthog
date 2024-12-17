@@ -377,7 +377,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                                         labelInMenu: (
                                                             <div className="my-1 space-y-1 max-w-120">
                                                                 <div className="font-semibold">{subTemplate.name}</div>
-                                                                <div className="font-sans text-xs text-muted">
+                                                                <div className="font-sans text-xs text-[var(--content-tertiary)]">
                                                                     {subTemplate.description}
                                                                 </div>
                                                             </div>

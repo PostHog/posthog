@@ -54,10 +54,10 @@ export function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; 
     return (
         <div className="flex items-center flex-wrap">
             <div className="mr-4">
-                <span className="text-muted">Type:</span> {groupTypeName}
+                <span className="text-[var(--content-tertiary)]">Type:</span> {groupTypeName}
             </div>
             <div className="mr-4">
-                <span className="text-muted">Key:</span>{' '}
+                <span className="text-[var(--content-tertiary)]">Key:</span>{' '}
                 <CopyToClipboardInline
                     tooltipMessage={null}
                     description="group key"
@@ -67,7 +67,7 @@ export function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; 
                 </CopyToClipboardInline>
             </div>
             <div>
-                <span className="text-muted">First seen:</span>{' '}
+                <span className="text-[var(--content-tertiary)]">First seen:</span>{' '}
                 {groupData.created_at ? <TZLabel time={groupData.created_at} /> : 'unknown'}
             </div>
         </div>

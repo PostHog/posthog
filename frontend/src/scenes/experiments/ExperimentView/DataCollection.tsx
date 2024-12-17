@@ -214,7 +214,7 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
             {isInsightLoading ? (
                 <div className="flex flex-col flex-1 justify-center items-center mb-6">
                     <Animation type={AnimationType.LaptopHog} />
-                    <div className="text-xs text-muted w-60">
+                    <div className="text-xs text-[var(--content-tertiary)] w-60">
                         <span className="mr-1">Fetching past events for the estimation</span>
                         <EllipsisAnimation />
                     </div>

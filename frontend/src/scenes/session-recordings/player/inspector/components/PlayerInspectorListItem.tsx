@@ -135,7 +135,7 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
                             title="This event occured before the recording started, likely as the page was loading."
                             placement="left"
                         >
-                            <span className="text-muted">load</span>
+                            <span className="text-[var(--content-tertiary)]">load</span>
                         </Tooltip>
                     ) : (
                         colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)

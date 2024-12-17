@@ -92,7 +92,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                                         {earlyAccessFeature.description ? (
                                             earlyAccessFeature.description
                                         ) : (
-                                            <span className="text-muted">No description</span>
+                                            <span className="text-[var(--content-tertiary)]">No description</span>
                                         )}
                                     </div>
                                 </div>
@@ -102,7 +102,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                                         {earlyAccessFeature.documentation_url ? (
                                             earlyAccessFeature.documentation_url
                                         ) : (
-                                            <span className="text-muted">No documentation URL</span>
+                                            <span className="text-[var(--content-tertiary)]">No documentation URL</span>
                                         )}
                                     </div>
                                 </div>

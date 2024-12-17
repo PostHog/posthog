@@ -141,9 +141,11 @@ export function SummaryTable(): JSX.Element {
                 const delta = ((variantMean - controlMean) / controlMean) * 100
 
                 return (
-                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${
-                        delta > 0 ? '+' : ''
-                    }${delta.toFixed(2)}%`}</div>
+                    <div
+                        className={`font-semibold ${
+                            delta > 0 ? 'text-[var(--content-success)]' : delta < 0 ? 'text-danger' : ''
+                        }`}
+                    >{`${delta > 0 ? '+' : ''}${delta.toFixed(2)}%`}</div>
                 )
             },
         })
@@ -217,7 +219,9 @@ export function SummaryTable(): JSX.Element {
 
                     return (
                         <div
-                            className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}
+                            className={`font-semibold ${
+                                delta > 0 ? 'text-[var(--content-success)]' : delta < 0 ? 'text-danger' : ''
+                            }`}
                         >{`${delta > 0 ? '+' : ''}${delta.toFixed(2)}%`}</div>
                     )
                 },
@@ -272,7 +276,7 @@ export function SummaryTable(): JSX.Element {
                     {percentage ? (
                         <span className="inline-flex items-center w-52 space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
-                            <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>
+                            <span className={`w-1/4 font-semibold ${isWinning && 'text-[var(--content-success)]'}`}>
                                 {percentage.toFixed(2)}%
                             </span>
                         </span>

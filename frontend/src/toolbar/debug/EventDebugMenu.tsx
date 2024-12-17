@@ -56,7 +56,7 @@ function EventTimestamp({ e }: { e: EventType }): JSX.Element {
     return (
         <div>
             <span>{ts.format(formatString)}</span>
-            <span className="text-xxs text-muted">{ts.format('.SSS')}</span>
+            <span className="text-xxs text-[var(--content-tertiary)]">{ts.format('.SSS')}</span>
         </div>
     )
 }

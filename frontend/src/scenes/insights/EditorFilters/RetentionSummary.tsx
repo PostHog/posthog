@@ -140,7 +140,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                 on any of the next {dateOptionPlurals[period ?? 'Day']}.
             </div>
             <div>
-                <p className="text-muted mt-4">
+                <p className="text-[var(--content-tertiary)] mt-4">
                     Want to learn more about retention?{' '}
                     <Link
                         to="https://posthog.com/docs/features/retention?utm_campaign=learn-more-horizontal&utm_medium=in-product"

@@ -30,7 +30,7 @@ export function IntegrationView({
                                 at={integration.created_at}
                                 by={integration.created_by}
                                 prefix="Updated"
-                                className="text-muted"
+                                className="text-[var(--content-tertiary)]"
                             />
                         ) : null}
                     </div>

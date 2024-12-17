@@ -144,7 +144,12 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
                 onChange={setErrorsToIgnoreRules}
                 disabled={!currentTeam?.autocapture_exceptions_opt_in}
             />
-            <div className={clsx('mt-2 text-xs text-right', rulesCharacters > 300 ? 'text-danger' : 'text-muted')}>
+            <div
+                className={clsx(
+                    'mt-2 text-xs text-right',
+                    rulesCharacters > 300 ? 'text-danger' : 'text-[var(--content-tertiary)]'
+                )}
+            >
                 {rulesCharacters} / 300 characters
             </div>
         </>

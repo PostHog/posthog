@@ -173,7 +173,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
 
         if (addon.trial && trialExperiment) {
             return (
-                <p className="mt-2 text-xs text-muted text-right">
+                <p className="mt-2 text-xs text-[var(--content-tertiary)] text-right">
                     You'll have {addon.trial.length} days to try it out. Then you'll be charged{' '}
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}.
                 </p>
@@ -182,7 +182,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
 
         if (isProrated) {
             return (
-                <p className="mt-2 text-xs text-muted text-right">
+                <p className="mt-2 text-xs text-[var(--content-tertiary)] text-right">
                     Pay ~${prorationAmount} today (prorated) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.

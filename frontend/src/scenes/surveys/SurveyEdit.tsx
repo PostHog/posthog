@@ -456,7 +456,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 icon={<IconPlus />}
                                                 sideIcon={
                                                     surveysMultipleQuestionsAvailable ? null : (
-                                                        <IconLock className="ml-1 text-base text-muted" />
+                                                        <IconLock className="ml-1 text-base text-[var(--content-tertiary)]" />
                                                     )
                                                 }
                                                 disabledReason={
@@ -584,7 +584,7 @@ export default function SurveyEdit(): JSX.Element {
                                         data-attr="survey-display-conditions-select"
                                     />
                                     {!hasTargetingSet ? (
-                                        <span className="text-muted">
+                                        <span className="text-[var(--content-tertiary)]">
                                             Survey <b>will be released to everyone</b>
                                         </span>
                                     ) : (

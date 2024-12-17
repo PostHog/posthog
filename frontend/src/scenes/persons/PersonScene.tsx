@@ -50,7 +50,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
         <div className="flex flex-wrap items-center gap-2">
             <div className="flex space-x-1">
                 <div>
-                    <span className="text-muted">IDs:</span>{' '}
+                    <span className="text-[var(--content-tertiary)]">IDs:</span>{' '}
                     <CopyToClipboardInline
                         tooltipMessage={null}
                         description="person distinct ID"
@@ -75,11 +75,12 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                 )}
             </div>
             <div>
-                <span className="text-muted">First seen:</span>{' '}
+                <span className="text-[var(--content-tertiary)]">First seen:</span>{' '}
                 {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
             </div>
             <div>
-                <span className="text-muted">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
+                <span className="text-[var(--content-tertiary)]">Merge restrictions:</span>{' '}
+                {person.is_identified ? 'applied' : 'none'}
                 <Link to="https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user">
                     <Tooltip
                         title={

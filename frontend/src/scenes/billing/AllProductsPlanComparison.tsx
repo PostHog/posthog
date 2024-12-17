@@ -28,7 +28,7 @@ export function PlanIcon({
     timeDenominator?: string
 }): JSX.Element {
     return (
-        <div className="flex items-center text-xs text-muted">
+        <div className="flex items-center text-xs text-[var(--content-tertiary)]">
             {!feature ? (
                 <>
                     <IconX className={clsx('text-danger mx-4', className)} />
@@ -44,7 +44,7 @@ export function PlanIcon({
                 </>
             ) : (
                 <>
-                    <IconCheckCircle className={clsx('text-success mx-4 shrink-0', className)} />
+                    <IconCheckCircle className={clsx('text-[var(--content-success)] mx-4 shrink-0', className)} />
                     {feature.note}
                 </>
             )}
@@ -258,7 +258,7 @@ export const AllProductsPlanComparison = ({
                                 <td key={`${plan.plan_key}-basePrice`} className="px-4 py-2 text-sm font-medium">
                                     {getPlanDescription(plan)}
                                     {isProrated && (
-                                        <p className="text-xxs text-muted font-normal italic mt-2">
+                                        <p className="text-xxs text-[var(--content-tertiary)] font-normal italic mt-2">
                                             {getProrationMessage(prorationAmount, plan.unit_amount_usd)}
                                         </p>
                                     )}
@@ -294,7 +294,7 @@ export const AllProductsPlanComparison = ({
                                     ?.features?.map((feature) => (
                                         // Inclusion product feature row
                                         <tr key={`tr-${feature.key}`} className="border-b">
-                                            <th className="text-muted py-3 pl-8 font-medium text-left">
+                                            <th className="text-[var(--content-tertiary)] py-3 pl-8 font-medium text-left">
                                                 <Tooltip title={feature.description}>
                                                     <span>{feature.name}</span>
                                                 </Tooltip>
@@ -380,7 +380,7 @@ export const AllProductsPlanComparison = ({
                                                         : 'border-b'
                                                 )}
                                             >
-                                                <th className="text-muted py-3 pl-8 font-medium text-left">
+                                                <th className="text-[var(--content-tertiary)] py-3 pl-8 font-medium text-left">
                                                     <Tooltip title={feature.description}>
                                                         <div
                                                             className={
@@ -453,7 +453,7 @@ export const AllProductsPlanComparison = ({
                                                                     </LemonTag>
                                                                 </Tooltip>
                                                             </p>
-                                                            <p className="ml-0 text-xs text-muted mt-1">
+                                                            <p className="ml-0 text-xs text-[var(--content-tertiary)] mt-1">
                                                                 Priced per {addon.unit}
                                                             </p>
                                                         </th>
@@ -465,7 +465,7 @@ export const AllProductsPlanComparison = ({
                                                                         key={`${addon.name}-free-tiers-td`}
                                                                         className="p-4"
                                                                     >
-                                                                        <p className="text-muted text-xs">
+                                                                        <p className="text-[var(--content-tertiary)] text-xs">
                                                                             Not available on this plan.
                                                                         </p>
                                                                     </td>

@@ -316,8 +316,8 @@ export function NoResultsEmptyState(): JSX.Element {
             <div className="flex items-center space-x-2">
                 {value === false ? (
                     <>
-                        <IconCheck className="text-success" fontSize={16} />
-                        <span className="text-muted">{successText[errorCode]}</span>
+                        <IconCheck className="text-[var(--content-success)]" fontSize={16} />
+                        <span className="text-[var(--content-tertiary)]">{successText[errorCode]}</span>
                     </>
                 ) : (
                     <>
@@ -364,7 +364,7 @@ export function NoResultsEmptyState(): JSX.Element {
                                     Experiment results are not yet available
                                 </div>
                             </div>
-                            <div className="text-muted">
+                            <div className="text-[var(--content-tertiary)]">
                                 Results will be calculated once we've received the necessary events. The checklist on
                                 the right shows what's still needed.
                             </div>
@@ -383,7 +383,7 @@ export function NoResultsEmptyState(): JSX.Element {
         return (
             <div>
                 <div className="border rounded bg-[var(--background-primary)] py-10">
-                    <div className="flex flex-col items-center mx-auto text-muted space-y-2">
+                    <div className="flex flex-col items-center mx-auto text-[var(--content-tertiary)] space-y-2">
                         <IconArchive className="text-4xl text-secondary-3000" />
                         <h2 className="text-xl font-semibold leading-tight">Experiment results timed out</h2>
                         {!!experimentResultCalculationError && (
@@ -403,7 +403,7 @@ export function NoResultsEmptyState(): JSX.Element {
     return (
         <div>
             <div className="border rounded bg-[var(--background-primary)] py-10">
-                <div className="flex flex-col items-center mx-auto text-muted space-y-2">
+                <div className="flex flex-col items-center mx-auto text-[var(--content-tertiary)] space-y-2">
                     <IconArchive className="text-4xl text-secondary-3000" />
                     <h2 className="text-xl font-semibold leading-tight">Experiment results could not be calculated</h2>
                     {!!experimentResultCalculationError && (
@@ -443,7 +443,7 @@ export function ExperimentLoadingAnimation(): JSX.Element {
     return (
         <div className="flex flex-col flex-1 justify-center items-center">
             <Animation type={AnimationType.LaptopHog} />
-            <div className="text-xs text-muted w-44">
+            <div className="text-xs text-[var(--content-tertiary)] w-44">
                 <span className="mr-1">Fetching experiment results</span>
                 <EllipsisAnimation />
             </div>
@@ -535,7 +535,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Stop this experiment?',
                                             content: (
-                                                <div className="text-sm text-muted">
+                                                <div className="text-sm text-[var(--content-tertiary)]">
                                                     This action will end data collection. The experiment can be
                                                     restarted later if needed.
                                                 </div>
@@ -565,7 +565,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Archive this experiment?',
                                             content: (
-                                                <div className="text-sm text-muted">
+                                                <div className="text-sm text-[var(--content-tertiary)]">
                                                     This action will move the experiment to the archived tab. It can be
                                                     restored at any time.
                                                 </div>
@@ -895,11 +895,13 @@ export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }
             title: 'Reset this experiment?',
             content: (
                 <>
-                    <div className="text-sm text-muted">
+                    <div className="text-sm text-[var(--content-tertiary)]">
                         All data collected so far will be discarded and the experiment will go back to draft mode.
                     </div>
                     {experiment.archived && (
-                        <div className="text-sm text-muted">Resetting will also unarchive the experiment.</div>
+                        <div className="text-sm text-[var(--content-tertiary)]">
+                            Resetting will also unarchive the experiment.
+                        </div>
                     )}
                 </>
             ),

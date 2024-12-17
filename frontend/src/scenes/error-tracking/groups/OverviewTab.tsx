@@ -99,11 +99,16 @@ const ListItemException = ({
                 <div className="line-clamp-1">
                     <PersonDisplay person={person} withIcon noPopover noLink />
                 </div>
-                <PropertyIcons recordingProperties={recordingProperties} iconClassNames="text-muted" />
+                <PropertyIcons
+                    recordingProperties={recordingProperties}
+                    iconClassNames="text-[var(--content-tertiary)]"
+                />
             </div>
-            {properties.$current_url && <div className="text-xs text-muted truncate">{properties.$current_url}</div>}
+            {properties.$current_url && (
+                <div className="text-xs text-[var(--content-tertiary)] truncate">{properties.$current_url}</div>
+            )}
             <TZLabel
-                className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
+                className="overflow-hidden text-ellipsis text-xs text-[var(--content-tertiary)] shrink-0"
                 time={timestamp}
                 placement="right"
                 showPopover={false}

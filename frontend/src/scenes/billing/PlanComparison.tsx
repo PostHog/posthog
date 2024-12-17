@@ -30,7 +30,7 @@ export function PlanIcon({
     timeDenominator?: string
 }): JSX.Element {
     return (
-        <div className="flex items-center text-xs text-muted">
+        <div className="flex items-center text-xs text-[var(--content-tertiary)]">
             {!feature ? (
                 <>
                     <IconX className={clsx('text-danger mx-4', className)} />
@@ -46,7 +46,7 @@ export function PlanIcon({
                 </>
             ) : (
                 <>
-                    <IconCheckCircle className={clsx('text-success mx-4 shrink-0', className)} />
+                    <IconCheckCircle className={clsx('text-[var(--content-success)] mx-4 shrink-0', className)} />
                     {feature.note}
                 </>
             )}
@@ -199,7 +199,7 @@ export const PlanComparison = ({
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
                             to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
-                            className="text-muted text-xs"
+                            className="text-[var(--content-tertiary)] text-xs"
                             disableClientSideRouting
                         >
                             or subscribe without addons
@@ -246,7 +246,7 @@ export const PlanComparison = ({
                                         : 'Usage-based - starting at $0'
                                     : '$0 per month'}
                                 {isProrated && (
-                                    <p className="text-xxs text-muted font-normal italic mt-2">
+                                    <p className="text-xxs text-[var(--content-tertiary)] font-normal italic mt-2">
                                         Pay ~${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
                                         {isProrated && `$${parseInt(plan.unit_amount_usd || '0')} `}every month
                                         thereafter.
@@ -317,14 +317,18 @@ export const PlanComparison = ({
                                                 </LemonTag>
                                             </Tooltip>
                                         </p>
-                                        <p className="ml-0 text-xs text-muted mt-1">Priced per {addon.unit}</p>
+                                        <p className="ml-0 text-xs text-[var(--content-tertiary)] mt-1">
+                                            Priced per {addon.unit}
+                                        </p>
                                     </th>
                                     {plans?.map((plan, i) => {
                                         // If the parent plan is free, the addon isn't available
                                         return !addon.inclusion_only ? (
                                             plan.free_allocation && !plan.tiers ? (
                                                 <td key={`${addon.name}-free-tiers-td`}>
-                                                    <p className="text-muted text-xs">Not available on this plan.</p>
+                                                    <p className="text-[var(--content-tertiary)] text-xs">
+                                                        Not available on this plan.
+                                                    </p>
                                                 </td>
                                             ) : (
                                                 <td key={`${addon.type}-tiers-td`}>
@@ -433,7 +437,7 @@ export const PlanComparison = ({
                                                 <tr key={`tr-${feature.key}`}>
                                                     <th
                                                         className={clsx(
-                                                            'text-muted PlanTable__th__feature',
+                                                            'text-[var(--content-tertiary)] PlanTable__th__feature',
                                                             width &&
                                                                 width < 600 &&
                                                                 'PlanTable__th__feature--reduced_padding',

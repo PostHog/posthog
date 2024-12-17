@@ -34,7 +34,7 @@ export function LemonRadio<T extends React.Key>({
                         key={value}
                         className={clsx(
                             'grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm',
-                            disabledReason ? 'text-muted cursor-not-allowed' : 'cursor-pointer',
+                            disabledReason ? 'text-[var(--content-tertiary)] cursor-not-allowed' : 'cursor-pointer',
                             {
                                 'items-baseline': radioPosition === 'top',
                                 'items-center': radioPosition === 'center' || !radioPosition,
@@ -56,7 +56,9 @@ export function LemonRadio<T extends React.Key>({
                         />
                         <span>{label}</span>
                         {description && (
-                            <div className="text-muted row-start-2 col-start-2 text-pretty">{description}</div>
+                            <div className="text-[var(--content-tertiary)] row-start-2 col-start-2 text-pretty">
+                                {description}
+                            </div>
                         )}
                     </label>
                 )

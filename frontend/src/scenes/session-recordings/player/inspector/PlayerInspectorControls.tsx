@@ -107,7 +107,11 @@ export function PlayerInspectorControls(): JSX.Element {
                     icon={<IconTerminal />}
                     isAvailable={hasConsoleItems || !!currentTeam?.capture_console_log_opt_in}
                     whenUnavailable={{
-                        label: <p className="text-muted text-center">Configure console log capture in settings.</p>,
+                        label: (
+                            <p className="text-[var(--content-tertiary)] text-center">
+                                Configure console log capture in settings.
+                            </p>
+                        ),
                         onClick: () => openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay' }),
                         icon: <IconGear />,
                     }}
@@ -119,7 +123,11 @@ export function PlayerInspectorControls(): JSX.Element {
                     icon={<IconDashboard />}
                     isAvailable={hasNetworkItems || !!currentTeam?.capture_performance_opt_in}
                     whenUnavailable={{
-                        label: <p className="text-muted text-center">Configure network capture in settings.</p>,
+                        label: (
+                            <p className="text-[var(--content-tertiary)] text-center">
+                                Configure network capture in settings.
+                            </p>
+                        ),
                         onClick: () => openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay-network' }),
                         icon: <IconGear />,
                     }}

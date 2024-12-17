@@ -126,7 +126,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
 
                         {person ? (
                             <div>
-                                <span className="text-muted">First seen:</span>{' '}
+                                <span className="text-[var(--content-tertiary)]">First seen:</span>{' '}
                                 {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
                             </div>
                         ) : null}

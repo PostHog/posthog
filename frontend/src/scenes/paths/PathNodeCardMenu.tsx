@@ -41,7 +41,7 @@ export function PathNodeCardMenu({
         >
             {!isPathEnd && (
                 <CardItem
-                    icon={<IconTrendingFlat className="text-xl shrink-0 text-success" />}
+                    icon={<IconTrendingFlat className="text-xl shrink-0 text-[var(--content-success)]" />}
                     text="Continuing"
                     count={
                         <CountButton
@@ -68,7 +68,7 @@ export function PathNodeCardMenu({
             )}
             {!isPathStart && (
                 <CardItem
-                    icon={<IconClock className="text-xl shrink-0 text-muted" />}
+                    icon={<IconClock className="text-xl shrink-0 text-[var(--content-tertiary)]" />}
                     text="Average time from previous step"
                     count={<b className="pr-2">{humanFriendlyDuration(averageConversionTime)}</b>}
                 />

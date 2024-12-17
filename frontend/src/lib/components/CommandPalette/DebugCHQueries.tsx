@@ -245,7 +245,10 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                   size="small"
                                   onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
                               >
-                                  {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
+                                  {path}{' '}
+                                  <span className="ml-0.5 text-[var(--content-tertiary)] ligatures-none">
+                                      ({count})
+                                  </span>
                               </LemonButton>
                           ))
                         : null}

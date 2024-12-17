@@ -102,7 +102,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
         return ''
     }
 
-    const getIconColor = (): 'text-primary' | 'text-danger' | 'text-warning' | 'text-success' => {
+    const getIconColor = (): 'text-primary' | 'text-danger' | 'text-warning' | 'text-[var(--content-success)]' => {
         if (item.table?.type === 'materialized_view') {
             if (item.table.status === 'Running') {
                 return 'text-primary'
@@ -114,7 +114,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                 return 'text-warning'
             }
         }
-        return 'text-success'
+        return 'text-[var(--content-success)]'
     }
 
     return (
@@ -168,7 +168,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                         ) : emptyLabel ? (
                             emptyLabel
                         ) : (
-                            <span className="text-muted">No tables found</span>
+                            <span className="text-[var(--content-tertiary)]">No tables found</span>
                         )}
                     </div>
                 ))}

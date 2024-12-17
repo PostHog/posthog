@@ -19,7 +19,7 @@ export function Providers(): JSX.Element {
             <div className="mt-4" />
             <h2>Add Provider</h2>
             <HogFunctionTemplateList defaultFilters={{}} type="email" />
-            <div className="mt-2 text-muted">
+            <div className="mt-2 text-[var(--content-tertiary)]">
                 Note: to add a provider that's not in the list, select one that's similar and edit its source to point
                 to the right API URLs
             </div>

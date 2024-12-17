@@ -193,7 +193,7 @@ export function PersonsModal({
                             )
                         )}
 
-                    <div className="flex items-center gap-2 text-muted">
+                    <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
                         {actorsResponseLoading ? (
                             <>
                                 <Spinner />
@@ -449,7 +449,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                                                               >
                                                                   <div className="flex flex-1 justify-between gap-2 items-center">
                                                                       <span>View recording {i + 1}</span>
-                                                                      <IconPlayCircle className="text-xl text-muted" />
+                                                                      <IconPlayCircle className="text-xl text-[var(--content-tertiary)]" />
                                                                   </div>
                                                               </LemonButton>
                                                           </li>

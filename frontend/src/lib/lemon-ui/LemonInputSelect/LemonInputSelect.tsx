@@ -436,7 +436,7 @@ export function LemonInputSelect({
                             ))}
                         </>
                     ) : (
-                        <p className="text-muted italic p-1">
+                        <p className="text-[var(--content-tertiary)] italic p-1">
                             {allowCustomValues
                                 ? 'Start typing and press Enter to add options'
                                 : `No options matching "${inputValue}"`}

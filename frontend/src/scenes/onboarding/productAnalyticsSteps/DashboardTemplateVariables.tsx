@@ -72,32 +72,32 @@ function VariableSelector({
                 <div className="flex justify-between items-center bg-[var(--background-primary)] p-2 pl-3 rounded mb-4">
                     <div>
                         <p className="mb-2">
-                            <IconCheckCircle className="text-success font-bold" />{' '}
-                            <span className="text-success font-bold">Selected</span>
+                            <IconCheckCircle className="text-[var(--content-success)] font-bold" />{' '}
+                            <span className="text-[var(--content-success)] font-bold">Selected</span>
                         </p>
                         <div className="ml-4">
                             {variable.default.type === EntityTypes.ACTIONS ? (
                                 <>
-                                    <p className="text-muted mb-0 text-xs">
+                                    <p className="text-[var(--content-tertiary)] mb-0 text-xs">
                                         <span className="font-bold">CSS selector:</span>{' '}
                                         {variable.default.selector || 'not set'}
                                     </p>
-                                    <p className="text-muted mb-0 text-xs">
+                                    <p className="text-[var(--content-tertiary)] mb-0 text-xs">
                                         <span className="font-bold">Element href:</span>{' '}
                                         {variable.default.href || 'not set'}
                                     </p>
-                                    <p className="text-muted mb-1 text-xs">
+                                    <p className="text-[var(--content-tertiary)] mb-1 text-xs">
                                         <span className="font-bold">Page URL:</span> {variable.default.url || 'any url'}
                                     </p>
                                 </>
                             ) : variable.default.type === EntityTypes.EVENTS &&
                               variable.default.name == '$screenview' ? (
-                                <p className="text-muted mb-1 text-xs">
+                                <p className="text-[var(--content-tertiary)] mb-1 text-xs">
                                     <span className="font-bold">Screenview:</span>{' '}
                                     {variable.default.properties?.[0].value || 'any screenview'}
                                 </p>
                             ) : variable.default.type === EntityTypes.EVENTS ? (
-                                <p className="text-muted mb-1 text-xs">
+                                <p className="text-[var(--content-tertiary)] mb-1 text-xs">
                                     <span className="font-bold">Pageview URL contains:</span>{' '}
                                     {variable.default.properties?.[0].value || 'any url'}
                                 </p>
@@ -203,7 +203,7 @@ function VariableSelector({
                                     setNewActionName(null)
                                     setIsCurrentlySelectingElement(false)
                                 }}
-                                icon={<Spinner textColored className="text-muted" />}
+                                icon={<Spinner textColored className="text-[var(--content-tertiary)]" />}
                                 center
                                 className="min-w-44"
                             >
@@ -237,7 +237,7 @@ function VariableSelector({
                                                 <div className="flex">
                                                     This pageview{' '}
                                                     {currentFullUrl ? (
-                                                        <div className="text-muted max-w-44 overflow-clip overflow-ellipsis text-nowrap ml-2">
+                                                        <div className="text-[var(--content-tertiary)] max-w-44 overflow-clip overflow-ellipsis text-nowrap ml-2">
                                                             {!currentPath ? browserUrl : '/' + currentPath}
                                                         </div>
                                                     ) : null}
@@ -316,7 +316,7 @@ export function DashboardTemplateVariables({
                     header: (
                         <div>
                             {v.name}
-                            {v.touched && <IconCheckCircle className="text-success ml-2 text-base" />}
+                            {v.touched && <IconCheckCircle className="text-[var(--content-success)] ml-2 text-base" />}
                         </div>
                     ),
                     content: (

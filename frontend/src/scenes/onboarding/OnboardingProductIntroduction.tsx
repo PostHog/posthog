@@ -166,7 +166,7 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             <ul className="pl-2 flex flex-col gap-y-1">
                 {pricingListItems.map((item, i) => (
                     <li className="flex gap-x-2 items-start" key={`pricing-item-${i}`}>
-                        <IconCheck className="inline-block text-success shrink-0 mt-1" />
+                        <IconCheck className="inline-block text-[var(--content-success)] shrink-0 mt-1" />
                         <span>{item}</span>
                     </li>
                 ))}

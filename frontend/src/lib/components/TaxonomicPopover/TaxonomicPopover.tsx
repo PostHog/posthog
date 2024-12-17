@@ -50,7 +50,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
     groupTypes,
     eventNames = [],
     placeholder = 'Please select',
-    placeholderClass = 'text-muted',
+    placeholderClass = 'text-[var(--content-tertiary)]',
     allowClear = false,
     excludedProperties,
     metadataSource,
@@ -67,7 +67,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
     buttonPropsFinal.children = localValue ? (
         <span>{renderValue?.(localValue) ?? localValue}</span>
     ) : (
-        <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
+        <span className={placeholderClass ?? 'text-[var(--content-tertiary)]'}>{placeholder}</span>
     )
     buttonPropsFinal.onClick = () => setVisible(!visible)
     if (!buttonPropsFinal.type) {

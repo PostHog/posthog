@@ -52,7 +52,7 @@ function ToolbarLaunch(): JSX.Element {
             </p>
             <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />
 
-            <div className="footer-caption text-muted mt-4 text-center">
+            <div className="footer-caption text-[var(--content-tertiary)] mt-4 text-center">
                 Make sure you're using the <Link to={`${urls.settings('project')}#snippet`}>HTML snippet</Link> or the
                 latest <code>posthog-js</code> version.
             </div>

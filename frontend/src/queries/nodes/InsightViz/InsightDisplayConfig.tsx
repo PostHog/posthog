@@ -180,7 +180,9 @@ export function InsightDisplayConfig(): JSX.Element {
                             <span className="font-medium whitespace-nowrap">
                                 Options
                                 {advancedOptionsCount ? (
-                                    <span className="ml-0.5 text-muted ligatures-none">({advancedOptionsCount})</span>
+                                    <span className="ml-0.5 text-[var(--content-tertiary)] ligatures-none">
+                                        ({advancedOptionsCount})
+                                    </span>
                                 ) : null}
                             </span>
                         </LemonButton>

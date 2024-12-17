@@ -109,13 +109,13 @@ export function DefinitionHeader({
                                     CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name] ? 'PostHog' : 'Verified'
                                 } event`}
                             >
-                                <IconBadge className=" text-success text-xl" />
+                                <IconBadge className=" text-[var(--content-success)] text-xl" />
                             </Tooltip>
                         </>
                     )}
                     {!!CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name] && (
                         <Tooltip title="PostHog event">
-                            <IconBadge className="text-success text-xl" />
+                            <IconBadge className="text-[var(--content-success)] text-xl" />
                         </Tooltip>
                     )}
                 </>

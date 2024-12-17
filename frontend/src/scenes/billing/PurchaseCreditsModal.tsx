@@ -106,7 +106,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 text:
                                     creditInputValue >= 3000 && creditInputValue < 20000 ? (
                                         <>
-                                            <IconCheckCircle className="text-success" /> 10% off
+                                            <IconCheckCircle className="text-[var(--content-success)]" /> 10% off
                                         </>
                                     ) : (
                                         '10% off'
@@ -120,7 +120,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 text:
                                     creditInputValue >= 20000 && creditInputValue < 60000 ? (
                                         <>
-                                            <IconCheckCircle className="text-success" /> 20% off
+                                            <IconCheckCircle className="text-[var(--content-success)]" /> 20% off
                                         </>
                                     ) : (
                                         '20% off'
@@ -134,7 +134,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 text:
                                     creditInputValue >= 60000 && creditInputValue < 100000 ? (
                                         <>
-                                            <IconCheckCircle className="text-success" /> 25% off
+                                            <IconCheckCircle className="text-[var(--content-success)]" /> 25% off
                                         </>
                                     ) : (
                                         '25% off'
@@ -148,7 +148,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 text:
                                     creditInputValue >= 100000 ? (
                                         <>
-                                            <IconCheckCircle className="text-success" /> 35% off
+                                            <IconCheckCircle className="text-[var(--content-success)]" /> 35% off
                                         </>
                                     ) : (
                                         '35% off'

@@ -69,7 +69,9 @@ export function DatawarehouseTableForm(): JSX.Element {
                         spellCheck={false}
                     />
                 </LemonField>
-                <div className="text-muted text-xs mb-4">This will be the table name used when writing queries</div>
+                <div className="text-[var(--content-tertiary)] text-xs mb-4">
+                    This will be the table name used when writing queries
+                </div>
                 <LemonField name="url_pattern" label="Files URL pattern">
                     <LemonInput
                         data-attr="table-name"
@@ -81,7 +83,7 @@ export function DatawarehouseTableForm(): JSX.Element {
                         spellCheck={false}
                     />
                 </LemonField>
-                <div className="text-muted text-xs mb-4">
+                <div className="text-[var(--content-tertiary)] text-xs mb-4">
                     You can use <strong>*</strong> to select multiple files.
                 </div>
                 <LemonField name="format" label="File format" className="w-max mb-4">
@@ -120,7 +122,7 @@ export function DatawarehouseTableForm(): JSX.Element {
                     />
                 </LemonField>
                 {provider === 'google-cloud' && (
-                    <div className="text-muted text-xs">
+                    <div className="text-[var(--content-tertiary)] text-xs">
                         We use HMAC keys to access your Google Cloud Storage. Find more about generating them{' '}
                         <Link to="https://cloud.google.com/storage/docs/authentication/hmackeys" target="_new">
                             here

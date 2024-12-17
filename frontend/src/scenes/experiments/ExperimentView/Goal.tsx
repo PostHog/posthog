@@ -135,7 +135,7 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
                 <Tooltip
                     title={`This metric determines how we calculate exposure for the experiment. Only users who have this event alongside the property '$feature/${experiment.feature_flag_key}' are included in the exposure calculations.`}
                 >
-                    <IconInfo className="ml-1 text-muted text-sm" />
+                    <IconInfo className="ml-1 text-[var(--content-tertiary)] text-sm" />
                 </Tooltip>
             </div>
             {/* :FLAG: CLEAN UP AFTER MIGRATION */}
@@ -277,7 +277,7 @@ export function Goal(): JSX.Element {
                 </div>
             </div>
             {!hasGoalSet ? (
-                <div className="text-muted">
+                <div className="text-[var(--content-tertiary)]">
                     <div className="text-sm text-balance mt-2 mb-2">
                         Add the main goal before launching the experiment.
                     </div>
