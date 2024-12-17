@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, Optional
 from posthoganalytics.client import Client
 from temporalio.worker import (
@@ -25,9 +26,12 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> Any:
         ph_client = Client(api_key="sTMFPsFhdP1Ssg", enable_exception_autocapture=True)
 
-        workflow_result = await super().execute_workflow(input)
-
-        ph_client.flush()
+        try:
+            workflow_result = await super().execute_workflow(input)
+        except:
+            raise
+        finally:
+            await asyncio.to_thread(ph_client.flush)
 
         return workflow_result
 
