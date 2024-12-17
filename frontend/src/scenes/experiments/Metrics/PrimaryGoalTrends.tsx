@@ -24,10 +24,6 @@ export function PrimaryGoalTrends(): JSX.Element {
 
     const metricIdx = 0
     const currentMetric = experiment.metrics[metricIdx] as ExperimentTrendsQuery
-    // :FLAG: CLEAN UP AFTER MIGRATION
-    const isDataWarehouseMetric =
-        featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] &&
-        currentMetric.count_query.series[0].kind === NodeKind.DataWarehouseNode
 
     return (
         <>
@@ -63,18 +59,10 @@ export function PrimaryGoalTrends(): JSX.Element {
                             MathAvailability.All
                         )
 
-                        if (series[0].kind === NodeKind.DataWarehouseNode) {
-                            setTrendsMetric({
-                                metricIdx,
-                                series,
-                                filterTestAccounts: false,
-                            })
-                        } else {
-                            setTrendsMetric({
-                                metricIdx,
-                                series,
-                            })
-                        }
+                        setTrendsMetric({
+                            metricIdx,
+                            series,
+                        })
                     } else {
                         if (actions?.length) {
                             setExperiment({
@@ -113,37 +101,35 @@ export function PrimaryGoalTrends(): JSX.Element {
                 showNumericalPropsOnly={true}
                 {...commonActionFilterProps}
             />
-            {!isDataWarehouseMetric && (
-                <div className="mt-4 space-y-4">
-                    <TestAccountFilterSwitch
-                        checked={(() => {
-                            // :FLAG: CLEAN UP AFTER MIGRATION
-                            if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                                const val = currentMetric.count_query?.filterTestAccounts
-                                return hasFilters ? !!val : false
-                            }
-                            return hasFilters ? !!experiment.filters.filter_test_accounts : false
-                        })()}
-                        onChange={(checked: boolean) => {
-                            // :FLAG: CLEAN UP AFTER MIGRATION
-                            if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                                setTrendsMetric({
-                                    metricIdx,
-                                    filterTestAccounts: checked,
-                                })
-                            } else {
-                                setExperiment({
-                                    filters: {
-                                        ...experiment.filters,
-                                        filter_test_accounts: checked,
-                                    },
-                                })
-                            }
-                        }}
-                        fullWidth
-                    />
-                </div>
-            )}
+            <div className="mt-4 space-y-4">
+                <TestAccountFilterSwitch
+                    checked={(() => {
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            const val = currentMetric.count_query?.filterTestAccounts
+                            return hasFilters ? !!val : false
+                        }
+                        return hasFilters ? !!experiment.filters.filter_test_accounts : false
+                    })()}
+                    onChange={(checked: boolean) => {
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            setTrendsMetric({
+                                metricIdx,
+                                filterTestAccounts: checked,
+                            })
+                        } else {
+                            setExperiment({
+                                filters: {
+                                    ...experiment.filters,
+                                    filter_test_accounts: checked,
+                                },
+                            })
+                        }
+                    }}
+                    fullWidth
+                />
+            </div>
             {isExperimentRunning && (
                 <LemonBanner type="info" className="mt-3 mb-3">
                     Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of data. This can cause a

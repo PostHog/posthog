@@ -46,6 +46,7 @@ class HogFunctionTemplate:
         "destination",
         "site_destination",
         "site_app",
+        "transformation",
         "shared",
         "email",
         "sms",
