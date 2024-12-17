@@ -369,7 +369,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
-        isErrored: [false, { setErrorPlayerState: (_, { show, reason }) => (show ? reason : false) }],
+        isErrored: [
+            false as string | boolean,
+            { setErrorPlayerState: (_, { show, reason }) => (show ? (reason ? reason : true) : false) },
+        ],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
 
         errorCount: [0, { incrementErrorCount: (prevErrorCount) => prevErrorCount + 1 }],
