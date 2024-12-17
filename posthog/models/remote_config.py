@@ -335,8 +335,11 @@ class RemoteConfig(UUIDModel):
         config = sanitize_config_for_public_cdn(config, request=request)
 
         js_content = f"""(function() {{
-  window._POSTHOG_CONFIG = {json.dumps(config)};
-  window._POSTHOG_JS_APPS = [{','.join(site_apps_js)}];
+  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {{}};
+  window._POSTHOG_REMOTE_CONFIG['{token}'] = {{
+    config: {json.dumps(config)},
+    siteApps: [{','.join(site_apps_js)}]
+  }}
 }})();
         """.strip()
 

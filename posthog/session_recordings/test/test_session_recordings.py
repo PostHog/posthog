@@ -14,10 +14,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_team import create_team
-from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import Organization, Person, SessionRecording
-from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
 from posthog.session_recordings.models.session_recording_event import (
@@ -90,7 +87,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id_two = f"test_get_session_recordings-2"
         self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=20))
 
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        # include `as_query` since we don't want to break while deploying the code that no longer needs it
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?as_query=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
@@ -171,46 +169,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert results_[1]["distinct_id"] in twelve_distinct_ids
 
     @patch("posthoganalytics.capture")
-    @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromFilters")
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
-    def test_console_log_filters_are_correctly_passed_to_listing_when_filters_are_used(
-        self, mock_query_lister, mock_summary_lister, mock_capture
-    ):
-        mock_summary_lister.return_value.run.return_value = ([], False)
-        mock_query_lister.return_value.run.return_value = ([], False)
-
-        params_string = urlencode(
-            {
-                "console_log_filters": '[{"key": "console_log_level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}]',
-                "user_modified_filters": '{"my_filter": "something"}',
-                "as_query": False,
-            }
-        )
-        self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
-
-        assert len(mock_summary_lister.call_args_list) == 1
-        assert len(mock_query_lister.call_args_list) == 0
-        filter_passed_to_mock: SessionRecordingsFilter = mock_summary_lister.call_args_list[0].kwargs["filter"]
-        console_filter = cast(Property, filter_passed_to_mock.console_log_filters.values[0])
-        assert console_filter.value == ["warn", "error"]
-        assert mock_capture.call_args_list[0] == call(
-            self.user.distinct_id,
-            "recording list filters changed",
-            properties={
-                "$current_url": ANY,
-                "$session_id": ANY,
-                "partial_filter_chosen_my_filter": "something",
-            },
-            groups=ANY,
-        )
-
-    @patch("posthoganalytics.capture")
-    @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromFilters")
-    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
-    def test_console_log_filters_are_correctly_passed_to_listing_when_query_is_used(
-        self, mock_query_lister, mock_summary_lister, mock_capture
-    ):
-        mock_summary_lister.return_value.run.return_value = ([], False)
+    def test_console_log_filters_are_correctly_passed_to_listing(self, mock_query_lister, mock_capture):
         mock_query_lister.return_value = ([], False)
 
         params_string = urlencode(
@@ -222,7 +182,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
 
-        assert len(mock_summary_lister.call_args_list) == 0
         assert len(mock_query_lister.call_args_list) == 1
         query_passed_to_mock: RecordingsQuery = mock_query_lister.call_args_list[0][0][0]
         maybe_the_filter = (
@@ -1104,7 +1063,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
         query_params = [
-            f'{SESSION_RECORDINGS_FILTER_IDS}=["{str(uuid.uuid4())}", "{str(uuid.uuid4())}"]',
+            f'session_ids=["{str(uuid.uuid4())}", "{str(uuid.uuid4())}"]',
         ]
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
@@ -1129,7 +1088,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_get_matching_events_for_must_send_at_least_an_event_filter(self) -> None:
         query_params = [
-            f'{SESSION_RECORDINGS_FILTER_IDS}=["{str(uuid.uuid4())}"]',
+            f'session_ids=["{str(uuid.uuid4())}"]',
         ]
 
         response = self.client.get(
@@ -1146,7 +1105,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_get_matching_events_for_unknown_session(self) -> None:
         session_id = str(uuid.uuid4())
         query_params = [
-            f'{SESSION_RECORDINGS_FILTER_IDS}=["{session_id}"]',
+            f'session_ids=["{session_id}"]',
             'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
         ]
         response = self.client.get(
@@ -1183,7 +1142,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         time.sleep(1)
 
         query_params = [
-            f'{SESSION_RECORDINGS_FILTER_IDS}=["{session_id}"]',
+            f'session_ids=["{session_id}"]',
             'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
         ]
 
@@ -1222,12 +1181,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         time.sleep(1)
 
         query_params = [
-            f'{SESSION_RECORDINGS_FILTER_IDS}=["{session_id}"]',
+            f'session_ids=["{session_id}"]',
             'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
         ]
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+            # include `as_query` since we don't want to break while deploying the code that no longer needs it
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}&as_query=true"
         )
 
         assert response.status_code == status.HTTP_200_OK
