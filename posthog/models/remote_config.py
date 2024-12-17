@@ -401,7 +401,7 @@ class RemoteConfig(UUIDModel):
             res = requests.post(
                 settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
                 headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
-                data=data,
+                json=data,
             )
 
             if res.status_code != 200:
