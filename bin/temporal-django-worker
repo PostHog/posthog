@@ -13,7 +13,7 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM EXIT
 
-python manage.py start_temporal_worker "$@" &
+python3 manage.py start_temporal_worker "$@" &
 
 worker_pid=$!
 

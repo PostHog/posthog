@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # This management command is intended to be used to generate Kafka messages that
 # simulate those that are produced by the PostHog app when recording session
