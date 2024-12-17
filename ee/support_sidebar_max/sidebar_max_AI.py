@@ -1,5 +1,6 @@
 import os
 import json
+from django.conf import settings
 import requests
 import uuid
 import sys
@@ -11,7 +12,6 @@ import readline  # noqa: F401
 import logging
 import traceback  # noqa: F401
 from typing import Any, Dict  # noqa: F401, UP035
-from .config import API_KEY, API_ENDPOINT, MODEL
 from .supportSidebarMax_system_prompt import get_system_prompt
 
 try:
@@ -132,13 +132,13 @@ def get_message_content(message):
 
 def send_message(system_prompt, messages, tools):
     headers = {
-        "x-api-key": API_KEY,
+        "x-api-key": settings.ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
         "anthropic-beta": "prompt-caching-2024-07-31",
         "content-type": "application/json",
     }
     data = {
-        "model": MODEL,
+        "model": "claude-3-5-sonnet-20241022",
         "max_tokens": 1024,
         "tools": tools,
         "system": [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
@@ -161,10 +161,10 @@ def send_message(system_prompt, messages, tools):
             # Check if we should use the mock for testing - only check the most recent message
             current_message = get_message_content(messages[-1]) if messages else ""
             if "__500__" in current_message:
-                response = mock_post(API_ENDPOINT, headers, data)
+                response = mock_post("https://api.anthropic.com/v1/messages", headers, data)
                 logger.info(f"Using mock response for 500 error test (request #{req_count})")
             else:
-                response = requests.post(API_ENDPOINT, headers=headers, json=data)
+                response = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=data)
 
             rate_limits = {
                 "requests_remaining": response.headers.get("anthropic-ratelimit-requests-remaining", "not provided"),
