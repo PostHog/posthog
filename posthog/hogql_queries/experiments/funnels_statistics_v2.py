@@ -109,6 +109,7 @@ def are_results_significant_v2(
     if max_probability >= MIN_PROBABILITY_FOR_SIGNIFICANCE:
         return ExperimentSignificanceCode.SIGNIFICANT, 0.0
 
+    # TODO: Add expected loss calculation
     return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1.0
 
 
