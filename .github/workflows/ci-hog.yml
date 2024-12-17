@@ -91,7 +91,6 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 18
-                  cache: pnpm
 
             - name: Check if ANTLR definitions are up to date
               run: |
@@ -139,8 +138,8 @@ jobs:
 
     check-package-version:
         name: Check HogVM TypeScript package version and detect an update
-        # needs: hog-tests
-        if: needs.changes.outputs.hog == 'true'
+        needs: hog-tests
+        if: needs.hog-tests.result == 'success' && needs.changes.outputs.hog == 'true'
         runs-on: ubuntu-24.04
         outputs:
             committed-version: ${{ steps.check-package-version.outputs.committed-version }}
@@ -190,7 +189,6 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 18
-                  cache: pnpm
                   registry-url: https://registry.npmjs.org
             - name: Install package.json dependencies
               run: cd hogvm/typescript && pnpm install
@@ -221,7 +219,6 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 18
-                  cache: pnpm
                   registry-url: https://registry.npmjs.org
 
             - name: Check for version mismatches
