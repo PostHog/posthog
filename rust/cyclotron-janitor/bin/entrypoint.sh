@@ -17,7 +17,7 @@ export JANITOR_MAX_TOUCHES="2"
 export JANITOR_STALL_TIMEOUT_SECONDS="30"
 
 # Uncomment this to have the database be reset every time you start the janitor
-cargo sqlx database reset -y --source ../cyclotron-core/migrations
-cargo sqlx migrate run --source ../cyclotron-core/migrations
+sqlx database reset -y --source ../cyclotron-core/migrations
+sqlx migrate run --source ../cyclotron-core/migrations
 
 cargo run --release

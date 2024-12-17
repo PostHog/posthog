@@ -15,8 +15,8 @@ DATABASE_NAME=${DEBUG:-hoghooks}
 export DATABASE_URL=postgres://posthog:posthog@localhost:5432/$DATABASE_NAME
 export ALLOW_INTERNAL_IPS=true
 
-cargo sqlx database create -D "$DATABASE_URL"
-cargo sqlx migrate run -D "$DATABASE_URL"
+sqlx database create -D "$DATABASE_URL"
+sqlx migrate run -D "$DATABASE_URL"
 
 ./target/debug/hook-api &
 ./target/debug/hook-worker &
