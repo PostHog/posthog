@@ -440,6 +440,29 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
             config = self.remote_config.get_config_via_token(self.team.api_token, request=mock_request)
             assert not config["sessionRecording"]
 
+    @patch("posthog.models.remote_config.requests.post")
+    def test_purges_cdn_cache_on_sync(self, mock_post):
+        with self.settings(
+            REMOTE_CONFIG_CDN_PURGE_ENDPOINT="https://api.cloudflare.com/client/v4/zones/MY_ZONE_ID/purge_cache",
+            REMOTE_CONFIG_CDN_PURGE_TOKEN="MY_TOKEN",
+            REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.posthog.com", "https://cdn2.posthog.com"],
+        ):
+            self.remote_config.sync()
+            mock_post.assert_called_once_with(
+                "https://api.cloudflare.com/client/v4/zones/MY_ZONE_ID/purge_cache",
+                headers={"Authorization": "Bearer MY_TOKEN"},
+                data={
+                    "files": [
+                        {"url": "https://cdn.posthog.com/array/phc_12345/config"},
+                        {"url": "https://cdn.posthog.com/array/phc_12345/config.js"},
+                        {"url": "https://cdn.posthog.com/array/phc_12345/array.js"},
+                        {"url": "https://cdn2.posthog.com/array/phc_12345/config"},
+                        {"url": "https://cdn2.posthog.com/array/phc_12345/config.js"},
+                        {"url": "https://cdn2.posthog.com/array/phc_12345/array.js"},
+                    ]
+                },
+            )
+
 
 class TestRemoteConfigJS(_RemoteConfigBase):
     def test_renders_js_including_config(self):
@@ -677,7 +700,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         const source = (function () {let exports={};"use strict";;return exports;})();
             let processEvent = undefined;
             if ('onEvent' in source) {
-                processEvent = function processEvent(globals) {
+                processEvent = function processEvent(globals, posthog) {
                     if (!('onEvent' in source)) { return; };
                     const inputs = buildInputs(globals);
                     const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
@@ -704,7 +727,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                 }
         
                 return {
-                    processEvent: processEvent
+                    processEvent: (globals) => processEvent(globals, posthog)
                 }
             }
         
@@ -723,7 +746,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         const source = (function () {let exports={};"use strict";;return exports;})();
             let processEvent = undefined;
             if ('onEvent' in source) {
-                processEvent = function processEvent(globals) {
+                processEvent = function processEvent(globals, posthog) {
                     if (!('onEvent' in source)) { return; };
                     const inputs = buildInputs(globals);
                     const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
@@ -750,7 +773,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                 }
         
                 return {
-                    processEvent: processEvent
+                    processEvent: (globals) => processEvent(globals, posthog)
                 }
             }
         
