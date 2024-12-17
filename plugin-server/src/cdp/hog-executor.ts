@@ -113,14 +113,14 @@ export class HogExecutor {
     findMatchingFunctions(event: HogFunctionInvocationGlobals): {
         matchingFunctions: HogFunctionType[]
         nonMatchingFunctions: HogFunctionType[]
-        erroredFunctions: HogFunctionType[]
+        erroredFunctions: [HogFunctionType, string][]
     } {
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogDestinations(event.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
         const nonMatchingFunctions: HogFunctionType[] = []
         const matchingFunctions: HogFunctionType[] = []
-        const erroredFunctions: HogFunctionType[] = []
+        const erroredFunctions: [HogFunctionType, string][] = []
 
         // Filter all functions based on the invocation
         allFunctionsForTeam.forEach((hogFunction) => {
@@ -143,7 +143,7 @@ export class HogExecutor {
                             error: filterResult.error.message,
                             result: filterResult,
                         })
-                        erroredFunctions.push(hogFunction)
+                        erroredFunctions.push([hogFunction, filterResult.error.message])
                         return
                     }
                 } catch (error) {
@@ -153,7 +153,7 @@ export class HogExecutor {
                         teamId: hogFunction.team_id,
                         error: error.message,
                     })
-                    erroredFunctions.push(hogFunction)
+                    erroredFunctions.push([hogFunction, error.message])
                     return
                 } finally {
                     const duration = performance.now() - start
