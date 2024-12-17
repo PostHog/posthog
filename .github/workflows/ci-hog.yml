@@ -138,6 +138,7 @@ jobs:
 
     check-package-version:
         name: Check HogVM TypeScript package version and detect an update
+        needs: hog-tests
         runs-on: ubuntu-24.04
         outputs:
             committed-version: ${{ steps.check-package-version.outputs.committed-version }}
@@ -166,15 +167,15 @@ jobs:
               with:
                   fetch-depth: 0
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-            - name: Setup Yarn
-              uses: threeal/setup-yarn-action@v2.0.0
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
             - name: Set up Node 18
               uses: actions/setup-node@v4
               with:
                   node-version: 18
                   registry-url: https://registry.npmjs.org
-            - name: Install package.json dependencies with yarn
-              run: cd hogvm/typescript && yarn install
+            - name: Install package.json dependencies
+              run: cd hogvm/typescript && pnpm install
             - name: Publish the package in the npm registry
               run: cd hogvm/typescript && npm publish --access public
               env:
