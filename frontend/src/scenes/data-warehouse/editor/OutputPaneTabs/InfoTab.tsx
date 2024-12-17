@@ -59,7 +59,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
             </div>
             <div>
                 <h3>Dependencies</h3>
-                <p className="text-muted">
+                <p>
                     Dependencies are tables that this query uses. See when a source or materialized table was last run.
                 </p>
             </div>
