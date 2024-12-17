@@ -457,7 +457,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
             mock_post.assert_called_once_with(
                 "https://api.cloudflare.com/client/v4/zones/MY_ZONE_ID/purge_cache",
                 headers={"Authorization": "Bearer MY_TOKEN"},
-                data={
+                json={
                     "files": [
                         {"url": "https://cdn.posthog.com/array/phc_12345/config"},
                         {"url": "https://cdn.posthog.com/array/phc_12345/config.js"},
