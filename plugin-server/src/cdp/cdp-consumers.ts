@@ -28,7 +28,7 @@ import { createKafkaProducerWrapper } from '../utils/db/hub'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString } from '../utils/db/utils'
 import { status } from '../utils/status'
-import { castTimestampOrNow } from '../utils/utils'
+import { castTimestampOrNow, UUIDT } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
 import { FetchExecutor } from './fetch-executor'
 import { GroupsManager } from './groups-manager'
@@ -43,7 +43,9 @@ import {
     HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
     HogFunctionInvocationSerializedCompressed,
+    HogFunctionLogEntrySerialized,
     HogFunctionMessageToProduce,
+    HogFunctionType,
     HogHooksFetchResponse,
 } from './types'
 import {
@@ -196,6 +198,24 @@ abstract class CdpConsumerBase {
                 value: logEntry,
                 key: logEntry.instance_id,
             })
+        })
+    }
+
+    protected logFilteringError(item: HogFunctionType, error: string) {
+        const logEntry: HogFunctionLogEntrySerialized = {
+            team_id: item.team_id,
+            log_source: 'hog_function',
+            log_source_id: item.id,
+            instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
+            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+            level: 'error',
+            message: error,
+        }
+
+        this.messagesToProduce.push({
+            topic: KAFKA_LOG_ENTRIES,
+            value: logEntry,
+            key: logEntry.instance_id,
         })
     }
 
@@ -479,7 +499,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                         })
                     )
 
-                    erroredFunctions.forEach((item) =>
+                    erroredFunctions.forEach(([item, error]) => {
                         this.produceAppMetric({
                             team_id: item.team_id,
                             app_source_id: item.id,
@@ -487,7 +507,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                             metric_name: 'filtering_failed',
                             count: 1,
                         })
-                    )
+                        this.logFilteringError(item, error)
+                    })
                 })
 
                 const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))

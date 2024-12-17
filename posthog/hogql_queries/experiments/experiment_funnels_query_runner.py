@@ -20,7 +20,7 @@ from posthog.schema import (
     FunnelsFilter,
     FunnelsQuery,
     FunnelsQueryResponse,
-    InsightDateRange,
+    DateRange,
     BreakdownFilter,
 )
 from typing import Optional, Any, cast
@@ -105,7 +105,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             start_date = self.experiment.start_date
             end_date = self.experiment.end_date
 
-        prepared_funnels_query.dateRange = InsightDateRange(
+        prepared_funnels_query.dateRange = DateRange(
             date_from=start_date.isoformat() if start_date else None,
             date_to=end_date.isoformat() if end_date else None,
             explicitDate=True,
