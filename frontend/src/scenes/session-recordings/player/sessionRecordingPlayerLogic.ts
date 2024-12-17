@@ -141,7 +141,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             [
                 'reportNextRecordingTriggered',
                 'reportRecordingPlayerSkipInactivityToggled',
-                'reportRecordingPlayerSpeedChanged',
                 'reportRecordingExportedToFile',
             ],
         ],
@@ -848,9 +847,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         startScrub: () => {
             actions.stopAnimation()
         },
-        setSpeed: ({ speed }) => {
-            actions.reportRecordingPlayerSpeedChanged(speed)
-            actions.syncPlayerSpeed()
+        setSpeed: () => {
+            if (props.mode !== SessionRecordingPlayerMode.Preview) {
+                actions.syncPlayerSpeed()
+            }
         },
         seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
             actions.stopAnimation()
