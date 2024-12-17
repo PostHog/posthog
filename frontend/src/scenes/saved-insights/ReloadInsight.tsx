@@ -1,5 +1,6 @@
 import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { parseDraftQueryFromLocalStorage } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -10,11 +11,10 @@ export function ReloadInsight(): JSX.Element {
     const draftQueryLocalStorage = localStorage.getItem(`draft-query-${currentTeamId}`)
     let draftQuery: { query: Node<Record<string, any>>; timestamp: number } | null = null
     if (draftQueryLocalStorage) {
-        try {
-            draftQuery = JSON.parse(draftQueryLocalStorage)
-        } catch (e) {
-            // If the draft query is invalid, remove it
-            console.error('Error parsing draft query', e)
+        const parsedQuery = parseDraftQueryFromLocalStorage(draftQueryLocalStorage)
+        if (parsedQuery) {
+            draftQuery = parsedQuery
+        } else {
             localStorage.removeItem(`draft-query-${currentTeamId}`)
         }
     }

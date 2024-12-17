@@ -14,7 +14,7 @@ import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils
 import { queryExportContext } from '~/queries/query'
 import { DataVisualizationNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 import { isDataTableNode, isDataVisualizationNode, isHogQuery, isInsightVizNode } from '~/queries/utils'
-import { ExportContext, InsightLogicProps, InsightType, ItemMode } from '~/types'
+import { ExportContext, InsightLogicProps, InsightType } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { insightDataLogicType } from './insightDataLogicType'
@@ -22,7 +22,7 @@ import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
-import { isQueryTooLarge } from './utils'
+import { crushDraftQueryForLocalStorage, crushDraftQueryForURL, isQueryTooLarge } from './utils'
 import { compareQuery } from './utils/queryUtils'
 
 export const insightDataLogic = kea<insightDataLogicType>([
@@ -207,12 +207,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             if (!query || !values.queryChanged) {
                 return
             }
-            // if the insight is not in edit mode, don't save it
-            if (insightSceneLogic.values.insightMode !== ItemMode.Edit) {
-                return
-            }
             // only run on insight scene
             if (insightSceneLogic.values.activeScene !== Scene.Insight) {
+                return
+            }
+            // don't save for saved insights
+            if (insightSceneLogic.values.insightId !== 'new') {
                 return
             }
 
@@ -221,10 +221,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
             localStorage.setItem(
                 `draft-query-${values.currentTeamId}`,
-                JSON.stringify({
-                    query,
-                    timestamp: Date.now(),
-                })
+                crushDraftQueryForLocalStorage(query, Date.now())
             )
         },
     })),
@@ -237,8 +234,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setQuery: ({ query }) => {
             if (
                 values.queryChanged &&
-                insightSceneLogic.values.insightMode === ItemMode.Edit &&
-                insightSceneLogic.values.activeScene === Scene.Insight
+                insightSceneLogic.values.activeScene === Scene.Insight &&
+                insightSceneLogic.values.insightId === 'new'
             ) {
                 // query is changed and we are in edit mode
                 return [
@@ -248,7 +245,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     },
                     {
                         ...router.values.currentLocation.hashParams,
-                        q: JSON.stringify(query),
+                        q: crushDraftQueryForURL(query),
                     },
                 ]
             }

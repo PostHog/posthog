@@ -26,6 +26,7 @@ import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { summarizeInsight } from './summarizeInsight'
+import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
@@ -335,7 +336,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             let queryFromUrl: Node | null = null
             if (q) {
-                queryFromUrl = JSON.parse(q)
+                const validQuery = parseDraftQueryFromURL(q)
+                if (validQuery) {
+                    queryFromUrl = validQuery
+                } else {
+                    console.error('Invalid query', q)
+                }
             } else if (insightType && Object.values(InsightType).includes(insightType)) {
                 queryFromUrl = getDefaultQuery(insightType, values.filterTestAccountsDefault)
             }
@@ -417,9 +423,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const draftQueryFromLocalStorage = localStorage.getItem(`draft-query-${values.currentTeamId}`)
             let draftQuery: { query: Node; timestamp: number } | null = null
             if (draftQueryFromLocalStorage) {
-                try {
-                    draftQuery = JSON.parse(draftQueryFromLocalStorage)
-                } catch (e) {
+                const parsedQuery = parseDraftQueryFromLocalStorage(draftQueryFromLocalStorage)
+                if (parsedQuery) {
+                    draftQuery = parsedQuery
+                } else {
                     // If the draft query is invalid, remove it
                     localStorage.removeItem(`draft-query-${values.currentTeamId}`)
                 }
