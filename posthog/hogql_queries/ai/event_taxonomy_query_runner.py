@@ -50,8 +50,9 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        query = parse_select(
-            """
+        if not self.query.property:
+            return parse_select(
+                """
                 SELECT
                     key,
                     -- Pick five latest distinct sample values.
@@ -64,10 +65,22 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
                 ORDER BY total_count DESC
                 LIMIT 500
             """,
-            placeholders={"from_query": self._get_subquery(), "filter": self._get_omit_filter()},
-        )
+                placeholders={"from_query": self._get_subquery(), "filter": self._get_omit_filter()},
+            )
 
-        return query
+        return parse_select(
+            """
+                SELECT
+                    {const},
+                    arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS values,
+                    count(DISTINCT value) AS total_count
+                FROM {from_query}
+            """,
+            placeholders={
+                "const": ast.Constant(value=self.query.property),
+                "from_query": self._get_subquery(),
+            },
+        )
 
     def _get_omit_filter(self):
         """
@@ -107,21 +120,50 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
 
     def _get_subquery_filter(self) -> ast.Expr:
         date_filter = parse_expr("timestamp >= now() - INTERVAL 30 DAY")
-        filter_expr = ast.And(
-            exprs=[
-                date_filter,
+        filter_expr: list[ast.Expr] = [
+            date_filter,
+            ast.CompareOperation(
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=self.query.event),
+                op=ast.CompareOperationOp.Eq,
+            ),
+        ]
+
+        if self.query.property:
+            filter_expr.append(
                 ast.CompareOperation(
-                    left=ast.Field(chain=["event"]),
-                    right=ast.Constant(value=self.query.event),
-                    op=ast.CompareOperationOp.Eq,
-                ),
-            ]
-        )
-        return filter_expr
+                    left=ast.Field(chain=["properties", self.query.property]),
+                    op=ast.CompareOperationOp.NotEq,
+                    right=ast.Constant(value=""),
+                )
+            )
+
+        return ast.And(exprs=filter_expr)
 
     def _get_subquery(self) -> ast.SelectQuery:
-        query = parse_select(
-            """
+        if self.query.property:
+            query = parse_select(
+                """
+                    SELECT
+                        {prop} as value,
+                        count(*) AS count
+                    FROM
+                        events
+                    WHERE
+                        {filter}
+                    GROUP BY
+                        value
+                    ORDER BY
+                        count DESC
+                """,
+                placeholders={
+                    "prop": ast.Field(chain=["properties", self.query.property]),
+                    "filter": self._get_subquery_filter(),
+                },
+            )
+        else:
+            query = parse_select(
+                """
                 SELECT
                     JSONExtractKeysAndValues(properties, 'String') as kv
                 FROM
@@ -130,7 +172,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
                 ORDER BY timestamp desc
                 LIMIT 100
             """,
-            placeholders={"filter": self._get_subquery_filter()},
-        )
+                placeholders={"filter": self._get_subquery_filter()},
+            )
 
         return cast(ast.SelectQuery, query)

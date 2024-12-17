@@ -5630,6 +5630,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "property": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/EventTaxonomyQueryResponse"
                 }
