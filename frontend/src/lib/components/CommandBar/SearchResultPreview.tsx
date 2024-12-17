@@ -16,7 +16,7 @@ export const SearchResultPreview = (): JSX.Element | null => {
     return (
         <div className="border bg-[var(--background-primary)] rounded p-6">
             <div>{tabToName[result.type]}</div>
-            <div className="text-text-3000 font-bold text-lg">
+            <div className="text-[var(--content-primary)] font-bold text-lg">
                 <ResultName result={result} />
             </div>
             <span className="text-[var(--trace-3000)] text-xs">

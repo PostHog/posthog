@@ -36,7 +36,7 @@ function CloseAllTags({
                     >
                         <pre
                             className={clsx(
-                                'whitespace-pre-wrap break-all p-0 m-0 rounded-none text-text-3000',
+                                'whitespace-pre-wrap break-all p-0 m-0 rounded-none text-[var(--content-primary)]',
                                 size === 'xsmall' ? 'text-xs' : 'text-sm'
                             )}
                             key={index}
@@ -177,7 +177,7 @@ export function HTMLElementsDisplay({
                         {elementsToShowDepth ? (
                             <pre
                                 className={clsx(
-                                    'p-1 m-0 opacity-50 text-text-3000 cursor-pointer',
+                                    'p-1 m-0 opacity-50 text-[var(--content-primary)] cursor-pointer',
                                     size === 'xsmall' ? 'text-xxs' : 'text-sm'
                                 )}
                                 data-attr="elements-display-show-more-of-chain"

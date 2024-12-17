@@ -36,7 +36,7 @@ export const BillingProductPricingTable = ({
             title: 'Total',
             dataIndex: 'total',
             render: (_, item: BillingTableTierRow) => (
-                <span className="font-bold mb-0 text-text-3000">{item.total}</span>
+                <span className="font-bold mb-0 text-[var(--content-primary)]">{item.total}</span>
             ),
         },
         { title: 'Projected Total', dataIndex: 'projectedTotal' },
