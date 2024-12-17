@@ -88,7 +88,7 @@ export const WelcomeSuggestionsAvailable: StoryFn = () => {
 export const WelcomeLoadingSuggestions: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+            '/api/environments/:team_id/query/': (_req, _res, ctx) => [ctx.delay('infinite')],
         },
     })
 
