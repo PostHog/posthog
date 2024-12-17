@@ -100,7 +100,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 // In order to set these turn on the `support-message-override` feature flag.
 const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
 const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal and we'll only respond to critical issues between the 25th and 27th of December. We'll resume regular support and start responding to other messages on the 28th. Thanks for your patience!"
+    "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (23rd December to the 6th January), and between the 25th and 27th of December we'll only be responding to critical issues. Thanks for your patience!"
 
 const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
     const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
