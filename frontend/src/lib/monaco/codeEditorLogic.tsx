@@ -50,6 +50,7 @@ export interface CodeEditorLogicProps {
     globals?: Record<string, any>
     multitab?: boolean
     onError?: (error: string | null, isValidView: boolean) => void
+    onMetadata?: (metadata: HogQLMetadataResponse) => void
 }
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
@@ -100,6 +101,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         variables,
                     })
                     breakpoint()
+                    props.onMetadata?.(response)
                     return [query, response]
                 },
             },

@@ -157,7 +157,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
     #### Cohort replacements
     # replace cohort id lists in queries too
     query = re.sub(
-        r"in\(([^,]+\.?cohort_id), \[(\d+(, ?\d+)*)]\)",
+        r"in\(([^,]*cohort_id),\s*\[(\d+(?:,\s*\d+)*)]\)",
         r"in(\1, [1, 2, 3, 4, 5 /* ... */])",
         query,
     )
@@ -791,6 +791,14 @@ class BaseTestMigrations(QueryMatchingTest):
 
     def setUpBeforeMigration(self, apps):
         pass
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()  # type: ignore
+        executor = MigrationExecutor(connection)  # Reset Django's migration state
+        targets = executor.loader.graph.leaf_nodes()
+        executor.migrate(targets)  # Migrate to the latest migration
+        executor.loader.build_graph()  # Reload.
 
 
 class TestMigrations(BaseTestMigrations, BaseTest):
