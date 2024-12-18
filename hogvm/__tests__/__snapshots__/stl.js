@@ -83,6 +83,34 @@ function lower (value) { return value.toLowerCase() }
 function lessOrEquals(a, b) { return a <= b }
 function less(a, b) { return a < b }
 function length (value) { return value.length }
+function jsonStringify (value, spacing) {
+    function convert(x, marked) {
+        if (!marked) { marked = new Set() }
+        if (typeof x === 'object' && x !== null) {
+            if (marked.has(x)) { return null }
+            marked.add(x)
+            try {
+                if (x instanceof Map) {
+                    const obj = {}
+                    x.forEach((value, key) => { obj[convert(key, marked)] = convert(value, marked) })
+                    return obj
+                }
+                if (Array.isArray(x)) { return x.map((v) => convert(v, marked)) }
+                if (__isHogDateTime(x) || __isHogDate(x) || __isHogError(x)) { return x }
+                if (typeof x === 'function') { return `fn<${x.name || 'lambda'}(${x.length})>` }
+                const obj = {}; for (const key in x) { obj[key] = convert(x[key], marked) }
+                return obj
+            } finally {
+                marked.delete(x)
+            }
+        }
+        return x
+    }
+    if (spacing && typeof spacing === 'number' && spacing > 0) {
+        return JSON.stringify(convert(value), null, spacing)
+    }
+    return JSON.stringify(convert(value), (key, val) => typeof val === 'function' ? `fn<${val.name || 'lambda'}(${val.length})>` : val)
+}
 function isNull (value) { return value === null || value === undefined }
 function isNotNull (value) { return value !== null && value !== undefined }
 function __x_in(val, arr) {
@@ -356,6 +384,21 @@ function JSONExtractInt(obj, ...path) {
     const i = parseInt(val);
     return isNaN(i) ? null : i;
 }
+function JSONExtractFloat(obj, ...path) {
+    try {
+        if (typeof obj === 'string') { obj = JSON.parse(obj); }
+    } catch (e) { return null; }
+    const val = __getNestedValue(obj, path, true);
+    const f = parseFloat(val);
+    return isNaN(f) ? null : f;
+}
+function JSONExtractArrayRaw(obj, ...path) {
+    try {
+        if (typeof obj === 'string') { obj = JSON.parse(obj); }
+    } catch (e) { return null; }
+    const val = __getNestedValue(obj, path, true);
+    return Array.isArray(val) ? val : null;
+}
 function __getNestedValue(obj, path, allowNull = false) {
     let current = obj
     for (const key of path) {
@@ -447,20 +490,32 @@ print(isNull("banana"), isNotNull("banana"));
 print(isNull(false), isNotNull(false));
 print(isNull(0), isNotNull(0));
 print(isNull(1), isNotNull(1));
-print(equals(1, 1), equals(1, 2));
+print("");
+print("-- comparisons --");
+print(equals(1, 1), equals(1, 2), equals(1, "1"));
+print(notEquals(2, 3), (!true));
 print(greater(2, 1), greaterOrEquals(2, 2));
-print(less(1, 2), lessOrEquals(2, 2));
-print(notEquals(2, 3), (!true), (false || true));
+print(less(1, 2), lessOrEquals(2, 2), less(-3, 2));
+print(!!(false || true), !!(0 || 0), !!(1 || 0), !!(1 || false), !!(0 || false));
+print(!!(false && true), !!(0 && 0), !!(1 && 0), !!(1 && false), !!(0 && false));
+print("");
+print("-- logic --");
 print((true ? "yes" : "no"), (false ? "yes" : "no"));
-print(__x_in("a", tuple("a", "b", "c")), __x_in("z", tuple("a", "b", "c")));
+print((true ? "one" : (false ? "two" : "default")));
+print("");
+print("-- math --");
 print(min2(3, 5));
 print(plus(10, 5), minus(10, 5));
-print((true ? "one" : (false ? "two" : "default")));
 print(floor(3.99), round(3.5));
-print(startsWith("hello", "he"), substring("abcdef", 2, 3));
 print(range(5));
 print(range(3, 6));
+print("");
+print("-- string/array --");
+print(__x_in("a", tuple("a", "b", "c")), __x_in("z", tuple("a", "b", "c")));
+print(startsWith("hello", "he"), substring("abcdef", 2, 3));
 print(coalesce(null, null, "firstNonNull"), assumeNotNull("notNull"));
+print("");
+print("-- date --");
 print(toYear(toDateTime("2024-12-18T00:00:00Z")), toMonth(toDateTime("2024-12-18T00:00:00Z")));
 print(toStartOfDay(now()), toStartOfWeek(now()));
 print(toYYYYMM(toDateTime("2024-12-18T00:00:00Z")));
@@ -468,5 +523,11 @@ print(dateAdd("day", 1, toDate("2024-12-18")), dateDiff("day", toDate("2024-12-1
 print(dateTrunc("day", toDateTime("2024-12-18T12:34:56Z")));
 print(addDays(toDate("2024-12-18"), 3));
 print(toIntervalDay(5), toIntervalMonth(2));
-print(JSONExtractInt("{\"a\":123}", "a"), JSONExtractString("{\"a\":\"hello\"}", "a"));
 print(today());
+print("");
+print("-- json --");
+print(jsonStringify(JSONExtractInt("{\"a\":123.1}", "a")), jsonStringify(JSONExtractInt("{\"a\":\"hello\"}", "a")));
+print(jsonStringify(JSONExtractFloat("{\"a\":123.1}", "a")), jsonStringify(JSONExtractFloat("{\"a\":\"hello\"}", "a")));
+print(jsonStringify(JSONExtractString("{\"a\":123.1}", "a")), jsonStringify(JSONExtractString("{\"a\":\"hello\"}", "a")));
+print(jsonStringify(JSONExtractArrayRaw("{\"a\":123}", "a")), jsonStringify(JSONExtractArrayRaw("{\"a\":\"hello\"}", "a")));
+print(jsonStringify(JSONExtractArrayRaw("{\"a\":[]}", "a")), jsonStringify(JSONExtractArrayRaw("{\"a\":[\"hello\"]}", "a")));

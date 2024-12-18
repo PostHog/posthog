@@ -1169,7 +1169,7 @@ function __setProperty(objectOrArray, key, value) {
         [],
     ],
     "not": [
-        "function __x_not(a) { return !a }",
+        "function not(a) { return !a }",
         [],
     ],
     "notEquals": [
@@ -1177,7 +1177,7 @@ function __setProperty(objectOrArray, key, value) {
         [],
     ],
     "or": [
-        "function __x_or(a, b) { return Boolean(a) || Boolean(b) }",
+        "function or(a, b) { return Boolean(a) || Boolean(b) }",
         [],
     ],
     "plus": [
