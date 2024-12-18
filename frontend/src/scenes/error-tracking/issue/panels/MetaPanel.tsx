@@ -33,18 +33,6 @@ export const MetaPanel = (): JSX.Element => {
                     <div className="text-2xl font-semibold">{issue?.users}</div>
                 </div>
             </div>
-            {/* {issue && (
-                <>
-                    <div className="space-y-1.5">
-                        <div className="text-muted text-xs">Last 30 days</div>
-                        <Sparkline data={issue.volume[3]} labels={issue.volume[5]} className="max-h-[70px]" />
-                    </div>
-                    <div className="space-y-1.5">
-                        <div className="text-muted text-xs">Last 30 days</div>
-                        <Sparkline data={issue.volume[3]} labels={issue.volume[5]} className="max-h-[70px]" />
-                    </div>
-                </>
-            )} */}
         </div>
     )
 }
