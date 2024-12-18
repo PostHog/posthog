@@ -9,7 +9,9 @@ class Feature(CreatedMetaFields, UUIDModel):
     description = models.TextField(default="")
     documentation_url = models.URLField(blank=True)
     issue_url = models.URLField(blank=True)
-    primary_early_access_feature = models.ForeignKey("EarlyAccessFeature", on_delete=models.RESTRICT, blank=False)
+    primary_early_access_feature = models.ForeignKey(
+        "posthog.EarlyAccessFeature", on_delete=models.RESTRICT, blank=False
+    )
     alerts = models.ManyToManyField("posthog.AlertConfiguration", through="posthog.FeatureAlertConfiguration")
     archived = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False)

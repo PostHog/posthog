@@ -31,7 +31,7 @@ class Migration(migrations.Migration):
                 ("issue_url", models.URLField(blank=True)),
                 (
                     "primary_early_access_feature",
-                    models.ForeignKey(null=True, on_delete=models.deletion.RESTRICT, to="posthog.earlyaccessfeature"),
+                    models.ForeignKey(on_delete=models.deletion.RESTRICT, to="posthog.earlyaccessfeature"),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
@@ -47,6 +47,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="FeatureAlertConfiguration",
             fields=[
+                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False)),
                 (
                     "team",
                     models.ForeignKey(on_delete=models.deletion.CASCADE, to="posthog.Team"),
