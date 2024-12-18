@@ -9,13 +9,15 @@ export const CdpInternalEventSchema = z.object({
         distinct_id: z.string(),
         properties: z.record(z.any()),
         timestamp: z.string(),
+        url: z.string().optional(),
     }),
     // Person may be a event-style person or an org member
     person: z
         .object({
             id: z.string(),
             properties: z.record(z.any()),
-            name: z.string(),
+            name: z.string().optional(),
+            url: z.string().optional(),
         })
         .optional(),
 })

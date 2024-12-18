@@ -38,6 +38,7 @@ import { HogFunctionManager } from './hog-function-manager'
 import { HogMasker } from './hog-masker'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
 import { CdpRedis, createCdpRedisPool } from './redis'
+import { CdpInternalEventSchema } from './schema'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
@@ -50,6 +51,7 @@ import {
     HogHooksFetchResponse,
 } from './types'
 import {
+    convertInternalEventToHogFunctionInvocationGlobals,
     convertToCaptureEvent,
     convertToHogFunctionInvocationGlobals,
     createInvocation,
@@ -398,6 +400,9 @@ abstract class CdpConsumerBase {
  */
 export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpProcessedEventsConsumer'
+    protected topic = KAFKA_EVENTS_JSON
+    protected groupId = 'cdp-processed-events-consumer'
+
     private cyclotronMatcher: ValueMatcher<number>
     private cyclotronManager?: CyclotronManager
 
@@ -604,8 +609,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     public async start(): Promise<void> {
         await super.start()
         await this.startKafkaConsumer({
-            topic: KAFKA_EVENTS_JSON,
-            groupId: 'cdp-processed-events-consumer',
+            topic: this.topic,
+            groupId: this.groupId,
             handleBatch: (messages) => this._handleKafkaBatch(messages),
         })
 
@@ -625,6 +630,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
  */
 export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
     protected name = 'CdpInternalEventsConsumer'
+    protected topic = KAFKA_CDP_INTERNAL_EVENTS
+    protected groupId = 'cdp-internal-events-consumer'
 
     // This consumer always parses from kafka
     public async _handleKafkaBatch(messages: Message[]): Promise<void> {
@@ -636,20 +643,23 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
                     await Promise.all(
                         messages.map(async (message) => {
                             try {
-                                const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+                                const clickHouseEvent = JSON.parse(message.value!.toString()) as unknown
 
-                                if (!this.hogFunctionManager.teamHasHogDestinations(clickHouseEvent.team_id)) {
+                                // This is the input stream from elsewhere so we want to do some proper validation
+                                const event = CdpInternalEventSchema.parse(clickHouseEvent)
+
+                                if (!this.hogFunctionManager.teamHasHogDestinations(event.team_id)) {
                                     // No need to continue if the team doesn't have any functions
                                     return
                                 }
 
-                                const team = await this.hub.teamManager.fetchTeam(clickHouseEvent.team_id)
+                                const team = await this.hub.teamManager.fetchTeam(event.team_id)
                                 if (!team) {
                                     return
                                 }
                                 events.push(
-                                    convertToHogFunctionInvocationGlobals(
-                                        clickHouseEvent,
+                                    convertInternalEventToHogFunctionInvocationGlobals(
+                                        event,
                                         team,
                                         this.hub.SITE_URL ?? 'http://localhost:8000'
                                     )
@@ -666,23 +676,6 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
         )
 
         await this.processBatch(invocationGlobals)
-    }
-
-    public async start(): Promise<void> {
-        await super.start()
-        await this.startKafkaConsumer({
-            topic: KAFKA_CDP_INTERNAL_EVENTS,
-            groupId: 'cdp-internal-events-consumer',
-            handleBatch: (messages) => this._handleKafkaBatch(messages),
-        })
-
-        const shardDepthLimit = this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000
-
-        this.cyclotronManager = this.hub.CYCLOTRON_DATABASE_URL
-            ? new CyclotronManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }], shardDepthLimit })
-            : undefined
-
-        await this.cyclotronManager?.connect()
     }
 }
 
