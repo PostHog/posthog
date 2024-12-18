@@ -220,7 +220,7 @@ export class UUID7 extends UUID {
             super(bufferOrUnixTimeMs)
             return
         }
-        const unixTimeMs = bufferOrUnixTimeMs ? bufferOrUnixTimeMs : DateTime.utc().toMillis()
+        const unixTimeMs = bufferOrUnixTimeMs ?? DateTime.utc().toMillis()
         let unixTimeMsBig = BigInt(unixTimeMs)
 
         if (!rand) {
