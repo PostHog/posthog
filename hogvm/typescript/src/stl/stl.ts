@@ -113,6 +113,20 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 2,
         maxArgs: 2,
     },
+    isNull: {
+        fn: (args) => {
+            return args[0] === null || args[0] === undefined
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    isNotNull: {
+        fn: (args) => {
+            return args[0] !== null && args[0] !== undefined
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
     length: {
         fn: (args) => {
             return args[0].length

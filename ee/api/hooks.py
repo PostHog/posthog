@@ -23,6 +23,7 @@ def create_zapier_hog_function(hook: Hook, serializer_context: dict) -> HogFunct
     serializer = HogFunctionSerializer(
         data={
             "template_id": template_zapier.id,
+            "type": "destination",
             "name": f"Zapier webhook for action {hook.resource_id}",
             "filters": {"actions": [{"id": str(hook.resource_id), "name": "", "type": "actions", "order": 0}]},
             "inputs": {
