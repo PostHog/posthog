@@ -1,14 +1,14 @@
-function upper(value) { return value.toUpperCase() }
-function tuple(...args) { const tuple = args.slice(); tuple.__isHogTuple = true; return tuple; }
+function upper (value) { return value.toUpperCase() }
+function tuple (...args) { const tuple = args.slice(); tuple.__isHogTuple = true; return tuple; }
 function today() {
     const now = new Date();
-    return __toHogDate(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate());
+    return __toHogDate(now.getUTCFullYear(), now.getUTCMonth()+1, now.getUTCDate());
 }
 function toYear(value) { return extract('year', value) }
 function toYYYYMM(value) {
     const y = extract('year', value);
     const m = extract('month', value);
-    return y * 100 + m;
+    return y*100 + m;
 }
 function toStartOfWeek(value) {
     if (!__isHogDateTime(value) && !__isHogDate(value)) {
@@ -39,15 +39,15 @@ function toStartOfDay(value) {
         throw new Error('Expected HogDate or HogDateTime for toStartOfDay');
     }
     if (__isHogDate(value)) {
-        value = __toHogDateTime(Date.UTC(value.year, value.month - 1, value.day) / 1000, 'UTC');
+        value = __toHogDateTime(Date.UTC(value.year, value.month-1, value.day)/1000, 'UTC');
     }
     return dateTrunc('day', value);
 }
 function toMonth(value) { return extract('month', value) }
 function toIntervalMonth(val) { return __toHogInterval(val, 'month') }
 function toIntervalDay(val) { return __toHogInterval(val, 'day') }
-function toDateTime(input, zone) { return __toDateTime(input, zone) }
-function toDate(input) { return __toDate(input) }
+function toDateTime (input, zone) { return __toDateTime(input, zone) }
+function toDate (input) { return __toDate(input) }
 function substring(s, start, length) {
     if (typeof s !== 'string') return '';
     const startIdx = start - 1;
@@ -59,32 +59,32 @@ function startsWith(str, prefix) {
     return typeof str === 'string' && typeof prefix === 'string' && str.startsWith(prefix);
 }
 function round(a) { return Math.round(a) }
-function reverse(value) { return value.split('').reverse().join('') }
-function replaceOne(str, searchValue, replaceValue) { return str.replace(searchValue, replaceValue) }
-function replaceAll(str, searchValue, replaceValue) { return str.replaceAll(searchValue, replaceValue) }
+function reverse (value) { return value.split('').reverse().join('') }
+function replaceOne (str, searchValue, replaceValue) { return str.replace(searchValue, replaceValue) }
+function replaceAll (str, searchValue, replaceValue) { return str.replaceAll(searchValue, replaceValue) }
 function range(...args) {
     if (args.length === 1) {
         const end = args[0];
-        return Array.from({ length: end }, (_, i) => i);
+        return Array.from({length:end}, (_,i)=>i);
     } else {
         const start = args[0];
         const end = args[1];
-        return Array.from({ length: end - start }, (_, i) => start + i);
+        return Array.from({length:end - start}, (_,i)=>start+i);
     }
 }
-function print(...args) { console.log(...args.map(__printHogStringOutput)) }
+function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function plus(a, b) { return a + b }
-function now() { return __now() }
+function now () { return __now() }
 function notEquals(a, b) { return a !== b }
-function notEmpty(value) { return !empty(value) }
+function notEmpty (value) { return !empty(value) }
 function minus(a, b) { return a - b }
 function min2(a, b) { return a < b ? a : b }
-function lower(value) { return value.toLowerCase() }
+function lower (value) { return value.toLowerCase() }
 function lessOrEquals(a, b) { return a <= b }
 function less(a, b) { return a < b }
-function length(value) { return value.length }
-function isNull(value) { return value === null || value === undefined }
-function isNotNull(value) { return value !== null && value !== undefined }
+function length (value) { return value.length }
+function isNull (value) { return value === null || value === undefined }
+function isNotNull (value) { return value !== null && value !== undefined }
 function __x_in(val, arr) {
     if (Array.isArray(arr) || (arr && arr.__isHogTuple)) {
         return arr.includes(val);
@@ -93,7 +93,7 @@ function __x_in(val, arr) {
 }
 function greaterOrEquals(a, b) { return a >= b }
 function greater(a, b) { return a > b }
-function generateUUIDv4() { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) { const r = (Math.random() * 16) | 0; const v = c === 'x' ? r : (r & 0x3) | 0x8; return v.toString(16) }) }
+function generateUUIDv4 () { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) { const r = (Math.random() * 16) | 0; const v = c === 'x' ? r : (r & 0x3) | 0x8; return v.toString(16) })}
 function floor(a) { return Math.floor(a) }
 function extract(part, val) {
     function toDate(obj) {
@@ -115,15 +115,14 @@ function extract(part, val) {
     else throw new Error("Unknown extract part: " + part);
 }
 function equals(a, b) { return a === b }
-function encodeURLComponent(str) { return encodeURIComponent(str) }
-function empty(value) {
+function encodeURLComponent (str) { return encodeURIComponent(str) }
+function empty (value) {
     if (typeof value === 'object') {
         if (Array.isArray(value)) { return value.length === 0 } else if (value === null) { return true } else if (value instanceof Map) { return value.size === 0 }
         return Object.keys(value).length === 0
     } else if (typeof value === 'number' || typeof value === 'boolean') { return false }
-    return !value
-}
-function decodeURLComponent(str) { return decodeURIComponent(str) }
+    return !value }
+function decodeURLComponent (str) { return decodeURIComponent(str) }
 function dateTrunc(unit, val) {
     if (!__isHogDateTime(val)) {
         throw new Error('Expected a DateTime for dateTrunc');
@@ -153,7 +152,7 @@ function dateTrunc(unit, val) {
     }
 
     const truncated = new Date(Date.UTC(year, month, day, hour, minute, second, ms));
-    return { __hogDateTime__: true, dt: truncated.getTime() / 1000, zone: zone };
+    return { __hogDateTime__: true, dt: truncated.getTime()/1000, zone: zone };
 }
 function dateDiff(unit, startVal, endVal) {
     function toDateTime(obj) {
@@ -185,7 +184,7 @@ function dateDiff(unit, startVal, endVal) {
         const sm = start.getUTCMonth() + 1;
         const ey = end.getUTCFullYear();
         const em = end.getUTCMonth() + 1;
-        return (ey - sy) * 12 + (em - sm);
+        return (ey - sy)*12 + (em - sm);
     } else if (unit === 'year') {
         return end.getUTCFullYear() - start.getUTCFullYear();
     } else {
@@ -210,8 +209,8 @@ function coalesce(...args) {
     }
     return null;
 }
-function base64Encode(str) { return Buffer.from(str).toString('base64') }
-function base64Decode(str) { return Buffer.from(str, 'base64').toString() }
+function base64Encode (str) { return Buffer.from(str).toString('base64') }
+function base64Decode (str) { return Buffer.from(str, 'base64').toString() }
 function assumeNotNull(value) {
     if (value === null || value === undefined) {
         throw new Error("Value is null in assumeNotNull");
@@ -225,18 +224,14 @@ function addDays(dateOrDt, days) {
 function __toHogInterval(value, unit) {
     return { __hogInterval__: true, value: value, unit: unit };
 }
-function __toDateTime(input, zone) {
-    let dt;
+function __toDateTime(input, zone) { let dt;
     if (typeof input === 'number') { dt = input; }
     else { const date = new Date(input); if (isNaN(date.getTime())) { throw new Error('Invalid date input'); } dt = date.getTime() / 1000; }
-    return { __hogDateTime__: true, dt: dt, zone: zone || 'UTC' };
-}
-function __toDate(input) {
-    let date;
+    return { __hogDateTime__: true, dt: dt, zone: zone || 'UTC' }; }
+function __toDate(input) { let date;
     if (typeof input === 'number') { date = new Date(input * 1000); } else { date = new Date(input); }
     if (isNaN(date.getTime())) { throw new Error('Invalid date input'); }
-    return { __hogDate__: true, year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
-}
+    return { __hogDate__: true, year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() }; }
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
@@ -258,11 +253,11 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-    if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 function __now(zone) { return __toHogDateTime(Date.now() / 1000, zone) }
-function __isHogError(obj) { return obj && obj.__hogError__ === true }
+function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __escapeString(value) {
     const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
@@ -342,8 +337,7 @@ function __toHogDateTime(timestamp, zone) {
         const dt = date.getTime() / 1000;
         return { __hogDateTime__: true, dt: dt, zone: zone || 'UTC' };
     }
-    return { __hogDateTime__: true, dt: timestamp, zone: zone || 'UTC' };
-}
+    return { __hogDateTime__: true, dt: timestamp, zone: zone || 'UTC' }; }
 function __toHogDate(year, month, day) { return { __hogDate__: true, year: year, month: month, day: day, } }
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
