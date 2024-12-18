@@ -271,7 +271,7 @@ describe('Hog Executor', () => {
             })
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([hogFunction, providerFunction])
             mockFunctionManager.getTeamHogFunction.mockReturnValue(hogFunction)
-            mockFunctionManager.getTeamHogEmailProvider.mockReturnValue(providerFunction)
+            // mockFunctionManager.getTeamHogEmailProvider.mockReturnValue(providerFunction)
         })
 
         it('can execute an invocation', () => {

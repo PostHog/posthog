@@ -131,6 +131,7 @@ export class HogFunctionManager {
             )
         ).rows
 
+        console.log('items', items)
         this.sanitize(items)
         await this.enrichWithIntegrations(items)
 
@@ -207,6 +208,11 @@ export class HogFunctionManager {
     public sanitize(items: HogFunctionType[]): void {
         items.forEach((item) => {
             const encryptedInputsString = item.encrypted_inputs as string | undefined
+
+            if (!Array.isArray(item.inputs_schema)) {
+                // NOTE: The sql lib can sometimes return an empty object instead of an empty array
+                item.inputs_schema = []
+            }
 
             if (encryptedInputsString) {
                 try {
