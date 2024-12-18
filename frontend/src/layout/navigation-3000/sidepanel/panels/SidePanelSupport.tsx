@@ -17,6 +17,7 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -220,26 +221,6 @@ export const SidePanelSupport = (): JSX.Element => {
 
     return (
         <>
-            {/* this is on hold until after MVP */}
-            {/* <SidePanelPaneHeader title={isEmailFormOpen ? title : SIDE_PANEL_TABS[SidePanelTab.Support].label}>
-                {isMaxChatInterfaceOpen && (
-                    <>
-                        <div className="flex-1" />
-                        <LemonButton
-                            size="small"
-                            sideIcon={<IconExternal />}
-                            targetBlank
-                            onClick={() => {
-                                window.open('/max', '_blank')?.focus()
-                                closeSidePanel(SidePanelTab.Support)
-                            }}
-                        >
-                            Open in new tab
-                        </LemonButton>
-                    </>
-                )}
-            </SidePanelPaneHeader> */}
-
             <div className="overflow-y-auto" data-attr="side-panel-support-container">
                 <div className="p-3 max-w-160 w-full mx-auto">
                     {isEmailFormOpen ? (
@@ -310,23 +291,27 @@ export const SidePanelSupport = (): JSX.Element => {
 
                             {isCloud || true ? (
                                 <Section title="Ask Max the Hedgehog">
-                                    <p>
-                                        Max is PostHog's support AI who can answer support questions, help you with
-                                        troubleshooting, find info in our documentation, write HogQL queries, regex
-                                        expressions, etc.
-                                    </p>
-                                    <LemonButton
-                                        type="primary"
-                                        fullWidth
-                                        center
-                                        onClick={() => {
-                                            openMaxChatInterface()
-                                        }}
-                                        targetBlank={false}
-                                        className="mt-2"
-                                    >
-                                        ✨ Chat with Max
-                                    </LemonButton>
+                                    <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
+                                        <>
+                                            <p>
+                                                Max is PostHog's support AI who can answer support questions, help you
+                                                with troubleshooting, find info in our documentation, write HogQL
+                                                queries, regex expressions, etc.
+                                            </p>
+                                            <LemonButton
+                                                type="primary"
+                                                fullWidth
+                                                center
+                                                onClick={() => {
+                                                    openMaxChatInterface()
+                                                }}
+                                                targetBlank={false}
+                                                className="mt-2"
+                                            >
+                                                ✨ Chat with Max
+                                            </LemonButton>
+                                        </>
+                                    </FlaggedFeature>
                                 </Section>
                             ) : null}
 

@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { memo, useEffect, useRef, useState } from 'react'
 
@@ -85,6 +87,14 @@ function extractURLValidation(content: string): { hasQualityScore: boolean; cont
 }
 
 export function MaxChatInterface(): JSX.Element {
+    return (
+        <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
+            <MaxChatInterfaceContent />
+        </FlaggedFeature>
+    )
+}
+
+function MaxChatInterfaceContent(): JSX.Element {
     const { currentMessages, isSearchingThinking, isRateLimited } = useValues(sidePanelMaxAILogic)
     const { submitMessage } = useActions(sidePanelMaxAILogic)
     const [inputMessage, setInputMessage] = useState('')
@@ -139,6 +149,7 @@ export function MaxChatInterface(): JSX.Element {
                             Max can't see what page you're on, or the contents. Copy/paste error messages or queries to
                             share with Max.
                         </li>
+                        <li>Replies can take up to 3 mins due to rate-limiting.</li>
                         <li>Max can make mistakes. Please double-check responses.</li>
                     </ul>
                 </div>
