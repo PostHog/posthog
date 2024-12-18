@@ -24,4 +24,8 @@
 29, 2, "notEmpty", 1, 2, "print", 1, 35, 30, 2, "notEmpty", 1, 2, "print", 1, 35, 32, "", 2, "print", 1, 35, 32,
 "-- replaceAll, replaceOne --", 2, "print", 1, 35, 32, "hello world", 32, "l", 32, "L", 2, "replaceAll", 3, 2, "print",
 1, 35, 32, "hello world", 32, "l", 32, "L", 2, "replaceOne", 3, 2, "print", 1, 35, 32, "", 2, "print", 1, 35, 32,
-"-- generateUUIDv4 --", 2, "print", 1, 35, 2, "generateUUIDv4", 0, 2, "length", 1, 2, "print", 1, 35]
+"-- generateUUIDv4 --", 2, "print", 1, 35, 2, "generateUUIDv4", 0, 2, "length", 1, 2, "print", 1, 35, 32, "", 2,
+"print", 1, 35, 32, "-- isNull, isNotNull --", 2, "print", 1, 35, 31, 2, "isNull", 1, 31, 2, "isNotNull", 1, 2, "print",
+2, 35, 29, 2, "isNull", 1, 29, 2, "isNotNull", 1, 2, "print", 2, 35, 32, "banana", 2, "isNull", 1, 32, "banana", 2,
+"isNotNull", 1, 2, "print", 2, 35, 30, 2, "isNull", 1, 30, 2, "isNotNull", 1, 2, "print", 2, 35, 33, 0, 2, "isNull", 1,
+33, 0, 2, "isNotNull", 1, 2, "print", 2, 35, 33, 1, 2, "isNull", 1, 33, 1, 2, "isNotNull", 1, 2, "print", 2, 35]

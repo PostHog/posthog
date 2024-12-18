@@ -55,6 +55,7 @@ class SingleArgumentTaxonomyAgentTool(BaseModel):
         "retrieve_event_properties",
         "final_answer",
         "handle_incorrect_response",
+        "ask_user_for_help",
     ]
     arguments: str
 
@@ -145,6 +146,16 @@ class TaxonomyAgentToolkit(ABC):
                         property_name: The name of the property that you want to retrieve values for.
                 """,
             },
+            {
+                "name": "ask_user_for_help",
+                "signature": "(question: str)",
+                "description": """
+                    Use this tool to ask a question to the user. Your question must be concise and clear.
+
+                    Args:
+                        question: The question you want to ask.
+                """,
+            },
         ]
 
     def render_text_description(self) -> str:
@@ -169,7 +180,7 @@ class TaxonomyAgentToolkit(ABC):
 
     @property
     def _groups(self):
-        return GroupTypeMapping.objects.filter(team=self._team).order_by("group_type_index")
+        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
 
     @cached_property
     def _entity_names(self) -> list[str]:

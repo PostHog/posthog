@@ -13,8 +13,13 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
         <div className="rounded border bg-bg-light m-2">
             <OverviewGrid>
                 {overviewItems.map((item) => (
-                    <OverviewGridItem key={item.label} description={item.tooltipTitle} label={item.label}>
-                        {item.type === 'icon' ? (
+                    <OverviewGridItem
+                        key={item.label}
+                        description={item.tooltipTitle}
+                        label={item.label}
+                        icon={item.icon}
+                    >
+                        {item.type === 'property' ? (
                             <PropertyIcon property={item.property} value={item.value} />
                         ) : (
                             item.value

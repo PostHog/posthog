@@ -794,3 +794,19 @@ async def aupdate_batch_export_backfill_status(backfill_id: UUID, status: str) -
         raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
 
     return await model.aget()
+
+
+async def aupdate_records_total_count(
+    batch_export_id: UUID, interval_start: dt.datetime, interval_end: dt.datetime, count: int
+) -> int:
+    """Update the expected records count for a set of batch export runs.
+
+    Typically, there is one batch export run per batch export interval, however
+    there could be multiple if data has been backfilled.
+    """
+    rows_updated = await BatchExportRun.objects.filter(
+        batch_export_id=batch_export_id,
+        data_interval_start=interval_start,
+        data_interval_end=interval_end,
+    ).aupdate(records_total_count=count)
+    return rows_updated

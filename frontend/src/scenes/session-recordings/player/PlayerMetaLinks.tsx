@@ -57,6 +57,7 @@ function PinToPlaylistButton({
         />
     ) : (
         <PlaylistPopoverButton
+            tooltip={tooltip}
             setPinnedInCurrentPlaylist={logicProps.setPinned}
             icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />}
             {...buttonProps}
@@ -135,7 +136,7 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
                         {buttonContent('Comment')}
                     </NotebookSelectButton>
 
-                    <LemonButton icon={<IconShare />} onClick={onShare} {...commonProps}>
+                    <LemonButton icon={<IconShare />} onClick={onShare} {...commonProps} tooltip="Share this recording">
                         {buttonContent('Share')}
                     </LemonButton>
 
@@ -149,6 +150,7 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
                                     attrs: { id: sessionRecordingId },
                                 })
                             }}
+                            tooltip="Comment in a notebook"
                         />
                     ) : null}
 

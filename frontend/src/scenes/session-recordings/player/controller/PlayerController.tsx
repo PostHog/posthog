@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { humanFriendlyDuration } from 'lib/utils'
 import {
     SettingsBar,
     SettingsButton,
@@ -25,13 +26,18 @@ import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
 function SetPlaybackSpeed(): JSX.Element {
-    const { speed } = useValues(sessionRecordingPlayerLogic)
+    const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { setSpeed } = useActions(sessionRecordingPlayerLogic)
     return (
         <SettingsMenu
             data-attr="session-recording-speed-select"
             items={PLAYBACK_SPEEDS.map((speedToggle) => ({
-                label: `${speedToggle}x`,
+                label: (
+                    <div className="flex w-full space-x-2 justify-between">
+                        <span>{speedToggle}x</span>
+                        <span>({humanFriendlyDuration(sessionPlayerData.durationMs / speedToggle / 1000)})</span>
+                    </div>
+                ),
                 onClick: () => setSpeed(speedToggle),
                 active: speed === speedToggle && speedToggle !== 1,
                 status: speed === speedToggle ? 'danger' : 'default',
@@ -76,7 +82,7 @@ function ShowMouseTail(): JSX.Element {
 
     return (
         <SettingsToggle
-            title="Show mouse tail"
+            title="Show a tail following the cursor to make it easier to see"
             label="Show mouse tail"
             active={showMouseTail}
             data-attr="show-mouse-tail"
@@ -91,11 +97,41 @@ function SkipInactivity(): JSX.Element {
 
     return (
         <SettingsToggle
-            title="Skip inactivity"
+            title="Skip inactivite parts of the recording"
             label="Skip inactivity"
             active={skipInactivitySetting}
             data-attr="skip-inactivity"
             onClick={() => setSkipInactivitySetting(!skipInactivitySetting)}
+        />
+    )
+}
+
+function SetTimeFormat(): JSX.Element {
+    const { timestampFormat } = useValues(playerSettingsLogic)
+    const { setTimestampFormat } = useActions(playerSettingsLogic)
+
+    return (
+        <SettingsMenu
+            highlightWhenActive={false}
+            items={[
+                {
+                    label: 'UTC',
+                    onClick: () => setTimestampFormat(TimestampFormat.UTC),
+                    active: timestampFormat === TimestampFormat.UTC,
+                },
+                {
+                    label: 'Device',
+                    onClick: () => setTimestampFormat(TimestampFormat.Device),
+                    active: timestampFormat === TimestampFormat.Device,
+                },
+                {
+                    label: 'Relative',
+                    onClick: () => setTimestampFormat(TimestampFormat.Relative),
+                    active: timestampFormat === TimestampFormat.Relative,
+                },
+            ]}
+            icon={<IconClock />}
+            label={TimestampFormatToLabel[timestampFormat]}
         />
     )
 }
@@ -119,39 +155,15 @@ function InspectDOM(): JSX.Element {
 }
 
 function PlayerBottomSettings(): JSX.Element {
-    const { timestampFormat } = useValues(playerSettingsLogic)
-    const { setTimestampFormat } = useActions(playerSettingsLogic)
-
     return (
         <SettingsBar border="top" className="justify-between">
             <div className="flex flex-row gap-0.5">
                 <SkipInactivity />
                 <ShowMouseTail />
                 <SetPlaybackSpeed />
-                <SettingsMenu
-                    highlightWhenActive={false}
-                    items={[
-                        {
-                            label: 'UTC',
-                            onClick: () => setTimestampFormat(TimestampFormat.UTC),
-                            active: timestampFormat === TimestampFormat.UTC,
-                        },
-                        {
-                            label: 'Device',
-                            onClick: () => setTimestampFormat(TimestampFormat.Device),
-                            active: timestampFormat === TimestampFormat.Device,
-                        },
-                        {
-                            label: 'Relative',
-                            onClick: () => setTimestampFormat(TimestampFormat.Relative),
-                            active: timestampFormat === TimestampFormat.Relative,
-                        },
-                    ]}
-                    icon={<IconClock />}
-                    label={TimestampFormatToLabel[timestampFormat]}
-                />
-                <InspectDOM />
+                <SetTimeFormat />
             </div>
+            <InspectDOM />
         </SettingsBar>
     )
 }

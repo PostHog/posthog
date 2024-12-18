@@ -3,6 +3,7 @@ import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTyp
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
+import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 
 import { Realm } from '~/types'
@@ -49,7 +50,7 @@ import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrganizationLogo } from './organization/OrgLogo'
-import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
+import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectDisplayName, ProjectProductDescription } from './project/ProjectSettings'
@@ -59,7 +60,7 @@ import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
-import { TwoFactorAuthentication } from './user/TwoFactorAuthentication'
+import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDetails } from './user/UserDetails'
 
@@ -218,7 +219,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CustomChannelTypes />,
             },
         ],
-        flag: 'CUSTOM_CHANNEL_TYPE_RULES',
     },
 
     {
@@ -240,6 +240,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
+                allowForTeam: (t) => !!t?.recording_domains?.length,
+            },
+            {
+                id: 'replay-triggers',
+                title: 'Replay triggers',
+                component: <ReplayTriggers />,
             },
             {
                 id: 'replay-ingestion',
@@ -308,11 +314,11 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'environment-rbac',
+        id: 'environment-access-control',
         title: 'Access control',
         settings: [
             {
-                id: 'environment-rbac',
+                id: 'environment-access-control',
                 title: 'Access control',
                 component: <TeamAccessControl />,
             },
@@ -407,6 +413,18 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-roles',
+        title: 'Roles',
+        settings: [
+            {
+                id: 'organization-roles',
+                title: 'Roles',
+                component: <RoleBasedAccess />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-authentication',
         title: 'Authentication domains & SSO',
         settings: [
@@ -414,18 +432,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'authentication-domains',
                 title: 'Authentication Domains',
                 component: <VerifiedDomains />,
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-rbac',
-        title: 'Role-based access',
-        settings: [
-            {
-                id: 'organization-rbac',
-                title: 'Role-based access',
-                component: <PermissionsGrid />,
             },
         ],
     },
@@ -473,7 +479,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: '2fa',
                 title: 'Two-factor authentication',
-                component: <TwoFactorAuthentication />,
+                component: <TwoFactorSettings />,
             },
         ],
     },

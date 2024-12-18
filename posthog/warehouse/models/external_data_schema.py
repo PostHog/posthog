@@ -1,8 +1,11 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Optional
+import tempfile
+import os
+from typing import Any, Optional
 from django.db import models
 from django_deprecate_fields import deprecate_field
+import numpy
 import snowflake.connector
 from django.conf import settings
 from posthog.models.team import Team
@@ -70,6 +73,27 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = datetime.now()
+        self.save()
+
+    def update_incremental_field_last_value(self, last_value: Any) -> None:
+        incremental_field_type = self.sync_type_config.get("incremental_field_type")
+
+        last_value_py = last_value.item() if isinstance(last_value, numpy.generic) else last_value
+
+        if (
+            incremental_field_type == IncrementalFieldType.Integer
+            or incremental_field_type == IncrementalFieldType.Numeric
+        ):
+            if isinstance(last_value_py, int | float):
+                last_value_json = last_value_py
+            elif isinstance(last_value_py, datetime):
+                last_value_json = str(last_value_py)
+            else:
+                last_value_json = int(last_value_py)
+        else:
+            last_value_json = str(last_value_py)
+
+        self.sync_type_config["incremental_field_last_value"] = last_value_json
         self.save()
 
 
@@ -193,16 +217,43 @@ def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[
 
 
 def get_snowflake_schemas(
-    account_id: str, database: str, warehouse: str, user: str, password: str, schema: str, role: Optional[str] = None
+    account_id: str,
+    database: str,
+    warehouse: str,
+    user: Optional[str],
+    password: Optional[str],
+    passphrase: Optional[str],
+    private_key: Optional[str],
+    auth_type: str,
+    schema: str,
+    role: Optional[str] = None,
 ) -> dict[str, list[tuple[str, str]]]:
+    auth_connect_args: dict[str, str | None] = {}
+    file_name: str | None = None
+
+    if auth_type == "keypair" and private_key is not None:
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(private_key.encode("utf-8"))
+            file_name = tf.name
+
+        auth_connect_args = {
+            "user": user,
+            "private_key_file": file_name,
+            "private_key_file_pwd": passphrase,
+        }
+    else:
+        auth_connect_args = {
+            "password": password,
+            "user": user,
+        }
+
     with snowflake.connector.connect(
-        user=user,
-        password=password,
         account=account_id,
         warehouse=warehouse,
         database=database,
         schema="information_schema",
         role=role,
+        **auth_connect_args,
     ) as connection:
         with connection.cursor() as cursor:
             if cursor is None:
@@ -218,7 +269,10 @@ def get_snowflake_schemas(
             for row in result:
                 schema_list[row[0]].append((row[1], row[2]))
 
-            return schema_list
+    if file_name is not None:
+        os.unlink(file_name)
+
+    return schema_list
 
 
 def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:

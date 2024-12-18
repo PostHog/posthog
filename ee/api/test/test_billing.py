@@ -840,6 +840,37 @@ class TestBillingAPI(APILicensedTest):
 
         assert self.organization.customer_trust_scores == {"recordings": 0, "events": 15, "rows_synced": 0}
 
+    @patch("ee.api.billing.requests.get")
+    def test_billing_with_supported_params(self, mock_get):
+        """Test that the include_forecasting param is passed through to the billing service."""
+
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 200
+
+            if "api/billing/portal" in url:
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
+                mock.json.return_value = create_billing_response(
+                    customer=create_billing_customer(has_active_subscription=True)
+                )
+
+            return mock
+
+        mock_get.side_effect = mock_implementation
+
+        response = self.client.get("/api/billing/?include_forecasting=true")
+        assert response.status_code == 200
+
+        # Verify the billing service was called with the correct query param
+        billing_calls = [
+            call
+            for call in mock_get.call_args_list
+            if "api/billing" in call[0][0] and "api/billing/portal" not in call[0][0]
+        ]
+        assert len(billing_calls) == 1
+        assert billing_calls[0].kwargs["params"] == {"include_forecasting": "true"}
+
 
 class TestPortalBillingAPI(APILicensedTest):
     @patch("ee.api.billing.requests.get")
@@ -932,7 +963,7 @@ class TestActivateBillingAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_deactivate_products.assert_called_once_with(self.organization, "product_1")
-        mock_get_billing.assert_called_once_with(self.organization, None)
+        mock_get_billing.assert_called_once_with(self.organization, None, {})
 
     def test_deactivate_failure(self):
         url = "/api/billing/deactivate"

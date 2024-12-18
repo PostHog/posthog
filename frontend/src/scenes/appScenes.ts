@@ -30,6 +30,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Experiments]: () => import('./experiments/Experiments'),
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
+    [Scene.FeatureManagement]: () => import('./feature-flags/FeatureManagement'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.EarlyAccessFeatures]: () => import('./early-access-features/EarlyAccessFeatures'),
     [Scene.EarlyAccessFeature]: () => import('./early-access-features/EarlyAccessFeature'),

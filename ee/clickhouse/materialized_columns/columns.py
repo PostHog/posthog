@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from copy import copy
 from dataclasses import dataclass, replace
 from datetime import timedelta
@@ -242,10 +242,10 @@ def materialize(
     table_column: TableColumn = DEFAULT_TABLE_COLUMN,
     create_minmax_index=not TEST,
     is_nullable: bool = False,
-) -> ColumnName | None:
-    if (property, table_column) in get_materialized_columns(table):
+) -> MaterializedColumn:
+    if existing_column := get_materialized_columns(table).get((property, table_column)):
         if TEST:
-            return None
+            return existing_column
 
         raise ValueError(f"Property already materialized. table={table}, property={property}, column={table_column}")
 
@@ -283,32 +283,41 @@ def materialize(
             ).execute
         ).result()
 
-    return column.name
+    return column
 
 
 @dataclass
 class UpdateColumnCommentTask:
     table: str
-    column: MaterializedColumn
+    columns: list[MaterializedColumn]
 
     def execute(self, client: Client) -> None:
+        actions = []
+        parameters = {}
+        for i, column in enumerate(self.columns):
+            parameter_name = f"comment_{i}"
+            actions.append(f"COMMENT COLUMN {column.name} %({parameter_name})s")
+            parameters[parameter_name] = column.details.as_column_comment()
+
         client.execute(
-            f"ALTER TABLE {self.table} COMMENT COLUMN {self.column.name} %(comment)s",
-            {"comment": self.column.details.as_column_comment()},
+            f"ALTER TABLE {self.table} " + ", ".join(actions),
+            parameters,
             settings={"alter_sync": 2 if TEST else 1},
         )
 
 
-def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name: str, is_disabled: bool) -> None:
+def update_column_is_disabled(
+    table: TablesWithMaterializedColumns, column_names: Iterable[str], is_disabled: bool
+) -> None:
     cluster = get_cluster()
     table_info = tables[table]
 
-    column = MaterializedColumn.get(table, column_name)
+    columns = [MaterializedColumn.get(table, column_name) for column_name in column_names]
 
     cluster.map_all_hosts(
         UpdateColumnCommentTask(
             table_info.read_table,
-            replace(column, details=replace(column.details, is_disabled=is_disabled)),
+            [replace(column, details=replace(column.details, is_disabled=is_disabled)) for column in columns],
         ).execute
     ).result()
 
@@ -342,25 +351,26 @@ def check_column_exists(client: Client, table: str, column: str) -> bool:
 @dataclass
 class DropColumnTask:
     table: str
-    column_name: str
+    column_names: list[str]
     try_drop_index: bool
 
     def execute(self, client: Client) -> None:
         actions = []
 
-        if self.try_drop_index:
-            index_name = get_minmax_index_name(self.column_name)
-            drop_index_action = f"DROP INDEX IF EXISTS {index_name}"
-            if check_index_exists(client, self.table, index_name):
-                actions.append(drop_index_action)
-            else:
-                logger.info("Skipping %r, nothing to do...", drop_index_action)
+        for column_name in self.column_names:
+            if self.try_drop_index:
+                index_name = get_minmax_index_name(column_name)
+                drop_index_action = f"DROP INDEX IF EXISTS {index_name}"
+                if check_index_exists(client, self.table, index_name):
+                    actions.append(drop_index_action)
+                else:
+                    logger.info("Skipping %r, nothing to do...", drop_index_action)
 
-        drop_column_action = f"DROP COLUMN IF EXISTS {self.column_name}"
-        if check_column_exists(client, self.table, self.column_name):
-            actions.append(drop_column_action)
-        else:
-            logger.info("Skipping %r, nothing to do...", drop_column_action)
+            drop_column_action = f"DROP COLUMN IF EXISTS {column_name}"
+            if check_column_exists(client, self.table, column_name):
+                actions.append(drop_column_action)
+            else:
+                logger.info("Skipping %r, nothing to do...", drop_column_action)
 
         if actions:
             client.execute(
@@ -369,15 +379,16 @@ class DropColumnTask:
             )
 
 
-def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
+def drop_column(table: TablesWithMaterializedColumns, column_names: Iterable[str]) -> None:
     cluster = get_cluster()
     table_info = tables[table]
+    column_names = [*column_names]
 
     if isinstance(table_info, ShardedTableInfo):
         cluster.map_all_hosts(
             DropColumnTask(
                 table_info.dist_table,
-                column_name,
+                column_names,
                 try_drop_index=False,  # no indexes on distributed tables
             ).execute
         ).result()
@@ -386,7 +397,7 @@ def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
         cluster,
         DropColumnTask(
             table_info.data_table,
-            column_name,
+            column_names,
             try_drop_index=True,
         ).execute,
     ).result()
@@ -433,7 +444,7 @@ class BackfillColumnTask:
 
 def backfill_materialized_columns(
     table: TableWithProperties,
-    properties: list[tuple[PropertyName, TableColumn]],
+    columns: Iterable[MaterializedColumn],
     backfill_period: timedelta,
     test_settings=None,
 ) -> None:
@@ -442,25 +453,14 @@ def backfill_materialized_columns(
 
     This will require reading and writing a lot of data on clickhouse disk.
     """
-
-    if len(properties) == 0:
-        return
-
     cluster = get_cluster()
     table_info = tables[table]
-
-    # TODO: this will eventually need to handle duplicates
-    materialized_columns = {
-        (column.details.property_name, column.details.table_column): column
-        for column in MaterializedColumn.get_all(table)
-    }
-    columns = [materialized_columns[property] for property in properties]
 
     table_info.map_data_nodes(
         cluster,
         BackfillColumnTask(
             table_info.data_table,
-            columns,
+            [*columns],
             backfill_period if table == "events" else None,  # XXX
             test_settings,
         ).execute,

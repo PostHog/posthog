@@ -132,26 +132,19 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
     @patch("secrets.choice", return_value="X")
     def test_materialized_column_naming(self, mock_choice):
-        materialize("events", "$foO();--sqlinject", create_minmax_index=True)
+        assert materialize("events", "$foO();--sqlinject", create_minmax_index=True).name == "mat_$foO_____sqlinject"
+
         mock_choice.return_value = "Y"
-        materialize("events", "$foO();ääsqlinject", create_minmax_index=True)
+        assert (
+            materialize("events", "$foO();ääsqlinject", create_minmax_index=True).name == "mat_$foO_____sqlinject_YYYY"
+        )
+
         mock_choice.return_value = "Z"
-        materialize("events", "$foO_____sqlinject", create_minmax_index=True)
-        materialize("person", "SoMePrOp", create_minmax_index=True)
-
-        self.assertDictContainsSubset(
-            {
-                ("$foO();--sqlinject", "properties"): "mat_$foO_____sqlinject",
-                ("$foO();ääsqlinject", "properties"): "mat_$foO_____sqlinject_YYYY",
-                ("$foO_____sqlinject", "properties"): "mat_$foO_____sqlinject_ZZZZ",
-            },
-            {k: column.name for k, column in get_materialized_columns("events").items()},
+        assert (
+            materialize("events", "$foO_____sqlinject", create_minmax_index=True).name == "mat_$foO_____sqlinject_ZZZZ"
         )
 
-        self.assertEqual(
-            {k: column.name for k, column in get_materialized_columns("person").items()},
-            {("SoMePrOp", "properties"): "pmat_SoMePrOp"},
-        )
+        assert materialize("person", "SoMePrOp", create_minmax_index=True).name == "pmat_SoMePrOp"
 
     def test_backfilling_data(self):
         sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS mat_prop")
@@ -199,8 +192,10 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             properties={"another": 6},
         )
 
-        materialize("events", "prop", create_minmax_index=True)
-        materialize("events", "another", create_minmax_index=True)
+        columns = [
+            materialize("events", "prop", create_minmax_index=True),
+            materialize("events", "another", create_minmax_index=True),
+        ]
 
         self.assertEqual(self._count_materialized_rows("mat_prop"), 0)
         self.assertEqual(self._count_materialized_rows("mat_another"), 0)
@@ -208,7 +203,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         with freeze_time("2021-05-10T14:00:01Z"):
             backfill_materialized_columns(
                 "events",
-                [("prop", "properties"), ("another", "properties")],
+                columns,
                 timedelta(days=50),
                 test_settings={"mutations_sync": "0"},
             )
@@ -243,8 +238,10 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         )
 
     def test_column_types(self):
-        materialize("events", "myprop", create_minmax_index=True)
-        materialize("events", "myprop_nullable", create_minmax_index=True, is_nullable=True)
+        columns = [
+            materialize("events", "myprop", create_minmax_index=True),
+            materialize("events", "myprop_nullable", create_minmax_index=True, is_nullable=True),
+        ]
 
         expr_nonnullable = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
         expr_nullable = "JSONExtract(properties, 'myprop_nullable', 'Nullable(String)')"
@@ -253,9 +250,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             ("Nullable(String)", "MATERIALIZED", expr_nullable), self._get_column_types("mat_myprop_nullable")
         )
 
-        backfill_materialized_columns(
-            "events", [("myprop", "properties"), ("myprop_nullable", "properties")], timedelta(days=50)
-        )
+        backfill_materialized_columns("events", columns, timedelta(days=50))
         self.assertEqual(("String", "DEFAULT", expr_nonnullable), self._get_column_types("mat_myprop"))
         self.assertEqual(("Nullable(String)", "DEFAULT", expr_nullable), self._get_column_types("mat_myprop_nullable"))
 
@@ -306,45 +301,57 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
     def test_lifecycle(self):
         table: TablesWithMaterializedColumns = "events"
-        property: PropertyName = "myprop"
+        property_names = ["foo", "bar"]
         source_column: TableColumn = "properties"
 
-        # create the materialized column
-        destination_column = materialize(table, property, table_column=source_column, create_minmax_index=True)
-        assert destination_column is not None
+        # create materialized columns
+        materialized_columns = {}
+        for property_name in property_names:
+            materialized_columns[property_name] = materialize(
+                table, property_name, table_column=source_column, create_minmax_index=True
+            ).name
 
-        # ensure it exists everywhere
-        key = (property, source_column)
-        assert get_materialized_columns(table)[key].name == destination_column
-        assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
-            destination_column,
-            MaterializedColumnDetails(source_column, property, is_disabled=False),
-            is_nullable=False,
-        )
+        assert set(property_names) == materialized_columns.keys()
 
-        # disable it and ensure updates apply as needed
-        update_column_is_disabled(table, destination_column, is_disabled=True)
-        assert get_materialized_columns(table)[key].name == destination_column
-        assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
-            destination_column,
-            MaterializedColumnDetails(source_column, property, is_disabled=True),
-            is_nullable=False,
-        )
+        # ensure they exist everywhere
+        for property_name, destination_column in materialized_columns.items():
+            key = (property_name, source_column)
+            assert get_materialized_columns(table)[key].name == destination_column
+            assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
+                destination_column,
+                MaterializedColumnDetails(source_column, property_name, is_disabled=False),
+                is_nullable=False,
+            )
 
-        # re-enable it and ensure updates apply as needed
-        update_column_is_disabled(table, destination_column, is_disabled=False)
-        assert get_materialized_columns(table)[key].name == destination_column
-        assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
-            destination_column,
-            MaterializedColumnDetails(source_column, property, is_disabled=False),
-            is_nullable=False,
-        )
+        # disable them and ensure updates apply as needed
+        update_column_is_disabled(table, materialized_columns.values(), is_disabled=True)
+        for property_name, destination_column in materialized_columns.items():
+            key = (property_name, source_column)
+            assert get_materialized_columns(table)[key].name == destination_column
+            assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
+                destination_column,
+                MaterializedColumnDetails(source_column, property_name, is_disabled=True),
+                is_nullable=False,
+            )
 
-        # drop it and ensure updates apply as needed
-        drop_column(table, destination_column)
-        assert key not in get_materialized_columns(table)
-        with self.assertRaises(ValueError):
-            MaterializedColumn.get(table, destination_column)
+        # re-enable them and ensure updates apply as needed
+        update_column_is_disabled(table, materialized_columns.values(), is_disabled=False)
+        for property_name, destination_column in materialized_columns.items():
+            key = (property_name, source_column)
+            assert get_materialized_columns(table)[key].name == destination_column
+            assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
+                destination_column,
+                MaterializedColumnDetails(source_column, property_name, is_disabled=False),
+                is_nullable=False,
+            )
+
+        # drop them and ensure updates apply as needed
+        drop_column(table, materialized_columns.values())
+        for property_name, destination_column in materialized_columns.items():
+            key = (property_name, source_column)
+            assert key not in get_materialized_columns(table)
+            with self.assertRaises(ValueError):
+                MaterializedColumn.get(table, destination_column)
 
     def _get_latest_mutation_id(self, table: str) -> str:
         [(mutation_id,)] = sync_execute(
@@ -384,11 +391,10 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         source_column: TableColumn = "properties"
 
         destination_column = materialize(table, property, table_column=source_column, create_minmax_index=False)
-        assert destination_column is not None
 
         latest_mutation_id_before_drop = self._get_latest_mutation_id(table)
 
-        drop_column(table, destination_column)
+        drop_column(table, destination_column.name)
 
         mutations_ran = self._get_mutations_since_id(table, latest_mutation_id_before_drop)
         assert not any("DROP INDEX" in mutation for mutation in mutations_ran)
@@ -402,13 +408,12 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         # create the materialized column
         destination_column = materialize(table, property, table_column=source_column, create_minmax_index=False)
-        assert destination_column is not None
 
-        sync_execute(f"ALTER TABLE {table} DROP COLUMN {destination_column}", settings={"alter_sync": 1})
+        sync_execute(f"ALTER TABLE {table} DROP COLUMN {destination_column.name}", settings={"alter_sync": 1})
 
         latest_mutation_id_before_drop = self._get_latest_mutation_id(table)
 
-        drop_column(table, destination_column)
+        drop_column(table, destination_column.name)
 
         mutations_ran = self._get_mutations_since_id(table, latest_mutation_id_before_drop)
         assert not any("DROP COLUMN" in mutation for mutation in mutations_ran)

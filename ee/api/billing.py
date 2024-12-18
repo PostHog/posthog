@@ -62,7 +62,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         plan_keys = request.query_params.get("plan_keys", None)
         billing_manager = self.get_billing_manager()
-        response = billing_manager.get_billing(org, plan_keys)
+        query = {}
+        if "include_forecasting" in request.query_params:
+            query["include_forecasting"] = request.query_params.get("include_forecasting")
+        response = billing_manager.get_billing(org, plan_keys, query)
 
         return Response(response)
 

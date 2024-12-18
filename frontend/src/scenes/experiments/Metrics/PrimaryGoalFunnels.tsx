@@ -1,6 +1,7 @@
 import { LemonLabel } from '@posthog/lemon-ui'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -30,6 +31,12 @@ export function PrimaryGoalFunnels(): JSX.Element {
 
     const metricIdx = 0
     const currentMetric = experiment.metrics[metricIdx] as ExperimentFunnelsQuery
+
+    const actionFilterProps = {
+        ...commonActionFilterProps,
+        // Remove data warehouse from the list because it's not supported in experiments
+        actionsTaxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+    }
 
     return (
         <>
@@ -107,7 +114,7 @@ export function PrimaryGoalFunnels(): JSX.Element {
                 seriesIndicatorType="numeric"
                 sortable={true}
                 showNestedArrow={true}
-                {...commonActionFilterProps}
+                {...actionFilterProps}
             />
             <div className="mt-4 space-y-4">
                 <FunnelAggregationSelect

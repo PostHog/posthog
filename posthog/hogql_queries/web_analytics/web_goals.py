@@ -1,18 +1,27 @@
-from typing import Optional
-
-from datetime import datetime
+from collections.abc import Sequence
+from typing import TypeVar
+from collections.abc import Iterator
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr, get_property_type, action_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
 from posthog.models import Action
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import WebGoalsQueryResponse, WebGoalsQuery, CachedWebGoalsQueryResponse
+
+
+# Returns an array `seq` split into chunks of size `size`
+# Example:
+# chunker([1, 2, 3, 4, 5], 2) -> [[1, 2], [3, 4], [5]]
+T = TypeVar("T")
+
+
+def chunker(seq: Sequence[T], size: int) -> Iterator[Sequence[T]]:
+    for pos in range(0, len(seq), size):
+        yield seq[pos : pos + size]
 
 
 class NoActionsError(Exception):
@@ -25,91 +34,153 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner):
     cached_response: CachedWebGoalsQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        with self.timings.measure("actions"):
+            actions = Action.objects.filter(team__project_id=self.team.project_id, deleted=False).order_by(
+                "pinned_at", "-last_calculated_at"
+            )[:5]
+            if not actions:
+                raise NoActionsError("No actions found")
+
         with self.timings.measure("date_expr"):
-            start = self.query_date_range.date_from_as_hogql()
-            end = self.query_date_range.date_to_as_hogql()
+            current_period = self._current_period_expression("timestamp")
+            previous_period = self._previous_period_expression("timestamp")
 
-        actions = Action.objects.filter(team=self.team, deleted=False).order_by("pinned_at", "-last_calculated_at")[:5]
-        if not actions:
-            raise NoActionsError("No actions found")
+        with self.timings.measure("aliases"):
+            inner_aliases: list[ast.Expr] = []
+            outer_aliases: list[ast.Expr] = []
+            action_exprs: list[ast.Expr] = []
+            for n, action in enumerate(actions):
+                expr = action_to_expr(action)
+                action_exprs.append(expr)
 
-        inner_aliases: list[ast.Expr] = []
-        outer_aliases: list[ast.Expr] = []
-        action_exprs: list[ast.Expr] = []
-        for n, action in enumerate(actions):
-            expr = action_to_expr(action)
-            action_exprs.append(expr)
-            inner_aliases.append(ast.Alias(alias=f"action_count_{n}", expr=ast.Call(name="countIf", args=[expr])))
-            inner_aliases.append(
-                ast.Alias(
-                    alias=f"action_person_id_{n}",
-                    expr=ast.Call(
-                        name="if",
-                        args=[
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.Gt,
-                                left=ast.Field(chain=[f"action_count_{n}"]),
-                                right=ast.Constant(value=0),
-                            ),
-                            ast.Field(chain=["person_id"]),
-                            ast.Constant(value=None),
-                        ],
+                # Current/previous count
+                inner_aliases.append(
+                    ast.Alias(
+                        alias=f"action_current_count_{n}",
+                        expr=ast.Call(name="countIf", args=[ast.And(exprs=[expr, current_period])]),
+                    )
+                )
+                inner_aliases.append(
+                    ast.Alias(
+                        alias=f"action_previous_count_{n}",
+                        expr=ast.Call(name="countIf", args=[ast.And(exprs=[expr, previous_period])]),
+                    )
+                )
+
+                # Current/Previous Person ID
+                inner_aliases.append(
+                    ast.Alias(
+                        alias=f"action_current_person_id_{n}",
+                        expr=ast.Call(
+                            name="if",
+                            args=[
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Gt,
+                                    left=ast.Field(chain=[f"action_current_count_{n}"]),
+                                    right=ast.Constant(value=0),
+                                ),
+                                ast.Field(chain=["person_id"]),
+                                ast.Constant(value=None),
+                            ],
+                        ),
+                    )
+                )
+
+                inner_aliases.append(
+                    ast.Alias(
+                        alias=f"action_previous_person_id_{n}",
+                        expr=ast.Call(
+                            name="if",
+                            args=[
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Gt,
+                                    left=ast.Field(chain=[f"action_previous_count_{n}"]),
+                                    right=ast.Constant(value=0),
+                                ),
+                                ast.Field(chain=["person_id"]),
+                                ast.Constant(value=None),
+                            ],
+                        ),
+                    )
+                )
+
+                # Outer aliases
+                outer_aliases.append(ast.Alias(alias=f"action_name_{n}", expr=ast.Constant(value=action.name)))
+                outer_aliases.append(
+                    ast.Alias(
+                        alias=f"action_total_{n}",
+                        expr=ast.Tuple(
+                            exprs=[
+                                ast.Call(name="sum", args=[ast.Field(chain=[f"action_current_count_{n}"])]),
+                                ast.Call(name="sum", args=[ast.Field(chain=[f"action_previous_count_{n}"])])
+                                if self.query_compare_to_date_range
+                                else ast.Constant(value=None),
+                            ]
+                        ),
                     ),
                 )
-            )
-            outer_aliases.append(ast.Alias(alias=f"action_name_{n}", expr=ast.Constant(value=action.name)))
-            outer_aliases.append(
-                ast.Alias(
-                    alias=f"action_total_{n}", expr=ast.Call(name="sum", args=[ast.Field(chain=[f"action_count_{n}"])])
-                ),
-            )
-            outer_aliases.append(
-                ast.Alias(
-                    alias=f"action_uniques_{n}",
-                    expr=ast.Call(name="uniq", args=[ast.Field(chain=[f"action_person_id_{n}"])]),
-                ),
-            )
 
-        inner_select = parse_select(
-            """
+                outer_aliases.append(
+                    ast.Alias(
+                        alias=f"action_uniques_{n}",
+                        expr=ast.Tuple(
+                            exprs=[
+                                ast.Call(name="uniq", args=[ast.Field(chain=[f"action_current_person_id_{n}"])]),
+                                ast.Call(name="uniq", args=[ast.Field(chain=[f"action_previous_person_id_{n}"])])
+                                if self.query_compare_to_date_range
+                                else ast.Constant(value=None),
+                            ]
+                        ),
+                    ),
+                )
+
+        with self.timings.measure("inner_select"):
+            inner_select = parse_select(
+                """
 SELECT
-    any(events.person_id) as person_id
+    any(events.person_id) as person_id,
+    min(session.$start_timestamp) as start_timestamp
 FROM events
 WHERE and(
     events.`$session_id` IS NOT NULL,
     event = '$pageview' OR {action_where},
-    timestamp >= {start},
-    timestamp < {end},
+    {periods_expression},
     {event_properties},
     {session_properties}
 )
 GROUP BY events.`$session_id`
         """,
-            placeholders={
-                "start": start,
-                "end": end,
-                "event_properties": self.event_properties(),
-                "session_properties": self.session_properties(),
-                "action_where": ast.Or(exprs=action_exprs),
-            },
-        )
-        assert isinstance(inner_select, ast.SelectQuery)
-        for alias in inner_aliases:
-            inner_select.select.append(alias)
+                placeholders={
+                    "periods_expression": self._periods_expression("timestamp"),
+                    "event_properties": self.event_properties(),
+                    "session_properties": self.session_properties(),
+                    "action_where": ast.Or(exprs=action_exprs),
+                },
+            )
+            assert isinstance(inner_select, ast.SelectQuery)
+            for alias in inner_aliases:
+                inner_select.select.append(alias)
 
-        outer_select = parse_select(
-            """
+        with self.timings.measure("outer_select"):
+            outer_select = parse_select(
+                """
 SELECT
-    uniq(person_id) as total_people
+    uniqIf(person_id, {current_period}) as current_total_people,
+    uniqIf(person_id, {previous_period}) as previous_total_people
 FROM {inner_select}
-    """,
-            placeholders={
-                "inner_select": inner_select,
-            },
-        )
-        assert isinstance(outer_select, ast.SelectQuery)
-        for alias in outer_aliases:
-            outer_select.select.append(alias)
+WHERE {periods_expression}
+                """,
+                placeholders={
+                    "inner_select": inner_select,
+                    "periods_expression": self._periods_expression("start_timestamp"),
+                    "current_period": self._current_period_expression("start_timestamp"),
+                    "previous_period": self._previous_period_expression("start_timestamp"),
+                },
+            )
+
+            assert isinstance(outer_select, ast.SelectQuery)
+            for alias in outer_aliases:
+                outer_select.select.append(alias)
 
         return outer_select
 
@@ -130,16 +201,27 @@ FROM {inner_select}
         assert response.results
 
         row = response.results[0]
-        num_visitors = row[0]
-        num_actions = (len(row) - 1) // 3
+        current_visitors = row[0]
+        previous_visitors = row[1]
 
         results = []
-        for i in range(num_actions):
-            action_name = row[(i * 3) + 1]
-            action_total = row[(i * 3) + 2]
-            action_unique = row[(i * 3) + 3]
-            action_rate = action_unique / num_visitors if num_visitors else None
-            results.append([action_name, action_unique, action_total, action_rate])
+        for action_name, action_total, action_unique in chunker(row[2:], 3):
+            action_unique_current, action_unique_previous = action_unique
+            current_action_rate = (
+                action_unique_current / current_visitors
+                if current_visitors > 0
+                else 0
+                if action_unique_current is not None
+                else None
+            )
+            previous_action_rate = (
+                action_unique_previous / previous_visitors
+                if previous_visitors > 0
+                else 0
+                if action_unique_previous is not None
+                else None
+            )
+            results.append([action_name, action_unique, action_total, (current_action_rate, previous_action_rate)])
 
         return WebGoalsQueryResponse(
             columns=[
@@ -153,19 +235,6 @@ FROM {inner_select}
             modifiers=self.modifiers,
         )
 
-    @cached_property
-    def query_date_range(self):
-        return QueryDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
-        )
-
-    def all_properties(self) -> ast.Expr:
-        properties = self.query.properties + self._test_account_filters
-        return property_to_expr(properties, team=self.team)
-
     def event_properties(self) -> ast.Expr:
         properties = [
             p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
@@ -177,28 +246,3 @@ FROM {inner_select}
             p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
         ]
         return property_to_expr(properties, team=self.team, scope="event")
-
-
-def to_data(
-    key: str,
-    kind: str,
-    value: Optional[float],
-    previous: Optional[float],
-    is_increase_bad: Optional[bool] = None,
-) -> dict:
-    if kind == "percentage":
-        if value is not None:
-            value = value * 100
-        if previous is not None:
-            previous = previous * 100
-
-    return {
-        "key": key,
-        "kind": kind,
-        "isIncreaseBad": is_increase_bad,
-        "value": value,
-        "previous": previous,
-        "changeFromPreviousPct": round(100 * (value - previous) / previous)
-        if value is not None and previous is not None and previous != 0
-        else None,
-    }
