@@ -38,6 +38,7 @@ strum = { version = "0.26", features = ["derive"] }
 health = { path = "../common/health" }
 common-metrics = { path = "../common/metrics" }
 tower = { workspace = true }
+tower-http = { workspace = true }
 derive_builder = "0.20.1"
 petgraph = "0.6.5"
 moka = { workspace = true }

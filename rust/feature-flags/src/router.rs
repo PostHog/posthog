@@ -1,12 +1,17 @@
 use std::{future::ready, sync::Arc};
 
 use axum::{
+    http::Method,
     routing::{get, post},
     Router,
 };
-use common_metrics::setup_metrics_recorder;
+use common_metrics::{setup_metrics_recorder, track_metrics};
 use health::HealthRegistry;
 use tower::limit::ConcurrencyLimitLayer;
+use tower_http::{
+    cors::{AllowHeaders, AllowOrigin, CorsLayer},
+    trace::TraceLayer,
+};
 
 use crate::{
     api::endpoint,
@@ -50,6 +55,14 @@ where
         team_ids_to_track: config.team_ids_to_track.clone(),
     };
 
+    // Very permissive CORS policy, as old SDK versions
+    // and reverse proxies might send funky headers.
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers(AllowHeaders::mirror_request())
+        .allow_credentials(true)
+        .allow_origin(AllowOrigin::mirror_request());
+
     let status_router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
@@ -58,10 +71,15 @@ where
     let flags_router = Router::new()
         .route("/flags", post(endpoint::flags).get(endpoint::flags))
         .route("/flags/", post(endpoint::flags).get(endpoint::flags))
-        .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
-        .with_state(state);
+        .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
 
-    let router = Router::new().merge(status_router).merge(flags_router);
+    let router = Router::new()
+        .merge(status_router)
+        .merge(flags_router)
+        .layer(TraceLayer::new_for_http())
+        .layer(cors)
+        .layer(axum::middleware::from_fn(track_metrics))
+        .with_state(state);
 
     // Don't install metrics unless asked to
     // Global metrics recorders can play poorly with e.g. tests
@@ -75,5 +93,5 @@ where
 }
 
 pub async fn index() -> &'static str {
-    "feature flags service"
+    "feature flags"
 }

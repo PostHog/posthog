@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use crate::{
     api::errors::FlagError,
     api::handler::{process_request, FlagsQueryParams, RequestContext},
-    api::types::FlagsResponse,
+    api::types::{FlagsOptionsResponse, FlagsResponse, FlagsResponseCode},
     router,
 };
 // TODO: stream this instead
@@ -51,6 +51,12 @@ pub async fn flags(
     };
 
     Ok(Json(process_request(context).await?))
+}
+
+pub async fn options() -> Result<Json<FlagsOptionsResponse>, FlagError> {
+    Ok(Json(FlagsOptionsResponse {
+        status: FlagsResponseCode::Ok,
+    }))
 }
 
 fn record_request_metadata(

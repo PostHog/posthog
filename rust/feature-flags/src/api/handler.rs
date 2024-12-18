@@ -225,17 +225,15 @@ fn process_group_property_overrides(
 fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagError> {
     let content_type = headers
         .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
 
     let content_encoding = headers
         .get("content-encoding")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
 
     let decoded_body = match content_encoding {
         "gzip" => decompress_gzip(body)?,
-        "" => body,
+        "unknown" => body,
         encoding => {
             return Err(FlagError::RequestDecodingError(format!(
                 "unsupported content encoding: {}",

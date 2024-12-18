@@ -309,6 +309,7 @@ impl FeatureFlagMatcher {
                 || flags_response.errors_while_computing_flags,
             feature_flags: flags_response.feature_flags,
             feature_flag_payloads: flags_response.feature_flag_payloads,
+            quota_limited: None,
         }
     }
 
@@ -580,6 +581,7 @@ impl FeatureFlagMatcher {
             errors_while_computing_flags,
             feature_flags: feature_flags_map,
             feature_flag_payloads: feature_flag_payloads_map,
+            quota_limited: None,
         }
     }
 
