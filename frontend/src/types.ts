@@ -4828,3 +4828,10 @@ export type ReplayTemplateVariableType = {
     filterGroup?: UniversalFiltersGroupValue
     noTouch?: boolean
 }
+
+/**
+ * Assistant Conversation
+ */
+export interface Conversation {
+    id: string
+}

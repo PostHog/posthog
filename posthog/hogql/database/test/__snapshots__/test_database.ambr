@@ -1717,6 +1717,16 @@
                   "table": null,
                   "type": "string"
               },
+              "endpoint": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "endpoint",
+                  "id": null,
+                  "name": "endpoint",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "query": {
                   "chain": null,
                   "fields": null,
@@ -1813,26 +1823,6 @@
                   "hogql_value": "status",
                   "id": null,
                   "name": "status",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "kind": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "kind",
-                  "id": null,
-                  "name": "kind",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "query_type": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "query_type",
-                  "id": null,
-                  "name": "query_type",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -3526,6 +3516,16 @@
                   "table": null,
                   "type": "string"
               },
+              "endpoint": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "endpoint",
+                  "id": null,
+                  "name": "endpoint",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "query": {
                   "chain": null,
                   "fields": null,
@@ -3622,26 +3622,6 @@
                   "hogql_value": "status",
                   "id": null,
                   "name": "status",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "kind": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "kind",
-                  "id": null,
-                  "name": "kind",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "query_type": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "query_type",
-                  "id": null,
-                  "name": "query_type",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"

@@ -157,7 +157,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
     #### Cohort replacements
     # replace cohort id lists in queries too
     query = re.sub(
-        r"in\(([^,]+\.?cohort_id), \[(\d+(, ?\d+)*)]\)",
+        r"in\(([^,]*cohort_id),\s*\[(\d+(?:,\s*\d+)*)]\)",
         r"in(\1, [1, 2, 3, 4, 5 /* ... */])",
         query,
     )
