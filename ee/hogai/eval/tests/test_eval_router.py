@@ -1,8 +1,10 @@
+from typing import cast
+
 from langgraph.graph.state import CompiledStateGraph
 
 from ee.hogai.assistant import AssistantGraph
 from ee.hogai.eval.utils import EvalBaseTest
-from ee.hogai.utils import AssistantNodeName
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.schema import HumanMessage, RouterMessage
 
 
@@ -15,8 +17,11 @@ class TestEvalRouter(EvalBaseTest):
             .compile()
         )
         messages = [HumanMessage(content=query)] if isinstance(query, str) else query
-        state = graph.invoke({"messages": messages})
-        return state["messages"][-1].content
+        state = graph.invoke(
+            AssistantState(messages=messages),
+            self._get_config(),
+        )
+        return cast(RouterMessage, AssistantState.model_validate(state).messages[-1]).content
 
     def test_outputs_basic_trends_insight(self):
         query = "Show the $pageview trend"
