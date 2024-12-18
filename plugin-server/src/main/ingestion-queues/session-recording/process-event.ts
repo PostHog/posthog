@@ -335,7 +335,7 @@ export const createSessionReplayEvent = (
         message_count: 1,
         snapshot_source: snapshot_source || 'web',
         // we can't default this one, since we now have multiple libraries in production
-        snapshot_library: snapshot_library || null,
+        snapshot_library: snapshot_library?.trim().length ? snapshot_library : null,
     }
 
     return { event: data }
