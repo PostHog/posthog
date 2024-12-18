@@ -1,6 +1,6 @@
 import './ErrorTracking.scss'
 
-import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect } from 'react'
@@ -80,23 +80,27 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         )
                     }
                 />
-                <LemonTabs
-                    activeKey={tab}
-                    tabs={[
-                        {
-                            key: IssueTab.Overview,
-                            label: 'Overview',
-                            content: <OverviewTab />,
-                        },
+                {issue ? (
+                    <LemonTabs
+                        activeKey={tab}
+                        tabs={[
+                            {
+                                key: IssueTab.Overview,
+                                label: 'Overview',
+                                content: <OverviewTab />,
+                            },
 
-                        {
-                            key: IssueTab.Events,
-                            label: 'Events',
-                            content: <EventsTab />,
-                        },
-                    ]}
-                    onChange={setTab}
-                />
+                            {
+                                key: IssueTab.Events,
+                                label: 'Events',
+                                content: <EventsTab />,
+                            },
+                        ]}
+                        onChange={setTab}
+                    />
+                ) : (
+                    <Spinner />
+                )}
             </>
         </AlphaAccessScenePrompt>
     )
