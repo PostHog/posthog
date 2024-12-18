@@ -283,7 +283,7 @@ class Team(UUIDClassicModel):
     live_events_columns: ArrayField = ArrayField(models.TextField(), null=True, blank=True)
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
     cookieless_server_hash_mode = models.SmallIntegerField(
-        default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices
+        default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
     )
 
     primary_dashboard = models.ForeignKey(

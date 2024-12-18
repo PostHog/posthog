@@ -465,7 +465,7 @@ export class DB {
     public redisSAddAndSCard(key: string, value: Redis.ValueType, ttlSeconds?: number): Promise<number> {
         return instrumentQuery('query.redisSAddAndSCard', undefined, async () => {
             const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('SADD delayed. Waiting over 30 sec to perform SADD', {
+            const timeout = timeoutGuard('SADD+SCARD delayed. Waiting over 30 sec to perform SADD+SCARD', {
                 key,
                 value,
             })

@@ -171,7 +171,7 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
                 ingested_event,
                 person_display_name_properties,
                 test_account_filters,
-                cookieless_server_hash_opt_in,
+                cookieless_server_hash_mode,
                 timezone
             FROM posthog_team
             WHERE id = $1
@@ -206,7 +206,7 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
                 heatmaps_opt_in,
                 ingested_event,
                 test_account_filters,
-                cookieless_server_hash_opt_in,
+                cookieless_server_hash_mode,
                 timezone
             FROM posthog_team
             WHERE api_token = $1

@@ -903,6 +903,18 @@ describe('DB', () => {
             expect(fetchedTeam).toEqual(null)
         })
     })
+
+    describe('redis', () => {
+        describe('buffer operations', () => {
+            // ensure that buffer writes and reads work as expected
+            it('writes and reads buffers', async () => {
+                const buffer = Buffer.from('test')
+                await db.redisSetBuffer('test', buffer, 'testTag', 60)
+                const result = await db.redisGetBuffer('test', 'testTag')
+                expect(result).toEqual(buffer)
+            })
+        })
+    })
 })
 
 describe('PostgresRouter()', () => {
