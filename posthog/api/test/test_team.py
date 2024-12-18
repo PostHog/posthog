@@ -27,6 +27,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
+from posthog.event_usage import groups
 
 
 def team_api_test_factory():
@@ -1197,6 +1198,49 @@ def team_api_test_factory():
             response = self.client.patch("/api/environments/@current/", {"session_recording_linked_flag": config})
             assert response.status_code == expected_status, response.json()
             return response
+
+        @patch("posthoganalytics.capture")
+        def test_access_control_toggle_capture(self, mock_capture):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            mock_capture.reset_mock()
+
+            response = self.client.patch(f"/api/environments/@current/", {"access_control": True})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            mock_capture.assert_called_with(
+                str(self.user.distinct_id),
+                "project access control toggled",
+                properties={
+                    "enabled": True,
+                    "project_id": str(self.team.id),
+                    "project_name": self.team.name,
+                    "organization_id": str(self.organization.id),
+                    "organization_name": self.organization.name,
+                    "user_role": OrganizationMembership.Level.ADMIN,
+                },
+                groups=groups(self.organization),
+            )
+
+            # Test toggling back to false
+            mock_capture.reset_mock()
+            response = self.client.patch(f"/api/environments/@current/", {"access_control": False})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            mock_capture.assert_called_with(
+                str(self.user.distinct_id),
+                "project access control toggled",
+                properties={
+                    "enabled": False,
+                    "project_id": str(self.team.id),
+                    "project_name": self.team.name,
+                    "organization_id": str(self.organization.id),
+                    "organization_name": self.organization.name,
+                    "user_role": OrganizationMembership.Level.ADMIN,
+                },
+                groups=groups(self.organization),
+            )
 
     return TestTeamAPI
 
