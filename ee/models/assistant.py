@@ -92,11 +92,27 @@ class ConversationCheckpointWrite(UUIDModel):
 
 
 class CoreMemory(UUIDModel):
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    class ScrapingStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        COMPLETED = "completed", "Completed"
+        SKIPPED = "skipped", "Skipped"
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="core_memories")
     text = models.TextField(default="", help_text="Dumped core memory where facts are separated by newlines.")
+    initial_text = models.TextField(default="", help_text="Scraped memory about the business.")
+    scraping_status = models.CharField(max_length=20, choices=ScrapingStatus.choices, blank=True, null=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["team_id", "user_id"], name="unique_core_memory"),
         ]
+
+    @property
+    def is_scraping_finished(self) -> bool:
+        return self.scraping_status in [CoreMemory.ScrapingStatus.COMPLETED, CoreMemory.ScrapingStatus.SKIPPED]
+
+    def set_core_memory(self, text: str):
+        self.text = text
+        self.initial_text = text
+        self.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
+        self.save()

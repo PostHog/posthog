@@ -41,6 +41,7 @@ class PartialAssistantState(_SharedAssistantState):
 class AssistantNodeName(StrEnum):
     START = START
     END = END
+    MEMORY_INITIALIZER = "memory_initializer"
     ROUTER = "router"
     TRENDS_PLANNER = "trends_planner"
     TRENDS_PLANNER_TOOLS = "trends_planner_tools"

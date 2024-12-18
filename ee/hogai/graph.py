@@ -11,6 +11,7 @@ from ee.hogai.funnels.nodes import (
     FunnelPlannerNode,
     FunnelPlannerToolsNode,
 )
+from ee.hogai.memory.nodes import MemoryInitializer
 from ee.hogai.router.nodes import RouterNode
 from ee.hogai.summarizer.nodes import SummarizerNode
 from ee.hogai.trends.nodes import (
@@ -48,9 +49,6 @@ class AssistantGraph:
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
         return self._graph.compile(checkpointer=checkpointer)
-
-    def add_start(self):
-        return self.add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
 
     def add_router(
         self,
@@ -171,9 +169,21 @@ class AssistantGraph:
         builder.add_edge(AssistantNodeName.SUMMARIZER, next_node)
         return self
 
+    def add_memory_initializer(self, next_node: AssistantNodeName = AssistantNodeName.ROUTER):
+        builder = self._graph
+        memory_initializer = MemoryInitializer(self._team)
+        builder.add_node(AssistantNodeName.MEMORY_INITIALIZER, memory_initializer.run)
+        builder.add_conditional_edges(
+            AssistantNodeName.START,
+            memory_initializer.should_run,
+            path_map={True: AssistantNodeName.MEMORY_INITIALIZER, False: next_node},
+        )
+        builder.add_edge(AssistantNodeName.MEMORY_INITIALIZER, next_node)
+        return self
+
     def compile_full_graph(self):
         return (
-            self.add_start()
+            self.add_memory_initializer()
             .add_router()
             .add_trends_planner()
             .add_trends_generator()
