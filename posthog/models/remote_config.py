@@ -371,7 +371,7 @@ class RemoteConfig(UUIDModel):
 
             # Update the redis cache key for the config
             cache.set(cache_key_for_team_token(self.team.api_token), config, timeout=CACHE_TIMEOUT)
-            # TODO: Invalidate caches - in particular this will be the Cloudflare CDN cache
+            # Invalidate Cloudflare CDN cache
             self._purge_cdn()
 
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="success").inc()
