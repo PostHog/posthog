@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from django.db.models import QuerySet
 from posthog.models import Feature, FeatureAlertConfiguration
 from posthog.api.alert import AlertSerializer
+from posthog.api.early_access_feature import EarlyAccessFeatureSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -41,13 +42,7 @@ class FeatureSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def get_primary_early_access_feature(self, feature: Feature):
-        from posthog.api.early_access_feature import EarlyAccessFeatureSerializer
-
         return EarlyAccessFeatureSerializer(feature.primary_early_access_feature, context=self.context).data
-
-    def get_alerts(self, feature: Feature):
-        alerts = FeatureAlertConfigurationSerializer(source="alerts", many=True, read_only=True)
-        return AlertSerializer(alerts, many=True).data
 
 
 class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
@@ -78,7 +73,8 @@ class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
     @action(detail=True, methods=["get"])
     def alerts(self, request, pk=None, **kwargs):
         """
-        Get all alerts associated with a specific feature.
+        Get all alerts associated with a specific feature. These alerts are used to track
+        success and failure metrics for the feature.
         """
         feature = self.get_object()
         alerts_for_feature = FeatureAlertConfiguration.objects.filter(feature=feature).all()
