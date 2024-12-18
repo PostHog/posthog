@@ -1,7 +1,6 @@
 import json
 import os
 from typing import Any, Optional
-from collections.abc import Callable
 from django.conf import settings
 from django.db import models
 from django.http import HttpRequest
