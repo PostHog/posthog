@@ -13,7 +13,7 @@ from posthog.tasks.demo_create_data import HedgeboxMatrix
 from posthog.test.base import BaseTest
 
 
-# Flaky is a handful tool, but it always runs setup fixtures for retries.
+# Flaky is a handy tool, but it always runs setup fixtures for retries.
 # This decorator will just retry without re-running setup.
 def retry_test_only(max_retries=3):
     def decorator(func):
