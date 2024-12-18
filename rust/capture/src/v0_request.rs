@@ -272,6 +272,14 @@ impl RawEvent {
             _ => Ok(distinct_id.chars().take(200).collect()),
         }
     }
+
+    pub fn extract_is_cookieless_mode(&self) -> Result<bool, CaptureError> {
+        match self.properties.get("$cklsh_mode") {
+            Some(Value::Bool(b)) => Ok(*b),
+            Some(_) => return Err(CaptureError::InvalidCklshMode),
+            None => Ok(false),
+        }
+    }
 }
 
 #[derive(Debug)]

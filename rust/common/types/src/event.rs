@@ -19,11 +19,17 @@ pub struct CapturedEvent {
     )]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
+    #[serde(skip_serializing)]
+    pub is_cookieless_mode: bool,
 }
 
 impl CapturedEvent {
     pub fn key(&self) -> String {
-        format!("{}:{}", self.token, self.distinct_id)
+        if self.is_cookieless_mode {
+            format!("{}:{}", self.token, self.ip)
+        } else {
+            format!("{}:{}", self.token, self.distinct_id)
+        }
     }
 }
 
