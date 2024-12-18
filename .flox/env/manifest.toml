@@ -60,7 +60,7 @@ if [[ -t 0 ]] && [ ! -d "$DIRENV_DIR" ] && [ ! -f "$FLOX_ENV_CACHE/.hush-direnv"
 👉 Use direnv (https://direnv.net) for automatic activation of this environment by your shell.
 ❓ Would you like direnv to be set up now? (y/n, default: y)" -n 1 -r
   if [[ $REPLY =~ ^[Yy]$ || -z $REPLY ]]; then
-    $FLOX_ENV_CACHE/../bin/direnv-setup.sh
+    $FLOX_ENV_CACHE/../env/direnv-setup.sh
   else
     echo "⏭️ Skipping direnv setup. This message will not be shown again, but if you change your mind, just run '.flox/bin/direnv-setup.sh'"
     touch $FLOX_ENV_CACHE/.hush-direnv
