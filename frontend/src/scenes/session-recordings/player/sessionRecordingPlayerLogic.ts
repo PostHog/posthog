@@ -849,27 +849,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // If next time is greater than last buffered time, set to buffering
             else if (segment?.kind === 'buffer') {
-                const isStillLoading = values.isRealtimePolling || values.snapshotsLoading
-                const isPastEnd = values.sessionPlayerData.end && timestamp > values.sessionPlayerData.end.valueOf()
-                const isAtStart =
-                    values.sessionPlayerData.start && timestamp <= values.sessionPlayerData.start.valueOf()
-                if (isStillLoading) {
+                const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
+                if (isPastEnd) {
+                    actions.setEndReached(true)
+                } else {
                     values.player?.replayer?.pause()
                     actions.startBuffer()
                     actions.clearPlayerError()
-                } else {
-                    if (isPastEnd) {
-                        actions.setEndReached(true)
-                    } else if (!isAtStart) {
-                        // If not currently loading anything,
-                        // not past the end of the recording,
-                        // and part of the recording hasn't loaded,
-                        // set error state
-                        values.player?.replayer?.pause()
-                        actions.endBuffer()
-                        console.error("Error: Player tried to seek to a position that hasn't loaded yet")
-                        actions.setPlayerError('buffer and not still loading')
-                    }
                 }
             }
 
