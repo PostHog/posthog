@@ -299,48 +299,6 @@ export function DeltaChart({
                                 delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
                             }
 
-                            // Find the highest delta among all variants
-                            const maxDelta = Math.max(
-                                ...variants.map((v) => {
-                                    if (metricType === InsightType.TRENDS) {
-                                        const controlVariant = result.variants.find(
-                                            (cv: TrendExperimentVariant) => cv.key === 'control'
-                                        ) as TrendExperimentVariant
-                                        const variantData = result.variants.find(
-                                            (vd: TrendExperimentVariant) => vd.key === v.key
-                                        ) as TrendExperimentVariant
-
-                                        if (
-                                            !variantData?.count ||
-                                            !variantData?.absolute_exposure ||
-                                            !controlVariant?.count ||
-                                            !controlVariant?.absolute_exposure
-                                        ) {
-                                            return 0
-                                        }
-
-                                        const controlMean = controlVariant.count / controlVariant.absolute_exposure
-                                        const variantMean = variantData.count / variantData.absolute_exposure
-                                        return (variantMean - controlMean) / controlMean
-                                    }
-
-                                    const vRate = conversionRateForVariant(result, v.key)
-                                    const cRate = conversionRateForVariant(result, 'control')
-                                    return vRate && cRate ? (vRate - cRate) / cRate : 0
-                                })
-                            )
-
-                            let barColor
-                            if (variant.key === 'control') {
-                                barColor = COLORS.BAR_DEFAULT
-                            } else if (delta < 0) {
-                                barColor = COLORS.BAR_NEGATIVE
-                            } else if (delta === maxDelta) {
-                                barColor = COLORS.BAR_BEST
-                            } else {
-                                barColor = COLORS.BAR_DEFAULT
-                            }
-
                             const y = BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * index
                             const x1 = valueToX(lower)
                             const x2 = valueToX(upper)
@@ -359,21 +317,70 @@ export function DeltaChart({
                                     }}
                                     onMouseLeave={() => setTooltipData(null)}
                                 >
-                                    {/* Invisible full-width rect to ensure consistent hover */}
-                                    <rect x={x1} y={y} width={x2 - x1} height={BAR_HEIGHT} fill="transparent" />
-                                    {/* Visible elements */}
-                                    <rect
-                                        x={x1}
-                                        y={y}
-                                        width={x2 - x1}
-                                        height={BAR_HEIGHT}
-                                        fill={variant.key === 'control' ? COLORS.BAR_CONTROL : barColor}
-                                        stroke={variant.key === 'control' ? COLORS.BOUNDARY_LINES : 'none'}
-                                        strokeWidth={1}
-                                        strokeDasharray={variant.key === 'control' ? '2,2' : 'none'}
-                                        rx={4}
-                                        ry={4}
-                                    />
+                                    {variant.key === 'control' ? (
+                                        // Control variant - single gray bar
+                                        <>
+                                            <rect x={x1} y={y} width={x2 - x1} height={BAR_HEIGHT} fill="transparent" />
+                                            <rect
+                                                x={x1}
+                                                y={y}
+                                                width={x2 - x1}
+                                                height={BAR_HEIGHT}
+                                                fill={COLORS.BAR_CONTROL}
+                                                stroke={COLORS.BOUNDARY_LINES}
+                                                strokeWidth={1}
+                                                strokeDasharray="2,2"
+                                                rx={4}
+                                                ry={4}
+                                            />
+                                        </>
+                                    ) : (
+                                        // Test variants - split into positive and negative sections if needed
+                                        <>
+                                            <rect x={x1} y={y} width={x2 - x1} height={BAR_HEIGHT} fill="transparent" />
+                                            {lower < 0 && upper > 0 ? (
+                                                // Bar spans across zero - need to split
+                                                <>
+                                                    <path
+                                                        d={`
+                                                            M ${x1 + 4} ${y}
+                                                            H ${valueToX(0)}
+                                                            V ${y + BAR_HEIGHT}
+                                                            H ${x1 + 4}
+                                                            Q ${x1} ${y + BAR_HEIGHT} ${x1} ${y + BAR_HEIGHT - 4}
+                                                            V ${y + 4}
+                                                            Q ${x1} ${y} ${x1 + 4} ${y}
+                                                        `}
+                                                        fill={COLORS.BAR_NEGATIVE}
+                                                    />
+                                                    <path
+                                                        d={`
+                                                            M ${valueToX(0)} ${y}
+                                                            H ${x2 - 4}
+                                                            Q ${x2} ${y} ${x2} ${y + 4}
+                                                            V ${y + BAR_HEIGHT - 4}
+                                                            Q ${x2} ${y + BAR_HEIGHT} ${x2 - 4} ${y + BAR_HEIGHT}
+                                                            H ${valueToX(0)}
+                                                            V ${y}
+                                                        `}
+                                                        fill={COLORS.BAR_BEST}
+                                                    />
+                                                </>
+                                            ) : (
+                                                // Bar is entirely positive or negative
+                                                <rect
+                                                    x={x1}
+                                                    y={y}
+                                                    width={x2 - x1}
+                                                    height={BAR_HEIGHT}
+                                                    fill={upper <= 0 ? COLORS.BAR_NEGATIVE : COLORS.BAR_BEST}
+                                                    rx={4}
+                                                    ry={4}
+                                                />
+                                            )}
+                                        </>
+                                    )}
+                                    {/* Delta marker */}
                                     <rect
                                         x={deltaX - CONVERSION_RATE_RECT_WIDTH / 2}
                                         y={y}
@@ -454,9 +461,8 @@ export function DeltaChart({
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ fontSize: '10px', fontWeight: 400 }}
                                 >
-                                    <span>Results not yet available</span>
                                     {error?.hasDiagnostics ? (
-                                        <LemonTag size="small" type="highlight" className="ml-2">
+                                        <LemonTag size="small" type="highlight" className="mr-2">
                                             <IconActivity className="mr-1" fontSize="1em" />
                                             <span className="font-semibold">
                                                 {(() => {
@@ -471,10 +477,11 @@ export function DeltaChart({
                                             /<span className="font-semibold">4</span>
                                         </LemonTag>
                                     ) : (
-                                        <LemonTag size="small" type="danger" className="ml-1">
+                                        <LemonTag size="small" type="danger" className="mr-1">
                                             Error
                                         </LemonTag>
                                     )}
+                                    <span>Results not yet available</span>
                                 </div>
                             )}
                         </foreignObject>
