@@ -349,7 +349,7 @@ class RemoteConfig(UUIDModel):
 
         return f"""{get_array_js_content()}\n\n{js_content}"""
 
-    def sync(self):
+    def sync(self, force: bool = False):
         """
         When called we sync to any configured CDNs as well as redis for the /decide endpoint
         """
@@ -359,7 +359,7 @@ class RemoteConfig(UUIDModel):
         try:
             config = self.build_config()
 
-            if config == self.config:
+            if not force and config == self.config:
                 CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="no_changes").inc()
                 logger.info(f"RemoteConfig for team {self.team_id} is unchanged")
                 return
