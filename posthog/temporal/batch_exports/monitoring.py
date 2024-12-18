@@ -3,7 +3,6 @@ import json
 from dataclasses import dataclass
 from uuid import UUID
 
-from slack_sdk.web import WebClient
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -38,11 +37,9 @@ class BatchExportMonitoringInputs:
 
     Attributes:
         batch_export_id: The batch export id to monitor.
-        slack_channel: The Slack channel to send alerts to.
     """
 
     batch_export_id: UUID
-    slack_channel: str | None = None
 
 
 @dataclass
@@ -175,29 +172,22 @@ class CheckForMissingBatchExportRunsInputs:
     overall_interval_start: str
     overall_interval_end: str
     interval: str
-    slack_channel: str | None = None
 
 
-def _send_slack_alert_for_missing_batch_export_runs(
-    channel: str, batch_export_id: UUID, missing_runs: list[tuple[dt.datetime, dt.datetime]]
+def _log_warning_for_missing_batch_export_runs(
+    batch_export_id: UUID, missing_runs: list[tuple[dt.datetime, dt.datetime]]
 ):
-    client = WebClient(token="TODO")
-
-    # Format message for Slack
-    message = f":warning: Found {len(missing_runs)} missing batch export runs for batch export {batch_export_id}:\n"
+    message = f"Batch Exports Monitoring: Found {len(missing_runs)} missing runs for batch export {batch_export_id}:\n"
     for start, end in missing_runs:
-        message += f"• Run {start.strftime('%Y-%m-%d %H:%M:%S')} to {end.strftime('%Y-%m-%d %H:%M:%S')} \n"
+        message += f"- Run {start.strftime('%Y-%m-%d %H:%M:%S')} to {end.strftime('%Y-%m-%d %H:%M:%S')} \n"
 
-    try:
-        client.chat_postMessage(channel=channel, text=message)
-    except Exception as e:
-        activity.logger.error(f"Failed to post to Slack: {str(e)}")
-        raise
+    activity.logger.warning(message)
 
 
 @activity.defn
 async def check_for_missing_batch_export_runs(inputs: CheckForMissingBatchExportRunsInputs) -> int:
-    """Check for missing batch export runs and alert to Slack if any are found.
+    """Check for missing batch export runs and log a warning if any are found.
+    (We can then alert based on these log entries)
 
     Returns:
         The number of missing batch export runs found.
@@ -231,19 +221,7 @@ async def check_for_missing_batch_export_runs(inputs: CheckForMissingBatchExport
                 missing_runs.append((start, end))
 
         if missing_runs:
-            activity.logger.info(
-                f"Found {len(missing_runs)} missing batch export runs for batch export {inputs.batch_export_id}"
-            )
-
-            if inputs.slack_channel is None:
-                activity.logger.warning("No Slack channel provided, skipping alert")
-                return len(missing_runs)
-
-            _send_slack_alert_for_missing_batch_export_runs(
-                channel=inputs.slack_channel,
-                batch_export_id=inputs.batch_export_id,
-                missing_runs=missing_runs,
-            )
+            _log_warning_for_missing_batch_export_runs(inputs.batch_export_id, missing_runs)
 
         return len(missing_runs)
 
@@ -254,8 +232,12 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
 
     We have had some issues with batch exports in the past, where some events
     have been missing. The purpose of this workflow is to monitor the status of
-    batch exports for a given customer by reconciling the number of exported
-    events with the number of events in ClickHouse for a given interval.
+    a given batch export by:
+    1. Checking for missing batch export runs (we've had an incident in the past
+        where Temporal has not scheduled a workflow for a particular time interval
+        for some reason).
+    2. Reconciling the number of exported events with the number of events in
+        ClickHouse for a given interval.
     """
 
     @staticmethod
@@ -266,8 +248,7 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: BatchExportMonitoringInputs):
-        """Workflow implementation to monitor batch exports for a given team."""
-        # TODO - check if this is the right way to do logging since there seems to be a few different ways
+        """Workflow implementation to monitor a given batch export."""
         workflow.logger.info(
             "Starting batch exports monitoring workflow for batch export id %s", inputs.batch_export_id
         )
@@ -312,7 +293,6 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
                 overall_interval_start=interval_start_str,
                 overall_interval_end=interval_end_str,
                 interval=batch_export_details.interval,
-                slack_channel=inputs.slack_channel,
             ),
             start_to_close_timeout=dt.timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=20)),
