@@ -199,7 +199,6 @@ async def test_monitoring_workflow(
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                # TODO - not sure if this is the right task queue
                 task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[BatchExportMonitoringWorkflow],
                 activities=[
