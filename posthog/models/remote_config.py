@@ -1,12 +1,12 @@
 import json
 import os
 from typing import Any, Optional
-from collections.abc import Callable
 from django.conf import settings
 from django.db import models
 from django.http import HttpRequest
 from django.utils import timezone
 from prometheus_client import Counter
+import requests
 from sentry_sdk import capture_exception
 import structlog
 
@@ -38,6 +38,12 @@ REMOTE_CONFIG_CACHE_COUNTER = Counter(
     labelnames=["result"],
 )
 
+REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
+    "posthog_remote_config_cdn_purge",
+    "Number of times the remote config CDN purge task has been run",
+    labelnames=["result"],
+)
+
 
 logger = structlog.get_logger(__name__)
 
@@ -62,8 +68,8 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     return joined
 
 
-def cache_key_for_team_token(team_token: str, suffix: str) -> str:
-    return f"remote_config/{team_token}/{suffix}"
+def cache_key_for_team_token(team_token: str) -> str:
+    return f"remote_config/{team_token}/config"
 
 
 def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] = None) -> dict:
@@ -284,10 +290,8 @@ class RemoteConfig(UUIDModel):
         return site_apps_js + site_functions_js
 
     @classmethod
-    def _get_via_cache(
-        cls, token: str, suffix: str, fn: Callable[["RemoteConfig"], dict | str], timeout: int = CACHE_TIMEOUT
-    ) -> Any:
-        key = cache_key_for_team_token(token, suffix)
+    def _get_config_via_cache(cls, token: str) -> dict:
+        key = cache_key_for_team_token(token)
 
         data = cache.get(key)
         if data == "404":
@@ -302,25 +306,25 @@ class RemoteConfig(UUIDModel):
         try:
             remote_config = cls.objects.select_related("team").get(team__api_token=token)
         except cls.DoesNotExist:
-            cache.set(key, "404", timeout=timeout)
+            cache.set(key, "404", timeout=CACHE_TIMEOUT)
             REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
             raise
 
-        data = fn(remote_config)
-        cache.set(key, data, timeout=timeout)
+        data = remote_config.build_config()
+        cache.set(key, data, timeout=CACHE_TIMEOUT)
 
         return data
 
     @classmethod
     def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
-        config = cls._get_via_cache(token, "config", lambda remote_config: remote_config.build_config())
+        config = cls._get_config_via_cache(token)
         config = sanitize_config_for_public_cdn(config, request=request)
 
         return config
 
     @classmethod
     def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
-        config = cls._get_via_cache(token, "config", lambda remote_config: remote_config.build_config())
+        config = cls._get_config_via_cache(token)
         # Get the site apps JS so we can render it in the JS
         site_apps_js = config.pop("siteAppsJS", None)
         # We don't want to include the minimal site apps content as we have the JS now
@@ -328,8 +332,11 @@ class RemoteConfig(UUIDModel):
         config = sanitize_config_for_public_cdn(config, request=request)
 
         js_content = f"""(function() {{
-  window._POSTHOG_CONFIG = {json.dumps(config)};
-  window._POSTHOG_JS_APPS = [{','.join(site_apps_js)}];
+  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {{}};
+  window._POSTHOG_REMOTE_CONFIG['{token}'] = {{
+    config: {json.dumps(config)},
+    siteApps: [{','.join(site_apps_js)}]
+  }}
 }})();
         """.strip()
 
@@ -342,7 +349,7 @@ class RemoteConfig(UUIDModel):
 
         return f"""{get_array_js_content()}\n\n{js_content}"""
 
-    def sync(self):
+    def sync(self, force: bool = False):
         """
         When called we sync to any configured CDNs as well as redis for the /decide endpoint
         """
@@ -351,13 +358,20 @@ class RemoteConfig(UUIDModel):
 
         try:
             config = self.build_config()
+
+            if not force and config == self.config:
+                CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="no_changes").inc()
+                logger.info(f"RemoteConfig for team {self.team_id} is unchanged")
+                return
+
             self.config = config
-
-            cache.set(cache_key_for_team_token(self.team.api_token, "config"), config, timeout=CACHE_TIMEOUT)
-
-            # TODO: Invalidate caches - in particular this will be the Cloudflare CDN cache
             self.synced_at = timezone.now()
             self.save()
+
+            # Update the redis cache key for the config
+            cache.set(cache_key_for_team_token(self.team.api_token), config, timeout=CACHE_TIMEOUT)
+            # Invalidate Cloudflare CDN cache
+            self._purge_cdn()
 
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="success").inc()
         except Exception as e:
@@ -365,6 +379,41 @@ class RemoteConfig(UUIDModel):
             logger.exception(f"Failed to sync RemoteConfig for team {self.team_id}", exception=str(e))
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="failure").inc()
             raise
+
+    def _purge_cdn(self):
+        if (
+            not settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT
+            or not settings.REMOTE_CONFIG_CDN_PURGE_TOKEN
+            or not settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS
+        ):
+            return
+
+        data: dict[str, Any] = {"files": []}
+
+        for domain in settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS:
+            # Check if the domain starts with https:// and if not add it
+            full_domain = domain if domain.startswith("https://") else f"https://{domain}"
+            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config"})
+            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config.js"})
+            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/array.js"})
+
+        logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
+
+        try:
+            res = requests.post(
+                settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
+                headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
+                json=data,
+            )
+
+            if res.status_code != 200:
+                raise Exception(f"Failed to purge CDN for team {self.team_id}: {res.status_code} {res.text}")
+
+        except Exception:
+            logger.exception(f"Failed to purge CDN for team {self.team_id}")
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
+        else:
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
 
     def __str__(self):
         return f"RemoteConfig {self.team_id}"

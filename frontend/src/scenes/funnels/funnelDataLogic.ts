@@ -171,6 +171,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (
                     // TODO: Ideally we don't check filters anymore, but tests are still using this
                     insightData?.filters?.insight !== InsightType.FUNNELS &&
+                    querySource &&
                     querySource?.kind !== NodeKind.FunnelsQuery
                 ) {
                     return []
@@ -278,6 +279,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (
                     // TODO: Ideally we don't check filters anymore, but tests are still using this
                     insightData?.filters?.insight !== InsightType.FUNNELS &&
+                    querySource &&
                     querySource?.kind !== NodeKind.FunnelsQuery
                 ) {
                     return false

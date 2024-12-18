@@ -4489,7 +4489,7 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
-    // AccessControl = 'access-control',
+    AccessControl = 'access-control',
 }
 
 export interface SourceFieldOauthConfig {
@@ -4840,4 +4840,11 @@ export type DataColorThemeModel = {
 export type DataColorThemeModelPayload = Omit<DataColorThemeModel, 'id' | 'is_global'> & {
     id?: number
     is_global?: boolean
+}
+
+/**
+ * Assistant Conversation
+ */
+export interface Conversation {
+    id: string
 }
