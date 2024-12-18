@@ -81,6 +81,9 @@ function applyIntervalToDateTime(base: HogDate | HogDateTime, interval: HogInter
         case 'minute':
             newDt = dt.plus({ minutes: effectiveValue })
             break
+        case 'second':
+            newDt = dt.plus({ seconds: effectiveValue })
+            break
         case 'month':
             newDt = dt.plus({ months: effectiveValue })
             break
@@ -222,8 +225,12 @@ function notFn([a]: any[]): boolean {
     return !a
 }
 
-function orFn([a, b]: any[]): boolean {
-    return Boolean(a) || Boolean(b)
+function andFn(args: any[]): boolean {
+    return args.every(Boolean)
+}
+
+function orFn(args: any[]): boolean {
+    return args.some(Boolean)
 }
 
 function ifFn([cond, thenVal, elseVal]: any[]): any {
@@ -1233,6 +1240,7 @@ export const STL: Record<string, STLFunction> = {
     multiIf: { fn: multiIfFn, minArgs: 3 },
     not: { fn: notFn, minArgs: 1, maxArgs: 1 },
     notEquals: { fn: notEqualsFn, minArgs: 2, maxArgs: 2 },
+    and: { fn: andFn, minArgs: 2, maxArgs: 2 },
     or: { fn: orFn, minArgs: 2, maxArgs: 2 },
     plus: { fn: plusFn, minArgs: 2, maxArgs: 2 },
     range: { fn: rangeFn, minArgs: 1, maxArgs: 2 },

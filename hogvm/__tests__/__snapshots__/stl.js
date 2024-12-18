@@ -74,6 +74,7 @@ function range(...args) {
 }
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function plus(a, b) { return a + b }
+function or(...args) { return args.some(Boolean) }
 function now () { return __now() }
 function notEquals(a, b) { return a !== b }
 function notEmpty (value) { return !empty(value) }
@@ -245,6 +246,7 @@ function assumeNotNull(value) {
     }
     return value;
 }
+function and(...args) { return args.every(Boolean) }
 function addDays(dateOrDt, days) {
     const interval = __toHogInterval(days, 'day');
     return __applyIntervalToDateTime(dateOrDt, interval);
@@ -339,6 +341,8 @@ function __applyIntervalToDateTime(base, interval) {
         hours += interval.value;
     } else if (unit === 'minute') {
         minutes += interval.value;
+    } else if (unit === 'second') {
+        seconds += interval.value;
     } else if (unit === 'month') {
         month += interval.value;
         // Adjust year and month
@@ -496,8 +500,8 @@ print(equals(1, 1), equals(1, 2), equals(1, "1"));
 print(notEquals(2, 3), (!true));
 print(greater(2, 1), greaterOrEquals(2, 2));
 print(less(1, 2), lessOrEquals(2, 2), less(-3, 2));
-print(!!(false || true), !!(0 || 0), !!(1 || 0), !!(1 || false), !!(0 || false));
-print(!!(false && true), !!(0 && 0), !!(1 && 0), !!(1 && false), !!(0 && false));
+print(!!(false || true), !!(0 || 0), !!(1 || 0), !!(1 || false), !!(0 || false), or(1), or("string"), or(100));
+print(!!(false && true), !!(0 && 0), !!(1 && 0), !!(1 && false), !!(0 && false), !!(1 && 1), and(1), and(true), and("string"), and(100));
 print("");
 print("-- logic --");
 print((true ? "yes" : "no"), (false ? "yes" : "no"));
@@ -512,6 +516,7 @@ print(range(3, 6));
 print("");
 print("-- string/array --");
 print(__x_in("a", tuple("a", "b", "c")), __x_in("z", tuple("a", "b", "c")));
+print(__x_in("a", ["a", "b", "c"]), __x_in("z", ["a", "b", "c"]));
 print(startsWith("hello", "he"), substring("abcdef", 2, 3));
 print(coalesce(null, null, "firstNonNull"), assumeNotNull("notNull"));
 print("");

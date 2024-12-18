@@ -24,7 +24,7 @@ from .date import (
     is_hog_date,
 )
 from .crypto import sha256Hex, md5Hex, sha256HmacChainHex
-from ..objects import is_hog_error, new_hog_error, is_hog_callable, is_hog_closure
+from ..objects import is_hog_error, new_hog_error, is_hog_callable, is_hog_closure, to_hog_interval
 from ..utils import like, get_nested_value
 
 if TYPE_CHECKING:
@@ -422,23 +422,8 @@ def _typeof(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]]
     return "unknown"
 
 
-def is_hog_interval(obj: Any) -> bool:
-    return isinstance(obj, dict) and obj.get("__hogInterval__") is True
-
-
-def to_hog_interval(value: int, unit: str):
-    return {
-        "__hogInterval__": True,
-        "value": value,
-        "unit": unit,
-    }
-
-
 def apply_interval_to_datetime(dt: dict, interval: dict) -> dict:
     # interval["unit"] in {"day", "hour", "minute", "month"}
-    # dt is hogDate or hogDateTime
-    # We'll assume dt is HogDateTime if __hogDateTime__ is True,
-    # HogDate if __hogDate__ is True, else error
     if not (is_hog_date(dt) or is_hog_datetime(dt)):
         raise ValueError("Expected a HogDate or HogDateTime")
 
@@ -458,6 +443,8 @@ def apply_interval_to_datetime(dt: dict, interval: dict) -> dict:
         base_dt = base_dt + datetime.timedelta(hours=value)
     elif unit == "minute":
         base_dt = base_dt + datetime.timedelta(minutes=value)
+    elif unit == "second":
+        base_dt = base_dt + datetime.timedelta(seconds=value)
     elif unit == "month":
         # Add months by incrementing month/year
         # Adding months can overflow year and month boundaries
@@ -481,9 +468,7 @@ def apply_interval_to_datetime(dt: dict, interval: dict) -> dict:
     else:
         raise ValueError(f"Unknown interval unit {unit}")
 
-    # Return same type
     if is_hog_date(dt):
-        # Return a HogDate
         return {
             "__hogDate__": True,
             "year": base_dt.year,
@@ -500,16 +485,12 @@ def apply_interval_to_datetime(dt: dict, interval: dict) -> dict:
 
 def date_add(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
     # dateAdd(unit, amount, datetime)
-    # We'll support the format: dateAdd(unit, amount, datetime)
     # unit: 'second','minute','hour','day','week','month','year'...
-    # We'll focus on day,hour,minute,month as requested. If others appear, handle them similarly.
     unit = args[0]
     amount = args[1]
     dt = args[2]
 
-    # create hog interval
-    # map unit synonyms if necessary
-    if unit in ["day", "hour", "minute", "month"]:
+    if unit in ["day", "hour", "minute", "second", "month"]:
         pass
     elif unit == "week":
         # dateAdd('week', x, ...) = dateAdd('day', x*7, ...)
@@ -642,24 +623,28 @@ def not_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]],
     return not bool(args[0])
 
 
+def and_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+    return all(args)
+
+
 def or_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
-    # or is binary
-    return bool(args[0]) or bool(args[1])
+    return any(args)
 
 
 def if_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
-    # if(condition, then, else)
     return args[1] if args[0] else args[2]
 
 
 def in_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
-    # in(value, array)
-    # array must be list or tuple
     return args[0] in args[1] if isinstance(args[1], list | tuple) else False
 
 
 def min2(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
     return args[0] if args[0] < args[1] else args[1]
+
+
+def max2(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+    return args[0] if args[0] > args[1] else args[1]
 
 
 def plus(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
@@ -672,9 +657,6 @@ def minus(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
 
 def multiIf(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
     # multiIf(cond1, val1, cond2, val2, ..., default)
-    # Conditions and values are in pairs, with a final default value at the end
-    # e.g. multiIf(c1, v1, c2, v2, vDefault)
-    # last arg is default
     default = args[-1]
     pairs = args[:-1]
     for i in range(0, len(pairs), 2):
@@ -732,13 +714,12 @@ def startsWith(args: list[Any], team: Optional["Team"], stdout: Optional[list[st
 
 def substring(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
     # substring(str, start, length)
-    # start is 1-based. If start or length are invalid, return ''
+    # start is 1-based.
     s = args[0]
     start = args[1]
     length = args[2]
     if not isinstance(s, str):
         return ""
-    # convert to 0-based
     start_idx = start - 1
     if start_idx < 0 or length < 0:
         return ""
@@ -747,7 +728,6 @@ def substring(args: list[Any], team: Optional["Team"], stdout: Optional[list[str
 
 
 def addDays(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
-    # addDays(date/datetime, days)
     interval = to_hog_interval(args[1], "day")
     return apply_interval_to_datetime(args[0], interval)
 
@@ -779,10 +759,8 @@ def toMonth_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[st
 def trunc_to_unit(dt: dict, unit: str, team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> dict:
     # helper for toStartOfDay, etc.
     if not is_hog_datetime(dt):
-        # Convert to datetime if date
         if is_hog_date(dt):
-            dt = toDateTime(dt["year"] * 10000 + dt["month"] * 100 + dt["day"])  # hack: from iso again?
-            # A better way: dt = toDateTime(f"{dt['year']:04d}-{dt['month']:02d}-{dt['day']:02d}")
+            dt = toDateTime(f"{dt['year']:04d}-{dt['month']:02d}-{dt['day']:02d}")
         else:
             raise ValueError("Expected a Date or DateTime")
 
@@ -1051,6 +1029,7 @@ STL: dict[str, STLFunction] = {
     "JSONExtractFloat": STLFunction(fn=JSONExtractFloat, minArgs=1),
     "JSONExtractInt": STLFunction(fn=JSONExtractInt, minArgs=1),
     "JSONExtractString": STLFunction(fn=JSONExtractString, minArgs=1),
+    "and": STLFunction(fn=and_fn, minArgs=2, maxArgs=2),
     "addDays": STLFunction(fn=addDays, minArgs=2, maxArgs=2),
     "assumeNotNull": STLFunction(fn=assumeNotNull, minArgs=1, maxArgs=1),
     "coalesce": STLFunction(fn=coalesce, minArgs=1, maxArgs=None),
@@ -1067,6 +1046,7 @@ STL: dict[str, STLFunction] = {
     "less": STLFunction(fn=less, minArgs=2, maxArgs=2),
     "lessOrEquals": STLFunction(fn=lessOrEquals, minArgs=2, maxArgs=2),
     "min2": STLFunction(fn=min2, minArgs=2, maxArgs=2),
+    "max2": STLFunction(fn=max2, minArgs=2, maxArgs=2),
     "minus": STLFunction(fn=minus, minArgs=2, maxArgs=2),
     "multiIf": STLFunction(fn=multiIf, minArgs=3),
     "not": STLFunction(fn=not_fn, minArgs=1, maxArgs=1),

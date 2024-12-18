@@ -911,6 +911,8 @@ function __setProperty(objectOrArray, key, value) {
         hours += interval.value;
     } else if (unit === 'minute') {
         minutes += interval.value;
+    } else if (unit === 'second') {
+        seconds += interval.value;
     } else if (unit === 'month') {
         month += interval.value;
         // Adjust year and month
@@ -1176,8 +1178,12 @@ function __setProperty(objectOrArray, key, value) {
         "function notEquals(a, b) { return a !== b }",
         [],
     ],
+    "and": [
+        "function and(...args) { return args.every(Boolean) }",
+        [],
+    ],
     "or": [
-        "function or(a, b) { return Boolean(a) || Boolean(b) }",
+        "function or(...args) { return args.some(Boolean) }",
         [],
     ],
     "plus": [
