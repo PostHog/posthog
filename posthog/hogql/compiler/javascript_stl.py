@@ -55,6 +55,14 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         "function ifNull (value, defaultValue) { return value !== null ? value : defaultValue } ",
         [],
     ],
+    "isNull": [
+        "function isNull (value) { return value === null || value === undefined }",
+        [],
+    ],
+    "isNotNull": [
+        "function isNotNull (value) { return value !== null && value !== undefined }",
+        [],
+    ],
     "length": [
         "function length (value) { return value.length }",
         [],

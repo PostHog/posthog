@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     -- often very useful in incidents or debugging
     -- because we batch events we expect message_count to be lower than event_count
     event_count SimpleAggregateFunction(sum, Int64),
-    -- which source the snapshots came from Android, iOS, Mobile, Web. Web if absent
+    -- which source the snapshots came from Mobile or Web. Web if absent
     snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
     -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
     snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),

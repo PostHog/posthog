@@ -21,16 +21,15 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 
+import posthog.session_recordings.queries.session_recording_list_from_query
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, safe_clickhouse_string
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
-from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
-from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -42,14 +41,7 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-from posthog.session_recordings.queries.session_recording_list_from_filters import (
-    ReplayFiltersEventsSubQuery,
-    SessionRecordingListFromFilters,
-)
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-from posthog.session_recordings.queries.session_recording_properties import (
-    SessionRecordingProperties,
-)
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
@@ -336,19 +328,15 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        use_query_type = (request.GET.get("as_query", "False")).lower() == "true"
-        if use_query_type:
-            data_dict = query_as_params_to_dict(request.GET.dict())
-            query = RecordingsQuery.model_validate(data_dict)
-            # a little duplication for now
-            self._maybe_report_recording_list_filters_changed(request, team=self.team)
-            return list_recordings_response(
-                list_recordings_from_query(query, request, context=self.get_serializer_context())
-            )
-        else:
-            filter = SessionRecordingsFilter(request=request, team=self.team)
-            self._maybe_report_recording_list_filters_changed(request, team=self.team)
-            return list_recordings_response(list_recordings(filter, request, context=self.get_serializer_context()))
+        data_dict = query_as_params_to_dict(request.GET.dict())
+        # we used to send `version` and it's not part of query, so we pop to make sure
+        data_dict.pop("version", None)
+        query = RecordingsQuery.model_validate(data_dict)
+
+        self._maybe_report_recording_list_filters_changed(request, team=self.team)
+        return list_recordings_response(
+            list_recordings_from_query(query, request, context=self.get_serializer_context())
+        )
 
     @extend_schema(
         exclude=True,
@@ -360,31 +348,32 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     )
     @action(methods=["GET"], detail=False)
     def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
-        filter = SessionRecordingsFilter(request=request, team=self.team)
+        data_dict = query_as_params_to_dict(request.GET.dict())
+        query = RecordingsQuery.model_validate(data_dict)
 
-        if not filter.session_ids or len(filter.session_ids) != 1:
+        if not query.session_ids or len(query.session_ids) != 1:
             raise exceptions.ValidationError(
                 "Must specify exactly one session_id",
             )
 
-        if not filter.events and not filter.actions:
+        if not query.events and not query.actions:
             raise exceptions.ValidationError(
                 "Must specify at least one event or action filter",
             )
 
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
-        matching_events_query_response = ReplayFiltersEventsSubQuery(
-            filter=filter, team=self.team, hogql_query_modifiers=modifiers
-        ).get_event_ids_for_session()
+        results, _, timings = (
+            posthog.session_recordings.queries.session_recording_list_from_query.ReplayFiltersEventsSubQuery(
+                query=query, team=self.team, hogql_query_modifiers=modifiers
+            ).get_event_ids_for_session()
+        )
 
-        response = JsonResponse(data={"results": matching_events_query_response.results})
+        response = JsonResponse(data={"results": results})
 
         response.headers["Server-Timing"] = ", ".join(
             f"{key};dur={round(duration, ndigits=2)}"
-            for key, duration in _generate_timings(
-                matching_events_query_response.timings, ServerTimingsGathered()
-            ).items()
+            for key, duration in _generate_timings(timings, ServerTimingsGathered()).items()
         )
         return response
 
@@ -642,32 +631,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         else:
             return "anonymous"
 
-    # Returns properties given a list of session recording ids
-    @extend_schema(exclude=True)
-    @action(methods=["GET"], detail=False)
-    def properties(self, request: request.Request, **kwargs):
-        filter = SessionRecordingsFilter(request=request, team=self.team)
-        session_ids = [
-            recording_id for recording_id in json.loads(self.request.GET.get("session_ids", "[]")) if recording_id
-        ]
-        for session_id in session_ids:
-            if not isinstance(session_id, str):
-                raise exceptions.ValidationError(f"Invalid session_id: {session_id} - not a string")
-        session_recordings_properties = SessionRecordingProperties(
-            team=self.team, filter=filter, session_ids=session_ids
-        ).run()
-
-        if not request.user.is_authenticated:  # for mypy
-            raise exceptions.NotAuthenticated()
-
-        session_recording_serializer = SessionRecordingPropertiesSerializer(
-            data=session_recordings_properties, many=True
-        )
-
-        session_recording_serializer.is_valid(raise_exception=True)
-
-        return Response({"results": session_recording_serializer.data})
-
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
     def summarize(self, request: request.Request, **kwargs):
@@ -917,106 +880,6 @@ def list_recordings_from_query(
     all_timings = _generate_timings(hogql_timings, timer)
     return (
         {"results": results, "has_next": more_recordings_available, "version": 4},
-        all_timings,
-    )
-
-
-def list_recordings(
-    filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any]
-) -> tuple[dict, dict]:
-    """
-    As we can store recordings in S3 or in Clickhouse we need to do a few things here
-
-    A. If filter.session_ids is specified:
-      1. We first try to load them directly from Postgres if they have been persisted to S3 (they might have fell out of CH)
-      2. Any that couldn't be found are then loaded from Clickhouse
-    B. Otherwise we just load all values from Clickhouse
-      2. Once loaded we convert them to SessionRecording objects in case we have any other persisted data
-    """
-
-    all_session_ids = filter.session_ids
-
-    recordings: list[SessionRecording] = []
-    more_recordings_available = False
-    team = context["get_team"]()
-    hogql_timings: list[QueryTiming] | None = None
-
-    timer = ServerTimingsGathered()
-
-    if all_session_ids:
-        with timer("load_persisted_recordings"):
-            # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
-            sorted_session_ids = sorted(all_session_ids)
-
-            persisted_recordings_queryset = SessionRecording.objects.filter(
-                team=team, session_id__in=sorted_session_ids
-            ).exclude(object_storage_path=None)
-
-            persisted_recordings = persisted_recordings_queryset.all()
-
-            recordings = recordings + list(persisted_recordings)
-
-            remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
-            filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
-
-    if (all_session_ids and filter.session_ids) or not all_session_ids:
-        distinct_id = str(cast(User, request.user).distinct_id)
-        modifiers = safely_read_modifiers_overrides(distinct_id, team)
-
-        with timer("load_recordings_from_hogql"):
-            (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
-                filter=filter, team=team, hogql_query_modifiers=modifiers
-            ).run()
-
-        with timer("build_recordings"):
-            recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
-            recordings = recordings + recordings_from_clickhouse
-
-            recordings = [x for x in recordings if not x.deleted]
-
-            # If we have specified session_ids we need to sort them by the order they were specified
-            if all_session_ids:
-                recordings = sorted(
-                    recordings,
-                    key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
-                )
-
-    if not request.user.is_authenticated:  # for mypy
-        raise exceptions.NotAuthenticated()
-
-    # Update the viewed status for all loaded recordings
-    with timer("load_viewed_recordings"):
-        viewed_session_recordings = set(
-            SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
-        )
-
-    with timer("load_persons"):
-        # Get the related persons for all the recordings
-        distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
-            "person"
-        )
-
-    with timer("process_persons"):
-        distinct_id_to_person = {}
-        for person_distinct_id in person_distinct_ids:
-            person_distinct_id.person._distinct_ids = [
-                person_distinct_id.distinct_id
-            ]  # Stop the person from loading all distinct ids
-            distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
-
-        for recording in recordings:
-            recording.viewed = recording.session_id in viewed_session_recordings
-            person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
-            if person:
-                recording.person = person
-
-    session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
-    results = session_recording_serializer.data
-
-    all_timings = _generate_timings(hogql_timings, timer)
-    return (
-        {"results": results, "has_next": more_recordings_available, "version": 3},
         all_timings,
     )
 

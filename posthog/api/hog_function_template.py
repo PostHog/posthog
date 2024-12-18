@@ -6,7 +6,12 @@ from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
-from posthog.cdp.templates.hog_function_template import HogFunctionMapping, HogFunctionTemplate, HogFunctionSubTemplate
+from posthog.cdp.templates.hog_function_template import (
+    HogFunctionMapping,
+    HogFunctionMappingTemplate,
+    HogFunctionTemplate,
+    HogFunctionSubTemplate,
+)
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 
@@ -18,14 +23,20 @@ class HogFunctionMappingSerializer(DataclassSerializer):
         dataclass = HogFunctionMapping
 
 
+class HogFunctionMappingTemplateSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = HogFunctionMappingTemplate
+
+
 class HogFunctionSubTemplateSerializer(DataclassSerializer):
     class Meta:
         dataclass = HogFunctionSubTemplate
 
 
 class HogFunctionTemplateSerializer(DataclassSerializer):
-    sub_templates = HogFunctionSubTemplateSerializer(many=True, required=False)
+    mapping_templates = HogFunctionMappingTemplateSerializer(many=True, required=False)
     mappings = HogFunctionMappingSerializer(many=True, required=False)
+    sub_templates = HogFunctionSubTemplateSerializer(many=True, required=False)
 
     class Meta:
         dataclass = HogFunctionTemplate

@@ -449,6 +449,8 @@ STL: dict[str, STLFunction] = {
     "toInt": STLFunction(fn=toInt, minArgs=1, maxArgs=1),
     "toFloat": STLFunction(fn=toFloat, minArgs=1, maxArgs=1),
     "ifNull": STLFunction(fn=ifNull, minArgs=2, maxArgs=2),
+    "isNull": STLFunction(fn=lambda args, team, stdout, timeout: args[0] is None, minArgs=1, maxArgs=1),
+    "isNotNull": STLFunction(fn=lambda args, team, stdout, timeout: args[0] is not None, minArgs=1, maxArgs=1),
     "length": STLFunction(fn=lambda args, team, stdout, timeout: len(args[0]), minArgs=1, maxArgs=1),
     "empty": STLFunction(fn=empty, minArgs=1, maxArgs=1),
     "notEmpty": STLFunction(
