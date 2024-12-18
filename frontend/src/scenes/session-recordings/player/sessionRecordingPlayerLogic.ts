@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { customEvent, EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
+import { EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -185,7 +185,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // the error is emitted from code we don't control in rrweb, so we can't guarantee it's really an Error
         playerErrorSeen: (error: any) => ({ error }),
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
-        reportMessageTooLargeWarningSeen: (sessionRecordingId: string) => ({ sessionRecordingId }),
         setDebugSnapshotTypes: (types: EventType[]) => ({ types }),
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
         setPlayNextAnimationInterrupted: (interrupted: boolean) => ({ interrupted }),
@@ -399,12 +398,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
             },
         ],
-        messageTooLargeWarningSeen: [
-            null as string | null,
-            {
-                reportMessageTooLargeWarningSeen: (_, { sessionRecordingId }) => sessionRecordingId,
-            },
-        ],
         debugSettings: [
             {
                 types: [EventType.FullSnapshot, EventType.IncrementalSnapshot],
@@ -540,13 +533,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
                     return null
                 }
-            },
-        ],
-
-        messageTooLargeWarnings: [
-            (s) => [s.customRRWebEvents],
-            (customRRWebEvents: customEvent[]) => {
-                return customRRWebEvents.filter((event) => event.data.tag === 'Message too large')
             },
         ],
 
@@ -1106,13 +1092,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 await document.exitFullscreen()
             }
         },
-
-        reportMessageTooLargeWarningSeen: async ({ sessionRecordingId }) => {
-            posthog.capture('message too large warning seen', { sessionRecordingId })
-        },
     })),
 
-    subscriptions(({ actions, values, props }) => ({
+    subscriptions(({ actions, values }) => ({
         sessionPlayerData: (next, prev) => {
             const hasSnapshotChanges = next?.snapshotsByWindowId !== prev?.snapshotsByWindowId
 
@@ -1131,15 +1113,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (rrwebPlayerTime !== undefined && values.currentPlayerState === SessionPlayerState.PLAY) {
                 actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
-            }
-        },
-        messageTooLargeWarnings: (next) => {
-            if (
-                values.messageTooLargeWarningSeen !== values.sessionRecordingId &&
-                next.length > 0 &&
-                props.mode !== SessionRecordingPlayerMode.Preview
-            ) {
-                actions.reportMessageTooLargeWarningSeen(values.sessionRecordingId)
             }
         },
         playerError: (next) => {
