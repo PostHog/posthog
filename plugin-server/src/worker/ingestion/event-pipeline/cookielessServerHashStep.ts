@@ -70,7 +70,6 @@ const SALT_TTL_SECONDS =
 const SESSION_TTL_SECONDS = 60 * 60 * 24
 const IDENTIFIES_TTL_SECONDS = 60 * 60 * 24
 const DELETE_EXPIRED_SALTS_INTERVAL_MS = 60 * 60 * 1000
-const FORCE_STATELESS_COOKIELESS_MODE = true // TODO env var
 
 export async function cookielessServerHashStep(
     runner: EventPipelineRunner,
@@ -127,7 +126,10 @@ export async function cookielessServerHashStep(
         return [undefined]
     }
 
-    if (team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless || FORCE_STATELESS_COOKIELESS_MODE) {
+    if (
+        team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless ||
+        process.env.FORCE_STATELESS_COOKIELESS_MODE
+    ) {
         if (event.event === '$identify' || event.distinct_id !== COOKIELESS_SENTINEL_VALUE) {
             // identifies and post-identify events are not valid in the stateless mode, drop the event
             return [undefined]
