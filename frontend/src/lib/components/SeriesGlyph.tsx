@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { alphabet, hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
+import { useEffect, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 interface SeriesGlyphProps {
     className?: string
-    children: React.ReactNode
+    children?: React.ReactNode
     style?: React.CSSProperties
     variant?: 'funnel-step-glyph' // Built-in styling defaults
 }
@@ -17,6 +18,37 @@ export function SeriesGlyph({ className, style, children, variant }: SeriesGlyph
         <div className={`graph-series-glyph ${variant || ''} ${className}`} style={style}>
             {children}
         </div>
+    )
+}
+
+type ColorGlyphProps = {
+    color?: string | null
+} & SeriesGlyphProps
+
+export function ColorGlyph({ color, ...rest }: ColorGlyphProps): JSX.Element {
+    const { isDarkModeOn } = useValues(themeLogic)
+
+    const [lastValidColor, setLastValidColor] = useState<string>('#000000')
+
+    useEffect(() => {
+        // allow only 6-digit hex colors
+        // other color formats are not supported everywhere e.g. insight visualizations
+        if (color != null && /^#[0-9A-Fa-f]{6}$/.test(color)) {
+            setLastValidColor(color)
+        }
+    }, [color])
+
+    return (
+        <SeriesGlyph
+            style={{
+                borderColor: lastValidColor,
+                color: lastValidColor,
+                backgroundColor: isDarkModeOn
+                    ? RGBToRGBA(lightenDarkenColor(lastValidColor, -20), 0.3)
+                    : hexToRGBA(lastValidColor, 0.2),
+            }}
+            {...rest}
+        />
     )
 }
 

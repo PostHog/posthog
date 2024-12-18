@@ -3,6 +3,7 @@ import { dayjs } from 'lib/dayjs'
 
 import {
     CohortType,
+    DataColorThemeModel,
     FilterLogicalOperator,
     GroupType,
     OrganizationInviteType,
@@ -276,3 +277,28 @@ export const MOCK_DEFAULT_PLUGIN_CONFIG: PluginConfigWithPluginInfo = {
     created_at: '2020-12-01T14:00:00.000Z',
     plugin_info: MOCK_DEFAULT_PLUGIN,
 }
+
+export const MOCK_DATA_COLOR_THEMES: DataColorThemeModel[] = [
+    {
+        id: 1,
+        name: 'Default Theme',
+        colors: [
+            '#1d4aff',
+            '#621da6',
+            '#42827e',
+            '#ce0e74',
+            '#f14f58',
+            '#7c440e',
+            '#529a0a',
+            '#0476fb',
+            '#fe729e',
+            '#35416b',
+            '#41cbc4',
+            '#b64b02',
+            '#e4a604',
+            '#a56eff',
+            '#30d5c8',
+        ],
+        is_global: true,
+    },
+]

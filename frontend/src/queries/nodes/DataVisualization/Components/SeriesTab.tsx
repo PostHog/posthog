@@ -13,11 +13,8 @@ import {
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
-import { SeriesGlyph } from 'lib/components/SeriesGlyph'
+import { ColorGlyph } from 'lib/components/SeriesGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ColorPickerButton } from './ColorPickerButton'
@@ -126,7 +123,6 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
     const { isSettingsOpen, canOpenSettings, activeSettingsTab } = useValues(seriesLogic)
     const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
-    const { isDarkModeOn } = useValues(themeLogic)
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
     const showSeriesColor = !showTableSettings && !selectedSeriesBreakdownColumn
 
@@ -135,20 +131,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
         value: name,
         label: (
             <div className="items-center flex flex-1">
-                {showSeriesColor && (
-                    <SeriesGlyph
-                        style={{
-                            borderColor: seriesColor,
-                            color: seriesColor,
-                            backgroundColor: isDarkModeOn
-                                ? RGBToRGBA(lightenDarkenColor(seriesColor, -20), 0.3)
-                                : hexToRGBA(seriesColor, 0.2),
-                        }}
-                        className="mr-2"
-                    >
-                        <></>
-                    </SeriesGlyph>
-                )}
+                {showSeriesColor && <ColorGlyph className="mr-2" color={seriesColor} />}
                 {series.settings?.display?.label && series.column.name === name ? series.settings.display.label : name}
                 <LemonTag className="ml-2" type="default">
                     {type.name}
@@ -399,24 +382,12 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
 }
 
 const BreakdownSeries = ({ series, index }: { series: AxisBreakdownSeries<number>; index: number }): JSX.Element => {
-    const { isDarkModeOn } = useValues(themeLogic)
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
 
     return (
         <div className="flex gap-1 mb-2">
             <div className="flex gap-2">
-                <SeriesGlyph
-                    style={{
-                        borderColor: seriesColor,
-                        color: seriesColor,
-                        backgroundColor: isDarkModeOn
-                            ? RGBToRGBA(lightenDarkenColor(seriesColor, -20), 0.3)
-                            : hexToRGBA(seriesColor, 0.2),
-                    }}
-                    className="mr-2"
-                >
-                    <></>
-                </SeriesGlyph>
+                <ColorGlyph color={seriesColor} className="mr-2" />
                 <span>{series.name ? series.name : '[No value]'}</span>
             </div>
             {/* For now let's keep things simple and not allow too much configuration */}

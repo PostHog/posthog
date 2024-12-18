@@ -32,6 +32,7 @@ import { ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
+import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 
 export function InsightVizDisplay({
     disableHeader,
@@ -55,13 +56,13 @@ export function InsightVizDisplay({
     context?: QueryContext
     embedded: boolean
     inSharedMode?: boolean
-}): JSX.Element {
+}): JSX.Element | null {
     const { insightProps, canEditInsight } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
     const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
-    const { isFunnelWithEnoughSteps, validationError } = useValues(insightVizDataLogic(insightProps))
+    const { isFunnelWithEnoughSteps, validationError, theme } = useValues(insightVizDataLogic(insightProps))
     const {
         isFunnels,
         isPaths,
@@ -218,6 +219,10 @@ export function InsightVizDisplay({
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
+    if (!theme) {
+        return null
+    }
+
     return (
         <>
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
@@ -265,12 +270,13 @@ export function InsightVizDisplay({
                                     </div>
                                 </>
                             ) : (
-                                renderActiveView()
+                                <>{renderActiveView()}</>
                             )}
                         </div>
                     </>
                 )}
             </div>
+            <ResultCustomizationsModal />
             {renderTable()}
             {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>

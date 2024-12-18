@@ -1,5 +1,5 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -8,12 +8,13 @@ import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
-import { DashboardMode, DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
@@ -22,6 +23,7 @@ interface DashboardProps {
     id?: string
     dashboard?: DashboardType<QueryBasedInsightModel>
     placement?: DashboardPlacement
+    themes?: DataColorThemeModel[]
 }
 
 export const scene: SceneExport = {
@@ -33,7 +35,9 @@ export const scene: SceneExport = {
     }),
 }
 
-export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement, themes }: DashboardProps = {}): JSX.Element {
+    useMountedLogic(dataThemeLogic({ themes }))
+
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseInt(id as string), placement, dashboard }}>
             <DashboardScene />

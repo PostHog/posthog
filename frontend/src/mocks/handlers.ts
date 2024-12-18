@@ -1,4 +1,5 @@
 import {
+    MOCK_DATA_COLOR_THEMES,
     MOCK_DEFAULT_COHORT,
     MOCK_DEFAULT_ORGANIZATION,
     MOCK_DEFAULT_ORGANIZATION_INVITE,
@@ -153,6 +154,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/hog_function_templates': _hogFunctionTemplates,
         '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
         '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/data_color_themes': MOCK_DATA_COLOR_THEMES,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),

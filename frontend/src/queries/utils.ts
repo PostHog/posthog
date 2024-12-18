@@ -33,6 +33,7 @@ import {
     PersonsNode,
     QuerySchema,
     QueryStatusResponse,
+    ResultCustomizationBy,
     RetentionQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
@@ -329,6 +330,13 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
 export const getYAxisScaleType = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.yAxisScaleType
+    }
+    return undefined
+}
+
+export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.resultCustomizationBy
     }
     return undefined
 }

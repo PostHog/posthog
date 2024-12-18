@@ -199,13 +199,7 @@ class TeamPublicSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Team
-        fields = (
-            "id",
-            "project_id",
-            "uuid",
-            "name",
-            "timezone",
-        )
+        fields = ("id", "project_id", "uuid", "name", "timezone", "default_data_theme")
         read_only_fields = fields
 
 
