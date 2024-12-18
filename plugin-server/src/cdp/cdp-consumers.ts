@@ -7,6 +7,7 @@ import { buildIntegerMatcher } from '../config/config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_FUNCTION_CALLBACKS,
+    KAFKA_CDP_INTERNAL_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_LOG_ENTRIES,
@@ -605,6 +606,73 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
         await this.startKafkaConsumer({
             topic: KAFKA_EVENTS_JSON,
             groupId: 'cdp-processed-events-consumer',
+            handleBatch: (messages) => this._handleKafkaBatch(messages),
+        })
+
+        const shardDepthLimit = this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000
+
+        this.cyclotronManager = this.hub.CYCLOTRON_DATABASE_URL
+            ? new CyclotronManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }], shardDepthLimit })
+            : undefined
+
+        await this.cyclotronManager?.connect()
+    }
+}
+
+/**
+ * This consumer handles incoming events from the main clickhouse topic
+ * Currently it produces to both kafka and Cyclotron based on the team
+ */
+export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
+    protected name = 'CdpInternalEventsConsumer'
+
+    // This consumer always parses from kafka
+    public async _handleKafkaBatch(messages: Message[]): Promise<void> {
+        const invocationGlobals = await this.runWithHeartbeat(() =>
+            runInstrumentedFunction({
+                statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
+                func: async () => {
+                    const events: HogFunctionInvocationGlobals[] = []
+                    await Promise.all(
+                        messages.map(async (message) => {
+                            try {
+                                const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+
+                                if (!this.hogFunctionManager.teamHasHogDestinations(clickHouseEvent.team_id)) {
+                                    // No need to continue if the team doesn't have any functions
+                                    return
+                                }
+
+                                const team = await this.hub.teamManager.fetchTeam(clickHouseEvent.team_id)
+                                if (!team) {
+                                    return
+                                }
+                                events.push(
+                                    convertToHogFunctionInvocationGlobals(
+                                        clickHouseEvent,
+                                        team,
+                                        this.hub.SITE_URL ?? 'http://localhost:8000'
+                                    )
+                                )
+                            } catch (e) {
+                                status.error('Error parsing message', e)
+                            }
+                        })
+                    )
+
+                    return events
+                },
+            })
+        )
+
+        await this.processBatch(invocationGlobals)
+    }
+
+    public async start(): Promise<void> {
+        await super.start()
+        await this.startKafkaConsumer({
+            topic: KAFKA_CDP_INTERNAL_EVENTS,
+            groupId: 'cdp-internal-events-consumer',
             handleBatch: (messages) => this._handleKafkaBatch(messages),
         })
 
