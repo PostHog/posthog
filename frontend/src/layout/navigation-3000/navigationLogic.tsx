@@ -426,6 +426,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         label: 'Max AI',
                         icon: <IconSparkles />,
                         to: urls.max(),
+                        tag: 'beta' as const,
                     })
                 }
 
