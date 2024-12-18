@@ -904,11 +904,10 @@ def capture_internal(
     # Setting the partition key to None means using random partitioning.
     candidate_partition_key = f"{token}:{distinct_id}"
     if event.get("properties", {}).get(COOKIELESS_MODE_FLAG_PROPERTY):
-        # This sentinel value will later on be replaced by the actual cookieless server hash, which contains the ip
-        # address, so sending the same ip address to the same partition should mean that every event with the same hash
-        # will end up in the same partition.
-        kafka_partition_key = f"{token}:{ip}"
-    elif (
+        # In cookieless mode, the distinct id is meaningless, so we can't use it as the partition key.
+        # Instead, use the IP address as the partition key.
+        candidate_partition_key = f"{token}:{ip}"
+    if (
         not historical
         and settings.CAPTURE_ALLOW_RANDOM_PARTITIONING
         and (distinct_id.lower() in LIKELY_ANONYMOUS_IDS or is_randomly_partitioned(candidate_partition_key))
