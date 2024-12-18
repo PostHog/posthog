@@ -4,7 +4,7 @@ if ! command -v direnv &> /dev/null; then
     # Install direnv based on platform
     if command -v brew &> /dev/null; then
         echo "🔄 Installing direnv using 'brew install direnv'..."
-        brew install -q direnv
+        HOMEBREW_NO_ENV_HINTS=1 brew install -q direnv
     elif command -v apt &> /dev/null; then
         echo "🔄 Installing direnv using 'apt install direnv'..."
         sudo apt update && sudo apt install -yq direnv
@@ -48,7 +48,7 @@ esac
 
 # Add hook to shell config if not already present
 if ! grep -q "warn_timeout" "$HOME/.config/direnv/direnv.toml" 2>/dev/null; then
-    echo -e "\n[global]\nwarn_timeout = 0 # Ignore timeout from this issue: https://github.com/direnv/direnv/issues/1065 - added by PostHog's Flox activation hook (../posthog/.flox/env/manifest.toml)" >> "$config_file"
+    echo "[global]\nwarn_timeout = 0 # Ignore timeout from this issue: https://github.com/direnv/direnv/issues/1065 - added by PostHog's Flox activation hook (../posthog/.flox/env/manifest.toml)" >> "$HOME/.config/direnv/direnv.toml"
     echo "✅ Configured ~/.config/direnv/direnv.toml"
 else
     echo "⏩ ~/.config/direnv/direnv.toml already configured"
