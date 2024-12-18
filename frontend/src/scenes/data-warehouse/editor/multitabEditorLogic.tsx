@@ -48,7 +48,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     connect({
         actions: [
             dataWarehouseViewsLogic,
-            ['deleteDataWarehouseSavedQuerySuccess', 'createDataWarehouseSavedQuerySuccess'],
+            [
+                'loadDataWarehouseSavedQueriesSuccess',
+                'deleteDataWarehouseSavedQuerySuccess',
+                'createDataWarehouseSavedQuerySuccess',
+                'runDataWarehouseSavedQuery',
+            ],
         ],
     }),
     actions({
@@ -66,13 +71,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         initialize: true,
         saveAsView: true,
         saveAsViewSubmit: (name: string) => ({ name }),
-        setMetadata: (query: string, metadata: HogQLMetadataResponse) => ({ query, metadata }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
         setCacheLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
         setIsValidView: (isValidView: boolean) => ({ isValidView }),
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({ sourceQuery }),
+        setMetadata: (metadata: HogQLMetadataResponse) => ({ metadata }),
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
@@ -80,7 +85,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.initialize()
         }
     }),
-    reducers({
+    reducers(({ props }) => ({
         cacheLoading: [
             true,
             {
@@ -149,7 +154,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 setIsValidView: (_, { isValidView }) => isValidView,
             },
         ],
-    }),
+        metadata: [
+            null as HogQLMetadataResponse | null,
+            {
+                setMetadata: (_, { metadata }) => metadata,
+            },
+        ],
+        editorKey: [props.key],
+    })),
     listeners(({ values, props, actions, asyncActions }) => ({
         editView: ({ query, view }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
@@ -388,6 +400,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             router.actions.push(urls.insightView(insight.short_id))
         },
+        loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
+            // keep tab views up to date
+            const newTabs = values.allTabs.map((tab) => ({
+                ...tab,
+                view: dataWarehouseSavedQueries.find((v) => v.id === tab.view?.id),
+            }))
+            actions.setTabs(newTabs)
+            actions.updateState()
+        },
         deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
             const tabToRemove = values.allTabs.find((tab) => tab.view?.id === viewId)
             if (tabToRemove) {
@@ -412,7 +433,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             lemonToast.success('View updated')
         },
     })),
-    subscriptions(({ props, actions }) => ({
+    subscriptions(({ props, actions, values }) => ({
         activeModelUri: (activeModelUri) => {
             if (props.monaco) {
                 const _model = props.monaco.editor.getModel(activeModelUri.uri)
@@ -420,6 +441,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.setQueryInput(val ?? '')
                 actions.runQuery(undefined, true)
             }
+        },
+        allTabs: () => {
+            // keep selected tab up to date
+            const activeTab = values.allTabs.find((tab) => tab.uri.path === values.activeModelUri?.uri.path)
+            activeTab && actions.selectTab(activeTab)
         },
     })),
     selectors({
@@ -433,6 +459,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     ...queryExportContext(sourceQuery.source, undefined, undefined),
                     filename,
                 } as ExportContext
+            },
+        ],
+        isEditingMaterializedView: [
+            (s) => [s.editingView],
+            (editingView) => {
+                return !!editingView?.status
             },
         ],
     }),

@@ -36,7 +36,8 @@ export function QueryWindow(): JSX.Element {
     })
 
     const { allTabs, activeModelUri, queryInput, editingView, sourceQuery } = useValues(logic)
-    const { selectTab, deleteTab, createTab, setQueryInput, runQuery, setError, setIsValidView } = useActions(logic)
+    const { selectTab, deleteTab, createTab, setQueryInput, runQuery, setError, setIsValidView, setMetadata } =
+        useActions(logic)
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
@@ -51,7 +52,9 @@ export function QueryWindow(): JSX.Element {
             </div>
             {editingView && (
                 <div className="h-7 bg-warning-highlight p-1">
-                    <span> Editing view "{editingView.name}"</span>
+                    <span>
+                        Editing {editingView.status ? 'materialized view' : 'view'} "{editingView.name}"
+                    </span>
                 </div>
             )}
             <QueryPane
@@ -76,6 +79,9 @@ export function QueryWindow(): JSX.Element {
                     onError: (error, isValidView) => {
                         setError(error)
                         setIsValidView(isValidView)
+                    },
+                    onMetadata: (metadata) => {
+                        setMetadata(metadata)
                     },
                 }}
             />

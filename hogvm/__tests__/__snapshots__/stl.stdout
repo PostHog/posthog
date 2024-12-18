@@ -57,3 +57,11 @@ heLlo world
 
 -- generateUUIDv4 --
 36
+
+-- isNull, isNotNull --
+true false
+false true
+false true
+false true
+false true
+false true
