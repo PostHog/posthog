@@ -361,6 +361,7 @@ class RemoteConfig(UUIDModel):
             config = self.build_config()
 
             if config == self.config:
+                CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="no_changes").inc()
                 logger.info(f"RemoteConfig for team {self.team_id} is unchanged")
                 return
 
