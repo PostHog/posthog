@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 import logging
 import random
 import time
-from typing import Literal
 import uuid
 import json
 
@@ -77,7 +76,7 @@ def get_default_trend_experiment_config() -> ExperimentConfig:
     )
 
 
-def get_default_config(type: Literal["funnel", "trend"]) -> ExperimentConfig:
+def get_default_config(type) -> ExperimentConfig:
     match type:
         case "funnel":
             return get_default_funnel_experiment_config()
