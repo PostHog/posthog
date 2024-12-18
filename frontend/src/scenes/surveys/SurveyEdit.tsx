@@ -26,7 +26,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { formatDate } from 'lib/utils'
@@ -100,6 +100,27 @@ export default function SurveyEdit(): JSX.Element {
         ? undefined
         : 'Upgrade your plan to use an adaptive limit on survey responses'
 
+    const surveyLimitOptions: LemonRadioOption<'until_stopped' | 'until_limit' | 'until_adaptive_limit'>[] = [
+        {
+            value: 'until_stopped',
+            label: 'Keep collecting responses until the survey is stopped',
+            'data-attr': 'survey-collection-until-stopped',
+        },
+        {
+            value: 'until_limit',
+            label: 'Stop displaying the survey after reaching a certain number of completed surveys',
+            'data-attr': 'survey-collection-until-limit',
+        },
+    ]
+
+    if (featureFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_LIMITS]) {
+        surveyLimitOptions.push({
+            value: 'until_adaptive_limit',
+            label: 'Collect a certain number of surveys per day, week or month',
+            'data-attr': 'survey-collection-until-adaptive-limit',
+            disabledReason: surveysAdaptiveLimitsDisabledReason,
+        } as unknown as LemonRadioOption<'until_stopped' | 'until_limit' | 'until_adaptive_limit'>)
+    }
     useMemo(() => {
         if (surveyUsesLimit) {
             setDataCollectionType('until_limit')
@@ -668,7 +689,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                         }
                                                                     }}
                                                                 />
-                                                                Don't show to users who saw a survey within the last
+                                                                Don't show to users who saw any survey in the last
                                                                 <LemonInput
                                                                     type="number"
                                                                     size="xsmall"
@@ -698,7 +719,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     </>
                                                 )}
                                             </LemonField>
-                                            <LemonField.Pure label="User properties">
+                                            <LemonField.Pure label="Properties">
                                                 <BindLogic
                                                     logic={featureFlagLogic}
                                                     props={{ id: survey.targeting_flag?.id || 'new' }}
@@ -722,7 +743,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 setSurveyValue('remove_targeting_flag', false)
                                                             }}
                                                         >
-                                                            Add user targeting
+                                                            Add property targeting
                                                         </LemonButton>
                                                     )}
                                                     {targetingFlagFilters && (
@@ -751,7 +772,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                     setSurveyValue('remove_targeting_flag', true)
                                                                 }}
                                                             >
-                                                                Remove all user properties
+                                                                Remove all property targeting
                                                             </LemonButton>
                                                         </>
                                                     )}
@@ -912,24 +933,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     }
                                                     setDataCollectionType(newValue)
                                                 }}
-                                                options={[
-                                                    {
-                                                        value: 'until_stopped',
-                                                        label: 'Keep collecting responses until the survey is stopped',
-                                                        'data-attr': 'survey-collection-until-stopped',
-                                                    },
-                                                    {
-                                                        value: 'until_limit',
-                                                        label: 'Stop displaying the survey after reaching a certain number of completed surveys',
-                                                        'data-attr': 'survey-collection-until-limit',
-                                                    },
-                                                    {
-                                                        value: 'until_adaptive_limit',
-                                                        label: 'Collect a certain number of surveys per day, week or month',
-                                                        'data-attr': 'survey-collection-until-adaptive-limit',
-                                                        disabledReason: surveysAdaptiveLimitsDisabledReason,
-                                                    },
-                                                ]}
+                                                options={surveyLimitOptions}
                                             />
                                         </LemonField.Pure>
                                     </div>

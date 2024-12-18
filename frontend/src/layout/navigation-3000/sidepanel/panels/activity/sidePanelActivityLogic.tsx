@@ -174,7 +174,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         ],
     })),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         setActiveTab: ({ tab }) => {
             if (tab === SidePanelActivityTab.All && !values.allActivityResponseLoading) {
                 actions.loadAllActivity()
@@ -189,6 +189,13 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         openSidePanel: ({ options }) => {
             if (options) {
                 actions.setActiveTab(options as SidePanelActivityTab)
+            }
+        },
+        togglePolling: ({ pageIsVisible }) => {
+            if (pageIsVisible) {
+                actions.loadImportantChanges()
+            } else {
+                clearTimeout(cache.pollTimeout)
             }
         },
     })),

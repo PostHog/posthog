@@ -5,7 +5,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from ee.hogai.assistant import AssistantGraph
 from ee.hogai.eval.utils import EvalBaseTest
-from ee.hogai.utils import AssistantNodeName
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.schema import HumanMessage
 
 
@@ -40,8 +40,11 @@ class TestEvalTrendsPlanner(EvalBaseTest):
             .add_trends_planner(AssistantNodeName.END)
             .compile()
         )
-        state = graph.invoke({"messages": [HumanMessage(content=query)]})
-        return state["plan"]
+        state = graph.invoke(
+            AssistantState(messages=[HumanMessage(content=query)]),
+            self._get_config(),
+        )
+        return AssistantState.model_validate(state).plan or ""
 
     def test_no_excessive_property_filters(self):
         query = "Show the $pageview trend"
