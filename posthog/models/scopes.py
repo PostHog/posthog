@@ -25,8 +25,8 @@ APIScopeObject = Literal[
     "event_definition",
     "experiment",
     "export",
-    "feature_flag",
     "feature",
+    "feature_flag",
     "group",
     "insight",
     "query",  # Covers query and events endpoints
