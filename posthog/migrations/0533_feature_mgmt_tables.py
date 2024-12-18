@@ -47,7 +47,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="FeatureAlertConfiguration",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
                 (
                     "team",
                     models.ForeignKey(on_delete=models.deletion.CASCADE, to="posthog.Team"),
