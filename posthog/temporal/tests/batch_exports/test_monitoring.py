@@ -12,6 +12,7 @@ from posthog.batch_exports.models import BatchExportRun
 from posthog.temporal.batch_exports.monitoring import (
     BatchExportMonitoringInputs,
     BatchExportMonitoringWorkflow,
+    check_for_missing_batch_export_runs,
     get_batch_export,
     get_event_counts,
     update_batch_export_runs,
@@ -118,6 +119,7 @@ async def test_monitoring_workflow_when_no_event_data(batch_export):
             activities=[
                 get_batch_export,
                 get_event_counts,
+                check_for_missing_batch_export_runs,
                 update_batch_export_runs,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
@@ -177,6 +179,7 @@ async def test_monitoring_workflow(
             activities=[
                 get_batch_export,
                 get_event_counts,
+                check_for_missing_batch_export_runs,
                 update_batch_export_runs,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),

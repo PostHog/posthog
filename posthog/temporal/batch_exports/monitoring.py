@@ -3,11 +3,15 @@ import json
 from dataclasses import dataclass
 from uuid import UUID
 
+from slack_sdk.web import WebClient
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExport
-from posthog.batch_exports.service import aupdate_records_total_count
+from posthog.batch_exports.service import (
+    afetch_batch_export_runs_in_range,
+    aupdate_records_total_count,
+)
 from posthog.batch_exports.sql import EVENT_COUNT_BY_INTERVAL
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -34,9 +38,11 @@ class BatchExportMonitoringInputs:
 
     Attributes:
         batch_export_id: The batch export id to monitor.
+        slack_channel: The Slack channel to send alerts to.
     """
 
     batch_export_id: UUID
+    slack_channel: str | None = None
 
 
 @dataclass
@@ -161,6 +167,87 @@ async def update_batch_export_runs(inputs: UpdateBatchExportRunsInputs) -> int:
     return total_rows_updated
 
 
+@dataclass
+class CheckForMissingBatchExportRunsInputs:
+    """Inputs for checking missing batch export runs"""
+
+    batch_export_id: UUID
+    overall_interval_start: str
+    overall_interval_end: str
+    interval: str
+    slack_channel: str | None = None
+
+
+def _send_slack_alert_for_missing_batch_export_runs(
+    channel: str, batch_export_id: UUID, missing_runs: list[tuple[dt.datetime, dt.datetime]]
+):
+    client = WebClient(token="TODO")
+
+    # Format message for Slack
+    message = f":warning: Found {len(missing_runs)} missing batch export runs for batch export {batch_export_id}:\n"
+    for start, end in missing_runs:
+        message += f"• Run {start.strftime('%Y-%m-%d %H:%M:%S')} to {end.strftime('%Y-%m-%d %H:%M:%S')} \n"
+
+    try:
+        client.chat_postMessage(channel=channel, text=message)
+    except Exception as e:
+        activity.logger.error(f"Failed to post to Slack: {str(e)}")
+        raise
+
+
+@activity.defn
+async def check_for_missing_batch_export_runs(inputs: CheckForMissingBatchExportRunsInputs) -> int:
+    """Check for missing batch export runs and alert to Slack if any are found.
+
+    Returns:
+        The number of missing batch export runs found.
+    """
+    async with Heartbeater():
+        interval_start = dt.datetime.strptime(inputs.overall_interval_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC)
+        interval_end = dt.datetime.strptime(inputs.overall_interval_end, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC)
+        # Get all runs in the interval
+        runs = await afetch_batch_export_runs_in_range(
+            batch_export_id=inputs.batch_export_id,
+            interval_start=interval_start,
+            interval_end=interval_end,
+        )
+
+        # for simplicity, we assume that the interval is 5 minutes, as this is the only interval supported for monitoring at this time
+        if inputs.interval != "every 5 minutes":
+            raise NoValidBatchExportsFoundError(
+                "Only intervals of 'every 5 minutes' are supported for monitoring at this time."
+            )
+        expected_run_intervals: list[tuple[dt.datetime, dt.datetime]] = []
+        current_run_start_interval = interval_start
+        while current_run_start_interval < interval_end:
+            expected_run_intervals.append(
+                (current_run_start_interval, current_run_start_interval + dt.timedelta(minutes=5))
+            )
+            current_run_start_interval += dt.timedelta(minutes=5)
+
+        missing_runs: list[tuple[dt.datetime, dt.datetime]] = []
+        for start, end in expected_run_intervals:
+            if start not in [run.data_interval_start for run in runs]:
+                missing_runs.append((start, end))
+
+        if missing_runs:
+            activity.logger.info(
+                f"Found {len(missing_runs)} missing batch export runs for batch export {inputs.batch_export_id}"
+            )
+
+            if inputs.slack_channel is None:
+                activity.logger.warning("No Slack channel provided, skipping alert")
+                return len(missing_runs)
+
+            _send_slack_alert_for_missing_batch_export_runs(
+                channel=inputs.slack_channel,
+                batch_export_id=inputs.batch_export_id,
+                missing_runs=missing_runs,
+            )
+
+        return len(missing_runs)
+
+
 @workflow.defn(name="batch-export-monitoring")
 class BatchExportMonitoringWorkflow(PostHogWorkflow):
     """Workflow to monitor batch exports.
@@ -214,6 +301,20 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
                 include_events=batch_export_details.include_events,
             ),
             start_to_close_timeout=dt.timedelta(hours=1),
+            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=20)),
+            heartbeat_timeout=dt.timedelta(minutes=1),
+        )
+
+        await workflow.execute_activity(
+            check_for_missing_batch_export_runs,
+            CheckForMissingBatchExportRunsInputs(
+                batch_export_id=batch_export_details.id,
+                overall_interval_start=interval_start_str,
+                overall_interval_end=interval_end_str,
+                interval=batch_export_details.interval,
+                slack_channel=inputs.slack_channel,
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=20)),
             heartbeat_timeout=dt.timedelta(minutes=1),
         )
