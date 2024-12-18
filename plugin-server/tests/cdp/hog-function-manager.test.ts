@@ -19,7 +19,7 @@ describe('HogFunctionManager', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        manager = new HogFunctionManager(hub, ['destination'])
+        manager = new HogFunctionManager(hub)
 
         const team = await hub.db.fetchTeam(2)
 
@@ -107,7 +107,7 @@ describe('HogFunctionManager', () => {
             })
         )
 
-        await manager.start()
+        await manager.start(['destination'])
     })
 
     afterEach(async () => {

@@ -133,7 +133,6 @@ export class HogFunctionManager {
             )
         ).rows
 
-        console.log('items', items)
         this.sanitize(items)
         await this.enrichWithIntegrations(items)
 
