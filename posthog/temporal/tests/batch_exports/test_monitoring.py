@@ -168,10 +168,6 @@ async def test_monitoring_workflow(
 ):
     """Test the monitoring workflow with a batch export that has data.
 
-    We generate 2 hours of data between 13:00 and 15:00, and then run the
-    monitoring workflow at 15:30.  The monitoring workflow should check the data
-    between 14:00 and 15:00, and update the batch export runs.
-
     We generate some dummy batch export runs based on the event data we
     generated and assert that the expected records count matches the records
     completed.
