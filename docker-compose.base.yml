@@ -160,8 +160,6 @@ services:
             args:
                 BIN: capture
         restart: on-failure
-        ports:
-            - 3000:3000
         environment:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'events_plugin_ingestion'
