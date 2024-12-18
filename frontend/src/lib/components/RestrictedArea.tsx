@@ -27,10 +27,7 @@ export interface RestrictedAreaProps extends UseRestrictedAreaProps {
     Component: (props: RestrictedComponentProps) => JSX.Element
 }
 
-export function useRestrictedArea({
-    scope = RestrictionScope.Organization,
-    minimumAccessLevel,
-}: UseRestrictedAreaProps): null | string {
+export function useRestrictedArea({ scope, minimumAccessLevel }: UseRestrictedAreaProps): null | string {
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
 

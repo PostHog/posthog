@@ -133,17 +133,8 @@ export const notebookLogic = kea<notebookLogicType>([
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
         insertComment: (context: Record<string, any>) => ({ context }),
         selectComment: (itemContextId: string) => ({ itemContextId }),
-        openShareModal: true,
-        closeShareModal: true,
     }),
     reducers(({ props }) => ({
-        isShareModalOpen: [
-            false,
-            {
-                openShareModal: () => true,
-                closeShareModal: () => false,
-            },
-        ],
         localContent: [
             null as JSONContent | null,
             { persist: props.mode !== 'canvas', prefix: NOTEBOOKS_VERSION },
@@ -357,9 +348,9 @@ export const notebookLogic = kea<notebookLogicType>([
         mode: [() => [(_, props) => props], (props): NotebookLogicMode => props.mode ?? 'notebook'],
         isTemplate: [(s) => [s.shortId], (shortId): boolean => shortId.startsWith('template-')],
         isLocalOnly: [
-            (s) => [(_, props) => props, s.isTemplate],
-            (props, isTemplate): boolean => {
-                return props.shortId === 'scratchpad' || props.mode === 'canvas' || isTemplate
+            () => [(_, props) => props],
+            (props): boolean => {
+                return props.shortId === 'scratchpad' || props.mode === 'canvas'
             },
         ],
         notebookMissing: [
@@ -452,9 +443,8 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         isEditable: [
-            (s) => [s.shouldBeEditable, s.previewContent, s.notebook],
-            (shouldBeEditable, previewContent, notebook) =>
-                shouldBeEditable && !previewContent && notebook?.user_access_level === 'editor',
+            (s) => [s.shouldBeEditable, s.previewContent],
+            (shouldBeEditable, previewContent) => shouldBeEditable && !previewContent,
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -528,11 +518,6 @@ export const notebookLogic = kea<notebookLogicType>([
             )
         },
         setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
-            if (values.notebook?.user_access_level !== 'editor') {
-                actions.clearLocalContent()
-                return
-            }
-
             if (values.previewContent) {
                 // We don't want to modify the content if we are viewing a preview
                 return

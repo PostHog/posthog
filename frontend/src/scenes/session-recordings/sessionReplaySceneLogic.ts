@@ -6,7 +6,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { ActivityScope, Breadcrumb, ReplayTabs } from '~/types'
 
 import type { sessionReplaySceneLogicType } from './sessionReplaySceneLogicType'
@@ -92,13 +92,13 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
                 return breadcrumbs
             },
         ],
-        [SIDE_PANEL_CONTEXT_KEY]: [
+        activityFilters: [
             () => [router.selectors.searchParams],
-            (searchParams): SidePanelSceneContext | null => {
+            (searchParams): ActivityFilters | null => {
                 return searchParams.sessionRecordingId
                     ? {
-                          activity_scope: ActivityScope.REPLAY,
-                          activity_item_id: searchParams.sessionRecordingId,
+                          scope: ActivityScope.REPLAY,
+                          item_id: searchParams.sessionRecordingId,
                       }
                     : null
             },

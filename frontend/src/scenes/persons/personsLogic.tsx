@@ -13,7 +13,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { hogqlQuery } from '~/queries/query'
 import {
     ActivityScope,
@@ -256,13 +256,13 @@ export const personsLogic = kea<personsLogicType>([
             },
         ],
 
-        [SIDE_PANEL_CONTEXT_KEY]: [
+        activityFilters: [
             (s) => [s.person],
-            (person): SidePanelSceneContext => {
+            (person): ActivityFilters => {
                 return {
-                    activity_scope: ActivityScope.PERSON,
+                    scope: ActivityScope.PERSON,
                     // TODO: Is this correct? It doesn't seem to work...
-                    activity_item_id: person?.id ? `${person?.id}` : undefined,
+                    item_id: person?.id ? `${person?.id}` : undefined,
                 }
             },
         ],

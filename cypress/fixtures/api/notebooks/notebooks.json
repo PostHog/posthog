@@ -65,8 +65,7 @@
                 "first_name": "Employee 427",
                 "email": "test@posthog.com",
                 "is_email_verified": null
-            },
-            "user_access_level": "editor"
+            }
         }
     ]
 }

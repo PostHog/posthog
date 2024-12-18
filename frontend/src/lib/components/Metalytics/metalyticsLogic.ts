@@ -4,8 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
-import { sidePanelContextLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelContextLogic'
-import { SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { activityForSceneLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 
@@ -14,7 +13,7 @@ import type { metalyticsLogicType } from './metalyticsLogicType'
 export const metalyticsLogic = kea<metalyticsLogicType>([
     path(['lib', 'components', 'metalytics', 'metalyticsLogic']),
     connect({
-        values: [sidePanelContextLogic, ['sceneSidePanelContext'], membersLogic, ['members']],
+        values: [activityForSceneLogic, ['sceneActivityFilters'], membersLogic, ['members']],
     }),
 
     loaders(({ values }) => ({
@@ -63,16 +62,11 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
 
     selectors({
         instanceId: [
-            (s) => [s.sceneSidePanelContext],
-            (sidePanelContext: SidePanelSceneContext) =>
-                sidePanelContext?.activity_item_id
-                    ? `${sidePanelContext.activity_scope}:${sidePanelContext.activity_item_id}`
-                    : null,
+            (s) => [s.sceneActivityFilters],
+            (sceneActivityFilters) =>
+                sceneActivityFilters?.item_id ? `${sceneActivityFilters.scope}:${sceneActivityFilters.item_id}` : null,
         ],
-        scope: [
-            (s) => [s.sceneSidePanelContext],
-            (sidePanelContext: SidePanelSceneContext) => sidePanelContext?.activity_scope,
-        ],
+        scope: [(s) => [s.sceneActivityFilters], (sceneActivityFilters) => sceneActivityFilters?.scope],
 
         recentUserMembers: [
             (s) => [s.recentUsers, s.members],
