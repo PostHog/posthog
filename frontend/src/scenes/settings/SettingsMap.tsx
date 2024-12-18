@@ -219,7 +219,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CustomChannelTypes />,
             },
         ],
-        flag: 'CUSTOM_CHANNEL_TYPE_RULES',
     },
 
     {

@@ -110,17 +110,17 @@ export class HogExecutor {
         this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
-    findMatchingFunctions(event: HogFunctionInvocationGlobals): {
+    findMatchingFunctions(globals: HogFunctionInvocationGlobals): {
         matchingFunctions: HogFunctionType[]
         nonMatchingFunctions: HogFunctionType[]
-        erroredFunctions: HogFunctionType[]
+        erroredFunctions: [HogFunctionType, string][]
     } {
-        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogDestinations(event.project.id)
-        const filtersGlobals = convertToHogFunctionFilterGlobal(event)
+        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogDestinations(globals.project.id)
+        const filtersGlobals = convertToHogFunctionFilterGlobal(globals)
 
         const nonMatchingFunctions: HogFunctionType[] = []
         const matchingFunctions: HogFunctionType[] = []
-        const erroredFunctions: HogFunctionType[] = []
+        const erroredFunctions: [HogFunctionType, string][] = []
 
         // Filter all functions based on the invocation
         allFunctionsForTeam.forEach((hogFunction) => {
@@ -143,7 +143,10 @@ export class HogExecutor {
                             error: filterResult.error.message,
                             result: filterResult,
                         })
-                        erroredFunctions.push(hogFunction)
+                        erroredFunctions.push([
+                            hogFunction,
+                            `Error filtering event ${globals.event.uuid}: ${filterResult.error.message}`,
+                        ])
                         return
                     }
                 } catch (error) {
@@ -153,7 +156,10 @@ export class HogExecutor {
                         teamId: hogFunction.team_id,
                         error: error.message,
                     })
-                    erroredFunctions.push(hogFunction)
+                    erroredFunctions.push([
+                        hogFunction,
+                        `Error filtering event ${globals.event.uuid}: ${error.message}`,
+                    ])
                     return
                 } finally {
                     const duration = performance.now() - start
@@ -165,7 +171,7 @@ export class HogExecutor {
                             hogFunctionName: hogFunction.name,
                             teamId: hogFunction.team_id,
                             duration,
-                            eventId: event.event.uuid,
+                            eventId: globals.event.uuid,
                         })
                     }
                 }
