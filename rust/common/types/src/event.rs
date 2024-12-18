@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Not;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,7 +20,7 @@ pub struct CapturedEvent {
     )]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
-    #[serde(skip_serializing)]
+    #[serde(skip_serializing_if = "<&bool>::not")] // only store if true
     pub is_cookieless_mode: bool,
 }
 
