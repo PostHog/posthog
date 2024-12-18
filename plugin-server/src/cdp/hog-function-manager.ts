@@ -32,8 +32,9 @@ export class HogFunctionManager {
     private cache: HogFunctionCache
     private pubSub: PubSub
     private refreshJob?: schedule.Job
+    private hogTypes: HogFunctionTypeType[] = []
 
-    constructor(private hub: Hub, private hogTypes: HogFunctionTypeType[]) {
+    constructor(private hub: Hub) {
         this.started = false
         this.ready = false
         this.cache = {
@@ -58,7 +59,8 @@ export class HogFunctionManager {
         })
     }
 
-    public async start(): Promise<void> {
+    public async start(hogTypes: HogFunctionTypeType[]): Promise<void> {
+        this.hogTypes = hogTypes
         // TRICKY - when running with individual capabilities, this won't run twice but locally or as a complete service it will...
         if (this.started) {
             return

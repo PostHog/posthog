@@ -1,4 +1,4 @@
-import { CdpInternalEventsConsumer, CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
+import { CdpInternalEventsConsumer } from '../../src/cdp/cdp-consumers'
 import { HogWatcherState } from '../../src/cdp/hog-watcher'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
@@ -118,12 +118,14 @@ describe('CDP Internal Events Consumer', () => {
                     ...HOG_EXAMPLES.simple_fetch,
                     ...HOG_INPUTS_EXAMPLES.simple_fetch,
                     ...HOG_FILTERS_EXAMPLES.no_filters,
+                    type: 'internal-destination',
                 })
 
                 fnPrinterPageviewFilters = await insertHogFunction({
                     ...HOG_EXAMPLES.input_printer,
                     ...HOG_INPUTS_EXAMPLES.secret_inputs,
                     ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                    type: 'internal-destination',
                 })
 
                 globals = createHogExecutionGlobals({
@@ -358,6 +360,7 @@ describe('CDP Internal Events Consumer', () => {
                     ...HOG_EXAMPLES.input_printer,
                     ...HOG_INPUTS_EXAMPLES.secret_inputs,
                     ...HOG_FILTERS_EXAMPLES.broken_filters,
+                    type: 'internal-destination',
                 })
                 await processor.processBatch([globals])
                 expect(decodeAllKafkaMessages()).toMatchObject([

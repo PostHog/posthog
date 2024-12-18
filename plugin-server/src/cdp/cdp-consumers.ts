@@ -120,7 +120,6 @@ abstract class CdpConsumerBase {
     messagesToProduce: HogFunctionMessageToProduce[] = []
     redis: CdpRedis
 
-    // List of hog function types that this consumer needs to work with
     protected hogTypes: HogFunctionTypeType[] = []
     protected kafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
@@ -129,7 +128,7 @@ abstract class CdpConsumerBase {
 
     constructor(protected hub: Hub) {
         this.redis = createCdpRedisPool(hub)
-        this.hogFunctionManager = new HogFunctionManager(hub, this.hogTypes)
+        this.hogFunctionManager = new HogFunctionManager(hub)
         this.hogWatcher = new HogWatcher(hub, this.redis)
         this.hogMasker = new HogMasker(this.redis)
         this.hogExecutor = new HogExecutor(this.hub, this.hogFunctionManager)
@@ -375,7 +374,7 @@ abstract class CdpConsumerBase {
     public async start(): Promise<void> {
         // NOTE: This is only for starting shared services
         await Promise.all([
-            this.hogFunctionManager.start(),
+            this.hogFunctionManager.start(this.hogTypes),
             createKafkaProducerWrapper(this.hub).then((producer) => {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()

@@ -172,16 +172,16 @@ describe('HogFunctionManager', () => {
     })
 
     it('filters hog functions by type', async () => {
-        const manager = new HogFunctionManager(hub, ['transformation'])
-        await manager.start()
+        manager['hogTypes'] = ['transformation']
+        await manager.reloadAllHogFunctions()
         expect(manager.getTeamHogFunctions(teamId1).length).toEqual(1)
         expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('transformation')
 
-        const manager2 = new HogFunctionManager(hub, ['transformation', 'destination'])
-        await manager2.start()
-        expect(manager2.getTeamHogFunctions(teamId1).length).toEqual(2)
-        expect(manager2.getTeamHogFunctions(teamId1)[0].type).toEqual('destination')
-        expect(manager2.getTeamHogFunctions(teamId1)[1].type).toEqual('transformation')
+        manager['hogTypes'] = ['transformation', 'destination']
+        await manager.reloadAllHogFunctions()
+        expect(manager.getTeamHogFunctions(teamId1).length).toEqual(2)
+        expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('destination')
+        expect(manager.getTeamHogFunctions(teamId1)[1].type).toEqual('transformation')
     })
 
     it('removes disabled functions', async () => {
