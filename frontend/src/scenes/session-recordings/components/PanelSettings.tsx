@@ -13,6 +13,7 @@ import { PropsWithChildren } from 'react'
 
 interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
     label?: string
+    title?: string
     items: LemonMenuItem[]
     icon?: JSX.Element
     isAvailable?: boolean
