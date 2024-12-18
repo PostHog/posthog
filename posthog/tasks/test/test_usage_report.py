@@ -1611,7 +1611,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
 
     @patch("posthog.tasks.usage_report.Client")
-    def test_capture_report_transforms_team_id_to_org_id(self, mock_client) -> None:
+    def test_capture_report_transforms_team_id_to_org_id(self, mock_client: MagicMock) -> None:
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
