@@ -41,7 +41,7 @@ Products that will often be installed in multiple places, eg. web and mobile
 */
 export const multiInstallProducts = [ProductKey.PRODUCT_ANALYTICS, ProductKey.FEATURE_FLAGS]
 
-const getOrderedSDKs = (sdks: SDK[]): SDK[] => {
+const getProductAnalyticsOrderedSDKs = (sdks: SDK[]): SDK[] => {
     return [
         ...sdks.filter((sdk) => sdk.key === 'html'),
         ...sdks.filter((sdk) => sdk.key === 'javascript-web'),
@@ -200,10 +200,10 @@ export const sdksLogic = kea<sdksLogicType>([
                 .filter((sdk) => Object.keys(values.availableSDKInstructionsMap).includes(sdk.key))
 
             if (
-                values.featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_ONBOARDING] &&
+                values.featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_MODIFIED_SDK_LIST] === 'test' &&
                 values.productKey === ProductKey.PRODUCT_ANALYTICS
             ) {
-                filteredSDks = getOrderedSDKs(filteredSDks)
+                filteredSDks = getProductAnalyticsOrderedSDKs(filteredSDks)
             }
             actions.setSDKs(filteredSDks)
             actions.setSourceOptions(getSourceOptions(values.availableSDKInstructionsMap))
@@ -220,17 +220,8 @@ export const sdksLogic = kea<sdksLogicType>([
             actions.setSelectedSDK(null)
             actions.filterSDKs()
         },
-        [onboardingLogic.actionTypes.setProductKey]: ({ productKey }) => {
-            // Set default source filter for Product Analytics
-            if (
-                productKey === ProductKey.PRODUCT_ANALYTICS &&
-                values.featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_ONBOARDING]
-            ) {
-                actions.setSourceFilter('Recommended')
-            } else {
-                actions.setSourceFilter(null)
-            }
-            actions.resetSDKs()
+        [onboardingLogic.actionTypes.setProductKey]: () => {
+            // TODO: This doesn't seem to run when the setProductKey action is called in onboardingLogic...
         },
         resetSDKs: () => {
             actions.filterSDKs()
@@ -261,7 +252,7 @@ export const sdksLogic = kea<sdksLogicType>([
         '/onboarding/:productKey': (_product_key, { sdk }) => {
             if (
                 values.productKey === ProductKey.PRODUCT_ANALYTICS &&
-                values.featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_ONBOARDING]
+                values.featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_MODIFIED_SDK_LIST] === 'test'
             ) {
                 actions.setSourceFilter('Recommended')
             }
