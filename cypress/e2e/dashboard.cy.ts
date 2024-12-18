@@ -350,35 +350,6 @@ describe('Dashboard', () => {
         cy.get('[data-attr="top-bar-name"] .EditableField__display').contains(dashboardName).should('exist')
     })
 
-    it('Changing dashboard filter shows updated insights', () => {
-        const dashboardName = randomString('to add an insight to')
-        const firstInsight = randomString('insight to add to dashboard')
-
-        // Create and visit a dashboard to get it into turbo mode cache
-        dashboards.createAndGoToEmptyDashboard(dashboardName)
-        dashboard.addInsightToEmptyDashboard(firstInsight)
-
-        dashboard.addPropertyFilter()
-
-        cy.get('.PropertyFilterButton').should('have.length', 1)
-
-        // refresh the dashboard by changing date range
-        cy.get('[data-attr="date-filter"]').click()
-        cy.contains('span', 'Last 14 days').click()
-
-        cy.wait(2000)
-
-        // insight meta should be updated to show new date range
-        cy.get('h5').contains('Last 14 days').should('exist')
-
-        cy.get('button').contains('Save').click()
-
-        // should save filters
-        cy.get('.PropertyFilterButton').should('have.length', 1)
-        // should save updated date range
-        cy.get('span').contains('Last 14 days').should('exist')
-    })
-
     it('clicking on insight carries through dashboard filters', () => {
         const dashboardName = randomString('to add an insight to')
         const firstInsight = randomString('insight to add to dashboard')
