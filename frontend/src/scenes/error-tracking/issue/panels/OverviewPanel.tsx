@@ -1,44 +1,43 @@
-import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
-import { getExceptionProperties } from 'scenes/error-tracking/utils'
+import { getExceptionAttributes } from 'scenes/error-tracking/utils'
 
 export const OverviewPanel = (): JSX.Element => {
-    const { issueProperties, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { issueProperties } = useValues(errorTrackingIssueSceneLogic)
 
-    const _ = getExceptionProperties(issueProperties)
+    const { synthetic, level, browser, os, library } = getExceptionAttributes(issueProperties)
+
+    const unknown = <div className="italic">unknown</div>
+
+    const TableRow = ({ label, value }: { label: string; value: string | undefined }): JSX.Element => (
+        <tr>
+            <td className="text-muted">{label}</td>
+            <td>{value ?? unknown}</td>
+        </tr>
+    )
 
     return (
         <div className="px-1">
-            {issueLoading ? (
-                <Spinner />
-            ) : (
-                <div className="flex flex-row gap-2 flex-wrap">
-                    {/* <LemonTag type="danger">{$exception_message}</LemonTag>
-                    <TitledSnack
-                        type="success"
-                        title="captured by"
-                        value={
-                            $sentry_url ? (
-                                <Link
-                                    className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
-                                    to={$sentry_url}
-                                    target="_blank"
-                                >
-                                    Sentry
-                                </Link>
-                            ) : (
-                                'PostHog'
-                            )
-                        }
-                    />
-                    <TitledSnack title="synthetic" value={$exception_synthetic ? 'true' : 'false'} />
-                    <TitledSnack title="library" value={`${$lib} ${$lib_version}`} />
-                    <TitledSnack title="browser" value={$browser ? `${$browser} ${$browser_version}` : 'unknown'} />
-                    <TitledSnack title="os" value={$os ? `${$os} ${$os_version}` : 'unknown'} /> */}
-                </div>
-            )}
+            <div className="grid grid-cols-2 gap-2">
+                <table>
+                    {[
+                        { label: 'Level', value: level },
+                        { label: 'Synthetic', value: synthetic },
+                        { label: 'Library', value: library },
+                    ].map((row, index) => (
+                        <TableRow key={index} {...row} />
+                    ))}
+                </table>
+                <table>
+                    {[
+                        { label: 'Browser', value: browser },
+                        { label: 'OS', value: os },
+                        { label: 'URL', value: issueProperties['$current_url'] },
+                    ].map((row, index) => (
+                        <TableRow key={index} {...row} />
+                    ))}
+                </table>
+            </div>
         </div>
     )
-    // <div className="italic">{issue?.description}</div>}</div>
 }

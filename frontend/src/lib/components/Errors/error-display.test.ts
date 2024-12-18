@@ -1,16 +1,12 @@
-import { getExceptionProperties } from 'scenes/error-tracking/utils'
+import { getExceptionAttributes } from 'scenes/error-tracking/utils'
 
 describe('Error Display', () => {
     it('can read sentry stack trace when $exception_list is not present', () => {
         const eventProperties = {
             'should not be in the': 'result',
-            $browser: 'Chrome',
-            $browser_version: '92.0.4515',
-            $active_feature_flags: ['feature1,feature2'],
-            $lib: 'posthog-js',
-            $lib_version: '1.0.0',
-            $os: 'Windows',
-            $os_version: '10',
+            browser: 'Chrome 92.0.4515',
+            library: 'posthog-js 1.0.0',
+            os: 'Windows 10',
             $sentry_exception_message: 'There was an error creating the support ticket with zendesk.',
             $exception_message: 'There was an error creating the support ticket with zendesk.',
             $sentry_tags: {
@@ -40,20 +36,18 @@ describe('Error Display', () => {
                     },
                 ],
             },
-            $sentry_url:
+            sentryUrl:
                 'https://sentry.io/organizations/posthog/issues/?project=1899813&query=40e442d79c22473391aeeeba54c82163',
             $sentry_event_id: '40e442d79c22473391aeeeba54c82163',
             $sentry_exception_type: 'Error',
             $exception_personURL: 'https://app.posthog.com/person/f6kW3HXaha6dAvHZiOmgrcAXK09682P6nNPxvfjqM9c',
             $exception_type: 'Error',
         }
-        const result = getExceptionProperties(eventProperties)
+        const result = getExceptionAttributes(eventProperties)
         expect(result).toEqual({
-            $active_feature_flags: ['feature1,feature2'],
-            $browser: 'Chrome',
-            $browser_version: '92.0.4515',
-            $exception_message: 'There was an error creating the support ticket with zendesk.',
-            $exception_list: [
+            browser: 'Chrome 92.0.4515',
+            value: 'There was an error creating the support ticket with zendesk.',
+            exceptionList: [
                 {
                     mechanism: {
                         handled: true,
@@ -74,14 +68,12 @@ describe('Error Display', () => {
                     value: 'There was an error creating the support ticket with zendesk.',
                 },
             ],
-            $exception_synthetic: undefined,
-            $exception_type: 'Error',
-            $lib: 'posthog-js',
-            $lib_version: '1.0.0',
-            $level: undefined,
-            $os: 'Windows',
-            $os_version: '10',
-            $sentry_url:
+            synthetic: undefined,
+            type: 'Error',
+            library: 'posthog-js 1.0.0',
+            level: undefined,
+            os: 'Windows 10',
+            sentryUrl:
                 'https://sentry.io/organizations/posthog/issues/?project=1899813&query=40e442d79c22473391aeeeba54c82163',
         })
     })
@@ -89,41 +81,33 @@ describe('Error Display', () => {
     it('can read sentry message', () => {
         const eventProperties = {
             'should not be in the': 'result',
-            $browser: 'Chrome',
-            $browser_version: '92.0.4515',
-            $active_feature_flags: ['feature1,feature2'],
-            $lib: 'posthog-js',
-            $lib_version: '1.0.0',
-            $os: 'Windows',
-            $os_version: '10',
+            browser: 'Chrome 92.0.4515',
+            library: 'posthog-js 1.0.0',
+            os: 'Windows 10',
             $sentry_tags: {
                 'PostHog Person URL': 'https://app.posthog.com/person/f6kW3HXaha6dAvHZiOmgrcAXK09682P6nNPxvfjqM9c',
                 'PostHog Recording URL': 'https://app.posthog.com/replay/018dc30d-a8a5-7257-9faf-dcd97c0e19cf?t=2294',
             },
             $sentry_exception: undefined,
-            $sentry_url:
+            sentryUrl:
                 'https://sentry.io/organizations/posthog/issues/?project=1899813&query=40e442d79c22473391aeeeba54c82163',
             $sentry_event_id: '40e442d79c22473391aeeeba54c82163',
             $sentry_exception_type: undefined,
             $exception_personURL: 'https://app.posthog.com/person/f6kW3HXaha6dAvHZiOmgrcAXK09682P6nNPxvfjqM9c',
-            $exception_type: undefined,
-            $level: 'info',
-            $exception_message: 'the message sent into sentry captureMessage',
+            type: undefined,
+            level: 'info',
+            value: 'the message sent into sentry captureMessage',
         }
-        const result = getExceptionPropertiesFrom(eventProperties)
+        const result = getExceptionAttributes(eventProperties)
         expect(result).toEqual({
-            $active_feature_flags: ['feature1,feature2'],
-            $browser: 'Chrome',
-            $browser_version: '92.0.4515',
-            $exception_message: 'the message sent into sentry captureMessage',
-            $exception_synthetic: undefined,
-            $exception_type: undefined,
-            $lib: 'posthog-js',
-            $lib_version: '1.0.0',
-            $level: 'info',
-            $os: 'Windows',
-            $os_version: '10',
-            $sentry_url:
+            browser: 'Chrome 92.0.4515',
+            value: 'the message sent into sentry captureMessage',
+            synthetic: undefined,
+            type: undefined,
+            library: 'posthog-js 1.0.0',
+            level: 'info',
+            os: 'Windows 10',
+            sentryUrl:
                 'https://sentry.io/organizations/posthog/issues/?project=1899813&query=40e442d79c22473391aeeeba54c82163',
         })
     })
@@ -131,14 +115,10 @@ describe('Error Display', () => {
     it('can read exception_list stack trace when $exception_type and message are not present', () => {
         const eventProperties = {
             'should not be in the': 'result',
-            $browser: 'Chrome',
-            $browser_version: '92.0.4515',
-            $active_feature_flags: ['feature1,feature2'],
-            $lib: 'posthog-js',
-            $lib_version: '1.0.0',
-            $os: 'Windows',
-            $os_version: '10',
-            $exception_list: [
+            browser: 'Chrome 92.0.4515',
+            library: 'posthog-js 1.0.0',
+            os: 'Windows 10',
+            exceptionList: [
                 {
                     mechanism: {
                         handled: true,
@@ -162,21 +142,17 @@ describe('Error Display', () => {
             ],
             $exception_personURL: 'https://app.posthog.com/person/f6kW3HXaha6dAvHZiOmgrcAXK09682P6nNPxvfjqM9c',
         }
-        const result = getExceptionPropertiesFrom(eventProperties)
+        const result = getExceptionAttributes(eventProperties)
         expect(result).toEqual({
-            $active_feature_flags: ['feature1,feature2'],
-            $browser: 'Chrome',
-            $browser_version: '92.0.4515',
-            $exception_message: 'There was an error creating the support ticket with zendesk2.',
-            $exception_synthetic: false,
-            $exception_type: 'Error',
-            $lib: 'posthog-js',
-            $lib_version: '1.0.0',
-            $level: undefined,
-            $os: 'Windows',
-            $os_version: '10',
-            $sentry_url: undefined,
-            $exception_list: [
+            browser: 'Chrome 92.0.4515',
+            value: 'There was an error creating the support ticket with zendesk2.',
+            synthetic: false,
+            type: 'Error',
+            library: 'posthog-js 1.0.0',
+            level: undefined,
+            os: 'Windows 10',
+            sentryUrl: undefined,
+            exceptionList: [
                 {
                     mechanism: {
                         handled: true,

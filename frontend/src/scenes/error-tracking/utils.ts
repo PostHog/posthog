@@ -42,30 +42,20 @@ export const mergeIssues = (
     }
 }
 
-export function getExceptionProperties(
+export function getExceptionAttributes(
     properties: Record<string, any>
 ): { ingestionErrors?: string[]; exceptionList: ErrorTrackingException[] } & Record<
-    | 'type'
-    | 'value'
-    | '$exception_synthetic'
-    | '$lib'
-    | '$lib_version'
-    | '$browser'
-    | '$browser_version'
-    | '$os'
-    | '$os_version'
-    | '$sentry_url'
-    | 'level',
+    'type' | 'value' | 'synthetic' | 'library' | 'browser' | 'os' | 'sentryUrl' | 'level',
     any
 > {
     const {
         $lib,
         $lib_version,
-        $browser,
-        $browser_version,
-        $os,
-        $os_version,
-        $sentry_url,
+        $browser: browser,
+        $browser_version: browserVersion,
+        $os: os,
+        $os_version: osVersion,
+        $sentry_url: sentryUrl,
         $sentry_exception,
         $level: level,
         $cymbal_errors: ingestionErrors,
@@ -73,7 +63,7 @@ export function getExceptionProperties(
 
     let type = properties.$exception_type
     let value = properties.$exception_message
-    let $exception_synthetic = properties.$exception_synthetic
+    let synthetic: boolean | undefined = properties.$exception_synthetic
     let exceptionList: ErrorTrackingException[] | undefined = properties.$exception_list
 
     // exception autocapture sets $exception_list for all exceptions.
@@ -90,21 +80,18 @@ export function getExceptionProperties(
     if (!value) {
         value = exceptionList?.[0]?.value
     }
-    if ($exception_synthetic == undefined) {
-        $exception_synthetic = exceptionList?.[0]?.mechanism?.synthetic
+    if (synthetic == undefined) {
+        synthetic = exceptionList?.[0]?.mechanism?.synthetic
     }
 
     return {
         type,
         value,
-        $exception_synthetic,
-        $lib,
-        $lib_version,
-        $browser,
-        $browser_version,
-        $os,
-        $os_version,
-        $sentry_url,
+        synthetic,
+        library: `${$lib} ${$lib_version}`,
+        browser: browser ? `${browser} ${browserVersion}` : undefined,
+        os: os ? `${os} ${osVersion}` : undefined,
+        sentryUrl,
         exceptionList: exceptionList || [],
         level,
         ingestionErrors,

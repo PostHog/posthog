@@ -5,7 +5,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
-import { getExceptionProperties, hasAnyInAppFrames, hasStacktrace } from 'scenes/error-tracking/utils'
+import { getExceptionAttributes, hasAnyInAppFrames, hasStacktrace } from 'scenes/error-tracking/utils'
 
 import { EventType } from '~/types'
 
@@ -13,21 +13,8 @@ import { ChainedStackTraces } from './StackTraces'
 import { ErrorTrackingException } from './types'
 
 export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
-    const {
-        type,
-        value,
-        $exception_synthetic,
-        $lib,
-        $lib_version,
-        $browser,
-        $browser_version,
-        $os,
-        $os_version,
-        $sentry_url,
-        exceptionList,
-        level,
-        ingestionErrors,
-    } = getExceptionProperties(eventProperties)
+    const { type, value, synthetic, library, browser, os, sentryUrl, exceptionList, level, ingestionErrors } =
+        getExceptionAttributes(eventProperties)
 
     const exceptionWithStack = hasStacktrace(exceptionList)
 
@@ -40,10 +27,10 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                     type="success"
                     title="captured by"
                     value={
-                        $sentry_url ? (
+                        sentryUrl ? (
                             <Link
                                 className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
-                                to={$sentry_url}
+                                to={sentryUrl}
                                 target="_blank"
                             >
                                 Sentry
@@ -53,10 +40,10 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                         )
                     }
                 />
-                <TitledSnack title="synthetic" value={$exception_synthetic ? 'true' : 'false'} />
-                <TitledSnack title="library" value={`${$lib} ${$lib_version}`} />
-                <TitledSnack title="browser" value={$browser ? `${$browser} ${$browser_version}` : 'unknown'} />
-                <TitledSnack title="os" value={$os ? `${$os} ${$os_version}` : 'unknown'} />
+                <TitledSnack title="synthetic" value={synthetic ?? false} />
+                <TitledSnack title="library" value={library} />
+                <TitledSnack title="browser" value={browser ?? 'unknown'} />
+                <TitledSnack title="os" value={os ?? 'unknown'} />
             </div>
 
             {ingestionErrors || exceptionWithStack ? <LemonDivider dashed={true} /> : null}
