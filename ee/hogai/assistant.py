@@ -59,6 +59,13 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
 }
 
+STREAMING_NODES: set[AssistantNodeName] = {
+    AssistantNodeName.MEMORY_ONBOARDING,
+    AssistantNodeName.MEMORY_INITIALIZER,
+    AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
+    AssistantNodeName.SUMMARIZER,
+}
+
 
 class Assistant:
     _team: Team
@@ -225,10 +232,12 @@ class Assistant:
                 return node_val.messages[0]
             elif node_val.intermediate_steps:
                 return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-        elif node_val := state_update.get(AssistantNodeName.SUMMARIZER):
-            if isinstance(node_val, PartialAssistantState) and node_val.messages:
-                self._chunks = AIMessageChunk(content="")
-                return node_val.messages[0]
+
+        for node_name in STREAMING_NODES:
+            if node_val := state_update.get(node_name):
+                if isinstance(node_val, PartialAssistantState) and node_val.messages:
+                    self._chunks = AIMessageChunk(content="")
+                    return node_val.messages[0]
 
         return None
 
@@ -243,7 +252,7 @@ class Assistant:
                 if parsed_message:
                     initiator_id = self._state.start_id if self._state is not None else None
                     return VisualizationMessage(answer=parsed_message.query, initiator=initiator_id)
-            elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
+            elif langgraph_state["langgraph_node"] in STREAMING_NODES:
                 self._chunks += langchain_message  # type: ignore
                 return AssistantMessage(content=self._chunks.content)
         return None

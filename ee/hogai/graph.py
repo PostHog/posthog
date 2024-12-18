@@ -11,7 +11,7 @@ from ee.hogai.funnels.nodes import (
     FunnelPlannerNode,
     FunnelPlannerToolsNode,
 )
-from ee.hogai.memory.nodes import MemoryInitializerInterruptNode, MemoryInitializerNode
+from ee.hogai.memory.nodes import MemoryInitializerInterruptNode, MemoryInitializerNode, MemoryOnboardingNode
 from ee.hogai.router.nodes import RouterNode
 from ee.hogai.summarizer.nodes import SummarizerNode
 from ee.hogai.trends.nodes import (
@@ -172,21 +172,32 @@ class AssistantGraph:
     def add_memory_initializer(self, next_node: AssistantNodeName = AssistantNodeName.ROUTER):
         builder = self._graph
         self._has_start_node = True
+
+        memory_onboarding = MemoryOnboardingNode(self._team)
         memory_initializer = MemoryInitializerNode(self._team)
         memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team)
+
+        builder.add_node(AssistantNodeName.MEMORY_ONBOARDING, memory_onboarding.run)
         builder.add_node(AssistantNodeName.MEMORY_INITIALIZER, memory_initializer.run)
         builder.add_node(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, memory_initializer_interrupt.run)
+
         builder.add_conditional_edges(
             AssistantNodeName.START,
-            memory_initializer.should_run,
-            path_map={True: AssistantNodeName.MEMORY_INITIALIZER, False: next_node},
+            memory_onboarding.should_run,
+            path_map={True: AssistantNodeName.MEMORY_ONBOARDING, False: next_node},
+        )
+        builder.add_conditional_edges(
+            AssistantNodeName.MEMORY_ONBOARDING,
+            memory_onboarding.router,
+            path_map={"continue": next_node, "initialize_memory": AssistantNodeName.MEMORY_INITIALIZER},
         )
         builder.add_conditional_edges(
             AssistantNodeName.MEMORY_INITIALIZER,
             memory_initializer.router,
-            path_map={"next_node": next_node, "interrupt": AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT},
+            path_map={"continue": next_node, "interrupt": AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT},
         )
         builder.add_edge(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, next_node)
+
         return self
 
     def compile_full_graph(self):
