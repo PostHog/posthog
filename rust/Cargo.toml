@@ -19,6 +19,7 @@ members = [
     "cyclotron-janitor",
     "cyclotron-fetch",
     "cymbal",
+    "hogvm",
 ]
 
 [workspace.lints.rust]
