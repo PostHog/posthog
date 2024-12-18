@@ -151,7 +151,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endBuffer: true,
         startScrub: true,
         endScrub: true,
-        setErrorPlayerState: (show: boolean, reason?: string) => ({ show, reason }),
+        setPlayerError: (reason: string) => ({ reason }),
+        clearPlayerError: true,
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         syncPlayerSpeed: true,
         setCurrentTimestamp: (timestamp: number) => ({ timestamp }),
@@ -344,10 +345,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         bufferTime: state.bufferTime,
                     }
                 },
-                setErrorPlayerState: (state, { show }) => {
-                    if (!show) {
-                        return state
-                    }
+                setPlayerError: (state) => {
                     return {
                         isPlaying: state.isPlaying,
                         isBuffering: state.isBuffering,
@@ -369,9 +367,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
-        isErrored: [
-            false as string | boolean,
-            { setErrorPlayerState: (_, { show, reason }) => (show ? (reason ? reason : true) : false) },
+        playerError: [
+            null as string | null,
+            {
+                setPlayerError: (_, { reason }) => (reason.trim().length ? reason : null),
+                clearPlayerError: () => null,
+            },
         ],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
 
@@ -429,7 +430,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (s) => [
                 s.playingState,
                 s.isBuffering,
-                s.isErrored,
+                s.playerError,
                 s.isScrubbing,
                 s.isSkippingInactivity,
                 s.snapshotsLoaded,
@@ -438,7 +439,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (
                 playingState,
                 isBuffering,
-                isErrored,
+                playerError,
                 isScrubbing,
                 isSkippingInactivity,
                 snapshotsLoaded,
@@ -450,7 +451,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         return playingState
                     case !snapshotsLoaded && !snapshotsLoading:
                         return SessionPlayerState.READY
-                    case isErrored:
+                    case !!playerError?.trim().length:
                         return SessionPlayerState.ERROR
                     case isSkippingInactivity && playingState !== SessionPlayerState.PAUSE:
                         return SessionPlayerState.SKIP
@@ -781,13 +782,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadSnapshotsForSourceFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setErrorPlayerState(true, 'loadSnapshotsForSourceFailure')
+                actions.setPlayerError('loadSnapshotsForSourceFailure')
             }
         },
         loadSnapshotSourcesFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setErrorPlayerState(true, 'loadSnapshotSourcesFailure')
+                actions.setPlayerError('loadSnapshotSourcesFailure')
             }
         },
         setPlay: () => {
@@ -836,11 +837,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         startBuffer: () => {
             actions.stopAnimation()
         },
-        setErrorPlayerState: ({ show }) => {
-            if (show) {
-                actions.incrementErrorCount()
-                actions.stopAnimation()
-            }
+        setPlayerError: () => {
+            actions.incrementErrorCount()
+            actions.stopAnimation()
         },
         startScrub: () => {
             actions.stopAnimation()
@@ -871,7 +870,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (isStillLoading) {
                     values.player?.replayer?.pause()
                     actions.startBuffer()
-                    actions.setErrorPlayerState(false)
+                    actions.clearPlayerError()
                 } else {
                     if (isPastEnd) {
                         actions.setEndReached(true)
@@ -883,7 +882,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         values.player?.replayer?.pause()
                         actions.endBuffer()
                         console.error("Error: Player tried to seek to a position that hasn't loaded yet")
-                        actions.setErrorPlayerState(true, 'buffer and not still loading')
+                        actions.setPlayerError('buffer and not still loading')
                     }
                 }
             }
@@ -895,14 +894,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // can consume 100% CPU and freeze the entire page
                 values.player?.replayer?.pause(values.toRRWebPlayerTime(timestamp))
                 actions.endBuffer()
-                actions.setErrorPlayerState(false)
+                actions.clearPlayerError()
             }
             // Otherwise play
             else {
                 values.player?.replayer?.play(values.toRRWebPlayerTime(timestamp))
                 actions.updateAnimation()
                 actions.endBuffer()
-                actions.setErrorPlayerState(false)
+                actions.clearPlayerError()
             }
 
             breakpoint()
@@ -962,7 +961,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // when the buffering progresses
                 values.player?.replayer?.pause()
                 actions.startBuffer()
-                actions.setErrorPlayerState(false)
+                actions.clearPlayerError()
                 cache.debug('buffering')
                 return
             }
@@ -1143,7 +1142,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.reportMessageTooLargeWarningSeen(values.sessionRecordingId)
             }
         },
-        isErrored: (next) => {
+        playerError: (next) => {
             if (next) {
                 posthog.capture('recording player error', {
                     watchedSessionId: values.sessionRecordingId,
