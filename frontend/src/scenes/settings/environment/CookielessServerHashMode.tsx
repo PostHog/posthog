@@ -11,7 +11,7 @@ const options: LemonRadioOption<CookielessServerHashMode>[] = [
         value: CookielessServerHashMode.Stateful,
         label: (
             <>
-                <div>Stateless</div>
+                <div>Stateful</div>
             </>
         ),
     },
