@@ -43,7 +43,7 @@ from posthog.schema import (
     FunnelsFilter,
     FunnelsQuery,
     HogQLQueryModifiers,
-    InsightDateRange,
+    DateRange,
     PersonsOnEventsMode,
     PropertyOperator,
     FunnelMathType,
@@ -3935,7 +3935,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = FunnelsQuery(
                 series=[EventsNode(event="$pageview"), EventsNode(event="$pageview")],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -3968,7 +3968,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = FunnelsQuery(
                 series=[EventsNode(event="test'1"), EventsNode()],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -4026,7 +4026,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = FunnelsQuery(
                 series=[EventsNode(event="a"), EventsNode(event="b")],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -4066,7 +4066,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
                     EventsNode(event="$pageview"),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -4081,7 +4081,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
                     EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -4148,7 +4148,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     ActionsNode(id=action_credit_card.pk),
                     ActionsNode(id=action_play_movie.pk, math=BaseMathType.FIRST_TIME_FOR_USER),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="-14d",
                 ),
             )
@@ -4252,7 +4252,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     EventsNode(event="$pageview"),
                     EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -4273,7 +4273,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     ),
                     EventsNode(event="$pageview"),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -4344,7 +4344,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
                     EventsNode(event="$pageview"),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -4359,7 +4359,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
                     EventsNode(event="$pageview"),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2023-03-22",
                     date_to="2024-03-22",
                 ),
@@ -4414,7 +4414,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     ),
                     EventsNode(event="event2"),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-20",
                     date_to="2024-03-24",
                 ),
@@ -4428,6 +4428,20 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             # classic and udf funnels handle no events differently
             assert len(results) == 0 or results[0]["count"] == 0
+
+            _create_event(
+                team=self.team,
+                event="event2",
+                distinct_id="user_1",
+                timestamp="2024-03-19T13:00:00Z",
+                properties={"property": "woah"},
+            )
+            query.series[0].math = FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS
+            assert query.dateRange is not None
+            query.dateRange.date_from = "2024-03-19"
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            self.assertEqual(results[0]["count"], 1)
+            self.assertEqual(results[1]["count"], 1)
 
         def test_funnel_personless_events_are_supported(self):
             user_id = uuid.uuid4()
@@ -4448,7 +4462,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = FunnelsQuery(
                 series=[EventsNode(event="$pageview"), EventsNode(event="sign up")],
-                dateRange=InsightDateRange(date_from="2024-03-22", date_to="2024-03-22"),
+                dateRange=DateRange(date_from="2024-03-22", date_to="2024-03-22"),
             )
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 

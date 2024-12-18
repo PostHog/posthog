@@ -4605,6 +4605,7 @@ export type HogFunctionInputSchemaType = {
     integration?: string
     integration_key?: string
     integration_field?: 'slack_channel'
+    requiredScopes?: string
 }
 
 export type HogFunctionInputType = {
@@ -4659,11 +4660,16 @@ export interface HogFunctionMappingType {
     inputs?: Record<string, HogFunctionInputType> | null
     filters?: HogFunctionFiltersType | null
 }
+export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
+    name: string
+    include_by_default?: boolean
+}
 
 export type HogFunctionTypeType =
     | 'destination'
     | 'site_destination'
     | 'site_app'
+    | 'transformation'
     | 'email'
     | 'sms'
     | 'push'
@@ -4715,6 +4721,7 @@ export type HogFunctionTemplateType = Pick<
 > & {
     status: HogFunctionTemplateStatus
     sub_templates?: HogFunctionSubTemplateType[]
+    mapping_templates?: HogFunctionMappingTemplateType[]
 }
 
 export type HogFunctionIconResponse = {
@@ -4820,4 +4827,11 @@ export type ReplayTemplateVariableType = {
     description?: string
     filterGroup?: UniversalFiltersGroupValue
     noTouch?: boolean
+}
+
+/**
+ * Assistant Conversation
+ */
+export interface Conversation {
+    id: string
 }

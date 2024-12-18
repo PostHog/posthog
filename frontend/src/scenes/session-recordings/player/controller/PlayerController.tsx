@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { humanFriendlyDuration } from 'lib/utils'
 import {
     SettingsBar,
     SettingsButton,
@@ -25,13 +26,18 @@ import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
 function SetPlaybackSpeed(): JSX.Element {
-    const { speed } = useValues(sessionRecordingPlayerLogic)
+    const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { setSpeed } = useActions(sessionRecordingPlayerLogic)
     return (
         <SettingsMenu
             data-attr="session-recording-speed-select"
             items={PLAYBACK_SPEEDS.map((speedToggle) => ({
-                label: `${speedToggle}x`,
+                label: (
+                    <div className="flex w-full space-x-2 justify-between">
+                        <span>{speedToggle}x</span>
+                        <span>({humanFriendlyDuration(sessionPlayerData.durationMs / speedToggle / 1000)})</span>
+                    </div>
+                ),
                 onClick: () => setSpeed(speedToggle),
                 active: speed === speedToggle && speedToggle !== 1,
                 status: speed === speedToggle ? 'danger' : 'default',
