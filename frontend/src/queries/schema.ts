@@ -367,6 +367,7 @@ export interface HogQLMetadataResponse {
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
     query_status?: never
+    table_names?: string[]
 }
 
 export type AutocompleteCompletionItemKind =
@@ -819,7 +820,7 @@ interface InsightVizNodeViewProps {
 /** Base class for insight query nodes. Should not be used directly. */
 export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> extends Node<R> {
     /** Date range for the query */
-    dateRange?: InsightDateRange
+    dateRange?: DateRange
     /**
      * Exclude internal and test users by applying the respective filters
      *
@@ -910,6 +911,8 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
     compareFilter?: CompareFilter
+    /**  Whether we should be comparing against a specific conversion goal */
+    conversionGoal?: WebAnalyticsConversionGoal | null
 }
 
 export type AssistantArrayPropertyFilterOperator = PropertyOperator.Exact | PropertyOperator.IsNot
@@ -1002,31 +1005,11 @@ export type AssistantGroupPropertyFilter = AssistantBasePropertyFilter & {
 
 export type AssistantPropertyFilter = AssistantGenericPropertyFilter | AssistantGroupPropertyFilter
 
-export interface AssistantInsightDateRange {
-    /**
-     * Start date. The value can be:
-     * - a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-1w` for 1 week ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.
-     * - an absolute ISO 8601 date string.
-     * a constant `yStart` for the current year start.
-     * a constant `mStart` for the current month start.
-     * a constant `dStart` for the current day start.
-     * Prefer using relative dates.
-     * @default -7d
-     */
-    date_from?: string | null
-
-    /**
-     * Right boundary of the date range. Use `null` for the current date. You can not use relative dates here.
-     * @default null
-     */
-    date_to?: string | null
-}
-
 export interface AssistantInsightsQueryBase {
     /**
      * Date range for the query
      */
-    dateRange?: AssistantInsightDateRange
+    dateRange?: DateRange
 
     /**
      * Exclude internal and test users by applying the respective filters
@@ -1169,7 +1152,7 @@ export interface AssistantTrendsFilter {
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
 }
 
-export interface AssistantCompareFilter {
+export interface CompareFilter {
     /**
      * Whether to compare the current date range to a previous date range.
      * @default false
@@ -1178,7 +1161,6 @@ export interface AssistantCompareFilter {
 
     /**
      * The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.
-     * @default -7d
      */
     compare_to?: string
 }
@@ -1787,6 +1769,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
     conversionGoal?: WebAnalyticsConversionGoal | null
+    compareFilter?: CompareFilter
     sampling?: {
         enabled?: boolean
         forceSamplingRate?: SamplingRate
@@ -1798,7 +1781,6 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
-    compareFilter?: CompareFilter | null
     includeLCPScore?: boolean
 }
 
@@ -1850,7 +1832,6 @@ export enum WebStatsBreakdown {
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
-    compareFilter?: CompareFilter | null
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     doPathCleaning?: boolean
@@ -2005,6 +1986,7 @@ export interface ExperimentTrendsQueryResponse {
     probability: Record<string, number>
     significant: boolean
     significance_code: ExperimentSignificanceCode
+    stats_version?: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
 }
@@ -2040,6 +2022,7 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     // Defaults to $feature_flag_called if not specified
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
+    stats_version?: integer
 }
 
 /**
@@ -2317,17 +2300,6 @@ export interface DateRange {
     explicitDate?: boolean | null
 }
 
-export interface InsightDateRange {
-    /** @default -7d */
-    date_from?: string | null
-    date_to?: string | null
-    /** Whether the date_from and date_to should be used verbatim. Disables
-     * rounding to the start and end of period.
-     * @default false
-     * */
-    explicitDate?: boolean | null
-}
-
 export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session' | 'hogql'>
 
 export interface Breakdown {
@@ -2352,11 +2324,6 @@ export interface BreakdownFilter {
     breakdown_group_type_index?: integer | null
     breakdown_histogram_bin_count?: integer // trends breakdown histogram bin
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
-}
-
-export interface CompareFilter {
-    compare?: boolean
-    compare_to?: string
 }
 
 // TODO: Rename to `DashboardFilters` for consistency with `HogQLFilters`
@@ -2485,48 +2452,41 @@ export enum AssistantMessageType {
     Router = 'ai/router',
 }
 
-export interface HumanMessage {
+export interface BaseAssistantMessage {
+    id?: string
+}
+
+export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
-    /** Human messages are only appended when done. */
-    done: true
 }
 
-export interface AssistantMessage {
+export interface AssistantMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Assistant
     content: string
-    /**
-     * We only need this "done" value to tell when the particular message is finished during its streaming.
-     * It won't be necessary when we optimize streaming to NOT send the entire message every time a character is added.
-     */
-    done?: boolean
 }
 
-export interface ReasoningMessage {
+export interface ReasoningMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Reasoning
     content: string
     substeps?: string[]
-    done: true
 }
 
-export interface VisualizationMessage {
+export interface VisualizationMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Visualization
     plan?: string
     answer?: AssistantTrendsQuery | AssistantFunnelsQuery
-    done?: boolean
+    initiator?: string
 }
 
-export interface FailureMessage {
+export interface FailureMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Failure
     content?: string
-    done: true
 }
 
-export interface RouterMessage {
+export interface RouterMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Router
     content: string
-    /** Router messages are not streamed, so they can only be done. */
-    done: true
 }
 
 export type RootAssistantMessage =
@@ -2540,6 +2500,7 @@ export type RootAssistantMessage =
 export enum AssistantEventType {
     Status = 'status',
     Message = 'message',
+    Conversation = 'conversation',
 }
 
 export enum AssistantGenerationStatusType {

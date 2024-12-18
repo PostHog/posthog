@@ -1,15 +1,25 @@
 from django.db import models
-from django.utils import timezone
+
+from posthog.models.utils import UUIDModel, CreatedMetaFields
 
 
-class Feature(models.Model):
+class Feature(CreatedMetaFields, UUIDModel):
     name = models.CharField(max_length=400, blank=False)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     description = models.TextField(default="")
     documentation_url = models.URLField(blank=True)
     issue_url = models.URLField(blank=True)
     primary_early_access_feature = models.ForeignKey("EarlyAccessFeature", on_delete=models.RESTRICT, blank=False)
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
+    alerts = models.ManyToManyField("posthog.AlertConfiguration", through="posthog.FeatureAlertConfiguration")
     archived = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False)
+
+
+class FeatureAlertConfiguration(models.Model):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    feature = models.ForeignKey("posthog.Feature", on_delete=models.CASCADE)
+    alert_configuration = models.ForeignKey("posthog.AlertConfiguration", on_delete=models.CASCADE)
+    feature_insight_type = models.CharField(
+        max_length=32,
+        choices=[("success_metric", "Success Metric"), ("faiure_metric", "Failure Metric")],
+    )

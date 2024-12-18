@@ -45,9 +45,11 @@ const VariationCell = (
     { isPercentage, reverseColors }: VariationCellProps = { isPercentage: false, reverseColors: false }
 ): QueryContextColumnComponent => {
     const formatNumber = (value: number): string =>
-        isPercentage ? `${(value * 100).toFixed(1)}%` : value.toLocaleString()
+        isPercentage ? `${(value * 100).toFixed(1)}%` : value?.toLocaleString() ?? '(empty)'
 
     return function Cell({ value }) {
+        const { compareFilter } = useValues(webAnalyticsLogic)
+
         if (!value) {
             return null
         }
@@ -57,10 +59,11 @@ const VariationCell = (
         }
 
         const [current, previous] = value as [number, number]
+
         const pctChangeFromPrevious =
             previous === 0 && current === 0 // Special case, render as flatline
                 ? 0
-                : current === null
+                : current === null || !compareFilter || compareFilter.compare === false
                 ? null
                 : previous === null || previous === 0
                 ? Infinity
@@ -318,6 +321,11 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         },
         total_conversions: {
             title: <span className="pr-5">Total Conversions</span>,
+            render: VariationCell(),
+            align: 'right',
+        },
+        unique_conversions: {
+            title: <span className="pr-5">Unique Conversions</span>,
             render: VariationCell(),
             align: 'right',
         },

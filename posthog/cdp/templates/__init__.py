@@ -44,8 +44,10 @@ from ._siteapps.template_early_access_features import template as early_access_f
 from ._siteapps.template_hogdesk import template as hogdesk
 from ._siteapps.template_notification_bar import template as notification_bar
 from ._siteapps.template_pineapple_mode import template as pineapple_mode
+from ._siteapps.template_debug_posthog import template as debug_posthog
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
 from ._internal.template_blank import blank_site_destination, blank_site_app
+from ._transformations.template_pass_through import template as pass_through_transformation
 
 HOG_FUNCTION_TEMPLATES = [
     _broadcast,
@@ -96,6 +98,8 @@ HOG_FUNCTION_TEMPLATES = [
     hogdesk,
     notification_bar,
     pineapple_mode,
+    pass_through_transformation,
+    debug_posthog,
 ]
 
 

@@ -9,7 +9,10 @@ use rdkafka::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::error::Error as SerdeError;
-use std::sync::{Arc, Weak};
+use std::{
+    sync::{Arc, Weak},
+    time::Duration,
+};
 use thiserror::Error;
 use tracing::{debug, error, info};
 
@@ -144,6 +147,33 @@ impl SingleTopicConsumer {
         };
 
         Ok((payload, offset))
+    }
+
+    pub async fn json_recv_batch<T>(
+        &self,
+        max: usize,
+        timeout: Duration,
+    ) -> Vec<Result<(T, Offset), RecvErr>>
+    where
+        T: DeserializeOwned,
+    {
+        let mut results = Vec::with_capacity(max);
+
+        tokio::select! {
+            _ = tokio::time::sleep(timeout) => {},
+            _ = async {
+                while results.len() < max {
+                    let result = self.json_recv::<T>().await;
+                    let was_err = result.is_err();
+                    results.push(result);
+                    if was_err {
+                        break; // Early exit on error, since it might indicate a kafka error or something
+                    }
+                }
+            } => {}
+        }
+
+        results
     }
 }
 
