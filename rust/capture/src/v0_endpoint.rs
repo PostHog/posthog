@@ -406,7 +406,7 @@ pub async fn process_replay_events<'a>(
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
-        is_cookieless_mode: is_cookieless_mode,
+        is_cookieless_mode,
     };
 
     sink.send(ProcessedEvent { metadata, event }).await
