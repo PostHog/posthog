@@ -64,6 +64,7 @@ class TestFeatureAPI(APIBaseTest):
                 "description": "New Description",
                 "documentation_url": "http://example.com/new",
                 "issue_url": "http://github.com/example/new",
+                "primary_early_access_feature_id": self.early_access_feature.id,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)

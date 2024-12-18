@@ -39,6 +39,7 @@ class FeatureSerializer(serializers.ModelSerializer):
 
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = request.user
+        validated_data["primary_early_access_feature_id"] = request.data.get("primary_early_access_feature_id")
         return super().create(validated_data)
 
     def get_primary_early_access_feature(self, feature: Feature):
