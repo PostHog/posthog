@@ -2,6 +2,7 @@ import '../Experiment.scss'
 
 import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { PostHogFeature } from 'posthog-js/react'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
@@ -26,7 +27,7 @@ import { Results } from './Results'
 import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 const ResultsTab = (): JSX.Element => {
-    const { experiment, experimentResults } = useValues(experimentLogic)
+    const { experiment, experimentResults, featureFlags } = useValues(experimentLogic)
 
     const hasResultsInsight = experimentResults && experimentResults.insight
 
@@ -50,7 +51,7 @@ const ResultsTab = (): JSX.Element => {
                     )}
                 </>
             )}
-            <MetricsView />
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] && <MetricsView />}
             <SecondaryMetricsTable experimentId={experiment.id} />
         </div>
     )

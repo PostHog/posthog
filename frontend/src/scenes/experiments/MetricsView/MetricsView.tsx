@@ -112,13 +112,15 @@ export function MetricsView(): JSX.Element {
 
                 <div className="w-1/2 flex flex-col justify-end">
                     <div className="ml-auto">
-                        <div className="mb-2 mt-4 justify-end">
-                            <AddMetric
-                                metrics={metrics}
-                                setExperiment={setExperiment}
-                                openPrimaryMetricModal={openPrimaryMetricModal}
-                            />
-                        </div>
+                        {metrics.length > 0 && (
+                            <div className="mb-2 mt-4 justify-end">
+                                <AddMetric
+                                    metrics={metrics}
+                                    setExperiment={setExperiment}
+                                    openPrimaryMetricModal={openPrimaryMetricModal}
+                                />
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -163,7 +165,7 @@ export function MetricsView(): JSX.Element {
                     <div className="flex flex-col items-center mx-auto space-y-3">
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance">
-                            Add up to {MAX_PRIMARY_METRICS} primary metrics to monitor side effects of your experiment.
+                            Add up to {MAX_PRIMARY_METRICS} primary metrics.
                         </div>
                         <AddMetric
                             metrics={metrics}
