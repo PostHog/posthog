@@ -90,7 +90,7 @@ export function onEvent({ inputs }) {
     ],
     mapping_templates=[
         HogFunctionMappingTemplate(
-            name="Page viewed",
+            name="Page Viewed",
             include_by_default=True,
             filters={"events": [{"id": "$pageview", "name": "Pageview", "type": "events"}]},
             inputs_schema=[
@@ -106,9 +106,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Order completed",
+            name="Order Completed",
             include_by_default=True,
-            filters={"events": [{"id": "Order completed", "type": "events"}]},
+            filters={"events": [{"id": "Order Completed", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",
@@ -122,9 +122,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Checkout started",
+            name="Checkout Started",
             include_by_default=True,
-            filters={"events": [{"id": "Checkout started", "type": "events"}]},
+            filters={"events": [{"id": "Checkout Started", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",
@@ -138,9 +138,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Product added",
+            name="Product Added",
             include_by_default=True,
-            filters={"events": [{"id": "Product added", "type": "events"}]},
+            filters={"events": [{"id": "Product Added", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",
@@ -154,9 +154,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Payment info entered",
+            name="Payment Info Entered",
             include_by_default=True,
-            filters={"events": [{"id": "Payment info entered", "type": "events"}]},
+            filters={"events": [{"id": "Payment Info Entered", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",
@@ -170,9 +170,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Promotion clicked",
+            name="Promotion Clicked",
             include_by_default=True,
-            filters={"events": [{"id": "Promotion clicked", "type": "events"}]},
+            filters={"events": [{"id": "Promotion Clicked", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",
@@ -186,9 +186,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Promotion viewed",
+            name="Promotion Viewed",
             include_by_default=True,
-            filters={"events": [{"id": "Promotion viewed", "type": "events"}]},
+            filters={"events": [{"id": "Promotion Viewed", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",
@@ -202,9 +202,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Product added to wishlist",
+            name="Product Added to Wishlist",
             include_by_default=True,
-            filters={"events": [{"id": "Product added to wishlist", "type": "events"}]},
+            filters={"events": [{"id": "Product Added to Wishlist", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",
@@ -218,9 +218,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Product viewed",
+            name="Product Viewed",
             include_by_default=True,
-            filters={"events": [{"id": "Product viewed", "type": "events"}]},
+            filters={"events": [{"id": "Product Viewed", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",
@@ -234,9 +234,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Product list viewed",
+            name="Product List Viewed",
             include_by_default=True,
-            filters={"events": [{"id": "Product list viewed", "type": "events"}]},
+            filters={"events": [{"id": "Product List Viewed", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",
@@ -250,9 +250,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Products searched",
+            name="Products Searched",
             include_by_default=True,
-            filters={"events": [{"id": "Products searched", "type": "events"}]},
+            filters={"events": [{"id": "Products Searched", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",

@@ -154,16 +154,16 @@ if (res.status >= 400) {
             "description": "Check out this page for possible event types: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
             "default": "{"
             "event.event == '$pageview' ? 'PAGE_VIEW'"
-            ": event.event == 'Order completed' ? 'PURCHASE'"
-            ": event.event == 'Checkout started' ? 'START_CHECKOUT'"
-            ": event.event == 'Product added' ? 'ADD_CART'"
-            ": event.event == 'Payment info entered' ? 'ADD_BILLING'"
-            ": event.event == 'Promotion clicked' ? 'AD_CLICK'"
-            ": event.event == 'Promotion viewed' ? 'AD_VIEW'"
-            ": event.event == 'Product added to wishlist' ? 'ADD_TO_WISHLIST'"
-            ": event.event == 'Product viewed' ? 'VIEW_CONTENT'"
-            ": event.event == 'Product list viewed' ? 'VIEW_CONTENT'"
-            ": event.event == 'Products searched' ? 'SEARCH'"
+            ": event.event == 'Order Completed' ? 'PURCHASE'"
+            ": event.event == 'Checkout Started' ? 'START_CHECKOUT'"
+            ": event.event == 'Product Added' ? 'ADD_CART'"
+            ": event.event == 'Payment Info Entered' ? 'ADD_BILLING'"
+            ": event.event == 'Promotion Clicked' ? 'AD_CLICK'"
+            ": event.event == 'Promotion Viewed' ? 'AD_VIEW'"
+            ": event.event == 'Product Added to Wishlist' ? 'ADD_TO_WISHLIST'"
+            ": event.event == 'Product Viewed' ? 'VIEW_CONTENT'"
+            ": event.event == 'Product List Viewed' ? 'VIEW_CONTENT'"
+            ": event.event == 'Products Searched' ? 'SEARCH'"
             ": event.event"
             "}",
             "required": True,
@@ -188,9 +188,9 @@ if (res.status >= 400) {
     #         ],
     #     ),
     #     HogFunctionMappingTemplate(
-    #         name="Order completed",
+    #         name="Order Completed",
     #         include_by_default=True,
-    #         filters={"events": [{"id": "Order completed", "type": "events"}]},
+    #         filters={"events": [{"id": "Order Completed", "type": "events"}]},
     #         inputs_schema=[
     #             {
     #                 "key": "eventType",
@@ -204,9 +204,9 @@ if (res.status >= 400) {
     #         ],
     #     ),
     #     HogFunctionMappingTemplate(
-    #         name="Checkout started",
+    #         name="Checkout Started",
     #         include_by_default=True,
-    #         filters={"events": [{"id": "Checkout started", "type": "events"}]},
+    #         filters={"events": [{"id": "Checkout Started", "type": "events"}]},
     #         inputs_schema=[
     #             {
     #                 "key": "eventType",
@@ -220,9 +220,9 @@ if (res.status >= 400) {
     #         ],
     #     ),
     #     HogFunctionMappingTemplate(
-    #         name="Product added",
+    #         name="Product Added",
     #         include_by_default=True,
-    #         filters={"events": [{"id": "Product added", "type": "events"}]},
+    #         filters={"events": [{"id": "Product Added", "type": "events"}]},
     #         inputs_schema=[
     #             {
     #                 "key": "eventType",
@@ -236,9 +236,9 @@ if (res.status >= 400) {
     #         ],
     #     ),
     #     HogFunctionMappingTemplate(
-    #         name="Payment info entered",
+    #         name="Payment Info Entered",
     #         include_by_default=True,
-    #         filters={"events": [{"id": "Payment info entered", "type": "events"}]},
+    #         filters={"events": [{"id": "Payment Info Entered", "type": "events"}]},
     #         inputs_schema=[
     #             {
     #                 "key": "eventType",
@@ -252,9 +252,9 @@ if (res.status >= 400) {
     #         ],
     #     ),
     #     HogFunctionMappingTemplate(
-    #         name="Promotion clicked",
+    #         name="Promotion Clicked",
     #         include_by_default=True,
-    #         filters={"events": [{"id": "Promotion clicked", "type": "events"}]},
+    #         filters={"events": [{"id": "Promotion Clicked", "type": "events"}]},
     #         inputs_schema=[
     #             {
     #                 "key": "eventType",
@@ -268,9 +268,9 @@ if (res.status >= 400) {
     #         ],
     #     ),
     #     HogFunctionMappingTemplate(
-    #         name="Promotion viewed",
+    #         name="Promotion Viewed",
     #         include_by_default=True,
-    #         filters={"events": [{"id": "Promotion viewed", "type": "events"}]},
+    #         filters={"events": [{"id": "Promotion Viewed", "type": "events"}]},
     #         inputs_schema=[
     #             {
     #                 "key": "eventType",
@@ -284,9 +284,9 @@ if (res.status >= 400) {
     #         ],
     #     ),
     #     HogFunctionMappingTemplate(
-    #         name="Product added to wishlist",
+    #         name="Product Added to Wishlist",
     #         include_by_default=True,
-    #         filters={"events": [{"id": "Product added to wishlist", "type": "events"}]},
+    #         filters={"events": [{"id": "Product Added to Wishlist", "type": "events"}]},
     #         inputs_schema=[
     #             {
     #                 "key": "eventType",
@@ -300,9 +300,9 @@ if (res.status >= 400) {
     #         ],
     #     ),
     #     HogFunctionMappingTemplate(
-    #         name="Product viewed",
+    #         name="Product Viewed",
     #         include_by_default=True,
-    #         filters={"events": [{"id": "Product viewed", "type": "events"}]},
+    #         filters={"events": [{"id": "Product Viewed", "type": "events"}]},
     #         inputs_schema=[
     #             {
     #                 "key": "eventType",
@@ -316,9 +316,9 @@ if (res.status >= 400) {
     #         ],
     #     ),
     #     HogFunctionMappingTemplate(
-    #         name="Product list viewed",
+    #         name="Product List Viewed",
     #         include_by_default=True,
-    #         filters={"events": [{"id": "Product list viewed", "type": "events"}]},
+    #         filters={"events": [{"id": "Product List Viewed", "type": "events"}]},
     #         inputs_schema=[
     #             {
     #                 "key": "eventType",
@@ -332,9 +332,9 @@ if (res.status >= 400) {
     #         ],
     #     ),
     #     HogFunctionMappingTemplate(
-    #         name="Products searched",
+    #         name="Products Searched",
     #         include_by_default=True,
-    #         filters={"events": [{"id": "Products searched", "type": "events"}]},
+    #         filters={"events": [{"id": "Products Searched", "type": "events"}]},
     #         inputs_schema=[
     #             {
     #                 "key": "eventType",
@@ -351,16 +351,16 @@ if (res.status >= 400) {
     filters={
         "events": [
             {"id": "$pageview", "name": "Pageview", "type": "events"},
-            {"id": "Order completed", "type": "events"},
-            {"id": "Checkout started", "type": "events"},
-            {"id": "Product added", "type": "events"},
-            {"id": "Payment info entered", "type": "events"},
-            {"id": "Promotion clicked", "type": "events"},
-            {"id": "Promotion viewed", "type": "events"},
-            {"id": "Product added to wishlist", "type": "events"},
-            {"id": "Product viewed", "type": "events"},
-            {"id": "Product list viewed", "type": "events"},
-            {"id": "Products searched", "type": "events"},
+            {"id": "Order Completed", "type": "events"},
+            {"id": "Checkout Started", "type": "events"},
+            {"id": "Product Added", "type": "events"},
+            {"id": "Payment Info Entered", "type": "events"},
+            {"id": "Promotion Clicked", "type": "events"},
+            {"id": "Promotion Viewed", "type": "events"},
+            {"id": "Product Added to Wishlist", "type": "events"},
+            {"id": "Product Viewed", "type": "events"},
+            {"id": "Product List Viewed", "type": "events"},
+            {"id": "Products Searched", "type": "events"},
         ],
         "actions": [],
         "filter_test_accounts": True,
