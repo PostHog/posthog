@@ -17,7 +17,7 @@ class Feature(CreatedMetaFields, UUIDModel):
     deleted = models.BooleanField(default=False)
 
 
-class FeatureAlertConfiguration(models.Model, UUIDModel):
+class FeatureAlertConfiguration(UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     feature = models.ForeignKey("posthog.Feature", on_delete=models.CASCADE)
     alert_configuration = models.ForeignKey("posthog.AlertConfiguration", on_delete=models.CASCADE)
