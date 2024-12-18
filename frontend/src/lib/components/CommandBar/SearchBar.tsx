@@ -13,12 +13,14 @@ export const SearchBar = (): JSX.Element => {
     const inputRef = useRef<HTMLInputElement>(null)
 
     return (
-        <div className="grid grid-cols-[8.5rem_1fr] lg:grid-cols-[12.5rem_1fr] w-full h-full">
+        <div className="grid grid-cols-[8.5rem_1fr] lg:grid-cols-[12.5rem_1fr] h-full">
             <SearchTabs inputRef={inputRef} />
-            <div className="grid grid-rows-[auto_100%] overscroll-contain overflow-hidden">
+            <div className="grid grid-rows-[49px_calc(40rem-49px)] overflow-hidden overscroll-contain">
                 <SearchInput ref={inputRef} />
                 <SearchResults />
             </div>
         </div>
     )
 }
+// grid-rows-[49px_calc(40rem-49px)]
+// 49px calc(572px - 46px) !important

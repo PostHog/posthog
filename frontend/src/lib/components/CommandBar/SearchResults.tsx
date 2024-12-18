@@ -9,7 +9,7 @@ export const SearchResults = (): JSX.Element => {
     const { combinedSearchResults, combinedSearchLoading, activeResultIndex } = useValues(searchBarLogic)
 
     return (
-        <div className="SearchResults grow">
+        <>
             {!combinedSearchLoading && combinedSearchResults?.length === 0 ? (
                 <div className="w-full h-full flex flex-col items-center justify-center p-3 text-center">
                     <h3 className="mb-0 text-xl">No results</h3>
@@ -17,8 +17,8 @@ export const SearchResults = (): JSX.Element => {
                     <DetectiveHog height={150} width={150} />
                 </div>
             ) : (
-                <div className="md:grid md:grid-rows-none md:grid-cols-[320px_1fr] overflow-auto md:overflow-hidden overscroll-contain h-full">
-                    <div className="border-r border-b md:border-b-0 bg-bg-3000 overscroll-contain overflow-y-auto w-full">
+                <div className="md:grid md:grid-cols-[320px_1fr]">
+                    <div className="border-r border-b md:border-b-0 bg-bg-3000 overscroll-contain overflow-y-auto">
                         {combinedSearchLoading && (
                             <>
                                 <SearchResultSkeleton />
@@ -41,6 +41,6 @@ export const SearchResults = (): JSX.Element => {
                     </div>
                 </div>
             )}
-        </div>
+        </>
     )
 }
