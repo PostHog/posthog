@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
-import { AsyncSTLFunction, STLFunction } from '../types'
+import { AsyncSTLFunction, STLFunction, HogInterval, HogDate, HogDateTime } from '../types'
 import { getNestedValue, like } from '../utils'
 import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
 import {
@@ -32,6 +32,425 @@ function STLToString(args: any[]): string {
     }
     return printHogStringOutput(args[0])
 }
+
+// Helper: HogInterval
+function isHogInterval(obj: any): obj is HogInterval {
+    return obj && obj.__hogInterval__ === true
+}
+
+function toHogInterval(value: number, unit: string): HogInterval {
+    return {
+        __hogInterval__: true,
+        value: value,
+        unit: unit,
+    }
+}
+
+function applyIntervalToDateTime(base: HogDate | HogDateTime, interval: HogInterval): HogDate | HogDateTime {
+    let dt: DateTime
+    let zone = 'UTC'
+    if (isHogDateTime(base)) {
+        zone = base.zone
+        dt = DateTime.fromSeconds(base.dt, { zone })
+    } else {
+        dt = DateTime.fromObject({ year: base.year, month: base.month, day: base.day }, { zone })
+    }
+
+    const { value, unit } = interval
+    // Expand certain units for uniformity
+    let effectiveUnit = unit
+    let effectiveValue = value
+    if (unit === 'week') {
+        effectiveUnit = 'day'
+        effectiveValue = value * 7
+    } else if (unit === 'year') {
+        effectiveUnit = 'month'
+        effectiveValue = value * 12
+    }
+
+    // Note: Luxon doesn't have direct month addition that can handle overflow automatically to last day of month,
+    // but plus({ months: x }) will shift the date by x months and clamp automatically if needed.
+    let newDt: DateTime
+    switch (effectiveUnit) {
+        case 'day':
+            newDt = dt.plus({ days: effectiveValue })
+            break
+        case 'hour':
+            newDt = dt.plus({ hours: effectiveValue })
+            break
+        case 'minute':
+            newDt = dt.plus({ minutes: effectiveValue })
+            break
+        case 'month':
+            newDt = dt.plus({ months: effectiveValue })
+            break
+        default:
+            throw new Error(`Unsupported interval unit: ${unit}`)
+    }
+
+    if (isHogDateTime(base)) {
+        return {
+            __hogDateTime__: true,
+            dt: newDt.toSeconds(),
+            zone: newDt.zoneName || 'UTC',
+        }
+    } else {
+        return {
+            __hogDate__: true,
+            year: newDt.year,
+            month: newDt.month,
+            day: newDt.day,
+        }
+    }
+}
+
+// dateAdd(unit, amount, datetime)
+function dateAddFn([unit, amount, datetime]: any[]): HogDate | HogDateTime {
+    return applyIntervalToDateTime(datetime, toHogInterval(amount, unit))
+}
+
+// dateDiff(unit, start, end)
+function dateDiffFn([unit, startVal, endVal]: any[]): number {
+    function toDT(obj: any): DateTime {
+        if (isHogDateTime(obj)) {
+            return DateTime.fromSeconds(obj.dt, { zone: obj.zone })
+        } else if (isHogDate(obj)) {
+            return DateTime.fromObject({ year: obj.year, month: obj.month, day: obj.day }, { zone: 'UTC' })
+        } else {
+            // try parse ISO string
+            return DateTime.fromISO(obj, { zone: 'UTC' })
+        }
+    }
+
+    const start = toDT(startVal)
+    const end = toDT(endVal)
+    const diff = end.diff(start, ['years', 'months', 'weeks', 'days', 'hours', 'minutes', 'seconds'])
+
+    switch (unit) {
+        case 'day':
+            return Math.floor((end.toMillis() - start.toMillis()) / (1000 * 60 * 60 * 24))
+        case 'hour':
+            return Math.floor(diff.as('hours'))
+        case 'minute':
+            return Math.floor(diff.as('minutes'))
+        case 'second':
+            return Math.floor(diff.as('seconds'))
+        case 'week':
+            return Math.floor(diff.as('days') / 7)
+        case 'month':
+            // Month difference approximated by counting month differences:
+            return (end.year - start.year) * 12 + (end.month - start.month)
+        case 'year':
+            return end.year - start.year
+        default:
+            throw new Error(`Unsupported unit for dateDiff: ${unit}`)
+    }
+}
+
+// dateTrunc(unit, datetime)
+function dateTruncFn([unit, val]: any[]): HogDateTime {
+    if (!isHogDateTime(val)) {
+        throw new Error('Expected a DateTime for dateTrunc')
+    }
+    const dt = DateTime.fromSeconds(val.dt, { zone: val.zone })
+    let truncated: DateTime
+    switch (unit) {
+        case 'year':
+            truncated = DateTime.fromObject({ year: dt.year }, { zone: dt.zoneName })
+            break
+        case 'month':
+            truncated = DateTime.fromObject({ year: dt.year, month: dt.month }, { zone: dt.zoneName })
+            break
+        case 'day':
+            truncated = DateTime.fromObject({ year: dt.year, month: dt.month, day: dt.day }, { zone: dt.zoneName })
+            break
+        case 'hour':
+            truncated = DateTime.fromObject({ year: dt.year, month: dt.month, day: dt.day, hour: dt.hour }, { zone: dt.zoneName })
+            break
+        case 'minute':
+            truncated = DateTime.fromObject({ year: dt.year, month: dt.month, day: dt.day, hour: dt.hour, minute: dt.minute }, { zone: dt.zoneName })
+            break
+        default:
+            throw new Error(`Unsupported unit for dateTrunc: ${unit}`)
+    }
+    return {
+        __hogDateTime__: true,
+        dt: truncated.toSeconds(),
+        zone: truncated.zoneName || 'UTC',
+    }
+}
+
+function coalesceFn(args: any[]): any {
+    for (const a of args) {
+        if (a !== null && a !== undefined) return a
+    }
+    return null
+}
+
+function assumeNotNullFn([val]: any[]): any {
+    if (val === null || val === undefined) {
+        throw new Error("Value is null in assumeNotNull")
+    }
+    return val
+}
+
+function equalsFn([a, b]: any[]): boolean {
+    return a === b
+}
+
+function greaterFn([a, b]: any[]): boolean {
+    return a > b
+}
+
+function greaterOrEqualsFn([a, b]: any[]): boolean {
+    return a >= b
+}
+
+function lessFn([a, b]: any[]): boolean {
+    return a < b
+}
+
+function lessOrEqualsFn([a, b]: any[]): boolean {
+    return a <= b
+}
+
+function notEqualsFn([a, b]: any[]): boolean {
+    return a !== b
+}
+
+function notFn([a]: any[]): boolean {
+    return !a
+}
+
+function orFn([a, b]: any[]): boolean {
+    return Boolean(a) || Boolean(b)
+}
+
+function ifFn([cond, thenVal, elseVal]: any[]): any {
+    return cond ? thenVal : elseVal
+}
+
+function inFn([val, arr]: any[]): boolean {
+    return Array.isArray(arr) || (arr && arr.__isHogTuple) ? arr.includes(val) : false
+}
+
+function min2Fn([a, b]: any[]): any {
+    return a < b ? a : b
+}
+
+function plusFn([a, b]: any[]): any {
+    return a + b
+}
+
+function minusFn([a, b]: any[]): any {
+    return a - b
+}
+
+function multiIfFn(args: any[]): any {
+    // multiIf(cond1, val1, cond2, val2, ..., default)
+    const last = args[args.length - 1]
+    const pairs = args.slice(0, -1)
+    for (let i = 0; i < pairs.length; i += 2) {
+        const cond = pairs[i]
+        const val = pairs[i + 1]
+        if (cond) {
+            return val
+        }
+    }
+    return last
+}
+
+function floorFn([a]: any[]): any {
+    return Math.floor(a)
+}
+
+// extract(part, datetime)
+function extractFn([part, val]: any[]): number {
+    function toDT(obj: any): DateTime {
+        if (isHogDateTime(obj)) {
+            return DateTime.fromSeconds(obj.dt, { zone: obj.zone })
+        } else if (isHogDate(obj)) {
+            return DateTime.fromObject({ year: obj.year, month: obj.month, day: obj.day }, { zone: 'UTC' })
+        } else {
+            return DateTime.fromISO(obj, { zone: 'UTC' })
+        }
+    }
+
+    const dt = toDT(val)
+    switch (part) {
+        case 'year':
+            return dt.year
+        case 'month':
+            return dt.month
+        case 'day':
+            return dt.day
+        case 'hour':
+            return dt.hour
+        case 'minute':
+            return dt.minute
+        case 'second':
+            return dt.second
+        default:
+            throw new Error(`Unknown extract part: ${part}`)
+    }
+}
+
+function roundFn([a]: any[]): any {
+    return Math.round(a)
+}
+
+function startsWithFn([str, prefix]: any[]): boolean {
+    return typeof str === 'string' && typeof prefix === 'string' && str.startsWith(prefix)
+}
+
+function substringFn([s, start, length]: any[]): string {
+    if (typeof s !== 'string') return ''
+    const startIdx = start - 1
+    if (startIdx < 0 || length < 0) return ''
+    const endIdx = startIdx + length
+    return startIdx < s.length ? s.slice(startIdx, endIdx) : ''
+}
+
+function addDaysFn([dateOrDt, days]: any[]): HogDate | HogDateTime {
+    return applyIntervalToDateTime(dateOrDt, toHogInterval(days, 'day'))
+}
+
+function toIntervalDayFn([val]: any[]): HogInterval {
+    return toHogInterval(val, 'day')
+}
+
+function toIntervalHourFn([val]: any[]): HogInterval {
+    return toHogInterval(val, 'hour')
+}
+
+function toIntervalMinuteFn([val]: any[]): HogInterval {
+    return toHogInterval(val, 'minute')
+}
+
+function toIntervalMonthFn([val]: any[]): HogInterval {
+    return toHogInterval(val, 'month')
+}
+
+function toYearFn([val]: any[]): number {
+    return extractFn(['year', val])
+}
+
+function toMonthFn([val]: any[]): number {
+    return extractFn(['month', val])
+}
+
+function toStartOfDayFn([val]: any[]): HogDateTime {
+    return dateTruncFn(['day', isHogDateTime(val) ? val : toDateTimeFromDate(val)])
+}
+
+function toStartOfHourFn([val]: any[]): HogDateTime {
+    return dateTruncFn(['hour', isHogDateTime(val) ? val : toDateTimeFromDate(val)])
+}
+
+function toStartOfMonthFn([val]: any[]): HogDateTime {
+    return dateTruncFn(['month', isHogDateTime(val) ? val : toDateTimeFromDate(val)])
+}
+
+function toStartOfWeekFn([val]: any[]): HogDateTime {
+    const dt = isHogDateTime(val) ? DateTime.fromSeconds(val.dt, { zone: val.zone }) :
+        DateTime.fromObject({ year: val.year, month: val.month, day: val.day }, { zone: 'UTC' })
+    const weekday = dt.weekday // Monday=1, Sunday=7
+    const startOfWeek = dt.minus({ days: weekday - 1 }).startOf('day')
+    return {
+        __hogDateTime__: true,
+        dt: startOfWeek.toSeconds(),
+        zone: startOfWeek.zoneName || 'UTC'
+    }
+}
+
+function toYYYYMMFn([val]: any[]): number {
+    const y = toYearFn([val])
+    const m = toMonthFn([val])
+    return y * 100 + m
+}
+
+function todayFn(): HogDate {
+    const now = DateTime.now().setZone('UTC')
+    return {
+        __hogDate__: true,
+        year: now.year,
+        month: now.month,
+        day: now.day,
+    }
+}
+
+function toDateTimeFromDate(date: HogDate): HogDateTime {
+    const dt = DateTime.fromObject({ year: date.year, month: date.month, day: date.day }, { zone: 'UTC' })
+    return {
+        __hogDateTime__: true,
+        dt: dt.toSeconds(),
+        zone: 'UTC',
+    }
+}
+
+function rangeFn(args: any[]): any[] {
+    if (args.length === 1) {
+        return Array.from({ length: args[0] }, (_, i) => i)
+    } else {
+        return Array.from({ length: args[1] - args[0] }, (_, i) => args[0] + i)
+    }
+}
+
+// JSON extraction
+function JSONExtractArrayRawFn(args: any[]): any {
+    let [obj, ...path] = args
+    try {
+        if (typeof obj === 'string') {
+            obj = JSON.parse(obj)
+        }
+    } catch {
+        return null
+    }
+    const val = getNestedValue(obj, path, true)
+    return Array.isArray(val) ? val : null
+}
+
+function JSONExtractFloatFn(args: any[]): number | null {
+    let [obj, ...path] = args
+    try {
+        if (typeof obj === 'string') {
+            obj = JSON.parse(obj)
+        }
+    } catch {
+        return null
+    }
+    const val = getNestedValue(obj, path, true)
+    const f = parseFloat(val)
+    return isNaN(f) ? null : f
+}
+
+function JSONExtractIntFn(args: any[]): number | null {
+    let [obj, ...path] = args
+    try {
+        if (typeof obj === 'string') {
+            obj = JSON.parse(obj)
+        }
+    } catch {
+        return null
+    }
+    const val = getNestedValue(obj, path, true)
+    const i = parseInt(val)
+    return isNaN(i) ? null : i
+}
+
+function JSONExtractStringFn(args: any[]): string | null {
+    let [obj, ...path] = args
+    try {
+        if (typeof obj === 'string') {
+            obj = JSON.parse(obj)
+        }
+    } catch {
+        return null
+    }
+    const val = getNestedValue(obj, path, true)
+    return val != null ? String(val) : null
+}
+
 
 export const STL: Record<string, STLFunction> = {
     concat: {
@@ -789,6 +1208,49 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 1,
         maxArgs: 1,
     },
+
+    JSONExtractArrayRaw: { fn: JSONExtractArrayRawFn, minArgs: 1 },
+    JSONExtractFloat: { fn: JSONExtractFloatFn, minArgs: 1 },
+    JSONExtractInt: { fn: JSONExtractIntFn, minArgs: 1 },
+    JSONExtractString: { fn: JSONExtractStringFn, minArgs: 1 },
+    addDays: { fn: addDaysFn, minArgs: 2, maxArgs: 2 },
+    assumeNotNull: { fn: assumeNotNullFn, minArgs: 1, maxArgs: 1 },
+    coalesce: { fn: coalesceFn, minArgs: 1 },
+    dateAdd: { fn: dateAddFn, minArgs: 3, maxArgs: 3 },
+    dateDiff: { fn: dateDiffFn, minArgs: 3, maxArgs: 3 },
+    dateTrunc: { fn: dateTruncFn, minArgs: 2, maxArgs: 2 },
+    equals: { fn: equalsFn, minArgs: 2, maxArgs: 2 },
+    extract: { fn: extractFn, minArgs: 2, maxArgs: 2 },
+    floor: { fn: floorFn, minArgs: 1, maxArgs: 1 },
+    greater: { fn: greaterFn, minArgs: 2, maxArgs: 2 },
+    greaterOrEquals: { fn: greaterOrEqualsFn, minArgs: 2, maxArgs: 2 },
+    if: { fn: ifFn, minArgs: 3, maxArgs: 3 },
+    in: { fn: inFn, minArgs: 2, maxArgs: 2 },
+    less: { fn: lessFn, minArgs: 2, maxArgs: 2 },
+    lessOrEquals: { fn: lessOrEqualsFn, minArgs: 2, maxArgs: 2 },
+    min2: { fn: min2Fn, minArgs: 2, maxArgs: 2 },
+    minus: { fn: minusFn, minArgs: 2, maxArgs: 2 },
+    multiIf: { fn: multiIfFn, minArgs: 3 },
+    not: { fn: notFn, minArgs: 1, maxArgs: 1 },
+    notEquals: { fn: notEqualsFn, minArgs: 2, maxArgs: 2 },
+    or: { fn: orFn, minArgs: 2, maxArgs: 2 },
+    plus: { fn: plusFn, minArgs: 2, maxArgs: 2 },
+    range: { fn: rangeFn, minArgs: 1, maxArgs: 2 },
+    round: { fn: roundFn, minArgs: 1, maxArgs: 1 },
+    startsWith: { fn: startsWithFn, minArgs: 2, maxArgs: 2 },
+    substring: { fn: substringFn, minArgs: 3, maxArgs: 3 },
+    toIntervalDay: { fn: toIntervalDayFn, minArgs: 1, maxArgs: 1 },
+    toIntervalHour: { fn: toIntervalHourFn, minArgs: 1, maxArgs: 1 },
+    toIntervalMinute: { fn: toIntervalMinuteFn, minArgs: 1, maxArgs: 1 },
+    toIntervalMonth: { fn: toIntervalMonthFn, minArgs: 1, maxArgs: 1 },
+    toMonth: { fn: toMonthFn, minArgs: 1, maxArgs: 1 },
+    toStartOfDay: { fn: toStartOfDayFn, minArgs: 1, maxArgs: 1 },
+    toStartOfHour: { fn: toStartOfHourFn, minArgs: 1, maxArgs: 1 },
+    toStartOfMonth: { fn: toStartOfMonthFn, minArgs: 1, maxArgs: 1 },
+    toStartOfWeek: { fn: toStartOfWeekFn, minArgs: 1, maxArgs: 1 },
+    toYYYYMM: { fn: toYYYYMMFn, minArgs: 1, maxArgs: 1 },
+    toYear: { fn: toYearFn, minArgs: 1, maxArgs: 1 },
+    today: { fn: todayFn, minArgs: 0, maxArgs: 0 },
 }
 
 export const ASYNC_STL: Record<string, AsyncSTLFunction> = {
