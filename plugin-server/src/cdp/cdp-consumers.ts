@@ -574,8 +574,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     }
 
     // This consumer always parses from kafka
-    public async _handleKafkaBatch(messages: Message[]): Promise<void> {
-        const invocationGlobals = await this.runWithHeartbeat(() =>
+    public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        return await this.runWithHeartbeat(() =>
             runInstrumentedFunction({
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: async () => {
@@ -611,8 +611,6 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 },
             })
         )
-
-        await this.processBatch(invocationGlobals)
     }
 
     public async start(): Promise<void> {
@@ -620,7 +618,10 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
         await this.startKafkaConsumer({
             topic: this.topic,
             groupId: this.groupId,
-            handleBatch: (messages) => this._handleKafkaBatch(messages),
+            handleBatch: async (messages) => {
+                const invocationGlobals = await this._parseKafkaBatch(messages)
+                await this.processBatch(invocationGlobals)
+            },
         })
 
         const shardDepthLimit = this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000
@@ -644,8 +645,8 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
     protected hogTypes: HogFunctionTypeType[] = ['internal-destination']
 
     // This consumer always parses from kafka
-    public async _handleKafkaBatch(messages: Message[]): Promise<void> {
-        const invocationGlobals = await this.runWithHeartbeat(() =>
+    public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        return await this.runWithHeartbeat(() =>
             runInstrumentedFunction({
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: async () => {
@@ -684,8 +685,6 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
                 },
             })
         )
-
-        await this.processBatch(invocationGlobals)
     }
 }
 
@@ -730,8 +729,8 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
         await this.produceQueuedMessages()
     }
 
-    public async _handleKafkaBatch(messages: Message[]): Promise<void> {
-        const events = await this.runWithHeartbeat(() =>
+    public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocation[]> {
+        return await this.runWithHeartbeat(() =>
             runInstrumentedFunction({
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: async () => {
@@ -799,8 +798,6 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                 },
             })
         )
-
-        await this.processBatch(events)
     }
 
     public async start(): Promise<void> {
@@ -808,7 +805,10 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
         await this.startKafkaConsumer({
             topic: KAFKA_CDP_FUNCTION_CALLBACKS,
             groupId: 'cdp-function-callback-consumer',
-            handleBatch: (messages) => this._handleKafkaBatch(messages),
+            handleBatch: async (messages) => {
+                const invocations = await this._parseKafkaBatch(messages)
+                await this.processBatch(invocations)
+            },
         })
     }
 }

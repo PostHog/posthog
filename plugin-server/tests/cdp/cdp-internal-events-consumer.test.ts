@@ -5,74 +5,7 @@ import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
-import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './fixtures'
-
-const mockConsumer = {
-    on: jest.fn(),
-    commitSync: jest.fn(),
-    commit: jest.fn(),
-    queryWatermarkOffsets: jest.fn(),
-    committed: jest.fn(),
-    assignments: jest.fn(),
-    isConnected: jest.fn(() => true),
-    getMetadata: jest.fn(),
-}
-
-jest.mock('../../src/kafka/batch-consumer', () => {
-    return {
-        startBatchConsumer: jest.fn(() =>
-            Promise.resolve({
-                join: () => ({
-                    finally: jest.fn(),
-                }),
-                stop: jest.fn(),
-                consumer: mockConsumer,
-            })
-        ),
-    }
-})
-
-jest.mock('../../src/utils/fetch', () => {
-    return {
-        trackedFetch: jest.fn(() =>
-            Promise.resolve({
-                status: 200,
-                text: () => Promise.resolve(JSON.stringify({ success: true })),
-                json: () => Promise.resolve({ success: true }),
-            })
-        ),
-    }
-})
-
-jest.mock('../../src/utils/db/kafka-producer-wrapper', () => {
-    const mockKafkaProducer = {
-        producer: {
-            connect: jest.fn(),
-        },
-        disconnect: jest.fn(),
-        produce: jest.fn(() => Promise.resolve()),
-    }
-    return {
-        KafkaProducerWrapper: jest.fn(() => mockKafkaProducer),
-    }
-})
-
-const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
-
-const mockProducer = require('../../src/utils/db/kafka-producer-wrapper').KafkaProducerWrapper()
-
-jest.setTimeout(1000)
-
-const decodeKafkaMessage = (message: any): any => {
-    return {
-        ...message,
-        value: JSON.parse(message.value.toString()),
-    }
-}
-
-const decodeAllKafkaMessages = (): any[] => {
-    return mockProducer.produce.mock.calls.map((x) => decodeKafkaMessage(x[0]))
-}
+import { createInternalEvent, createKafkaMessage, insertHogFunction as _insertHogFunction } from './fixtures'
 
 describe('CDP Internal Events Consumer', () => {
     let processor: CdpInternalEventsConsumer
@@ -93,8 +26,6 @@ describe('CDP Internal Events Consumer', () => {
 
         processor = new CdpInternalEventsConsumer(hub)
         await processor.start()
-
-        mockFetch.mockClear()
     })
 
     afterEach(async () => {
@@ -107,284 +38,62 @@ describe('CDP Internal Events Consumer', () => {
         jest.useRealTimers()
     })
 
-    describe('general event processing', () => {
-        describe('common processing', () => {
-            let fnFetchNoFilters: HogFunctionType
-            let fnPrinterPageviewFilters: HogFunctionType
-            let globals: HogFunctionInvocationGlobals
+    describe('_handleKafkaBatch', () => {
+        it('should ignore invalid message', async () => {
+            const events = await processor._parseKafkaBatch([createKafkaMessage({})])
+            expect(events).toHaveLength(0)
+        })
 
+        it('should ignore message with no team', async () => {
+            const events = await processor._parseKafkaBatch([createKafkaMessage(createInternalEvent(999999, {}))])
+            expect(events).toHaveLength(0)
+        })
+
+        describe('with an existing team and hog function', () => {
             beforeEach(async () => {
-                fnFetchNoFilters = await insertHogFunction({
+                await insertHogFunction({
                     ...HOG_EXAMPLES.simple_fetch,
                     ...HOG_INPUTS_EXAMPLES.simple_fetch,
                     ...HOG_FILTERS_EXAMPLES.no_filters,
                     type: 'internal-destination',
                 })
+            })
 
-                fnPrinterPageviewFilters = await insertHogFunction({
-                    ...HOG_EXAMPLES.input_printer,
-                    ...HOG_INPUTS_EXAMPLES.secret_inputs,
-                    ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
-                    type: 'internal-destination',
-                })
+            it('should ignore invalid payloads', async () => {
+                const events = await processor._parseKafkaBatch([
+                    createKafkaMessage(
+                        createInternalEvent(team.id, {
+                            event: 'WRONG' as any,
+                        })
+                    ),
+                ])
+                expect(events).toHaveLength(0)
+            })
 
-                globals = createHogExecutionGlobals({
-                    project: {
-                        id: team.id,
-                    } as any,
+            it('should parse a valid message with an existing team and hog function ', async () => {
+                const event = createInternalEvent(team.id, {})
+                event.event.timestamp = '2024-12-18T15:06:23.545Z'
+                event.event.uuid = 'b6da2f33-ba54-4550-9773-50d3278ad61f'
+
+                const events = await processor._parseKafkaBatch([createKafkaMessage(event)])
+                expect(events).toHaveLength(1)
+                expect(events[0]).toEqual({
                     event: {
-                        uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                        distinct_id: 'distinct_id',
+                        elements_chain: '',
                         event: '$pageview',
-                        properties: {
-                            $current_url: 'https://posthog.com',
-                            $lib_version: '1.0.0',
-                        },
-                    } as any,
-                })
-            })
-
-            const matchInvocation = (hogFunction: HogFunctionType, globals: HogFunctionInvocationGlobals) => {
-                return {
-                    hogFunction: {
-                        id: hogFunction.id,
+                        properties: {},
+                        timestamp: '2024-12-18T15:06:23.545Z',
+                        url: '',
+                        uuid: 'b6da2f33-ba54-4550-9773-50d3278ad61f',
                     },
-                    globals: {
-                        event: globals.event,
-                    },
-                }
-            }
-
-            it('should process events', async () => {
-                const invocations = await processor.processBatch([globals])
-
-                expect(invocations).toHaveLength(2)
-                expect(invocations).toMatchObject([
-                    matchInvocation(fnFetchNoFilters, globals),
-                    matchInvocation(fnPrinterPageviewFilters, globals),
-                ])
-
-                expect(decodeAllKafkaMessages()).toMatchObject([
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: 'Executing function',
-                            log_source_id: fnFetchNoFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message:
-                                "Suspending function due to async function call 'fetch'. Payload: 2035 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
-                            log_source_id: fnFetchNoFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'clickhouse_app_metrics2_test',
-                        value: {
-                            app_source: 'hog_function',
-                            team_id: 2,
-                            app_source_id: fnPrinterPageviewFilters.id,
-                            metric_kind: 'success',
-                            metric_name: 'succeeded',
-                            count: 1,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: 'Executing function',
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: 'test',
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: '{"nested":{"foo":"***REDACTED***","bool":false,"null":null}}',
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: '{"foo":"***REDACTED***","bool":false,"null":null}',
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: 'substring: ***REDACTED***',
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message:
-                                '{"input_1":"test","secret_input_2":{"foo":"***REDACTED***","bool":false,"null":null},"secret_input_3":"***REDACTED***"}',
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: expect.stringContaining('Function completed'),
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'clickhouse_app_metrics2_test',
-                        value: {
-                            app_source: 'hog_function',
-                            count: 1,
-                            metric_kind: 'other',
-                            metric_name: 'fetch',
-                        },
-                    },
-                    {
-                        topic: 'cdp_function_callbacks_test',
-                        value: {
-                            state: expect.any(String),
-                        },
-                        key: expect.stringContaining(fnFetchNoFilters.id.toString()),
-                        waitForAck: true,
-                    },
-                ])
-            })
-
-            it("should filter out functions that don't match the filter", async () => {
-                globals.event.properties.$current_url = 'https://nomatch.com'
-
-                const invocations = await processor.processBatch([globals])
-
-                expect(invocations).toHaveLength(1)
-                expect(invocations).toMatchObject([matchInvocation(fnFetchNoFilters, globals)])
-
-                expect(decodeAllKafkaMessages()).toMatchObject([
-                    {
-                        key: expect.any(String),
-                        topic: 'clickhouse_app_metrics2_test',
-                        value: {
-                            app_source: 'hog_function',
-                            app_source_id: fnPrinterPageviewFilters.id,
-                            count: 1,
-                            metric_kind: 'other',
-                            metric_name: 'filtered',
-                            team_id: 2,
-                            timestamp: expect.any(String),
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                    },
-                    {
-                        topic: 'log_entries_test',
-                    },
-                    {
-                        topic: 'clickhouse_app_metrics2_test',
-                    },
-                    {
-                        topic: 'cdp_function_callbacks_test',
-                    },
-                ])
-            })
-
-            it.each([
-                [HogWatcherState.disabledForPeriod, 'disabled_temporarily'],
-                [HogWatcherState.disabledIndefinitely, 'disabled_permanently'],
-            ])('should filter out functions that are disabled', async (state, metric_name) => {
-                await processor.hogWatcher.forceStateChange(fnFetchNoFilters.id, state)
-                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters.id, state)
-
-                const invocations = await processor.processBatch([globals])
-
-                expect(invocations).toHaveLength(0)
-                expect(mockProducer.produce).toHaveBeenCalledTimes(2)
-
-                expect(decodeAllKafkaMessages()).toMatchObject([
-                    {
-                        topic: 'clickhouse_app_metrics2_test',
-                        value: {
-                            app_source: 'hog_function',
-                            app_source_id: fnFetchNoFilters.id,
-                            count: 1,
-                            metric_kind: 'failure',
-                            metric_name: metric_name,
-                            team_id: 2,
-                        },
-                    },
-                    {
-                        topic: 'clickhouse_app_metrics2_test',
-                        value: {
-                            app_source: 'hog_function',
-                            app_source_id: fnPrinterPageviewFilters.id,
-                            count: 1,
-                            metric_kind: 'failure',
-                            metric_name: metric_name,
-                            team_id: 2,
-                        },
-                    },
-                ])
-            })
-        })
-
-        describe('filtering errors', () => {
-            let globals: HogFunctionInvocationGlobals
-
-            beforeEach(() => {
-                globals = createHogExecutionGlobals({
+                    person: undefined,
                     project: {
-                        id: team.id,
-                    } as any,
-                    event: {
-                        uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-                        event: '$pageview',
-                        properties: {
-                            $current_url: 'https://posthog.com',
-                            $lib_version: '1.0.0',
-                        },
-                    } as any,
-                })
-            })
-
-            it('should filter out functions that error while filtering', async () => {
-                const erroringFunction = await insertHogFunction({
-                    ...HOG_EXAMPLES.input_printer,
-                    ...HOG_INPUTS_EXAMPLES.secret_inputs,
-                    ...HOG_FILTERS_EXAMPLES.broken_filters,
-                    type: 'internal-destination',
-                })
-                await processor.processBatch([globals])
-                expect(decodeAllKafkaMessages()).toMatchObject([
-                    {
-                        key: expect.any(String),
-                        topic: 'clickhouse_app_metrics2_test',
-                        value: {
-                            app_source: 'hog_function',
-                            app_source_id: erroringFunction.id,
-                            count: 1,
-                            metric_kind: 'other',
-                            metric_name: 'filtering_failed',
-                            team_id: 2,
-                            timestamp: expect.any(String),
-                        },
+                        id: 2,
+                        name: 'TEST PROJECT',
+                        url: 'http://localhost:8000/project/2',
                     },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message:
-                                'Error filtering event b3a1fe86-b10c-43cc-acaf-d208977608d0: Invalid HogQL bytecode, stack is empty, can not pop',
-                        },
-                    },
-                ])
+                })
             })
         })
     })
