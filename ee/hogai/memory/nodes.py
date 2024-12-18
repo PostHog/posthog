@@ -29,14 +29,15 @@ class MemoryInitializerNode(AssistantNode):
         self._team = team
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        core_memory = CoreMemory.objects.get_or_create(team=self._team)
+        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         retrieved_properties = self._retrieve_context()
 
         # No host or app bundle ID found, continue.
         if not retrieved_properties or retrieved_properties[0].sample_count == 0:
-            core_memory.scraping_status = CoreMemory.ScrapingStatus.SKIPPED
-            core_memory.save()
+            core_memory.change_status_to_skipped()
             return PartialAssistantState()
+
+        core_memory.change_status_to_pending()
 
         retrieved_prop = retrieved_properties[0]
         if retrieved_prop.property == "$host":
@@ -51,10 +52,9 @@ class MemoryInitializerNode(AssistantNode):
         chain = prompt | self._model() | StrOutputParser()
         answer = chain.invoke({}, config=config)
 
+        # Perplexity has failed to scrape the data, continue.
         if "no data available." in answer.lower():
-            core_memory.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
-            core_memory.save()
-
+            core_memory.change_status_to_skipped()
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
@@ -67,8 +67,11 @@ class MemoryInitializerNode(AssistantNode):
         return PartialAssistantState(messages=[AssistantMessage(content=answer, id=uuid4())])
 
     def should_run(self, _: AssistantState) -> bool:
-        core_memory: CoreMemory | None = self._team.core_memories.first()
-        return not core_memory or not core_memory.is_scraping_finished
+        try:
+            core_memory = CoreMemory.objects.get(team=self._team)
+        except CoreMemory.DoesNotExist:
+            return True
+        return not core_memory.is_scraping_pending
 
     def router(self, state: AssistantState) -> Literal["interrupt", "next_node"]:
         last_message = state.messages[-1]

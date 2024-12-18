@@ -1,6 +1,8 @@
 from collections.abc import Iterable
+from datetime import timedelta
 
 from django.db import models
+from django.utils import timezone
 from langgraph.checkpoint.serde.types import TASKS
 
 from posthog.models.team.team import Team
@@ -97,15 +99,27 @@ class CoreMemory(UUIDModel):
         COMPLETED = "completed", "Completed"
         SKIPPED = "skipped", "Skipped"
 
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="core_memories")
+    team = models.OneToOneField(Team, on_delete=models.CASCADE)
     text = models.TextField(default="", help_text="Dumped core memory where facts are separated by newlines.")
     initial_text = models.TextField(default="", help_text="Scraped memory about the business.")
     scraping_status = models.CharField(max_length=20, choices=ScrapingStatus.choices, blank=True, null=True)
+    scraping_started_at = models.DateTimeField(null=True)
 
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["team_id", "user_id"], name="unique_core_memory"),
-        ]
+    def change_status_to_pending(self):
+        self.scraping_started_at = timezone.now()
+        self.scraping_status = CoreMemory.ScrapingStatus.PENDING
+        self.save()
+
+    def change_status_to_skipped(self):
+        self.scraping_status = CoreMemory.ScrapingStatus.SKIPPED
+        self.save()
+
+    @property
+    def is_scraping_pending(self) -> bool:
+        return (
+            self.scraping_status == CoreMemory.ScrapingStatus.PENDING
+            and self.scraping_started_at < timezone.now() - timedelta(minutes=5)
+        )
 
     @property
     def is_scraping_finished(self) -> bool:

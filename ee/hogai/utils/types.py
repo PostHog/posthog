@@ -42,6 +42,7 @@ class AssistantNodeName(StrEnum):
     START = START
     END = END
     MEMORY_INITIALIZER = "memory_initializer"
+    MEMORY_INITIALIZER_INTERRUPT = "memory_initializer_interrupt"
     ROUTER = "router"
     TRENDS_PLANNER = "trends_planner"
     TRENDS_PLANNER_TOOLS = "trends_planner_tools"

@@ -11,7 +11,7 @@ from ee.hogai.funnels.nodes import (
     FunnelPlannerNode,
     FunnelPlannerToolsNode,
 )
-from ee.hogai.memory.nodes import MemoryInitializer
+from ee.hogai.memory.nodes import MemoryInitializerInterruptNode, MemoryInitializerNode
 from ee.hogai.router.nodes import RouterNode
 from ee.hogai.summarizer.nodes import SummarizerNode
 from ee.hogai.trends.nodes import (
@@ -171,14 +171,22 @@ class AssistantGraph:
 
     def add_memory_initializer(self, next_node: AssistantNodeName = AssistantNodeName.ROUTER):
         builder = self._graph
-        memory_initializer = MemoryInitializer(self._team)
+        self._has_start_node = True
+        memory_initializer = MemoryInitializerNode(self._team)
+        memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team)
         builder.add_node(AssistantNodeName.MEMORY_INITIALIZER, memory_initializer.run)
+        builder.add_node(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, memory_initializer_interrupt.run)
         builder.add_conditional_edges(
             AssistantNodeName.START,
             memory_initializer.should_run,
             path_map={True: AssistantNodeName.MEMORY_INITIALIZER, False: next_node},
         )
-        builder.add_edge(AssistantNodeName.MEMORY_INITIALIZER, next_node)
+        builder.add_conditional_edges(
+            AssistantNodeName.MEMORY_INITIALIZER,
+            memory_initializer.router,
+            path_map={"next_node": next_node, "interrupt": AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT},
+        )
+        builder.add_edge(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, next_node)
         return self
 
     def compile_full_graph(self):
