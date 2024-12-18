@@ -1611,7 +1611,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
 
     @patch("posthog.tasks.usage_report.Client")
-    def test_capture_report_transforms_team_id_to_org_id(self, mock_client):
+    def test_capture_report_transforms_team_id_to_org_id(self, mock_client) -> None:
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
@@ -1629,6 +1629,25 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             capture_report(capture_event_name="test event", team_id=team2.id, full_report_dict=report)
 
         # Verify the capture call was made with the organization ID
+        mock_posthog.capture.assert_called_once_with(
+            self.user.distinct_id,
+            "test event",
+            {**report, "scope": "user"},
+            groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
+            timestamp=None,
+        )
+
+        # now check with send_for_all_members=True
+        mock_posthog.reset_mock()
+
+        with self.is_cloud(True):
+            capture_report(
+                capture_event_name="test event",
+                team_id=self.team.id,
+                full_report_dict=report,
+                send_for_all_members=True,
+            )
+
         mock_posthog.capture.assert_called_once_with(
             self.user.distinct_id,
             "test event",
