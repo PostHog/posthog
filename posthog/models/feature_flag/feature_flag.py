@@ -53,7 +53,6 @@ class FeatureFlag(models.Model):
     )
     # whether a feature is sending us rich analytics, like views & interactions.
     has_enriched_analytics = models.BooleanField(default=False, null=True, blank=True)
-    feature_management = models.ForeignKey("posthog.Feature", on_delete=models.SET_NULL, null=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]

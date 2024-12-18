@@ -45,7 +45,6 @@ class Experiment(models.Model):
     saved_metrics: models.ManyToManyField = models.ManyToManyField(
         "ExperimentSavedMetric", blank=True, related_name="experiments", through="ExperimentToSavedMetric"
     )
-    feature_management = models.ForeignKey("posthog.Feature", on_delete=models.SET_NULL, null=True)
 
     def get_feature_flag_key(self):
         return self.feature_flag.key
