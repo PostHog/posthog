@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import * as crypto from 'crypto'
 import { DateTime } from 'luxon'
-import * as siphashDouble from 'siphash/lib/siphash-double'
 import { getDomain } from 'tldts'
 
 import { CookielessServerHashMode } from '../../../types'

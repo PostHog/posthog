@@ -52,6 +52,9 @@ dependencies:
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
+  '@posthog/siphash':
+    specifier: 1.1.1
+    version: 1.1.1
   '@sentry/node':
     specifier: ^7.49.0
     version: 7.49.0
@@ -154,9 +157,6 @@ dependencies:
   safe-stable-stringify:
     specifier: ^2.4.0
     version: 2.4.3
-  siphash:
-    specifier: git://github.com/robbie-c/siphash-js.git#34055d9
-    version: github.com/robbie-c/siphash-js/34055d9
   tail:
     specifier: ^2.2.6
     version: 2.2.6
@@ -2815,6 +2815,10 @@ packages:
     resolution: {integrity: sha512-3z1ENm1Ys5lEQil0H7TVOqHvD24+ydiZFk5hggpbHRx1iOxAK+Eu5qFyAROwPUcCo7NOYjmH2xL1C4B1vaHilg==}
     dependencies:
       '@maxmind/geoip2-node': 3.5.0
+    dev: false
+
+  /@posthog/siphash@1.1.1:
+    resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
     dev: false
 
   /@protobufjs/aspromise@1.1.2:
@@ -10935,10 +10939,4 @@ packages:
   file:../rust/cyclotron-node:
     resolution: {directory: ../rust/cyclotron-node, type: directory}
     name: '@posthog/cyclotron'
-    dev: false
-
-  github.com/robbie-c/siphash-js/34055d9:
-    resolution: {tarball: https://codeload.github.com/robbie-c/siphash-js/tar.gz/34055d9}
-    name: siphash
-    version: 1.1.0
     dev: false
