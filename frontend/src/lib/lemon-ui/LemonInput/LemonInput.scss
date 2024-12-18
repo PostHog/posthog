@@ -97,6 +97,12 @@
     &.LemonInput--type-search {
         // NOTE Design: Search inputs are given a specific small width
         max-width: 240px;
+        border-radius: 0;
+
+        // Add a focus ring to the element (not the input) when focused
+        &:has(:focus-visible) {
+            outline: -webkit-focus-ring-color auto 1px;
+        }
     }
 
     &.LemonInput--type-number {
