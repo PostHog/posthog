@@ -128,8 +128,9 @@ REPLAY_MESSAGE_PRODUCTION_TIMER = Histogram(
     "Time taken to produce a set of replay messages",
 )
 
-# This distinct ID is a sentinel value that is used to indicate that it should be replaced by a cookieless server hash
-SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID = "$sentinel_cookieless_server_hash"
+# This flag tells us to use the cookieless mode, and that we can't use distinct id as the partition key
+COOKIELESS_MODE_FLAG_PROPERTY = "$cklsh_mode"
+
 
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
 # have significantly more traffic than non-anonymous distinct_ids, and likely
@@ -902,7 +903,7 @@ def capture_internal(
     # overriding this to deal with hot partitions in specific cases.
     # Setting the partition key to None means using random partitioning.
     candidate_partition_key = f"{token}:{distinct_id}"
-    if device_id == SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID:
+    if event.get("properties", {}).get(COOKIELESS_MODE_FLAG_PROPERTY):
         # This sentinel value will later on be replaced by the actual cookieless server hash, which contains the ip
         # address, so sending the same ip address to the same partition should mean that every event with the same hash
         # will end up in the same partition.
