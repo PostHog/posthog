@@ -14,7 +14,7 @@ from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
-from posthog.event_usage import report_user_action
+from posthog.event_usage import report_user_action, groups
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import ProductIntent, Team, User
@@ -52,6 +52,7 @@ from posthog.utils import (
     get_ip_address,
     get_week_start_for_country_code,
 )
+import posthoganalytics
 
 
 class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
@@ -372,6 +373,22 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         before_update = instance.__dict__.copy()
+
+        if "access_control" in validated_data and validated_data["access_control"] != instance.access_control:
+            user = cast(User, self.context["request"].user)
+            posthoganalytics.capture(
+                str(user.distinct_id),
+                "project access control toggled",
+                properties={
+                    "enabled": validated_data["access_control"],
+                    "project_id": str(instance.id),
+                    "project_name": instance.name,
+                    "organization_id": str(instance.organization_id),
+                    "organization_name": instance.organization.name,
+                    "user_role": user.organization_memberships.get(organization=instance.organization).level,
+                },
+                groups=groups(instance.organization),
+            )
 
         if "survey_config" in validated_data:
             if instance.survey_config is not None and validated_data.get("survey_config") is not None:
