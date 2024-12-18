@@ -22,7 +22,6 @@ from posthog.models.user import User
 import structlog
 
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
-from posthog.utils import get_instance_region
 from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
@@ -199,32 +198,17 @@ class OauthIntegration:
             if not settings.SNAPCHAT_APP_CLIENT_ID or not settings.SNAPCHAT_APP_CLIENT_SECRET:
                 raise NotImplementedError("Snapchat app not configured")
 
-            # snapchat only allows a single redirect URL
-            # we need to create a separate app for each region
-            if get_instance_region() == "EU":
-                return OauthConfig(
-                    authorize_url="https://accounts.snapchat.com/accounts/oauth2/auth",
-                    token_url="https://accounts.snapchat.com/accounts/oauth2/token",
-                    token_info_url="https://adsapi.snapchat.com/v1/me",
-                    token_info_config_fields=["me.id", "me.email"],
-                    client_id=settings.SNAPCHAT_APP_CLIENT_ID,
-                    client_secret=settings.SNAPCHAT_APP_CLIENT_SECRET,
-                    scope="snapchat-offline-conversions-api snapchat-marketing-api",
-                    id_path="me.id",
-                    name_path="me.email",
-                )
-            else:
-                return OauthConfig(
-                    authorize_url="https://accounts.snapchat.com/accounts/oauth2/auth",
-                    token_url="https://accounts.snapchat.com/accounts/oauth2/token",
-                    token_info_url="https://adsapi.snapchat.com/v1/me",
-                    token_info_config_fields=["me.id", "me.email"],
-                    client_id=settings.SNAPCHAT_APP_CLIENT_ID,
-                    client_secret=settings.SNAPCHAT_APP_CLIENT_SECRET,
-                    scope="snapchat-offline-conversions-api snapchat-marketing-api",
-                    id_path="me.id",
-                    name_path="me.email",
-                )
+            return OauthConfig(
+                authorize_url="https://accounts.snapchat.com/accounts/oauth2/auth",
+                token_url="https://accounts.snapchat.com/accounts/oauth2/token",
+                token_info_url="https://adsapi.snapchat.com/v1/me",
+                token_info_config_fields=["me.id", "me.email"],
+                client_id=settings.SNAPCHAT_APP_CLIENT_ID,
+                client_secret=settings.SNAPCHAT_APP_CLIENT_SECRET,
+                scope="snapchat-offline-conversions-api snapchat-marketing-api",
+                id_path="me.id",
+                name_path="me.email",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
