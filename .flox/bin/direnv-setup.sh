@@ -46,13 +46,7 @@ case "$shell_name" in
     ;;
 esac
 
-# Add hook to shell config if not already present
-if ! grep -q "warn_timeout" "$HOME/.config/direnv/direnv.toml" 2>/dev/null; then
-    echo "[global]\nwarn_timeout = 0 # Ignore timeout from this issue: https://github.com/direnv/direnv/issues/1065 - added by PostHog's Flox activation hook (../posthog/.flox/env/manifest.toml)" >> "$HOME/.config/direnv/direnv.toml"
-    echo "✅ Configured ~/.config/direnv/direnv.toml"
-else
-    echo "⏩ ~/.config/direnv/direnv.toml already configured"
-fi
+echo "🐚 Configuring your default shell, $SHELL, for direnv"
 
 # Add hook to shell config if not already present
 if ! grep -q "direnv hook" "$config_file" 2>/dev/null; then
@@ -60,6 +54,14 @@ if ! grep -q "direnv hook" "$config_file" 2>/dev/null; then
     echo "✅ Injected direnv hook into $config_file"
 else
     echo "⏩ direnv hook already present in $config_file"
+fi
+
+# Add hook to shell config if not already present
+if ! grep -q "warn_timeout" "$HOME/.config/direnv/direnv.toml" 2>/dev/null; then
+    echo "[global]\nwarn_timeout = 0 # Ignore timeout from this issue: https://github.com/direnv/direnv/issues/1065 - added by PostHog's Flox activation hook (../posthog/.flox/env/manifest.toml)" >> "$HOME/.config/direnv/direnv.toml"
+    echo "✅ Configured ~/.config/direnv/direnv.toml"
+else
+    echo "⏩ ~/.config/direnv/direnv.toml already configured"
 fi
 
 echo "💫 direnv is now active"
