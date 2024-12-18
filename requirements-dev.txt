@@ -189,8 +189,10 @@ httpx==0.26.0
     #   -c requirements.txt
     #   langsmith
     #   openai
-huggingface-hub==0.26.2
-    # via datasets
+huggingface-hub==0.26.5
+    # via
+    #   -c requirements.txt
+    #   datasets
 icdiff==2.0.5
     # via pytest-icdiff
 idna==3.10
@@ -214,8 +216,10 @@ inline-snapshot==0.12.1
 isort==5.2.2
     # via datamodel-code-generator
 jinja2==3.1.4
-    # via datamodel-code-generator
-jiter==0.5.0
+    # via
+    #   -c requirements.txt
+    #   datamodel-code-generator
+jiter==0.8.2
     # via
     #   -c requirements.txt
     #   openai
@@ -277,8 +281,10 @@ lupa==2.2
     # via fakeredis
 markdown-it-py==3.0.0
     # via rich
-markupsafe==2.1.5
-    # via jinja2
+markupsafe==3.0.2
+    # via
+    #   -c requirements.txt
+    #   jinja2
 marshmallow==3.23.1
     # via dataclasses-json
 mdurl==0.1.2
