@@ -34,6 +34,7 @@ from posthog.schema import (
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+
 @dataclasses.dataclass
 class HogQLQueryExecutor:
     query: Union[str, ast.SelectQuery, ast.SelectSetQuery]
@@ -66,7 +67,7 @@ class HogQLQueryExecutor:
         self.types = None
         self.metadata: Optional[HogQLMetadataResponse] = None
 
-    def parse_query(self):
+    def _parse_query(self):
         with self.timings.measure("query"):
             if isinstance(self.query, ast.SelectQuery) or isinstance(self.query, ast.SelectSetQuery):
                 self.select_query = self.query
@@ -74,14 +75,14 @@ class HogQLQueryExecutor:
             else:
                 self.select_query = parse_select(str(self.query), timings=self.timings)
 
-    def process_variables(self):
+    def _process_variables(self):
         with self.timings.measure("variables"):
             if self.variables and len(self.variables.keys()) > 0:
                 self.select_query = replace_variables(
                     node=self.select_query, variables=list(self.variables.values()), team=self.team
                 )
 
-    def process_placeholders(self):
+    def _process_placeholders(self):
         with self.timings.measure("replace_placeholders"):
             placeholders_in_query = find_placeholders(self.select_query)
             self.placeholders = self.placeholders or {}
@@ -92,7 +93,7 @@ class HogQLQueryExecutor:
                 )
 
             if "filters" in placeholders_in_query or any(
-                    placeholder and placeholder.startswith("filters.") for placeholder in placeholders_in_query
+                placeholder and placeholder.startswith("filters.") for placeholder in placeholders_in_query
             ):
                 self.select_query = replace_filters(self.select_query, self.filters, self.team)
 
@@ -111,13 +112,13 @@ class HogQLQueryExecutor:
                     )
                 self.select_query = replace_placeholders(self.select_query, self.placeholders)
 
-    def apply_limit(self):
+    def _apply_limit(self):
         with self.timings.measure("max_limit"):
             for one_query in extract_select_queries(self.select_query):
                 if one_query.limit is None:
                     one_query.limit = ast.Constant(value=get_default_limit_for_context(self.limit_context))
 
-    def generate_hogql(self):
+    def _generate_hogql(self):
         with self.timings.measure("hogql"):
             with self.timings.measure("prepare_ast"):
                 hogql_query_context = dataclasses.replace(
@@ -139,7 +140,10 @@ class HogQLQueryExecutor:
 
         with self.timings.measure("print_ast"):
             self.hogql = print_prepared_ast(
-                select_query_hogql, hogql_query_context, "hogql", pretty=self.pretty if self.pretty is not None else True
+                select_query_hogql,
+                hogql_query_context,
+                "hogql",
+                pretty=self.pretty if self.pretty is not None else True,
             )
             self.print_columns = []
             columns_query = (
@@ -160,7 +164,7 @@ class HogQLQueryExecutor:
                         )
                     )
 
-    def generate_clickhouse_sql(self):
+    def _generate_clickhouse_sql(self):
         settings = self.settings or HogQLGlobalSettings()
         if self.limit_context in (LimitContext.EXPORT, LimitContext.COHORT_CALCULATION, LimitContext.QUERY_ASYNC):
             settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -190,7 +194,7 @@ class HogQLQueryExecutor:
             else:
                 raise
 
-    def execute_clickhouse_query(self):
+    def _execute_clickhouse_query(self):
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
             tag_queries(
@@ -199,7 +203,9 @@ class HogQLQueryExecutor:
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
                 timings=timings_dict,
-                modifiers={k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {},
+                modifiers={k: v for k, v in self.modifiers.model_dump().items() if v is not None}
+                if self.modifiers
+                else {},
             )
 
             try:
@@ -235,18 +241,23 @@ class HogQLQueryExecutor:
             with self.timings.measure("metadata"):
                 from posthog.hogql.metadata import get_hogql_metadata
 
-                self.metadata = get_hogql_metadata(HogQLMetadata(language=HogLanguage.HOG_QL, query=self.hogql, debug=True), self.team)
+                self.metadata = get_hogql_metadata(
+                    HogQLMetadata(language=HogLanguage.HOG_QL, query=self.hogql, debug=True), self.team
+                )
 
+    def generate_clickhouse_sql(self) -> (str, HogQLContext):
+        self._parse_query()
+        self._process_variables()
+        self._process_placeholders()
+        self._apply_limit()
+        self._generate_hogql()
+        self._generate_clickhouse_sql()
+        return self.clickhouse_sql, self.clickhouse_context
 
     def execute(self) -> HogQLQueryResponse:
-        self.parse_query()
-        self.process_variables()
-        self.process_placeholders()
-        self.apply_limit()
-        self.generate_hogql()
         self.generate_clickhouse_sql()
         if self.clickhouse_sql is not None:
-            self.execute_clickhouse_query()
+            self._execute_clickhouse_query()
 
         return HogQLQueryResponse(
             query=self.query,
@@ -262,10 +273,12 @@ class HogQLQueryExecutor:
             metadata=self.metadata,
         )
 
+
 def execute_hogql_query(*args, **kwargs) -> HogQLQueryResponse:
     return HogQLQueryExecutor(*args, **kwargs).execute()
 
-'''
+
+"""
 import dataclasses
 from typing import Optional, Union, cast
 
@@ -514,4 +527,4 @@ def execute_hogql_query(
         explain=explain,
         metadata=metadata,
     )
-'''
+"""

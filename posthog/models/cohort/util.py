@@ -33,6 +33,7 @@ from posthog.models.cohort.sql import (
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
     STALE_COHORTPEOPLE,
+    RECALCULATE_COHORT_BY_ID_HOGQL_TEST,
 )
 from posthog.models.person.sql import (
     INSERT_PERSON_STATIC_COHORT,
@@ -302,7 +303,7 @@ def get_static_cohort_size(*, cohort_id: int, team_id: int) -> Optional[int]:
 
 
 def recalculate_cohortpeople(
-    cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int]
+    cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int], hogql: bool = False
 ) -> Optional[int]:
     """
     Recalculate cohort people for all environments of the project.
@@ -311,7 +312,7 @@ def recalculate_cohortpeople(
     relevant_teams = Team.objects.order_by("id").filter(project_id=cohort.team.project_id)
     count_by_team_id: dict[int, int] = {}
     for team in relevant_teams:
-        count_for_team = _recalculate_cohortpeople_for_team(
+        count_for_team = (_recalculate_cohortpeople_for_team_hogql if hogql else _recalculate_cohortpeople_for_team)(
             cohort, pending_version, team, initiating_user_id=initiating_user_id
         )
         count_by_team_id[team.id] = count_for_team or 0
@@ -335,7 +336,6 @@ def _recalculate_cohortpeople_for_team(
         )
 
     # Want to store amount of time it takes
-
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
     tag_queries(kind="cohort_calculation", team_id=team.id, query_type="CohortsQuery")
@@ -374,38 +374,9 @@ def _recalculate_cohortpeople_for_team(
     return count
 
 
-def format_person_query_hogql(cohort: Cohort, index: int, hogql_context: HogQLContext) -> tuple[str, dict[str, Any]]:
-    if cohort.is_static:
-        return format_static_cohort_query(cohort, index, prepend="")
-
-    if not cohort.properties.values:
-        # No person can match an empty cohort
-        return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
-
-    from posthog.queries.cohort_query import CohortQuery
-
-    cohort_query = CohortQuery(
-        Filter(
-            data={"properties": cohort.properties},
-            team=cohort.team,
-            hogql_context=hogql_context,
-        ),
-        cohort.team,
-        cohort_pk=cohort.pk,
-        persons_on_events_mode=cohort.team.person_on_events_mode,
-    )
-
-    # HogQLCohortQuery(cohort_query=cohort_query).get_query()
-
-    query, params = cohort_query.get_query()
-
-    return query, params
-
-
 def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
 ) -> Optional[int]:
-    
     # No need to do anything here, as we're only testing hogql
     if cohort.is_static or not cohort.properties.values:
         return None
@@ -415,17 +386,14 @@ def _recalculate_cohortpeople_for_team_hogql(
     hogql_cohort_query = HogQLCohortQuery(cohort=cohort)
     hogql_cohort_query.get_query()
 
-    HogQLQueryExecutor(
+    cohort_query, hogql_context = HogQLQueryExecutor(
         query_type="HogQLCohortQuery",
         query=hogql_cohort_query.get_query(),
         team=team,
-        timings=self.timings,
-        modifiers=self.modifiers,
-        limit_context=self.limit_context,
-        settings=settings,
-    )
+        limit_context=LimitContext.QUERY_ASYNC,
+    ).generate_clickhouse_sql()
 
-    recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
+    recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID_HOGQL_TEST.format(cohort_filter=cohort_query)
 
     tag_queries(kind="cohort_calculation", team_id=team.id, query_type="CohortsQuery")
     if initiating_user_id:
@@ -434,11 +402,11 @@ def _recalculate_cohortpeople_for_team_hogql(
     sync_execute(
         recalcluate_cohortpeople_sql,
         {
-            **cohort_params,
+            # **cohort_params,
             **hogql_context.values,
             "cohort_id": cohort.pk,
             "team_id": team.id,
-            "new_version": pending_version,
+            "new_version": -pending_version,
         },
         settings={
             "max_execution_time": 600,
@@ -448,19 +416,6 @@ def _recalculate_cohortpeople_for_team_hogql(
         },
         workload=Workload.OFFLINE,
     )
-
-    count = get_cohort_size(cohort, override_version=pending_version, team_id=team.id)
-
-    if count is not None and before_count is not None:
-        logger.warn(
-            "Recalculating cohortpeople done",
-            team_id=team.id,
-            cohort_id=cohort.pk,
-            size_before=before_count,
-            size=count,
-        )
-
-    return count
 
 
 def clear_stale_cohortpeople(cohort: Cohort, before_version: int) -> None:
