@@ -177,9 +177,11 @@ class CheckForMissingBatchExportRunsInputs:
 def _log_warning_for_missing_batch_export_runs(
     batch_export_id: UUID, missing_runs: list[tuple[dt.datetime, dt.datetime]]
 ):
-    message = f"Batch Exports Monitoring: Found {len(missing_runs)} missing runs for batch export {batch_export_id}:\n"
+    message = (
+        f"Batch Exports Monitoring: Found {len(missing_runs)} missing run(s) for batch export {batch_export_id}:\n"
+    )
     for start, end in missing_runs:
-        message += f"- Run {start.strftime('%Y-%m-%d %H:%M:%S')} to {end.strftime('%Y-%m-%d %H:%M:%S')} \n"
+        message += f"- Run {start.strftime('%Y-%m-%d %H:%M:%S')} to {end.strftime('%Y-%m-%d %H:%M:%S')}\n"
 
     activity.logger.warning(message)
 

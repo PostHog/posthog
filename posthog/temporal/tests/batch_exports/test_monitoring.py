@@ -14,6 +14,7 @@ from posthog.batch_exports.service import afetch_batch_export_runs_in_range
 from posthog.temporal.batch_exports.monitoring import (
     BatchExportMonitoringInputs,
     BatchExportMonitoringWorkflow,
+    _log_warning_for_missing_batch_export_runs,
     check_for_missing_batch_export_runs,
     get_batch_export,
     get_event_counts,
@@ -235,3 +236,18 @@ async def test_monitoring_workflow(
                 assert run.records_total_count is None
             else:
                 assert run.records_completed == run.records_total_count
+
+
+def test_log_warning_for_missing_batch_export_runs():
+    missing_runs = [
+        (dt.datetime(2024, 1, 1, 10, 0), dt.datetime(2024, 1, 1, 10, 5)),
+        (dt.datetime(2024, 1, 1, 10, 5), dt.datetime(2024, 1, 1, 10, 10)),
+    ]
+    with patch("posthog.temporal.batch_exports.monitoring.activity") as mock_activity:
+        batch_export_id = uuid.uuid4()
+        _log_warning_for_missing_batch_export_runs(batch_export_id, missing_runs)
+        mock_activity.logger.warning.assert_called_once_with(
+            f"Batch Exports Monitoring: Found 2 missing run(s) for batch export {batch_export_id}:\n"
+            "- Run 2024-01-01 10:00:00 to 2024-01-01 10:05:00\n"
+            "- Run 2024-01-01 10:05:00 to 2024-01-01 10:10:00\n"
+        )
