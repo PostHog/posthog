@@ -8,6 +8,7 @@ workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
+chrono = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tokio = { workspace = true }
@@ -17,8 +18,14 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 common-kafka = { path = "../common/kafka" }
 common-alloc = { path = "../common/alloc" }
+common-types = { path = "../common/types" }
+common-metrics = { path = "../common/metrics" }
 health = { path = "../common/health" }
 anyhow = { workspace = true }
+envconfig = { workspace = true }
+fernet = { workspace = true }
+base64 = { workspace = true }
+axum = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.8"

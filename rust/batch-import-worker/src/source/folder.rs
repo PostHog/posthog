@@ -2,9 +2,21 @@ use std::path::PathBuf;
 
 use anyhow::Error;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use super::DataSource;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FolderSourceConfig {
+    pub path: String,
+}
+
+impl FolderSourceConfig {
+    pub async fn create_source(&self) -> Result<FolderSource, Error> {
+        FolderSource::new(self.path.clone()).await
+    }
+}
 
 pub struct FolderSource {
     pub path: PathBuf,
@@ -26,7 +38,6 @@ impl FolderSource {
 
 #[async_trait]
 impl DataSource for FolderSource {
-    type Output = Vec<u8>;
     async fn keys(&self) -> Result<Vec<String>, Error> {
         let mut keys = vec![];
         let mut entries = tokio::fs::read_dir(&self.path).await?;
