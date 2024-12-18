@@ -5,7 +5,7 @@ import { Hub, Team } from '../types'
 import { PostgresUse } from '../utils/db/postgres'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { HogFunctionType, IntegrationType } from './types'
+import { HogFunctionType, HogFunctionTypeType, IntegrationType } from './types'
 
 type HogFunctionCache = {
     functions: Record<HogFunctionType['id'], HogFunctionType | undefined>
@@ -26,8 +26,6 @@ const HOG_FUNCTION_FIELDS = [
     'type',
 ]
 
-const RELOAD_HOG_FUNCTION_TYPES = ['destination', 'email']
-
 export class HogFunctionManager {
     private started: boolean
     private ready: boolean
@@ -35,7 +33,7 @@ export class HogFunctionManager {
     private pubSub: PubSub
     private refreshJob?: schedule.Job
 
-    constructor(private hub: Hub) {
+    constructor(private hub: Hub, private hogTypes: HogFunctionTypeType[]) {
         this.started = false
         this.ready = false
         this.cache = {
@@ -96,14 +94,6 @@ export class HogFunctionManager {
             .filter((x) => !!x) as HogFunctionType[]
     }
 
-    public getTeamHogDestinations(teamId: Team['id']): HogFunctionType[] {
-        return this.getTeamHogFunctions(teamId).filter((x) => x.type === 'destination' || !x.type)
-    }
-
-    public getTeamHogEmailProvider(teamId: Team['id']): HogFunctionType | undefined {
-        return this.getTeamHogFunctions(teamId).find((x) => x.type === 'email')
-    }
-
     public getHogFunction(id: HogFunctionType['id']): HogFunctionType | undefined {
         if (!this.ready) {
             throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
@@ -124,7 +114,7 @@ export class HogFunctionManager {
     }
 
     public teamHasHogDestinations(teamId: Team['id']): boolean {
-        return !!Object.keys(this.getTeamHogDestinations(teamId)).length
+        return !!Object.keys(this.getTeamHogFunctions(teamId)).length
     }
 
     public async reloadAllHogFunctions(): Promise<void> {
@@ -134,9 +124,9 @@ export class HogFunctionManager {
                 `
             SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
             FROM posthog_hogfunction
-            WHERE deleted = FALSE AND enabled = TRUE AND (type is NULL or type = ANY($1))
+            WHERE deleted = FALSE AND enabled = TRUE AND type = ANY($1)
         `,
-                [RELOAD_HOG_FUNCTION_TYPES],
+                [this.hogTypes],
                 'fetchAllHogFunctions'
             )
         ).rows
@@ -167,8 +157,8 @@ export class HogFunctionManager {
                 PostgresUse.COMMON_READ,
                 `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
                 FROM posthog_hogfunction
-                WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE`,
-                [ids],
+                WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE AND type = ANY($2)`,
+                [ids, this.hogTypes],
                 'fetchEnabledHogFunctions'
             )
         ).rows

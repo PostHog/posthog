@@ -115,7 +115,7 @@ export class HogExecutor {
         nonMatchingFunctions: HogFunctionType[]
         erroredFunctions: [HogFunctionType, string][]
     } {
-        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogDestinations(globals.project.id)
+        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(globals.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(globals)
 
         const nonMatchingFunctions: HogFunctionType[] = []
@@ -322,39 +322,39 @@ export class HogExecutor {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
                     },
-                    importBytecode: (module) => {
-                        // TODO: more than one hardcoded module
-                        if (module === 'provider/email') {
-                            const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
-                            if (!provider) {
-                                throw new Error('No email provider configured')
-                            }
-                            try {
-                                const providerGlobals = this.buildHogFunctionGlobals({
-                                    id: '',
-                                    teamId: invocation.teamId,
-                                    hogFunction: provider,
-                                    globals: {} as any,
-                                    queue: 'hog',
-                                    timings: [],
-                                    priority: 0,
-                                } satisfies HogFunctionInvocation)
+                    // importBytecode: (module) => {
+                    //     // TODO: more than one hardcoded module
+                    //     if (module === 'provider/email') {
+                    //         const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
+                    //         if (!provider) {
+                    //             throw new Error('No email provider configured')
+                    //         }
+                    //         try {
+                    //             const providerGlobals = this.buildHogFunctionGlobals({
+                    //                 id: '',
+                    //                 teamId: invocation.teamId,
+                    //                 hogFunction: provider,
+                    //                 globals: {} as any,
+                    //                 queue: 'hog',
+                    //                 timings: [],
+                    //                 priority: 0,
+                    //             } satisfies HogFunctionInvocation)
 
-                                return {
-                                    bytecode: provider.bytecode,
-                                    globals: providerGlobals,
-                                }
-                            } catch (e) {
-                                result.logs.push({
-                                    level: 'error',
-                                    timestamp: DateTime.now(),
-                                    message: `Error building inputs: ${e}`,
-                                })
-                                throw e
-                            }
-                        }
-                        throw new Error(`Can't import unknown module: ${module}`)
-                    },
+                    //             return {
+                    //                 bytecode: provider.bytecode,
+                    //                 globals: providerGlobals,
+                    //             }
+                    //         } catch (e) {
+                    //             result.logs.push({
+                    //                 level: 'error',
+                    //                 timestamp: DateTime.now(),
+                    //                 message: `Error building inputs: ${e}`,
+                    //             })
+                    //             throw e
+                    //         }
+                    //     }
+                    //     throw new Error(`Can't import unknown module: ${module}`)
+                    // },
                     functions: {
                         print: (...args) => {
                             hogLogs++

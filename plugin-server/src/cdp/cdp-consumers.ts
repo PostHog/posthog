@@ -48,6 +48,7 @@ import {
     HogFunctionLogEntrySerialized,
     HogFunctionMessageToProduce,
     HogFunctionType,
+    HogFunctionTypeType,
     HogHooksFetchResponse,
 } from './types'
 import {
@@ -84,6 +85,12 @@ const counterFunctionInvocation = new Counter({
     labelNames: ['outcome'], // One of 'failed', 'succeeded', 'overflowed', 'disabled', 'filtered'
 })
 
+const counterParseError = new Counter({
+    name: 'cdp_function_parse_error',
+    help: 'A function invocation was parsed with an error',
+    labelNames: ['error'],
+})
+
 const gaugeBatchUtilization = new Gauge({
     name: 'cdp_cyclotron_batch_utilization',
     help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
@@ -113,6 +120,7 @@ abstract class CdpConsumerBase {
     messagesToProduce: HogFunctionMessageToProduce[] = []
     redis: CdpRedis
 
+    protected hogTypes: HogFunctionTypeType[] = []
     protected kafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
 
@@ -120,7 +128,7 @@ abstract class CdpConsumerBase {
 
     constructor(protected hub: Hub) {
         this.redis = createCdpRedisPool(hub)
-        this.hogFunctionManager = new HogFunctionManager(hub)
+        this.hogFunctionManager = new HogFunctionManager(hub, this.hogTypes)
         this.hogWatcher = new HogWatcher(hub, this.redis)
         this.hogMasker = new HogMasker(this.redis)
         this.hogExecutor = new HogExecutor(this.hub, this.hogFunctionManager)
@@ -402,6 +410,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpProcessedEventsConsumer'
     protected topic = KAFKA_EVENTS_JSON
     protected groupId = 'cdp-processed-events-consumer'
+    protected hogTypes: HogFunctionTypeType[] = ['destination']
 
     private cyclotronMatcher: ValueMatcher<number>
     private cyclotronManager?: CyclotronManager
@@ -632,6 +641,7 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
     protected name = 'CdpInternalEventsConsumer'
     protected topic = KAFKA_CDP_INTERNAL_EVENTS
     protected groupId = 'cdp-internal-events-consumer'
+    protected hogTypes: HogFunctionTypeType[] = ['internal-destination']
 
     // This consumer always parses from kafka
     public async _handleKafkaBatch(messages: Message[]): Promise<void> {
@@ -643,10 +653,9 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
                     await Promise.all(
                         messages.map(async (message) => {
                             try {
-                                const clickHouseEvent = JSON.parse(message.value!.toString()) as unknown
-
+                                const kafkaEvent = JSON.parse(message.value!.toString()) as unknown
                                 // This is the input stream from elsewhere so we want to do some proper validation
-                                const event = CdpInternalEventSchema.parse(clickHouseEvent)
+                                const event = CdpInternalEventSchema.parse(kafkaEvent)
 
                                 if (!this.hogFunctionManager.teamHasHogDestinations(event.team_id)) {
                                     // No need to continue if the team doesn't have any functions
@@ -666,6 +675,7 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
                                 )
                             } catch (e) {
                                 status.error('Error parsing message', e)
+                                counterParseError.labels({ error: e.message }).inc()
                             }
                         })
                     )
@@ -684,6 +694,7 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
  */
 export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
     protected name = 'CdpFunctionCallbackConsumer'
+    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal-destination']
 
     public async processBatch(invocations: HogFunctionInvocation[]): Promise<void> {
         if (!invocations.length) {
@@ -810,6 +821,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     private cyclotronWorker?: CyclotronWorker
     private runningWorker: Promise<void> | undefined
     protected queue: 'hog' | 'fetch' = 'hog'
+    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal-destination']
 
     public async processBatch(invocations: HogFunctionInvocation[]): Promise<void> {
         if (!invocations.length) {
