@@ -1,3 +1,7 @@
+from collections.abc import Sequence
+from typing import TypeVar
+from collections.abc import Iterator
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr, get_property_type, action_to_expr
@@ -9,8 +13,15 @@ from posthog.models import Action
 from posthog.schema import WebGoalsQueryResponse, WebGoalsQuery, CachedWebGoalsQueryResponse
 
 
-def chunker(seq, size):
-    return (seq[pos : pos + size] for pos in range(0, len(seq), size))
+# Returns an array `seq` split into chunks of size `size`
+# Example:
+# chunker([1, 2, 3, 4, 5], 2) -> [[1, 2], [3, 4], [5]]
+T = TypeVar("T")
+
+
+def chunker(seq: Sequence[T], size: int) -> Iterator[Sequence[T]]:
+    for pos in range(0, len(seq), size):
+        yield seq[pos : pos + size]
 
 
 class NoActionsError(Exception):
