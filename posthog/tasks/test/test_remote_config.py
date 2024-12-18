@@ -50,4 +50,4 @@ class TestRemoteConfig(BaseTest):
         # This one is modified so should be synced
         assert RemoteConfig.objects.get(team=self.other_team_1).synced_at > remote_config_1_synced_at  # type: ignore
         # This one is unchanged so should not be synced
-        assert RemoteConfig.objects.get(team=self.other_team_2).synced_at == remote_config_2_synced_at  # type: ignore
+        assert RemoteConfig.objects.get(team=self.other_team_2).synced_at == remote_config_2_synced_at
