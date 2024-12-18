@@ -1,12 +1,17 @@
 import { ApiConfig } from 'lib/api'
 
-let currentSessionId: string | null = null
-
 export const sidePanelMaxAPI = {
     async sendMessage(message: string): Promise<{ content: string }> {
         const projectId = ApiConfig.getCurrentProjectId()
         if (!projectId) {
             throw new Error('Project ID is required but not available')
+        }
+
+        // Get or create session ID using sessionStorage
+        let sessionId = sessionStorage.getItem('max_session_id')
+        if (!sessionId) {
+            sessionId = crypto.randomUUID()
+            sessionStorage.setItem('max_session_id', sessionId)
         }
 
         const isDevelopment = process.env.NODE_ENV === 'development'
@@ -20,7 +25,7 @@ export const sidePanelMaxAPI = {
             body: JSON.stringify({
                 message,
                 role: 'user',
-                session_id: currentSessionId,
+                session_id: sessionId,
             }),
         })
 
@@ -29,7 +34,6 @@ export const sidePanelMaxAPI = {
         }
 
         const data = await response.json()
-        currentSessionId = data.session_id // Store the session ID for next request
         return { content: data.content }
     },
 }

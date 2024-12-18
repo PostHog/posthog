@@ -76,10 +76,41 @@ CORS(
     },
 )
 
-conversation_histories = {}
 
-search_log_handler = logging.StreamHandler()
-search_log_handler.setLevel(logging.INFO)
+class ConversationManager:
+    def __init__(self):
+        self.histories = {}
+
+    def get_history(self, session_id: str) -> ConversationHistory:
+        if session_id not in self.histories:
+            self.histories[session_id] = ConversationHistory()
+        return self.histories[session_id]
+
+
+class CachePerformanceLogger:
+    def __init__(self):
+        self.logger = logging.getLogger("ee.support_sidebar_max.cache")
+
+    def log_metrics(self, response):
+        if not response.get("usage"):
+            return
+
+        usage = response["usage"]
+        cache_read = usage.get("cache_read_input_tokens", 0)
+        cache_creation = usage.get("cache_creation_input_tokens", 0)
+
+        # Log at INFO level for significant cache misses
+        if cache_creation > 1000:
+            self.logger.info(f"Large cache miss: {cache_creation} creation tokens")
+        else:
+            self.logger.debug(
+                f"Cache metrics - Read: {cache_read}, Creation: {cache_creation}, "
+                f"Total input: {usage.get('input_tokens', 0)}"
+            )
+
+
+conversation_manager = ConversationManager()
+cache_logger = CachePerformanceLogger()
 
 
 def create_simulated_429_response():
@@ -400,12 +431,8 @@ def chat(project_id=None):
         logger.info(f"User input received: {user_input}")
 
         session_id = data.get("session_id", str(uuid.uuid4()))
-
-        if session_id not in conversation_histories:
-            conversation_histories[session_id] = ConversationHistory()
-
-        history = conversation_histories[session_id]
-        system_prompt = get_system_prompt()  # Get system prompt once at the start
+        history = conversation_manager.get_history(session_id)
+        system_prompt = get_system_prompt()
 
         if not user_input.strip():
             history.add_turn_user("Hello!")
@@ -414,11 +441,13 @@ def chat(project_id=None):
             if "content" in result:
                 logger.debug(f"Greeting response: {result['content']}")
                 history.add_turn_assistant(result["content"])
+                cache_logger.log_metrics(result)
                 return jsonify({"content": result["content"]})
 
         history.add_turn_user(user_input)
-
         messages = history.get_turns()
+        result = send_message(system_prompt, messages, [max_search_tool_tool])
+        cache_logger.log_metrics(result)
 
         full_response = ""
 
@@ -498,23 +527,32 @@ chat_endpoint = chat
 
 
 def mock_post(url, headers, json_data):
-    # Check if the message contains '__500__'
-    if any("__500__" in msg["content"][0]["text"] for msg in json_data["messages"]):
-        # Only return 500 error for the first request after seeing __500__
-        if not hasattr(mock_post, "has_returned_500"):
-            mock_post.has_returned_500 = True
-            mock_response = requests.Response()
-            mock_response.status_code = 500
-            mock_response._content = bytes(
-                '{"content": [{"type": "text", "text": "Mocked 500 error"}]}', encoding="utf-8"
-            )
-            return mock_response
-        else:
-            # Reset the flag and let the real API handle the response
-            delattr(mock_post, "has_returned_500")
-            return requests.post(url, headers=headers, json=json_data)
+    try:
+        # Only check for __500__ test string - don't change message handling
+        has_500_test = "__500__" in str(json_data)
+        if has_500_test:
+            if not hasattr(mock_post, "has_returned_500"):
+                mock_post.has_returned_500 = True
+                mock_response = requests.Response()
+                mock_response.status_code = 500
+                mock_response._content = json.dumps(
+                    {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "🫣 Uh-oh. I wasn't able to connect to the Anthropic API (my brain!) Please try sending your message again in about 1 minute?",
+                            }
+                        ],
+                        "isError": True,
+                    }
+                ).encode("utf-8")
+                return mock_response
+            else:
+                delattr(mock_post, "has_returned_500")
+    except Exception as e:
+        logger.error(f"Error in mock_post: {str(e)}", exc_info=True)
 
-    # For all other requests, use the real API
+    # For all requests (including after first 500), use the real API
     return requests.post(url, headers=headers, json=json_data)
 
 

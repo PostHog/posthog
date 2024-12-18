@@ -75,7 +75,7 @@ ee/support_sidebar_max/max-venv/
 ee/support_sidebar_max/.vscode
 ee/support_sidebar_max/.vscode/settings.json
 max-test-venv/
-
+ee/support_sidebar_max/.env
 # Assistant Evaluation with Deepeval
 .deepeval
 .deepeval-cache.json
