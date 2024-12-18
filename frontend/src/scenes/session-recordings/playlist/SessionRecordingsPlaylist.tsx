@@ -8,6 +8,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { SessionRecordingPlaylistLogicProps } from 'scenes/session-recordings/types'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
@@ -15,11 +16,7 @@ import { ReplayTabs, SessionRecordingType } from '~/types'
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
-import {
-    DEFAULT_RECORDING_FILTERS,
-    SessionRecordingPlaylistLogicProps,
-    sessionRecordingsPlaylistLogic,
-} from './sessionRecordingsPlaylistLogic'
+import { DEFAULT_RECORDING_FILTERS, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import {
     SessionRecordingPlaylistBottomSettings,
     SessionRecordingsPlaylistTopSettings,

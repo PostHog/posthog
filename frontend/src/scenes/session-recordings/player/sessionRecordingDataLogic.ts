@@ -28,6 +28,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 import { compressedEventWithTime } from 'posthog-js/lib/src/extensions/replay/sessionrecording'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { SessionRecordingDataLogicProps } from 'scenes/session-recordings/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
@@ -44,7 +45,6 @@ import {
     RecordingSegment,
     RecordingSnapshot,
     SessionPlayerData,
-    SessionRecordingId,
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse,
@@ -349,11 +349,6 @@ const resetTimingsCache = (cache: Record<string, any>): void => {
     cache.eventsStartTime = null
     cache.eventsLoadDuration = null
     cache.firstPaintDuration = null
-}
-
-export interface SessionRecordingDataLogicProps {
-    sessionRecordingId: SessionRecordingId
-    realTimePollingIntervalMilliseconds?: number
 }
 
 function makeEventsQuery(
