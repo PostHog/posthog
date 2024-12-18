@@ -333,5 +333,56 @@ describe('CDP Processed Events Consumer', () => {
                 ])
             })
         })
+
+        describe('filtering errors', () => {
+            let globals: HogFunctionInvocationGlobals
+
+            beforeEach(() => {
+                globals = createHogExecutionGlobals({
+                    project: {
+                        id: team.id,
+                    } as any,
+                    event: {
+                        uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                        event: '$pageview',
+                        properties: {
+                            $current_url: 'https://posthog.com',
+                            $lib_version: '1.0.0',
+                        },
+                    } as any,
+                })
+            })
+
+            it('should filter out functions that error while filtering', async () => {
+                const erroringFunction = await insertHogFunction({
+                    ...HOG_EXAMPLES.input_printer,
+                    ...HOG_INPUTS_EXAMPLES.secret_inputs,
+                    ...HOG_FILTERS_EXAMPLES.broken_filters,
+                })
+                await processor.processBatch([globals])
+                expect(decodeAllKafkaMessages()).toMatchObject([
+                    {
+                        key: expect.any(String),
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            app_source_id: erroringFunction.id,
+                            count: 1,
+                            metric_kind: 'other',
+                            metric_name: 'filtering_failed',
+                            team_id: 2,
+                            timestamp: expect.any(String),
+                        },
+                    },
+                    {
+                        topic: 'log_entries_test',
+                        value: {
+                            message:
+                                'Error filtering event b3a1fe86-b10c-43cc-acaf-d208977608d0: Invalid HogQL bytecode, stack is empty, can not pop',
+                        },
+                    },
+                ])
+            })
+        })
     })
 })

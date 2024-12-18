@@ -1,3 +1,4 @@
+import { IconCursorClick, IconKeyboard, IconWarning } from '@posthog/icons'
 import { eventWithTime } from '@rrweb/types'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -8,6 +9,7 @@ import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
+import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     sessionRecordingPlayerLogic,
@@ -16,16 +18,9 @@ import {
 
 import { PersonType } from '~/types'
 
+import { SimpleTimeLabel } from '../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
-
-export interface OverviewItem {
-    property: string
-    label: string
-    value: string
-    type: 'text' | 'icon'
-    tooltipTitle?: string
-}
 
 const browserPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
 const mobilePropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
@@ -133,6 +128,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return sessionPlayerData.start ?? null
             },
         ],
+
+        endTime: [
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData) => {
+                return sessionPlayerData.end ?? null
+            },
+        ],
+
         currentWindowIndex: [
             (s) => [s.windowIds, s.currentSegment],
             (windowIds, currentSegment) => {
@@ -186,19 +189,39 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         overviewItems: [
-            (s) => [s.sessionPlayerMetaData],
-            (sessionPlayerMetaData) => {
+            (s) => [s.sessionPlayerMetaData, s.startTime, s.endTime],
+            (sessionPlayerMetaData, startTime, endTime) => {
                 const items: OverviewItem[] = []
+                if (startTime) {
+                    items.push({
+                        label: 'Session start',
+                        value: <SimpleTimeLabel muted={false} size="small" isUTC={true} startTime={startTime} />,
+                        type: 'text',
+                    })
+                }
+                if (endTime) {
+                    items.push({
+                        label: 'Session end',
+                        value: <SimpleTimeLabel muted={false} size="small" isUTC={true} startTime={endTime} />,
+                        type: 'text',
+                    })
+                }
 
                 recordingPropertyKeys.forEach((property) => {
                     if (sessionPlayerMetaData?.[property]) {
                         items.push({
-                            label: `${sessionPlayerMetaData[property]} ${
-                                getCoreFilterDefinition(property, TaxonomicFilterGroupType.Replay)?.label ?? property
-                            }`,
-                            value: '',
+                            icon:
+                                property === 'click_count' ? (
+                                    <IconCursorClick />
+                                ) : property === 'keypress_count' ? (
+                                    <IconKeyboard />
+                                ) : property === 'console_error_count' ? (
+                                    <IconWarning />
+                                ) : undefined,
+                            label:
+                                getCoreFilterDefinition(property, TaxonomicFilterGroupType.Replay)?.label ?? property,
+                            value: `${sessionPlayerMetaData[property]}`,
                             type: 'text',
-                            property,
                         })
                     }
                 })
@@ -223,7 +246,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                                 property,
                             value,
                             tooltipTitle,
-                            type: 'icon',
+                            type: 'property',
                             property,
                         })
                     }

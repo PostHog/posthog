@@ -1,6 +1,6 @@
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
-import { Realm } from '~/types'
+import { Realm, TeamPublicType, TeamType } from '~/types'
 
 export type SettingsLogicProps = {
     logicKey?: string
@@ -48,6 +48,7 @@ export type SettingSectionId =
     | 'user-customization'
 
 export type SettingId =
+    | 'replay-triggers'
     | 'display-name'
     | 'snippet'
     | 'bookmarklet'
@@ -118,6 +119,11 @@ export type Setting = {
      */
     flag?: FeatureFlagKey | `!${FeatureFlagKey}` | (FeatureFlagKey | `!${FeatureFlagKey}`)[]
     hideOn?: Realm[]
+    /**
+     * defaults to true if not provided
+     * can check if a team should have access to a setting and return false if not
+     */
+    allowForTeam?: (team: TeamType | TeamPublicType | null) => boolean
 }
 
 export interface SettingSection extends Pick<Setting, 'flag'> {

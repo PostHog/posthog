@@ -53,12 +53,14 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
+    join_data_warehouse_experiment_table_with_person_distinct_ids_table,
 )
 from posthog.hogql.database.schema.persons import (
     PersonsTable,
     RawPersonsTable,
     join_with_persons_table,
 )
+from posthog.hogql.database.schema.query_log import QueryLogTable, RawQueryLogTable
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
@@ -117,6 +119,7 @@ class Database(BaseModel):
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
     log_entries: LogEntriesTable = LogEntriesTable()
+    query_log: QueryLogTable = QueryLogTable()
     app_metrics: AppMetrics2Table = AppMetrics2Table()
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
@@ -133,6 +136,7 @@ class Database(BaseModel):
         RawErrorTrackingIssueFingerprintOverridesTable()
     )
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
+    raw_query_log: RawQueryLogTable = RawQueryLogTable()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -150,6 +154,7 @@ class Database(BaseModel):
         "app_metrics",
         "sessions",
         "heatmaps",
+        "query_log",
     ]
 
     _warehouse_table_names: list[str] = []
@@ -452,6 +457,14 @@ def create_hogql_database(
                     else join.join_function()
                 ),
             )
+
+            if "events" in join.joining_table_name and join.configuration.get("experiments_optimized"):
+                source_table.fields["pdi"] = LazyJoin(
+                    from_field=from_field,
+                    join_table=PersonDistinctIdsTable(),
+                    join_function=join_data_warehouse_experiment_table_with_person_distinct_ids_table,
+                )
+                source_table.fields["person"] = FieldTraverser(chain=["pdi", "person"])
 
             if join.source_table_name == "persons":
                 person_field = database.events.fields["person"]

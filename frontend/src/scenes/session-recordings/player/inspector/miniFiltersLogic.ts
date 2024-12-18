@@ -176,6 +176,11 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
             },
         ],
 
+        hasEventsFiltersSelected: [
+            (s) => [s.miniFiltersForType],
+            (miniFiltersForType) => miniFiltersForType(FilterableInspectorListItemTypes.EVENTS).some((x) => x.enabled),
+        ],
+
         miniFilters: [
             (s) => [s.selectedMiniFilters],
             (selectedMiniFilters): SharedListMiniFilter[] => {
