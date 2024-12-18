@@ -1,11 +1,63 @@
-use anyhow::Error;
-use serde::de::DeserializeOwned;
+use std::sync::Arc;
 
-pub struct Parsed<T> {
-    pub data: T,
-    // How many "parts" of the chunk (bytes, rows) were consumed to create the data. This allows for offset
-    // storing etc in an input-format-aware-manner
-    pub consumed: usize,
+use anyhow::Error;
+use common_types::InternallyCapturedEvent;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+use crate::{context::AppContext, job::model::JobModel};
+
+use super::{
+    content::{mixpanel::MixpanelEvent, ContentType, TransformContext},
+    Parsed,
+};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum FormatConfig {
+    JsonLines {
+        skip_blanks: bool,
+        content: ContentType,
+    },
+}
+
+impl FormatConfig {
+    pub async fn get_parser(
+        &self,
+        model: &JobModel,
+        context: Arc<AppContext>,
+    ) -> Result<impl Fn(Vec<u8>) -> Result<Parsed<Vec<InternallyCapturedEvent>>, Error>, Error>
+    {
+        // Only support json-lines for now
+        let Self::JsonLines {
+            skip_blanks,
+            content,
+        } = self;
+
+        let format_parse = json_nd(*skip_blanks);
+
+        let transform_context = TransformContext {
+            team_id: model.team_id,
+            token: context.get_token_for_team_id(model.team_id).await?,
+        };
+
+        let parser = match content {
+            ContentType::Mixpanel => {
+                let event_transform = MixpanelEvent::parse_fn(transform_context);
+                move |data| {
+                    let parsed: Parsed<Vec<MixpanelEvent>> = format_parse(data)?;
+                    let consumed = parsed.consumed;
+                    let result: Result<_, Error> =
+                        parsed.data.into_iter().map(&event_transform).collect();
+                    Ok(Parsed {
+                        data: result?,
+                        consumed,
+                    })
+                }
+            }
+        };
+
+        Ok(parser)
+    }
 }
 
 pub const fn newline_delim<T>(
@@ -75,7 +127,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::source::DataSource;
+    use crate::source::{folder::FolderSource, DataSource};
 
     use super::*;
     use serde::Deserialize;
@@ -88,7 +140,7 @@ mod tests {
         name: String,
     }
 
-    async fn setup_test_files() -> (TempDir, super::super::source::folder::FolderSource) {
+    async fn setup_test_files() -> (TempDir, FolderSource) {
         let temp_dir = TempDir::new().unwrap();
         fs::write(
             temp_dir.path().join("data.jsonl"),
@@ -107,11 +159,9 @@ mod tests {
         )
         .unwrap();
 
-        let source = super::super::source::folder::FolderSource::new(
-            temp_dir.path().to_str().unwrap().to_string(),
-        )
-        .await
-        .unwrap();
+        let source = FolderSource::new(temp_dir.path().to_str().unwrap().to_string())
+            .await
+            .unwrap();
 
         (temp_dir, source)
     }
