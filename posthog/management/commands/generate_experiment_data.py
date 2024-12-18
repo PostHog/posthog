@@ -14,8 +14,13 @@ from pydantic import BaseModel, ValidationError
 
 class ActionConfig(BaseModel):
     event: str
-    count: int
     probability: float
+    count: int = 1
+    required_for_next: bool = False
+
+    def model_post_init(self, __context) -> None:
+        if self.required_for_next and self.count > 1:
+            raise ValueError("'required_for_next' cannot be used with 'count' greater than 1")
 
 
 class VariantConfig(BaseModel):
@@ -39,22 +44,22 @@ def get_default_funnel_experiment_config() -> ExperimentConfig:
             "control": VariantConfig(
                 weight=0.5,
                 actions=[
-                    ActionConfig(event="signup started", count=1, probability=1),
-                    ActionConfig(event="signup completed", count=1, probability=0.25),
+                    ActionConfig(event="signup started", probability=1, required_for_next=True),
+                    ActionConfig(event="signup completed", probability=0.25, required_for_next=True),
                 ],
             ),
             "test": VariantConfig(
                 weight=0.5,
                 actions=[
-                    ActionConfig(event="signup started", count=1, probability=1),
-                    ActionConfig(event="signup completed", count=1, probability=0.35),
+                    ActionConfig(event="signup started", probability=1, required_for_next=True),
+                    ActionConfig(event="signup completed", probability=0.35, required_for_next=True),
                 ],
             ),
         },
     )
 
 
-def get_default_trends_experiment_config() -> ExperimentConfig:
+def get_default_trend_experiment_config() -> ExperimentConfig:
     return ExperimentConfig(
         number_of_users=2000,
         start_timestamp=datetime.now() - timedelta(days=7),
@@ -72,12 +77,12 @@ def get_default_trends_experiment_config() -> ExperimentConfig:
     )
 
 
-def get_default_config(type: Literal["funnel", "trends"]) -> ExperimentConfig:
+def get_default_config(type: Literal["funnel", "trend"]) -> ExperimentConfig:
     match type:
         case "funnel":
             return get_default_funnel_experiment_config()
-        case "trends":
-            return get_default_trends_experiment_config()
+        case "trend":
+            return get_default_trend_experiment_config()
         case _:
             raise ValueError(f"Invalid experiment type: {type}")
 
@@ -86,23 +91,21 @@ class Command(BaseCommand):
     help = "Generate experiment test data"
 
     def add_arguments(self, parser):
-        group = parser.add_mutually_exclusive_group(required=False)
-        group.add_argument(
+        parser.add_argument(
+            "--type",
+            type=str,
+            choices=["trend", "funnel"],
+            default="trend",
+            help="Type of experiment data to generate or configuration to initialize.",
+        )
+
+        parser.add_argument(
             "--init-config",
             type=str,
             help="Initialize a new experiment configuration file at the specified path. Does not generate data.",
         )
-        group.add_argument(
-            "--type",
-            type=str,
-            choices=["trends", "funnel"],
-            default="trends",
-            help="Type of experiment data to generate or configuration to initialize.",
-        )
-
-        experiment_group = parser.add_argument_group("experiment arguments")
-        experiment_group.add_argument("--experiment-id", type=str, help="Experiment ID (feature flag name)")
-        experiment_group.add_argument("--config", type=str, help="Path to experiment config file")
+        parser.add_argument("--experiment-id", type=str, help="Experiment ID (feature flag name)")
+        parser.add_argument("--config", type=str, help="Path to experiment config file")
 
     def handle(self, *args, **options):
         # Make sure this runs in development environment only
@@ -166,6 +169,7 @@ class Command(BaseCommand):
                 },
             )
 
+            should_stop = False
             for action in experiment_config.variants[variant].actions:
                 for _ in range(action.count):
                     if random.random() < action.probability:
@@ -177,6 +181,12 @@ class Command(BaseCommand):
                                 f"$feature/{experiment_id}": variant,
                             },
                         )
+                    else:
+                        if action.required_for_next:
+                            should_stop = True
+                            break
+                if should_stop:
+                    break
 
         # TODO: need to figure out how to wait for the data to be flushed. shutdown() doesn't work as expected.
         time.sleep(2)
