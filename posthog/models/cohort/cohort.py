@@ -250,17 +250,20 @@ class Cohort(models.Model):
 
         clear_stale_cohort.delay(self.pk, before_version=pending_version)
 
-        # Try the hogql version
-        try:
-            recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id, hogql=True)
-        except Exception:
-            logger.warning(
-                "cohort_hogql_calculation_failed",
-                id=self.pk,
-                current_version=self.version,
-                new_version=pending_version,
-                exc_info=True,
-            )
+        # Try the hogql version. Don't run this on initial cohort create
+        if pending_version > 0:
+            try:
+                recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id, hogql=True)
+            except Exception:
+                logger.warning(
+                    "cohort_hogql_calculation_failed",
+                    id=self.pk,
+                    current_version=self.version,
+                    new_version=pending_version,
+                    exc_info=True,
+                )
+        else:
+            recalculate_cohortpeople(self, 1, initiating_user_id=initiating_user_id, hogql=True)
 
     def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
         """

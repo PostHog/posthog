@@ -21,7 +21,7 @@ from posthog.schema import (
     ActorsQuery,
     InsightActorsQuery,
     TrendsQuery,
-    InsightDateRange,
+    DateRange,
     TrendsFilter,
     EventsNode,
     ActionsNode,
@@ -64,8 +64,9 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
 
 
 class HogQLCohortQuery:
-    def __init__(self, cohort_query: CohortQuery, cohort: Cohort = None):
-        self.hogql_context = HogQLContext(team_id=cohort_query._team_id, enable_select_queries=True)
+    def __init__(self, cohort_query: CohortQuery = None, cohort: Cohort = None):
+        team_id = (cohort and cohort.team.pk) or cohort_query._team_id
+        self.hogql_context = HogQLContext(team_id=team_id, enable_select_queries=True)
 
         if cohort is not None:
             self.cohort_query = CohortQuery(
@@ -183,7 +184,7 @@ class HogQLCohortQuery:
             date_from = f"-{date_value}{date_interval[:1]}"
 
         trends_query = TrendsQuery(
-            dateRange=InsightDateRange(date_from=date_from),
+            dateRange=DateRange(date_from=date_from),
             trendsFilter=TrendsFilter(display="ActionsBarValue"),
             series=series,
         )
@@ -237,7 +238,7 @@ class HogQLCohortQuery:
 
         funnel_query = FunnelsQuery(
             series=series,
-            dateRange=InsightDateRange(date_from=date_from),
+            dateRange=DateRange(date_from=date_from),
             funnelsFilter=FunnelsFilter(
                 funnelWindowInterval=12 * 50, funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.MONTH
             ),
@@ -282,7 +283,7 @@ class HogQLCohortQuery:
 
         funnel_query = FunnelsQuery(
             series=series,
-            dateRange=InsightDateRange(date_from=date_from),
+            dateRange=DateRange(date_from=date_from),
             funnelsFilter=FunnelsFilter(
                 funnelWindowInterval=funnelWindowInterval,
                 funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.SECOND,
@@ -319,7 +320,7 @@ class HogQLCohortQuery:
         select_for_first_range = self._actors_query_from_source(
             InsightActorsQuery(
                 source=TrendsQuery(
-                    dateRange=InsightDateRange(date_from=date_from, date_to=date_to),
+                    dateRange=DateRange(date_from=date_from, date_to=date_to),
                     trendsFilter=TrendsFilter(display="ActionsBarValue"),
                     series=series,
                 )
@@ -330,7 +331,7 @@ class HogQLCohortQuery:
         select_for_second_range = self._actors_query_from_source(
             InsightActorsQuery(
                 source=TrendsQuery(
-                    dateRange=InsightDateRange(date_from=date_to),
+                    dateRange=DateRange(date_from=date_to),
                     trendsFilter=TrendsFilter(display="ActionsBarValue"),
                     series=series,
                 )
@@ -340,7 +341,7 @@ class HogQLCohortQuery:
         select_for_second_range_first_time = self._actors_query_from_source(
             InsightActorsQuery(
                 source=TrendsQuery(
-                    dateRange=InsightDateRange(date_from=date_to),
+                    dateRange=DateRange(date_from=date_to),
                     trendsFilter=TrendsFilter(display="ActionsBarValue"),
                     series=first_time_series,
                 )
@@ -372,7 +373,7 @@ class HogQLCohortQuery:
 
         stickiness_query = StickinessQuery(
             series=series,
-            dateRange=InsightDateRange(date_from=date_from),
+            dateRange=DateRange(date_from=date_from),
             stickinessFilter=StickinessFilter(
                 stickinessCriteria=StickinessCriteria(operator=prop.operator, value=prop.operator_value)
             ),

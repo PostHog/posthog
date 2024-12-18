@@ -8,7 +8,6 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.queries.util import PersonPropertiesMode
 from posthog.clickhouse.client.connection import Workload
@@ -382,6 +381,7 @@ def _recalculate_cohortpeople_for_team_hogql(
         return None
 
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+    from posthog.hogql.query import HogQLQueryExecutor
 
     hogql_cohort_query = HogQLCohortQuery(cohort=cohort)
     hogql_cohort_query.get_query()
