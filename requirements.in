@@ -115,7 +115,3 @@ grpcio~=1.63.2 # Version constrained so that `deepeval` can be installed in in d
 tenacity~=8.4.2  # Version constrained so that `deepeval` can be installed in in dev
 anthropic==0.40.0
 beautifulsoup4==4.12.3
-Flask==3.1.0
-Flask-Cors==5.0.0
-huggingface-hub==0.26.5
-jiter==0.8.2
