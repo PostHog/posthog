@@ -31,7 +31,7 @@ class Migration(migrations.Migration):
                 ("issue_url", models.URLField(blank=True)),
                 (
                     "primary_early_access_feature",
-                    models.ForeignKey(null=True, on_delete=models.deletion.RESTRICT, to="posthog.earlyaccessfeature"),
+                    models.ForeignKey(on_delete=models.deletion.RESTRICT, to="posthog.earlyaccessfeature"),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
