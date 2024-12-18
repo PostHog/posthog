@@ -127,7 +127,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }),
         ],
 
-        issueProperties: [(s) => [s.issue], (issue) => (issue ? JSON.parse(issue.earliest) : {})],
+        issueProperties: [(s) => [s.issue], (issue): Record<string, any> => (issue ? JSON.parse(issue.earliest) : {})],
     }),
 
     actionToUrl(({ values }) => ({

@@ -3,10 +3,11 @@
     min-height: 25rem;
 }
 
-
 .PanelLayout.ErrorTrackingPanelLayout {
-    --error-tracking-panel-layout-height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom));
-    
+    --error-tracking-panel-layout-height: calc(
+        100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom)
+    );
+
     height: var(--error-tracking-panel-layout-height);
     min-height: var(--error-tracking-panel-layout-height);
     max-height: var(--error-tracking-panel-layout-height);
@@ -18,5 +19,9 @@
 
     & .Playlist__list {
         width: 100%;
+    }
+
+    & .SessionRecordingPlayer {
+        height: 24rem;
     }
 }

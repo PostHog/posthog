@@ -4,6 +4,7 @@ import { ChainedStackTraces } from 'lib/components/Errors/StackTraces'
 import PanelLayout from 'lib/components/PanelLayout/PanelLayout'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 import { getExceptionProperties, hasAnyInAppFrames, hasStacktrace } from 'scenes/error-tracking/utils'
+import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
 import { MetaPanel } from '../panels/MetaPanel'
 
@@ -15,6 +16,7 @@ export const OverviewTab = (): JSX.Element => {
     const { exceptionList } = getExceptionProperties(issueProperties)
     const exceptionWithStack = hasStacktrace(exceptionList)
     const hasAnyInApp = hasAnyInAppFrames(exceptionList)
+    const hasRecording = issueProperties['$session_id'] && issueProperties['$recording_status'] === 'active'
 
     return (
         <PanelLayout className="ErrorTrackingPanelLayout">
@@ -37,7 +39,7 @@ export const OverviewTab = (): JSX.Element => {
                             hasAnyInApp ? (
                                 <PanelLayout.SettingsToggle
                                     active={showAllFrames}
-                                    label="Show entire trace"
+                                    label="Full trace"
                                     onClick={() => setShowAllFrames(!showAllFrames)}
                                 />
                             ) : null
@@ -52,7 +54,22 @@ export const OverviewTab = (): JSX.Element => {
                         </div>
                     </PanelLayout.Panel>
                 )}
-                {/* <PanelLayout.Panel primary={false} title='Recording'>Recording</PanelLayout.Panel> */}
+                {hasRecording && (
+                    <PanelLayout.Panel primary={false} title="Recording">
+                        <SessionRecordingPlayer
+                            playerKey="issue"
+                            sessionRecordingId={issueProperties['$session_id']}
+                            noMeta
+                            noBorder
+                            autoPlay
+                            noInspector
+                            matchingEventsMatchType={{
+                                matchType: 'name',
+                                eventNames: ['$exception'],
+                            }}
+                        />
+                    </PanelLayout.Panel>
+                )}
             </PanelLayout.Container>
             <PanelLayout.Container column primary={false} className="h-full">
                 <PanelLayout.Panel primary={false} title="Meta">

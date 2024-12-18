@@ -58,10 +58,17 @@ function Panel({ children, primary, className, title, header }: Omit<PanelContai
 
     return (
         <div className={clsx(primary && 'flex-1', 'border bg-bg-light rounded-sm', className)}>
-            <div className="flex flex-row w-full border-b overflow-hidden bg-bg-3000 items-center justify-between">
+            <div
+                className={clsx(
+                    'flex flex-row w-full overflow-hidden bg-accent-3000 items-center justify-between',
+                    open && 'border-b'
+                )}
+            >
                 <span className="pl-1 font-medium">{title}</span>
-                <div className="font-light text-xs">{header}</div>
-                <SettingsButton onClick={() => setOpen(!open)} icon={<IconMinus />} />
+                <div className="flex font-light text-xs">
+                    {header}
+                    <SettingsButton onClick={() => setOpen(!open)} icon={<IconMinus />} />
+                </div>
             </div>
             {open ? children : null}
         </div>
