@@ -1,6 +1,5 @@
 import { CdpInternalEventsConsumer } from '../../src/cdp/cdp-consumers'
-import { HogWatcherState } from '../../src/cdp/hog-watcher'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
+import { HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
