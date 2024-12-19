@@ -1,4 +1,4 @@
-import { getExceptionPropertiesFrom } from 'lib/components/Errors/ErrorDisplay'
+import { getExceptionAttributes } from 'scenes/error-tracking/utils'
 
 describe('Error Display', () => {
     it('can read sentry stack trace when $exception_list is not present', () => {
@@ -47,7 +47,7 @@ describe('Error Display', () => {
             $exception_personURL: 'https://app.posthog.com/person/f6kW3HXaha6dAvHZiOmgrcAXK09682P6nNPxvfjqM9c',
             $exception_type: 'Error',
         }
-        const result = getExceptionPropertiesFrom(eventProperties)
+        const result = getExceptionAttributes(eventProperties)
         expect(result).toEqual({
             browser: 'Chrome 92.0.4515',
             value: 'There was an error creating the support ticket with zendesk.',
@@ -73,10 +73,12 @@ describe('Error Display', () => {
                 },
             ],
             synthetic: undefined,
+            unhandled: false,
             type: 'Error',
             library: 'posthog-js 1.0.0',
             level: undefined,
             os: 'Windows 10',
+            ingestionErrors: undefined,
             sentryUrl:
                 'https://sentry.io/organizations/posthog/issues/?project=1899813&query=40e442d79c22473391aeeeba54c82163',
         })
@@ -106,10 +108,13 @@ describe('Error Display', () => {
             $level: 'info',
             $exception_message: 'the message sent into sentry captureMessage',
         }
-        const result = getExceptionPropertiesFrom(eventProperties)
+        const result = getExceptionAttributes(eventProperties)
         expect(result).toEqual({
             browser: 'Chrome 92.0.4515',
             value: 'the message sent into sentry captureMessage',
+            exceptionList: [],
+            ingestionErrors: undefined,
+            unhandled: true,
             synthetic: undefined,
             type: undefined,
             library: 'posthog-js 1.0.0',
@@ -154,7 +159,7 @@ describe('Error Display', () => {
             ],
             $exception_personURL: 'https://app.posthog.com/person/f6kW3HXaha6dAvHZiOmgrcAXK09682P6nNPxvfjqM9c',
         }
-        const result = getExceptionPropertiesFrom(eventProperties)
+        const result = getExceptionAttributes(eventProperties)
         expect(result).toEqual({
             browser: 'Chrome 92.0.4515',
             value: 'There was an error creating the support ticket with zendesk2.',
@@ -186,6 +191,8 @@ describe('Error Display', () => {
                     value: 'There was an error creating the support ticket with zendesk2.',
                 },
             ],
+            ingestionErrors: undefined,
+            unhandled: false,
         })
     })
 })

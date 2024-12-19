@@ -17,8 +17,9 @@
     }
 
     &--embedded {
-        .StackTrace__type, .StackTrace__value {
-            margin: 0px 8px;
+        .StackTrace__type,
+        .StackTrace__value {
+            margin: 0 8px;
         }
     }
 }
