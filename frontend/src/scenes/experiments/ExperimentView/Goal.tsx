@@ -73,8 +73,6 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
     const [isModalOpen, setIsModalOpen] = useState(false)
 
     const metricIdx = 0
-
-    // :FLAG: CLEAN UP AFTER MIGRATION
     const hasCustomExposure = !!(experiment.metrics[metricIdx] as ExperimentTrendsQuery).exposure_query
 
     return (
@@ -87,7 +85,6 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
                     <IconInfo className="ml-1 text-muted text-sm" />
                 </Tooltip>
             </div>
-            {/* :FLAG: CLEAN UP AFTER MIGRATION */}
             {hasCustomExposure ? (
                 <MetricDisplayTrends query={(experiment.metrics[0] as ExperimentTrendsQuery).exposure_query} />
             ) : (
@@ -145,7 +142,6 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
                             status="danger"
                             size="xsmall"
                             onClick={() => {
-                                // :FLAG: CLEAN UP AFTER MIGRATION
                                 setExperiment({
                                     ...experiment,
                                     metrics: experiment.metrics.map((metric, idx) =>
