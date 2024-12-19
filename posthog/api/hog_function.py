@@ -292,7 +292,10 @@ class HogFunctionViewSet(
         return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        queryset = queryset.filter(deleted=False)
+        if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
+            # We only want to include deleted functions if we are un-deleting them
+            queryset = queryset.filter(deleted=False)
+
         if self.action == "list":
             if "type" in self.request.GET:
                 types = [self.request.GET.get("type", "destination")]
