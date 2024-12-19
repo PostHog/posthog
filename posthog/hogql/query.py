@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Optional, Union, cast
+from typing import Optional, Union, cast, ClassVar
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.errors import ExposedCHQueryError
@@ -48,15 +48,13 @@ class HogQLQueryExecutor:
     settings: Optional[HogQLGlobalSettings] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     limit_context: Optional[LimitContext] = LimitContext.QUERY
-    timings: Optional[HogQLTimings] = None
+    timings: HogQLTimings = dataclasses.field(default_factory=HogQLTimings)
     pretty: Optional[bool] = True
-    context: Optional[HogQLContext] = None
+    __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
+    context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
 
     def __post_init__(self):
-        if self.timings is None:
-            self.timings = HogQLTimings()
-
-        if self.context is None:
+        if self.context is self.__uninitialized_context:
             self.context = HogQLContext(team_id=self.team.pk)
 
         self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)

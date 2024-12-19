@@ -375,10 +375,10 @@ def _recalculate_cohortpeople_for_team(
 
 def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
-) -> Optional[int]:
+):
     # No need to do anything here, as we're only testing hogql
     if cohort.is_static or not cohort.properties.values:
-        return None
+        return
 
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
     from posthog.hogql.query import HogQLQueryExecutor
