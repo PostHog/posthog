@@ -1,4 +1,4 @@
-import api, { ApiConfig } from 'lib/api'
+import api from 'lib/api'
 
 export const sidePanelMaxAPI = {
     async sendMessage(message: string): Promise<{ content: string }> {
@@ -9,7 +9,7 @@ export const sidePanelMaxAPI = {
             sessionStorage.setItem('max_session_id', sessionId)
         }
 
-        const response = await api.createResponse(`/api/projects/${ApiConfig.getCurrentProjectId()}/max/chat/`, {
+        const response = await api.createResponse(`/max/chat/`, {
             message,
             role: 'user',
             session_id: sessionId,

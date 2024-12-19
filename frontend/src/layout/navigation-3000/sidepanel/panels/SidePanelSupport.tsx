@@ -290,8 +290,8 @@ export const SidePanelSupport = (): JSX.Element => {
                             ) : null}
 
                             {isCloud || true ? (
-                                <Section title="Ask Max the Hedgehog">
-                                    <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
+                                <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
+                                    <Section title="Ask Max the Hedgehog">
                                         <>
                                             <p>
                                                 Max is PostHog's support AI who can answer support questions, help you
@@ -311,8 +311,8 @@ export const SidePanelSupport = (): JSX.Element => {
                                                 ✨ Chat with Max
                                             </LemonButton>
                                         </>
-                                    </FlaggedFeature>
-                                </Section>
+                                    </Section>
+                                </FlaggedFeature>
                             ) : null}
 
                             {isCloud || true ? (
