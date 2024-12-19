@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { useCallback } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
@@ -17,34 +18,35 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
     const { insightProps } = useValues(insightLogic)
     const { querySource } = useValues(funnelDataLogic(insightProps))
 
-    const aggregationGroupTypeIndex = querySource?.aggregation_group_type_index
+    const stepNumber = stepIndex + 1
+    const getPathUrl = useCallback(
+        (funnelPathType: FunnelPathType, dropOff = false): string => {
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.PathsQuery,
+                    funnelPathsFilter: {
+                        funnelStep: dropOff ? stepNumber * -1 : stepNumber,
+                        funnelSource: querySource!,
+                        funnelPathType,
+                    },
+                    pathsFilter: {
+                        includeEventTypes: [PathType.PageView, PathType.CustomEvent],
+                    },
+                    dateRange: {
+                        date_from: querySource?.dateRange?.date_from,
+                    },
+                },
+            }
+
+            return urls.insightNew(undefined, undefined, query)
+        },
+        [querySource, stepNumber]
+    )
 
     // Don't show paths modal if aggregating by groups - paths is user-based!
-    if (aggregationGroupTypeIndex != undefined) {
+    if (querySource?.aggregation_group_type_index != undefined) {
         return null
-    }
-
-    const stepNumber = stepIndex + 1
-    const getPathUrl = (funnelPathType: FunnelPathType, dropOff = false): string => {
-        const query: InsightVizNode = {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.PathsQuery,
-                funnelPathsFilter: {
-                    funnelStep: dropOff ? stepNumber * -1 : stepNumber,
-                    funnelSource: querySource!,
-                    funnelPathType,
-                },
-                pathsFilter: {
-                    includeEventTypes: [PathType.PageView, PathType.CustomEvent],
-                },
-                dateRange: {
-                    date_from: querySource?.dateRange?.date_from,
-                },
-            },
-        }
-
-        return urls.insightNew(undefined, undefined, query)
     }
 
     return (
