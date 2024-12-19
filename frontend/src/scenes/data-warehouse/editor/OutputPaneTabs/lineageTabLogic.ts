@@ -46,6 +46,22 @@ export const lineageTabLogic = kea<lineageTabLogicType>([
             actions.loadNodes()
         },
         loadNodes: () => {
+            actions.setNodes({})
+
+            values.sources.forEach((source) => {
+                if (!source) {
+                    return
+                }
+                actions.setNodes({
+                    ...values.nodeMap,
+                    [source]: {
+                        nodeId: source,
+                        name: source,
+                        savedQueryId: undefined,
+                        leaf: [],
+                    },
+                })
+            })
             values.views.forEach((view) => {
                 if (!view) {
                     return
