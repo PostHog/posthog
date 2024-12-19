@@ -39,7 +39,14 @@ if (res.status >= 400) {
 }
 """.strip(),
     inputs_schema=[
-        *COMMON_INPUTS_SCHEMA,
+        {
+            "key": "webhookUrl",
+            "type": "string",
+            "label": "Webhook URL",
+            "description": "See this page on how to generate a Webhook URL: https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks",
+            "secret": False,
+            "required": True,
+        },
         {
             "key": "content",
             "type": "string",
@@ -56,53 +63,33 @@ if (res.status >= 400) {
             name="Post to Discord on feature enrollment",
             description="Posts a message to Discord when a user enrolls or un-enrolls in an early access feature",
             filters=SUB_TEMPLATE_COMMON["early-access-feature-enrollment"].filters,
-            inputs_schema=[
-                *COMMON_INPUTS_SCHEMA,
-                {
-                    "key": "content",
-                    "type": "string",
-                    "label": "Content",
-                    "description": "(see https://support.discord.com/hc/en-us/articles/210298617-Markdown-Text-101-Chat-Formatting-Bold-Italic-Underline)",
+            input_schema_overrides={
+                "content": {
                     "default": "**{person.name}** {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'",
-                    "secret": False,
-                    "required": True,
-                },
-            ],
+                }
+            },
         ),
         HogFunctionSubTemplate(
             id="survey-response",
             name="Post to Discord on survey response",
             description="Posts a message to Discord when a user responds to a survey",
             filters=SUB_TEMPLATE_COMMON["survey-response"].filters,
-            inputs_schema=[
-                *COMMON_INPUTS_SCHEMA,
-                {
-                    "key": "content",
-                    "type": "string",
-                    "label": "Content",
-                    "description": "(see https://support.discord.com/hc/en-us/articles/210298617-Markdown-Text-101-Chat-Formatting-Bold-Italic-Underline)",
+            input_schema_overrides={
+                "content": {
                     "default": "**{person.name}** responded to survey **{event.properties.$survey_name}**",
-                    "secret": False,
-                    "required": True,
-                },
-            ],
+                }
+            },
         ),
         HogFunctionSubTemplate(
             id="activity-log",
             type="internal_destination",
             name="Post to Discord on team activity",
             filters=SUB_TEMPLATE_COMMON["activity-log"].filters,
-            inputs_schema=[
-                *COMMON_INPUTS_SCHEMA,
-                {
-                    "key": "content",
-                    "type": "string",
-                    "label": "Content",
+            input_schema_overrides={
+                "content": {
                     "default": "**{person.name}** {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
-                    "secret": False,
-                    "required": True,
-                },
-            ],
+                }
+            },
         ),
     ],
 )

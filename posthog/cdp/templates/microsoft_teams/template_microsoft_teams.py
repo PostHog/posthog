@@ -1,15 +1,5 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionSubTemplate, SUB_TEMPLATE_COMMON
 
-COMMON_INPUTS_SCHEMA = [
-    {
-        "key": "webhookUrl",
-        "type": "string",
-        "label": "Webhook URL",
-        "description": "See this page on how to generate a Webhook URL: https://support.microsoft.com/en-us/office/create-incoming-webhooks-with-workflows-for-microsoft-teams-8ae491c7-0394-4861-ba59-055e33f75498",
-        "secret": False,
-        "required": True,
-    },
-]
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="free",
@@ -57,7 +47,14 @@ if (res.status >= 400) {
 }
 """.strip(),
     inputs_schema=[
-        *COMMON_INPUTS_SCHEMA,
+        {
+            "key": "webhookUrl",
+            "type": "string",
+            "label": "Webhook URL",
+            "description": "See this page on how to generate a Webhook URL: https://support.microsoft.com/en-us/office/create-incoming-webhooks-with-workflows-for-microsoft-teams-8ae491c7-0394-4861-ba59-055e33f75498",
+            "secret": False,
+            "required": True,
+        },
         {
             "key": "text",
             "type": "string",
@@ -74,51 +71,33 @@ if (res.status >= 400) {
             name="Post to Microsoft Teams on feature enrollment",
             description="Posts a message to Microsoft Teams when a user enrolls or un-enrolls in an early access feature",
             filters=SUB_TEMPLATE_COMMON["early-access-feature-enrollment"].filters,
-            inputs_schema=[
-                *COMMON_INPUTS_SCHEMA,
-                {
-                    "key": "text",
-                    "type": "string",
-                    "label": "Text",
+            input_schema_overrides={
+                "text": {
                     "default": "**{person.name}** {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'",
-                    "secret": False,
-                    "required": True,
-                },
-            ],
+                }
+            },
         ),
         HogFunctionSubTemplate(
             id="survey-response",
             name="Post to Microsoft Teams on survey response",
             description="Posts a message to Microsoft Teams when a user responds to a survey",
             filters=SUB_TEMPLATE_COMMON["survey-response"].filters,
-            inputs_schema=[
-                *COMMON_INPUTS_SCHEMA,
-                {
-                    "key": "text",
-                    "type": "string",
-                    "label": "Text",
+            input_schema_overrides={
+                "text": {
                     "default": "**{person.name}** responded to survey **{event.properties.$survey_name}**",
-                    "secret": False,
-                    "required": True,
-                },
-            ],
+                }
+            },
         ),
         HogFunctionSubTemplate(
             id="activity-log",
             type="internal_destination",
             name="Post to Microsoft Teams on team activity",
             filters=SUB_TEMPLATE_COMMON["activity-log"].filters,
-            inputs_schema=[
-                *COMMON_INPUTS_SCHEMA,
-                {
-                    "key": "text",
-                    "type": "string",
-                    "label": "Text",
+            input_schema_overrides={
+                "text": {
                     "default": "**{person.name}** {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
-                    "secret": False,
-                    "required": True,
-                },
-            ],
+                }
+            },
         ),
     ],
 )

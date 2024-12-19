@@ -1,6 +1,9 @@
+from dataclasses import asdict
 from unittest.mock import ANY
+from inline_snapshot import snapshot
 from rest_framework import status
 
+from posthog.cdp.templates.hog_function_template import derive_sub_templates
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.slack.template_slack import template
 
@@ -21,6 +24,22 @@ EXPECTED_FIRST_RESULT = {
     "mapping_templates": template.mapping_templates,
     "icon_url": template.icon_url,
 }
+
+
+class TestHogFunctionTemplatesMixin(APIBaseTest):
+    def test_derive_sub_templates(self):
+        # One sanity check test (rather than all of them)
+        sub_templates = derive_sub_templates([template])
+
+        # check overridden params
+        assert sub_templates[0].inputs_schema[-1]["key"] == "text"
+        assert sub_templates[0].inputs_schema[-1]["default"] == snapshot(
+            "*{person.name}* {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'"
+        )
+        assert sub_templates[0].filters == snapshot(
+            {"events": [{"id": "$feature_enrollment_update", "type": "events"}]}
+        )
+        assert sub_templates[0].type == "destination"
 
 
 class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -53,7 +72,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             "/api/projects/@current/hog_function_templates/?type=internal_destination&sub_template_id=activity_log"
         )
         assert response1.status_code == status.HTTP_200_OK, response1.json()
-        assert len(response1.json()["results"]) == 1
+        assert len(response1.json()["results"]) > 0
 
         template = response1.json()["results"][0]
 
