@@ -205,6 +205,7 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
                 person_processing_opt_out,
                 heatmaps_opt_in,
                 ingested_event,
+                person_display_name_properties,
                 test_account_filters,
                 cookieless_server_hash_mode,
                 timezone
