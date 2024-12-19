@@ -40,18 +40,10 @@ export const SearchResultPreview = (): JSX.Element | null => {
                         onClick={() => {
                             openResult(activeResultIndex)
                         }}
-                        tooltip={
-                            <>
-                                Open <KeyboardShortcut enter />
-                            </>
-                        }
                         aria-label="Open search result"
                     >
-                        Open
+                        <span className="mr-1">Open</span> <KeyboardShortcut enter />
                     </LemonButton>
-                    <div>
-                        <KeyboardShortcut enter /> Open
-                    </div>
                 </div>
             </div>
         </div>
