@@ -51,6 +51,8 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                 try {
                     await api.errorTracking.mergeInto(primaryIssue.id, mergingIds)
                 } catch (e) {
+                    // TODO: ideally we should always call this after merging but right now we're
+                    // getting cached results back. Need to figure out how to bust the cache
                     actions.loadData(true)
                 }
             }
