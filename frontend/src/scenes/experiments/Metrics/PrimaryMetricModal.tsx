@@ -9,19 +9,24 @@ import { experimentLogic, getDefaultFilters, getDefaultFunnelsMetric, getDefault
 import { PrimaryGoalFunnels } from '../Metrics/PrimaryGoalFunnels'
 import { PrimaryGoalTrends } from '../Metrics/PrimaryGoalTrends'
 
-export function PrimaryMetricModal({
-    experimentId,
-    isOpen,
-    onClose,
-}: {
-    experimentId: Experiment['id']
-    isOpen: boolean
-    onClose: () => void
-}): JSX.Element {
-    const { experiment, experimentLoading, getMetricType, featureFlags } = useValues(experimentLogic({ experimentId }))
-    const { updateExperimentGoal, setExperiment } = useActions(experimentLogic({ experimentId }))
+export function PrimaryMetricModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
+    const {
+        experiment,
+        experimentLoading,
+        getMetricType,
+        featureFlags,
+        isPrimaryMetricModalOpen,
+        editingPrimaryMetricIndex,
+    } = useValues(experimentLogic({ experimentId }))
+    const { updateExperimentGoal, setExperiment, closePrimaryMetricModal } = useActions(
+        experimentLogic({ experimentId })
+    )
 
-    const metricIdx = 0
+    if (!editingPrimaryMetricIndex && editingPrimaryMetricIndex !== 0) {
+        return <></>
+    }
+
+    const metricIdx = editingPrimaryMetricIndex
     const metricType = getMetricType(metricIdx)
 
     let funnelStepsLength = 0
@@ -34,31 +39,50 @@ export function PrimaryMetricModal({
 
     return (
         <LemonModal
-            isOpen={isOpen}
-            onClose={onClose}
+            isOpen={isPrimaryMetricModalOpen}
+            onClose={closePrimaryMetricModal}
             width={1000}
             title="Change experiment goal"
             footer={
-                <div className="flex items-center gap-2">
-                    <LemonButton form="edit-experiment-goal-form" type="secondary" onClick={onClose}>
-                        Cancel
-                    </LemonButton>
+                <div className="flex items-center w-full">
                     <LemonButton
-                        disabledReason={
-                            metricType === InsightType.FUNNELS &&
-                            funnelStepsLength < 2 &&
-                            'The experiment needs at least two funnel steps.'
-                        }
-                        form="edit-experiment-goal-form"
+                        type="secondary"
+                        status="danger"
                         onClick={() => {
+                            const newMetrics = experiment.metrics.filter((_, idx) => idx !== metricIdx)
+                            setExperiment({
+                                metrics: newMetrics,
+                            })
                             updateExperimentGoal(experiment.filters)
                         }}
-                        type="primary"
-                        loading={experimentLoading}
-                        data-attr="create-annotation-submit"
                     >
-                        Save
+                        Delete
                     </LemonButton>
+                    <div className="flex items-center gap-2 ml-auto">
+                        <LemonButton
+                            form="edit-experiment-goal-form"
+                            type="secondary"
+                            onClick={closePrimaryMetricModal}
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            disabledReason={
+                                metricType === InsightType.FUNNELS &&
+                                funnelStepsLength < 2 &&
+                                'The experiment needs at least two funnel steps.'
+                            }
+                            form="edit-experiment-goal-form"
+                            onClick={() => {
+                                updateExperimentGoal(experiment.filters)
+                            }}
+                            type="primary"
+                            loading={experimentLoading}
+                            data-attr="create-annotation-submit"
+                        >
+                            Save
+                        </LemonButton>
+                    </div>
                 </div>
             }
         >
