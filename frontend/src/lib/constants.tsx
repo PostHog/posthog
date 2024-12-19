@@ -181,7 +181,6 @@ export const FEATURE_FLAGS = {
     SQL_EDITOR: 'sql-editor', // owner: @EDsCODE #team-data-warehouse
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
-    NEW_EXPERIMENTS_UI: 'new-experiments-ui', // owner: @jurajmajerik #team-feature-success
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
     HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite

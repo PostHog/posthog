@@ -1,5 +1,3 @@
-import { setupFeatureFlags } from '../support/decide'
-
 describe('Experiments', () => {
     let randomNum
     let experimentName
@@ -47,10 +45,6 @@ describe('Experiments', () => {
     })
 
     const createExperimentInNewUi = (): void => {
-        setupFeatureFlags({
-            'new-experiments-ui': true,
-        })
-
         cy.visit('/experiments')
 
         // Name, flag key, description
