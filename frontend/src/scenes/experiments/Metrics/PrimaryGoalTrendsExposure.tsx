@@ -16,11 +16,17 @@ import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
 
 export function PrimaryGoalTrendsExposure(): JSX.Element {
-    const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
+    const { experiment, isExperimentRunning, featureFlags, editingPrimaryMetricIndex } = useValues(experimentLogic)
     const { setExperiment, setTrendsExposureMetric } = useActions(experimentLogic)
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-    const currentMetric = experiment.metrics[0] as ExperimentTrendsQuery
+
+    if (!editingPrimaryMetricIndex && editingPrimaryMetricIndex !== 0) {
+        return <></>
+    }
+
+    const metricIdx = editingPrimaryMetricIndex
+    const currentMetric = experiment.metrics[metricIdx] as ExperimentTrendsQuery
 
     return (
         <>
@@ -43,7 +49,7 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
                         )
 
                         setTrendsExposureMetric({
-                            metricIdx: 0,
+                            metricIdx,
                             series,
                         })
                     } else {
@@ -109,7 +115,7 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setTrendsExposureMetric({
-                                metricIdx: 0,
+                                metricIdx,
                                 filterTestAccounts: checked,
                             })
                         } else {

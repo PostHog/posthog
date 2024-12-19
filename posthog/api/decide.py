@@ -45,12 +45,26 @@ FLAG_EVALUATION_COUNTER = Counter(
     labelnames=[LABEL_TEAM_ID, "errors_computing", "has_hash_key_override"],
 )
 
+REMOTE_CONFIG_CACHE_COUNTER = Counter(
+    "posthog_remote_config_for_decide",
+    "Metric tracking whether Remote Config was used for decide",
+    labelnames=["result"],
+)
+
 
 def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
-    # Check for query param "use_remote_config"
-    use_remote_config = request.GET.get("use_remote_config") == "true" or token in (
-        settings.DECIDE_TOKENS_FOR_REMOTE_CONFIG or []
-    )
+    use_remote_config = False
+
+    # Explicitly set via query param for testing otherwise rollout percentage
+    if request.GET.get("use_remote_config") == "true":
+        use_remote_config = True
+    elif request.GET.get("use_remote_config") == "false":
+        use_remote_config = False
+    elif settings.REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE > 0:
+        if random() < settings.REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE:
+            use_remote_config = True
+
+    REMOTE_CONFIG_CACHE_COUNTER.labels(result=use_remote_config).inc()
 
     if use_remote_config:
         response = RemoteConfig.get_config_via_token(token, request=request)

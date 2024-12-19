@@ -144,6 +144,12 @@ export interface HogClosure {
     upvalues: number[]
 }
 
+export interface HogInterval {
+    __hogInterval__: true
+    value: number
+    unit: string
+}
+
 export interface STLFunction {
     fn: (args: any[], name: string, options?: ExecOptions) => any
     minArgs?: number

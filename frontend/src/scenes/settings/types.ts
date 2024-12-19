@@ -24,7 +24,8 @@ export type SettingSectionId =
     | 'environment-surveys'
     | 'environment-toolbar'
     | 'environment-integrations'
-    | 'environment-rbac'
+    | 'environment-access-control'
+    | 'environment-role-based-access-control'
     | 'environment-danger-zone'
     | 'project-details'
     | 'project-autocapture' // TODO: This section is for backward compat – remove when Environments are rolled out
@@ -33,12 +34,13 @@ export type SettingSectionId =
     | 'project-surveys' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-toolbar' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-integrations' // TODO: This section is for backward compat – remove when Environments are rolled out
-    | 'project-rbac' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-role-based-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-danger-zone'
     | 'organization-details'
     | 'organization-members'
     | 'organization-authentication'
-    | 'organization-rbac'
+    | 'organization-roles'
     | 'organization-proxy'
     | 'organization-danger-zone'
     | 'user-profile'
@@ -72,7 +74,8 @@ export type SettingId =
     | 'integration-slack'
     | 'integration-other'
     | 'integration-ip-allowlist'
-    | 'environment-rbac'
+    | 'environment-access-control'
+    | 'environment-role-based-access-control'
     | 'environment-delete'
     | 'project-delete'
     | 'organization-logo'
@@ -81,7 +84,7 @@ export type SettingId =
     | 'members'
     | 'email-members'
     | 'authentication-domains'
-    | 'organization-rbac'
+    | 'organization-roles'
     | 'organization-delete'
     | 'organization-proxy'
     | 'product-description'

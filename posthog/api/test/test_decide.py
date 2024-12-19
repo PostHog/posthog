@@ -123,7 +123,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         if self.use_remote_config:
             # We test a lot with settings changes so the idea is to refresh the remote config
             remote_config = RemoteConfig.objects.get(team=self.team)
-            remote_config.sync()
+            # Force as sync as lots of the tests are clearing redis purposefully which messes with things
+            remote_config.sync(force=True)
 
         if groups is None:
             groups = {}

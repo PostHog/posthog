@@ -61,6 +61,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
         onArrowUp: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         onArrowDown: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         openResult: (index: number) => ({ index }),
+        setActiveResultIndex: (index: number) => ({ index }),
     }),
     loaders(({ values, actions }) => ({
         rawSearchResponse: [
@@ -208,6 +209,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 openResult: () => 0,
                 onArrowUp: (_, { activeIndex, maxIndex }) => (activeIndex > 0 ? activeIndex - 1 : maxIndex),
                 onArrowDown: (_, { activeIndex, maxIndex }) => (activeIndex < maxIndex ? activeIndex + 1 : 0),
+                setActiveResultIndex: (_, { index }) => index,
             },
         ],
         activeTab: [

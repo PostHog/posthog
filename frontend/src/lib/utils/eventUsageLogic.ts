@@ -441,8 +441,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
         reportRecordingPlayerSeekbarEventHovered: true,
-        reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
-        reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
         reportRecordingInspectorItemExpanded: (tab: InspectorListItemType, index: number) => ({ tab, index }),
         reportRecordingInspectorMiniFilterViewed: (minifilterKey: MiniFilterKey, enabled: boolean) => ({
             minifilterKey,
@@ -947,12 +945,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportRecordingPlayerSeekbarEventHovered: () => {
             posthog.capture('recording player seekbar event hovered')
-        },
-        reportRecordingPlayerSpeedChanged: ({ newSpeed }) => {
-            posthog.capture('recording player speed changed', { new_speed: newSpeed })
-        },
-        reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
-            posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
         },
         reportRecordingInspectorItemExpanded: ({ tab, index }) => {
             posthog.capture('recording inspector item expanded', { tab: 'replay-4000', type: tab, index })

@@ -7,7 +7,10 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExport
-from posthog.batch_exports.service import aupdate_records_total_count
+from posthog.batch_exports.service import (
+    afetch_batch_export_runs_in_range,
+    aupdate_records_total_count,
+)
 from posthog.batch_exports.sql import EVENT_COUNT_BY_INTERVAL
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -161,14 +164,82 @@ async def update_batch_export_runs(inputs: UpdateBatchExportRunsInputs) -> int:
     return total_rows_updated
 
 
+@dataclass
+class CheckForMissingBatchExportRunsInputs:
+    """Inputs for checking missing batch export runs"""
+
+    batch_export_id: UUID
+    overall_interval_start: str
+    overall_interval_end: str
+    interval: str
+
+
+def _log_warning_for_missing_batch_export_runs(
+    batch_export_id: UUID, missing_runs: list[tuple[dt.datetime, dt.datetime]]
+):
+    message = (
+        f"Batch Exports Monitoring: Found {len(missing_runs)} missing run(s) for batch export {batch_export_id}:\n"
+    )
+    for start, end in missing_runs:
+        message += f"- Run {start.strftime('%Y-%m-%d %H:%M:%S')} to {end.strftime('%Y-%m-%d %H:%M:%S')}\n"
+
+    activity.logger.warning(message)
+
+
+@activity.defn
+async def check_for_missing_batch_export_runs(inputs: CheckForMissingBatchExportRunsInputs) -> int:
+    """Check for missing batch export runs and log a warning if any are found.
+    (We can then alert based on these log entries)
+
+    Returns:
+        The number of missing batch export runs found.
+    """
+    async with Heartbeater():
+        interval_start = dt.datetime.strptime(inputs.overall_interval_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC)
+        interval_end = dt.datetime.strptime(inputs.overall_interval_end, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC)
+        # Get all runs in the interval
+        runs = await afetch_batch_export_runs_in_range(
+            batch_export_id=inputs.batch_export_id,
+            interval_start=interval_start,
+            interval_end=interval_end,
+        )
+
+        # for simplicity, we assume that the interval is 5 minutes, as this is the only interval supported for monitoring at this time
+        if inputs.interval != "every 5 minutes":
+            raise NoValidBatchExportsFoundError(
+                "Only intervals of 'every 5 minutes' are supported for monitoring at this time."
+            )
+        expected_run_intervals: list[tuple[dt.datetime, dt.datetime]] = []
+        current_run_start_interval = interval_start
+        while current_run_start_interval < interval_end:
+            expected_run_intervals.append(
+                (current_run_start_interval, current_run_start_interval + dt.timedelta(minutes=5))
+            )
+            current_run_start_interval += dt.timedelta(minutes=5)
+
+        missing_runs: list[tuple[dt.datetime, dt.datetime]] = []
+        for start, end in expected_run_intervals:
+            if start not in [run.data_interval_start for run in runs]:
+                missing_runs.append((start, end))
+
+        if missing_runs:
+            _log_warning_for_missing_batch_export_runs(inputs.batch_export_id, missing_runs)
+
+        return len(missing_runs)
+
+
 @workflow.defn(name="batch-export-monitoring")
 class BatchExportMonitoringWorkflow(PostHogWorkflow):
     """Workflow to monitor batch exports.
 
     We have had some issues with batch exports in the past, where some events
     have been missing. The purpose of this workflow is to monitor the status of
-    batch exports for a given customer by reconciling the number of exported
-    events with the number of events in ClickHouse for a given interval.
+    a given batch export by:
+    1. Checking for missing batch export runs (we've had an incident in the past
+        where Temporal has not scheduled a workflow for a particular time interval
+        for some reason).
+    2. Reconciling the number of exported events with the number of events in
+        ClickHouse for a given interval.
     """
 
     @staticmethod
@@ -179,8 +250,7 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: BatchExportMonitoringInputs):
-        """Workflow implementation to monitor batch exports for a given team."""
-        # TODO - check if this is the right way to do logging since there seems to be a few different ways
+        """Workflow implementation to monitor a given batch export."""
         workflow.logger.info(
             "Starting batch exports monitoring workflow for batch export id %s", inputs.batch_export_id
         )
@@ -214,6 +284,19 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
                 include_events=batch_export_details.include_events,
             ),
             start_to_close_timeout=dt.timedelta(hours=1),
+            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=20)),
+            heartbeat_timeout=dt.timedelta(minutes=1),
+        )
+
+        await workflow.execute_activity(
+            check_for_missing_batch_export_runs,
+            CheckForMissingBatchExportRunsInputs(
+                batch_export_id=batch_export_details.id,
+                overall_interval_start=interval_start_str,
+                overall_interval_end=interval_end_str,
+                interval=batch_export_details.interval,
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=20)),
             heartbeat_timeout=dt.timedelta(minutes=1),
         )

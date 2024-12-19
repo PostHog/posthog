@@ -332,7 +332,7 @@ const AddSecondaryMetricButton = ({
         <LemonButton
             icon={<IconPlus />}
             type="secondary"
-            size="small"
+            size="xsmall"
             onClick={() => {
                 const newMetricsSecondary = [...experiment.metrics_secondary, getDefaultFunnelsMetric()]
                 setExperiment({

@@ -699,7 +699,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             # Until we figure it out, we set all fields to nullable. There are some fields we know
             # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
             # between batches.
-            [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
+            [field.with_nullable(True) for field in record_batch_schema]
         )
 
         async with s3_upload as s3_upload:
@@ -715,6 +715,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 writer_format=WriterFormat.from_str(inputs.file_format, "S3"),
                 max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
                 s3_upload=s3_upload,
+                include_inserted_at=True,
                 writer_file_kwargs={"compression": inputs.compression},
             )
 

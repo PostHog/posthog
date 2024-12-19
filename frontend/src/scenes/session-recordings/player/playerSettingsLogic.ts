@@ -1,4 +1,5 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AutoplayDirection, SessionRecordingSidebarStacking } from '~/types'
@@ -121,5 +122,14 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             (s) => [s.preferredSidebarStacking],
             (preferredSidebarStacking) => preferredSidebarStacking === SessionRecordingSidebarStacking.Vertical,
         ],
+    }),
+
+    listeners({
+        setSpeed: ({ speed }) => {
+            posthog.capture('recording player speed changed', { new_speed: speed })
+        },
+        setSkipInactivitySetting: ({ skipInactivitySetting }) => {
+            posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivitySetting })
+        },
     }),
 ])

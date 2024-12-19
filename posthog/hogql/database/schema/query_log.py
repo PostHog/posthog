@@ -15,6 +15,7 @@ from posthog.hogql.database.models import (
 
 QUERY_LOG_FIELDS: dict[str, FieldOrTable] = {
     "query_id": StringDatabaseField(name="query_id"),
+    "endpoint": StringDatabaseField(name="endpoint"),
     "query": StringDatabaseField(name="query"),  #
     "query_start_time": DateTimeDatabaseField(name="event_time"),  #
     "query_duration_ms": FloatDatabaseField(name="query_duration_ms"),  #
@@ -25,8 +26,6 @@ QUERY_LOG_FIELDS: dict[str, FieldOrTable] = {
     "result_bytes": IntegerDatabaseField(name="result_bytes"),
     "memory_usage": IntegerDatabaseField(name="memory_usage"),
     "status": StringDatabaseField(name="type"),
-    "kind": StringDatabaseField(name="kind"),
-    "query_type": StringDatabaseField(name="query_type"),
     "is_personal_api_key_request": BooleanDatabaseField(name="is_personal_api_key_request"),
 }
 
@@ -81,10 +80,31 @@ class QueryLogTable(LazyTable):
                     left=ast.Constant(value="personal_api_key"),
                     right=ast.Call(
                         name="JSONExtractString",
-                        args=[ast.Field(chain=["log_comment"]), ast.Constant(value="access_method")],
+                        args=[ast.Field(chain=[raw_table_name, "log_comment"]), ast.Constant(value="access_method")],
                     ),
                 )
                 return ast.Alias(alias=name, expr=cmp_expr)
+            if name == "endpoint":
+                if_expr = ast.Call(
+                    name="if",
+                    args=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Call(
+                                name="JSONExtractString",
+                                args=[ast.Field(chain=[raw_table_name, "log_comment"]), ast.Constant(value="kind")],
+                            ),
+                            right=ast.Constant(value="request"),
+                        ),
+                        ast.Call(
+                            name="JSONExtractString",
+                            args=[ast.Field(chain=[raw_table_name, "log_comment"]), ast.Constant(value="id")],
+                        ),
+                        ast.Constant(value=""),
+                    ],
+                )
+                return ast.Alias(alias=name, expr=if_expr)
+
             return ast.Alias(alias=name, expr=ast.Field(chain=[raw_table_name, *chain]))
 
         fields: list[ast.Expr] = [get_alias(name, chain) for name, chain in requested_fields.items()]
@@ -96,10 +116,22 @@ class QueryLogTable(LazyTable):
                 exprs=[
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Constant(value=context.project_id),
+                        left=ast.Constant(value=context.team_id),
                         right=ast.Call(
                             name="JSONExtractInt",
-                            args=[ast.Field(chain=["log_comment"]), ast.Constant(value="user_id")],
+                            args=[ast.Field(chain=["log_comment"]), ast.Constant(value="team_id")],
+                        ),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value="HogQLQuery"),
+                        right=ast.Call(
+                            name="JSONExtractString",
+                            args=[
+                                ast.Field(chain=["log_comment"]),
+                                ast.Constant(value="query"),
+                                ast.Constant(value="kind"),
+                            ],
                         ),
                     ),
                     ast.CompareOperation(

@@ -26,7 +26,7 @@ const CommandBarOverlay = forwardRef<HTMLDivElement, CommandBarOverlayProps>(fun
                     data-attr="command-bar"
                     className={`w-full ${
                         barStatus === BarStatus.SHOW_SEARCH && 'h-full'
-                    } bg-bg-3000 rounded overflow-hidden border border-border-bold`}
+                    } w-full bg-bg-3000 rounded overflow-hidden border border-border-bold`}
                     ref={ref}
                 >
                     {children}

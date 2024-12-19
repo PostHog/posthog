@@ -132,6 +132,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "When a user interacts with a feature.",
             "ignored_in_assistant": True,  # Specific to posthog-js/react, niche
         },
+        "$feature_enrollment_update": {
+            "label": "Feature Enrollment",
+            "description": "When a user enrolls with a feature.",
+            "ignored_in_assistant": True,  # Specific to EarlyAccessFeatureEnrollment, niche
+        },
         "$capture_metrics": {
             "label": "Capture Metrics",
             "description": "Metrics captured with values pertaining to your systems at a specific point in time",

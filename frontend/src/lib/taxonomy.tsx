@@ -133,6 +133,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Feature Interaction',
             description: 'When a user interacts with a feature.',
         },
+        $feature_enrollment_update: {
+            label: 'Feature Enrollment',
+            description: 'When a user enrolls with a feature.',
+        },
         $capture_metrics: {
             label: 'Capture Metrics',
             description: 'Metrics captured with values pertaining to your systems at a specific point in time',

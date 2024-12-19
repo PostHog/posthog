@@ -4,6 +4,7 @@ import { DebugCHQueries } from 'lib/components/CommandPalette/DebugCHQueries'
 import { isObject } from 'lib/utils'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { ReloadInsight } from 'scenes/saved-insights/ReloadInsight'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
@@ -21,7 +22,7 @@ export interface InsightSceneProps {
 
 export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
-    const { insightMode, insight, filtersOverride, variablesOverride } = useValues(insightSceneLogic)
+    const { insightMode, insight, filtersOverride, variablesOverride, freshQuery } = useValues(insightSceneLogic)
 
     // insightLogic
     const logic = insightLogic({
@@ -78,6 +79,8 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                         <DebugCHQueries insightId={insightProps.cachedInsight?.id} />
                     </div>
                 )}
+
+                {freshQuery ? <ReloadInsight /> : null}
 
                 <Query
                     query={isInsightVizNode(query) ? { ...query, full: true } : query}

@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { IconArchive, IconCheck, IconFlask, IconX } from '@posthog/icons'
 import {
     LemonBanner,

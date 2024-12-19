@@ -15,6 +15,7 @@ import {
     DataWarehouseNode,
     EventsNode,
     InsightVizNode,
+    Node,
     NodeKind,
     PathsFilter,
 } from '~/queries/schema'
@@ -432,4 +433,38 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
     }
 
     return query ? urls.insightNew(undefined, undefined, query) : undefined
+}
+
+export function isQueryTooLarge(query: Node<Record<string, any>>): boolean {
+    // Chrome has a 2MB limit for the HASH params, limit ours at 1MB
+    const queryLength = encodeURI(JSON.stringify(query)).split(/%..|./).length - 1
+    return queryLength > 1024 * 1024
+}
+
+export function parseDraftQueryFromLocalStorage(
+    query: string
+): { query: Node<Record<string, any>>; timestamp: number } | null {
+    try {
+        return JSON.parse(query)
+    } catch (e) {
+        console.error('Error parsing query', e)
+        return null
+    }
+}
+
+export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>, timestamp: number): string {
+    return JSON.stringify({ query, timestamp })
+}
+
+export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
+    try {
+        return JSON.parse(query)
+    } catch (e) {
+        console.error('Error parsing query', e)
+        return null
+    }
+}
+
+export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {
+    return JSON.stringify(query)
 }

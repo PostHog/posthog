@@ -1,12 +1,16 @@
-import { IconGear, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { IconGear, IconOpenSidebar, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { AccessLevel, Resource, RoleType } from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { AccessLevel, AvailableFeature, FeatureFlagType, Resource, RoleType, SidePanelTab } from '~/types'
 
+import { featureFlagPermissionsLogic } from './feature-flags/featureFlagPermissionsLogic'
 import { permissionsLogic } from './settings/organization/Permissions/permissionsLogic'
 import { rolesLogic } from './settings/organization/Permissions/Roles/rolesLogic'
 import { urls } from './urls'
@@ -23,13 +27,7 @@ interface ResourcePermissionProps {
     canEdit: boolean
 }
 
-interface ResourcePermissionModalProps extends ResourcePermissionProps {
-    title: string
-    visible: boolean
-    onClose: () => void
-}
-
-export function roleLemonSelectOptions(roles: RoleType[]): LemonInputSelectOption[] {
+function roleLemonSelectOptions(roles: RoleType[]): LemonInputSelectOption[] {
     return roles.map((role) => ({
         key: role.id,
         label: `${role.name}`,
@@ -41,35 +39,52 @@ export function roleLemonSelectOptions(roles: RoleType[]): LemonInputSelectOptio
     }))
 }
 
-export function ResourcePermissionModal({
-    title,
-    visible,
-    onClose,
-    rolesToAdd,
-    addableRoles,
-    onChange,
-    addableRolesLoading,
-    onAdd,
-    roles,
-    deleteAssociatedRole,
-    canEdit,
-}: ResourcePermissionModalProps): JSX.Element {
+export function FeatureFlagPermissions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+    const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
+        featureFlagPermissionsLogic({ flagId: featureFlag.id })
+    )
+    const { setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
+        featureFlagPermissionsLogic({ flagId: featureFlag.id })
+    )
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+
+    const newAccessControls = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
+    if (newAccessControls) {
+        if (!featureFlag.id) {
+            return <p>Please save the feature flag before changing the access controls.</p>
+        }
+        return (
+            <div>
+                <LemonBanner type="info" className="mb-4">
+                    Permissions have moved! We're rolling out our new access control system. Click below to open it.
+                </LemonBanner>
+                <LemonButton
+                    type="primary"
+                    icon={<IconOpenSidebar />}
+                    onClick={() => {
+                        openSidePanel(SidePanelTab.AccessControl)
+                    }}
+                >
+                    Open access control
+                </LemonButton>
+            </div>
+        )
+    }
+
     return (
-        <>
-            <LemonModal title={title} isOpen={visible} onClose={onClose}>
-                <ResourcePermission
-                    resourceType={Resource.FEATURE_FLAGS}
-                    onChange={onChange}
-                    rolesToAdd={rolesToAdd}
-                    addableRoles={addableRoles}
-                    addableRolesLoading={addableRolesLoading}
-                    onAdd={onAdd}
-                    roles={roles}
-                    deleteAssociatedRole={deleteAssociatedRole}
-                    canEdit={canEdit}
-                />
-            </LemonModal>
-        </>
+        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+            <ResourcePermission
+                resourceType={Resource.FEATURE_FLAGS}
+                onChange={(roleIds) => setRolesToAdd(roleIds)}
+                rolesToAdd={rolesToAdd}
+                addableRoles={addableRoles}
+                addableRolesLoading={unfilteredAddableRolesLoading}
+                onAdd={() => addAssociatedRoles()}
+                roles={derivedRoles}
+                deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                canEdit={featureFlag.can_edit}
+            />
+        </PayGateMini>
     )
 }
 
@@ -108,7 +123,7 @@ export function ResourcePermission({
                                 icon={
                                     <LemonButton
                                         icon={<IconGear />}
-                                        to={`${urls.settings('organization-rbac')}`}
+                                        to={`${urls.settings('organization-roles')}`}
                                         targetBlank
                                         size="small"
                                         noPadding

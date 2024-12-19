@@ -48,6 +48,7 @@ def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=0,
         workflow_id="some_workflow_id",
+        pipeline_version=ExternalDataJob.PipelineVersion.V1,
     )
 
     return ImportDataActivityInputs(team_id=team.pk, schema_id=schema.pk, source_id=source.pk, run_id=str(job.pk))
@@ -86,6 +87,7 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
             table_names=["table_1"],
             incremental_field=None,
             incremental_field_type=None,
+            db_incremental_field_last_value=None,
             team_id=team.id,
             using_ssl=True,
         )
@@ -127,6 +129,7 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
             table_names=["table_1"],
             incremental_field=None,
             incremental_field_type=None,
+            db_incremental_field_last_value=None,
             team_id=team.id,
             using_ssl=True,
         )
@@ -186,6 +189,7 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
             table_names=["table_1"],
             incremental_field=None,
             incremental_field_type=None,
+            db_incremental_field_last_value=None,
             team_id=team.id,
             using_ssl=True,
         )

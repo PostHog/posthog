@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { IconBalance, IconFlag } from '@posthog/icons'
 import {
     LemonBanner,

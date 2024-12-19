@@ -66,6 +66,7 @@ class TestDataImportPipeline(APIBaseTest):
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
             workflow_id=str(uuid.uuid4()),
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
         )
 
         pipeline = DataImportPipelineSync(
@@ -84,6 +85,7 @@ class TestDataImportPipeline(APIBaseTest):
                 is_incremental=incremental,
                 team_id=self.team.pk,
                 job_id=str(job.pk),
+                db_incremental_field_last_value=0,
             ),
             logger=structlog.get_logger(),
             incremental=incremental,

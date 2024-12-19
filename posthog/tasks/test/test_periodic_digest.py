@@ -113,7 +113,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         expected_properties = {
             "team_id": self.team.id,
             "team_name": self.team.name,
-            "template": "periodic_digest_report",
+            "template_name": "periodic_digest_report",
             "users_who_logged_in": [],
             "users_who_logged_in_count": 0,
             "users_who_signed_up": [],
@@ -227,7 +227,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         expected_properties = {
             "team_id": self.team.id,
             "team_name": self.team.name,
-            "template": "periodic_digest_report",
+            "template_name": "periodic_digest_report",
             "users_who_logged_in": [],
             "users_who_logged_in_count": 0,
             "users_who_signed_up": [],

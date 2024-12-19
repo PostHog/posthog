@@ -56,7 +56,7 @@ export function SupportedPlatforms(props: {
     flutter?: boolean | { note?: ReactNode }
 }): JSX.Element {
     return (
-        <div className="text-xs inline-flex flex-row bg-bg-3000 rounded items-center border overflow-hidden mb-2">
+        <div className="text-xs inline-flex flex-row bg-bg-3000 rounded items-center border overflow-hidden mb-2 w-fit">
             <span className="px-1 py-0.5 font-semibold">Supported platforms:</span>
             <LemonDivider vertical className="h-full" />
             <SupportedPlatform
@@ -103,7 +103,7 @@ function LogCaptureSettings(): JSX.Element {
     return (
         <div>
             <h3>Log capture</h3>
-            <SupportedPlatforms android={true} ios={true} flutter={true} web={true} reactNative={true} />
+            <SupportedPlatforms android={true} ios={false} flutter={false} web={true} reactNative={true} />
             <p>
                 This setting controls if browser console logs will be captured as a part of recordings. The console logs
                 will be shown in the recording player to help you debug any issues.
@@ -208,7 +208,13 @@ export function NetworkCaptureSettings(): JSX.Element {
 
     return (
         <>
-            <SupportedPlatforms android={true} ios={true} flutter={false} web={true} reactNative={false} />
+            <SupportedPlatforms
+                android={true}
+                ios={true}
+                flutter={false}
+                web={true}
+                reactNative={{ note: <>RN network capture is only supported on iOS</> }}
+            />
             <p>
                 This setting controls if performance and network information will be captured alongside recordings. The
                 network requests and timings will be shown in the recording player to help you debug any issues.

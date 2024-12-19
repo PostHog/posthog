@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { IconFlag } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'

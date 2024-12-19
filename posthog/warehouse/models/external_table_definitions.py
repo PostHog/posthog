@@ -16,6 +16,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
     "*": {
         "__dlt_id": StringDatabaseField(name="_dlt_id", hidden=True),
         "__dlt_load_id": StringDatabaseField(name="_dlt_load_id", hidden=True),
+        "__ph_debug": StringJSONDatabaseField(name="_ph_debug", hidden=True),
     },
     "stripe_account": {
         "id": StringDatabaseField(name="id"),

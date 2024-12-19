@@ -178,6 +178,9 @@ export const convertTableValue = (
 }
 
 const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
+    if (type.indexOf('Tuple') !== -1) {
+        return 'TUPLE'
+    }
     if (type.indexOf('Int') !== -1) {
         return 'INTEGER'
     }
@@ -203,8 +206,8 @@ const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
     return type as ColumnScalar
 }
 
-const isNumericalType = (type: string): boolean => {
-    if (type.indexOf('Int') !== -1 || type.indexOf('Float') !== -1 || type.indexOf('Decimal') !== -1) {
+const isNumericalType = (type: ColumnScalar): boolean => {
+    if (type === 'INTEGER' || type === 'FLOAT' || type === 'DECIMAL') {
         return true
     }
 
@@ -547,11 +550,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 return columns.map((column, index) => {
                     const type = types[index]?.[1]
+                    const friendlyClickhouseTypeName = toFriendlyClickhouseTypeName(type)
+
                     return {
                         name: column,
                         type: {
-                            name: toFriendlyClickhouseTypeName(type),
-                            isNumerical: isNumericalType(type),
+                            name: friendlyClickhouseTypeName,
+                            isNumerical: isNumericalType(friendlyClickhouseTypeName),
                         },
                         label: `${column} - ${type}`,
                         dataIndex: index,

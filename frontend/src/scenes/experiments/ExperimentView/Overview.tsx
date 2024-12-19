@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { useValues } from 'kea'
 
 import { experimentLogic } from '../experimentLogic'

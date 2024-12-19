@@ -246,15 +246,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             field_name="events",
             configuration={"experiments_optimized": True, "experiments_timestamp_key": "ds"},
         )
-
-        DataWarehouseJoin.objects.create(
-            team=self.team,
-            source_table_name=table_name,
-            source_table_key="userid",
-            joining_table_name="persons",
-            joining_table_key="properties.$user_id",
-            field_name="person",
-        )
         return table_name
 
     @freeze_time("2020-01-01T12:00:00Z")
@@ -821,7 +812,13 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "value": "@posthog.com",
                 "operator": "not_icontains",
                 "type": "person",
-            }
+            },
+            {
+                "key": "$host",
+                "type": "event",
+                "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
+                "operator": "not_regex",
+            },
         ]
         self.team.save()
         count_query = TrendsQuery(
@@ -869,8 +866,9 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         _create_person(
             team=self.team,
-            distinct_ids=["internal_test_1"],
-            properties={"email": "internal_test_1@posthog.com", "$user_id": "internal_test_1"},
+            uuid="018f14b8-6cf3-7ffd-80bb-5ef1a9e4d328",
+            distinct_ids=["018f14b8-6cf3-7ffd-80bb-5ef1a9e4d328", "internal_test_1"],
+            properties={"email": "internal_test_1@posthog.com"},
         )
 
         _create_event(
@@ -946,7 +944,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
             # Assert the expected join condition in the clickhouse SQL
-            expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_12)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_13)s, 6, %(hogql_val_14)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_15)s, 6, %(hogql_val_16)s))))) AS e__events ON"
+            expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_9)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_10)s, 6, %(hogql_val_11)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_12)s, 6, %(hogql_val_13)s))))) AS e__events ON"
             self.assertIn(
                 expected_join_condition,
                 str(response.clickhouse),
