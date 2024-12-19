@@ -11,7 +11,6 @@ import { ExperimentFunnelsQuery, ExperimentTrendsQuery, FunnelsQuery, NodeKind, 
 import { ActionFilter, AnyPropertyFilter, ChartDisplayType, Experiment, FilterType, InsightType } from '~/types'
 
 import { experimentLogic, getDefaultFilters, getDefaultFunnelsMetric } from '../experimentLogic'
-import { PrimaryMetricModal } from '../Metrics/PrimaryMetricModal'
 import { PrimaryTrendsExposureModal } from '../Metrics/PrimaryTrendsExposureModal'
 
 export function MetricDisplayTrends({ query }: { query: TrendsQuery | undefined }): JSX.Element {
@@ -341,7 +340,6 @@ export function Goal(): JSX.Element {
                         )}
                 </div>
             )}
-            <PrimaryMetricModal experimentId={experimentId} />
         </div>
     )
 }
