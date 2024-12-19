@@ -384,11 +384,11 @@ def _recalculate_cohortpeople_for_team_hogql(
     from posthog.hogql.query import HogQLQueryExecutor
 
     hogql_cohort_query = HogQLCohortQuery(cohort=cohort)
-    hogql_cohort_query.get_query()
+    query = hogql_cohort_query.get_query()
 
     cohort_query, hogql_context = HogQLQueryExecutor(
         query_type="HogQLCohortQuery",
-        query=hogql_cohort_query.get_query(),
+        query=query,
         team=team,
         limit_context=LimitContext.QUERY_ASYNC,
     ).generate_clickhouse_sql()
