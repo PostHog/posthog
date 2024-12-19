@@ -1,22 +1,28 @@
 procs:
     celery-worker:
         shell: 'bin/check_kafka_clickhouse_up && source ./bin/celery-queues.env && python manage.py run_autoreload_celery --type=worker'
+        autorestart: true
 
     celery-beat:
         shell: 'bin/check_kafka_clickhouse_up && source ./bin/celery-queues.env && python manage.py run_autoreload_celery --type=beat'
+        autorestart: true
 
     plugin-server:
         shell: 'bin/check_kafka_clickhouse_up && ./bin/plugin-server'
+        autorestart: true
 
     backend:
         shell: 'bin/check_kafka_clickhouse_up && ./bin/start-backend'
+        autorestart: true
 
     frontend:
         shell: 'bin/check_kafka_clickhouse_up && ./bin/start-frontend'
+        autorestart: true
 
     temporal-worker:
         # added a sleep to give the docker stuff time to start
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker'
+        autorestart: true
 
     docker-compose:
         # docker-compose makes sure the stack is up, and then follows its logs - but doesn't tear down on exit for speed
