@@ -747,9 +747,13 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     callback(true);
                 }
         
-                return {
-                    processEvent: (globals) => processEvent(globals, posthog)
+                const response = {}
+        
+                if (processEvent) {
+                    response.processEvent = (globals) => processEvent(globals, posthog)
                 }
+        
+                return response
             }
         
             return { init: init };
@@ -793,9 +797,13 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     callback(true);
                 }
         
-                return {
-                    processEvent: (globals) => processEvent(globals, posthog)
+                const response = {}
+        
+                if (processEvent) {
+                    response.processEvent = (globals) => processEvent(globals, posthog)
                 }
+        
+                return response
             }
         
             return { init: init };
