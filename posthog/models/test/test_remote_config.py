@@ -280,7 +280,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         super().setUp()
         self.remote_config.refresh_from_db()
         # Clear the cache so we are properly testing each flow
-        assert cache.delete(cache_key_for_team_token(self.team.api_token, "config"))
+        assert cache.delete(cache_key_for_team_token(self.team.api_token))
 
     def _assert_matches_config(self, data):
         assert data == snapshot(
@@ -348,10 +348,15 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         self.remote_config.sync()
         assert synced_at < self.remote_config.synced_at  # type: ignore
 
+    def test_does_not_syncs_if_no_changes(self):
+        synced_at = self.remote_config.synced_at
+        self.remote_config.sync()
+        assert synced_at == self.remote_config.synced_at
+
     def test_persists_data_to_redis_on_sync(self):
         self.remote_config.config["surveys"] = True
         self.remote_config.sync()
-        assert cache.get(cache_key_for_team_token(self.team.api_token, "config"))
+        assert cache.get(cache_key_for_team_token(self.team.api_token))
 
     def test_gets_via_redis_cache(self):
         with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
@@ -453,6 +458,8 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
             REMOTE_CONFIG_CDN_PURGE_TOKEN="MY_TOKEN",
             REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.posthog.com", "https://cdn2.posthog.com"],
         ):
+            # Force a change to the config
+            self.remote_config.config["token"] = "NOT"
             self.remote_config.sync()
             mock_post.assert_called_once_with(
                 "https://api.cloudflare.com/client/v4/zones/MY_ZONE_ID/purge_cache",
@@ -740,9 +747,13 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     callback(true);
                 }
         
-                return {
-                    processEvent: (globals) => processEvent(globals, posthog)
+                const response = {}
+        
+                if (processEvent) {
+                    response.processEvent = (globals) => processEvent(globals, posthog)
                 }
+        
+                return response
             }
         
             return { init: init };
@@ -786,9 +797,13 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     callback(true);
                 }
         
-                return {
-                    processEvent: (globals) => processEvent(globals, posthog)
+                const response = {}
+        
+                if (processEvent) {
+                    response.processEvent = (globals) => processEvent(globals, posthog)
                 }
+        
+                return response
             }
         
             return { init: init };
@@ -798,3 +813,25 @@ class TestRemoteConfigJS(_RemoteConfigBase):
 })();\
 """  # noqa: W291, W293
         )
+
+    def test_removes_deleted_site_functions(self):
+        site_destination = HogFunction.objects.create(
+            name="Site destination",
+            type=HogFunctionType.SITE_DESTINATION,
+            team=self.team,
+            enabled=True,
+            filters={
+                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                "filter_test_accounts": True,
+            },
+        )
+
+        js = self.remote_config.get_config_js_via_token(self.team.api_token)
+
+        assert str(site_destination.id) in js
+
+        site_destination.deleted = True
+        site_destination.save()
+
+        js = self.remote_config.get_config_js_via_token(self.team.api_token)
+        assert str(site_destination.id) not in js
