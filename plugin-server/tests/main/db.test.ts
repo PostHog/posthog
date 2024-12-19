@@ -855,7 +855,7 @@ describe('DB', () => {
                 anonymize_ips: false,
                 api_token: 'token1',
                 id: teamId,
-                project_id: teamId,
+                project_id: teamId as Team['project_id'],
                 ingested_event: true,
                 name: 'TEST PROJECT',
                 organization_id: organizationId,
@@ -866,6 +866,8 @@ describe('DB', () => {
                 uuid: expect.any(String),
                 person_display_name_properties: [],
                 test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
+                cookieless_server_hash_mode: null,
+                timezone: 'UTC',
             } as Team)
         })
 
@@ -885,22 +887,106 @@ describe('DB', () => {
                 anonymize_ips: false,
                 api_token: 'token2',
                 id: teamId,
-                project_id: teamId,
+                project_id: teamId as Team['project_id'],
                 ingested_event: true,
                 name: 'TEST PROJECT',
                 organization_id: organizationId,
                 session_recording_opt_in: true,
                 person_processing_opt_out: null,
+                person_display_name_properties: [],
                 heatmaps_opt_in: null,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
                 test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
-            })
+                cookieless_server_hash_mode: null,
+                timezone: 'UTC',
+            } as Team)
         })
 
         it('returns null if the team does not exist', async () => {
             const fetchedTeam = await hub.db.fetchTeamByToken('token2')
             expect(fetchedTeam).toEqual(null)
+        })
+    })
+
+    describe('redis', () => {
+        describe('buffer operations', () => {
+            it('writes and reads buffers', async () => {
+                const buffer = Buffer.from('test')
+                await db.redisSetBuffer('test', buffer, 'testTag', 60)
+                const result = await db.redisGetBuffer('test', 'testTag')
+                expect(result).toEqual(buffer)
+            })
+        })
+
+        describe('redisSetNX', () => {
+            it('it should only set a value if there is not already one present', async () => {
+                const set1 = await db.redisSetNX('test', 'first', 'testTag')
+                expect(set1).toEqual('OK')
+                const get1 = await db.redisGet('test', '', 'testTag')
+                expect(get1).toEqual('first')
+
+                const set2 = await db.redisSetNX('test', 'second', 'testTag')
+                expect(set2).toEqual(null)
+                const get2 = await db.redisGet('test', '', 'testTag')
+                expect(get2).toEqual('first')
+            })
+
+            it('it should only set a value if there is not already one present, with a ttl', async () => {
+                const set1 = await db.redisSetNX('test', 'first', 'testTag', 60)
+                expect(set1).toEqual('OK')
+                const get1 = await db.redisGet('test', '', 'testTag')
+                expect(get1).toEqual('first')
+
+                const set2 = await db.redisSetNX('test', 'second', 'testTag', 60)
+                expect(set2).toEqual(null)
+                const get2 = await db.redisGet('test', '', 'testTag')
+                expect(get2).toEqual('first')
+            })
+        })
+
+        describe('redisSAddAndSCard', () => {
+            it('it should add a value to a set and return the number of elements in the set', async () => {
+                const add1 = await db.redisSAddAndSCard('test', 'A')
+                expect(add1).toEqual(1)
+                const add2 = await db.redisSAddAndSCard('test', 'A')
+                expect(add2).toEqual(1)
+                const add3 = await db.redisSAddAndSCard('test', 'B')
+                expect(add3).toEqual(2)
+                const add4 = await db.redisSAddAndSCard('test', 'B')
+                expect(add4).toEqual(2)
+                const add5 = await db.redisSAddAndSCard('test', 'A')
+                expect(add5).toEqual(2)
+            })
+
+            it('it should add a value to a set and return the number of elements in the set, with a TTL', async () => {
+                const add1 = await db.redisSAddAndSCard('test', 'A', 60)
+                expect(add1).toEqual(1)
+                const add2 = await db.redisSAddAndSCard('test', 'A', 60)
+                expect(add2).toEqual(1)
+                const add3 = await db.redisSAddAndSCard('test', 'B', 60)
+                expect(add3).toEqual(2)
+                const add4 = await db.redisSAddAndSCard('test', 'B', 60)
+                expect(add4).toEqual(2)
+                const add5 = await db.redisSAddAndSCard('test', 'A', 60)
+                expect(add5).toEqual(2)
+            })
+        })
+
+        describe('redisSCard', () => {
+            it('it should return the number of elements in the set', async () => {
+                await db.redisSAddAndSCard('test', 'A')
+                const scard1 = await db.redisSCard('test')
+                expect(scard1).toEqual(1)
+
+                await db.redisSAddAndSCard('test', 'B')
+                const scard2 = await db.redisSCard('test')
+                expect(scard2).toEqual(2)
+
+                await db.redisSAddAndSCard('test', 'B')
+                const scard3 = await db.redisSCard('test')
+                expect(scard3).toEqual(2)
+            })
         })
     })
 })
