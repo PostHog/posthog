@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
@@ -440,7 +440,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                         return globals
                     } catch (e: any) {
-                        actions.setSampleGlobalsError(e.message ?? errorMessage)
+                        if (!isBreakpoint(e)) {
+                            actions.setSampleGlobalsError(e.message ?? errorMessage)
+                        }
                         return values.exampleInvocationGlobals
                     }
                 },
