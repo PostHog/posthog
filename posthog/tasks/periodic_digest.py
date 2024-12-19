@@ -212,7 +212,7 @@ def send_periodic_digest_report(
     full_report_dict = {
         "team_id": team_id,
         "team_name": team_name,
-        "template": "periodic_digest_report",
+        "template_name": "periodic_digest_report",
         "digest_items_with_data": digest_items_with_data,
         **periodic_digest_report,
         **instance_metadata,

@@ -95,6 +95,8 @@ charset-normalizer==2.1.0
     # via
     #   requests
     #   snowflake-connector-python
+circular-dict==1.9
+    # via conditional-cache
 click==8.1.7
     # via
     #   celery
@@ -115,6 +117,8 @@ clickhouse-driver==0.2.7
     #   sentry-sdk
 clickhouse-pool==0.5.3
     # via -r requirements.in
+conditional-cache==1.2
+    # via -r requirements.in
 cryptography==39.0.2
     # via
     #   -r requirements.in
@@ -134,8 +138,8 @@ defusedxml==0.6.0
     # via
     #   python3-openid
     #   social-auth-core
-deltalake==0.19.1
-    # via dlt
+deltalake==0.22.3
+    # via -r requirements.in
 distro==1.9.0
     # via openai
 dj-database-url==0.5.0
@@ -269,8 +273,6 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-greenlet==3.1.1
-    # via sqlalchemy
 grpcio==1.63.2
     # via
     #   -r requirements.in
@@ -501,7 +503,6 @@ pyarrow==17.0.0
     # via
     #   -r requirements.in
     #   deltalake
-    #   dlt
     #   sqlalchemy-bigquery
 pyasn1==0.5.0
     # via
