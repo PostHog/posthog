@@ -456,6 +456,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "I AM SECRET",
                 ],
                 "value": "I AM SECRET",
+                "order": 0,
             },
         }
 
@@ -619,6 +620,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     32,
                     "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
                 ],
+                "order": 0,
             },
             "payload": {
                 "value": {
@@ -628,6 +630,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "person": "{person}",
                     "event_url": "{f'{event.url}-test'}",
                 },
+                "order": 1,
                 "bytecode": {
                     "event": ["_H", HOGQL_BYTECODE_VERSION, 32, "event", 1, 1],
                     "groups": ["_H", HOGQL_BYTECODE_VERSION, 32, "groups", 1, 1],
@@ -650,7 +653,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     ],
                 },
             },
-            "method": {"value": "POST"},
+            "method": {"value": "POST", "order": 2},
             "headers": {
                 "value": {"version": "v={event.properties.$lib_version}"},
                 "bytecode": {
@@ -672,6 +675,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         2,
                     ]
                 },
+                "order": 3,
             },
         }
 
@@ -1141,6 +1145,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         inputs["message"]["transpiled"]["stl"].sort()
         assert result["inputs"] == {
             "message": {
+                "order": 0,
                 "transpiled": {
                     "code": 'concat("Hello, TypeScript ", arrayMap(__lambda((a) => a), [1, 2, 3]), "!")',
                     "lang": "ts",

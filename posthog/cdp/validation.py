@@ -24,9 +24,7 @@ class InputCollector(TraversingVisitor):
         super().visit_field(node)
         if node.chain[0] == "inputs":
             if len(node.chain) > 1:
-                self.inputs.add(node.chain[1])
-            else:
-                self.inputs.add("")
+                self.inputs.add(str(node.chain[1]))
 
 
 def collect_inputs(node: ast.Expr) -> set[str]:
