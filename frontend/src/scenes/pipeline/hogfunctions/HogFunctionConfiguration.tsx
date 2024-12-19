@@ -80,9 +80,7 @@ export function HogFunctionConfiguration({
         personsCountLoading,
         personsListQuery,
         template,
-        subTemplate,
         templateHasChanged,
-        forcedSubTemplateId,
         type,
     } = useValues(logic)
     const {
@@ -94,7 +92,6 @@ export function HogFunctionConfiguration({
         duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
-        setSubTemplateId,
     } = useActions(logic)
 
     if (loading && !loaded) {
@@ -384,41 +381,6 @@ export function HogFunctionConfiguration({
                         </div>
 
                         <div className="space-y-4 flex-2 min-w-100">
-                            {!forcedSubTemplateId && template?.sub_templates && (
-                                <>
-                                    <div className="p-3 space-y-2 border rounded bg-bg-light">
-                                        <div className="flex items-center gap-2">
-                                            <LemonLabel className="flex-1">Choose template</LemonLabel>
-                                            <LemonSelect
-                                                size="small"
-                                                options={[
-                                                    {
-                                                        value: null,
-                                                        label: 'Default',
-                                                    },
-                                                    ...template.sub_templates.map((subTemplate) => ({
-                                                        value: subTemplate.id,
-                                                        label: subTemplate.name,
-                                                        labelInMenu: (
-                                                            <div className="my-1 space-y-1 max-w-120">
-                                                                <div className="font-semibold">{subTemplate.name}</div>
-                                                                <div className="font-sans text-xs text-muted">
-                                                                    {subTemplate.description}
-                                                                </div>
-                                                            </div>
-                                                        ),
-                                                    })),
-                                                ]}
-                                                value={subTemplate?.id}
-                                                onChange={(value) => {
-                                                    setSubTemplateId(value)
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
-                                </>
-                            )}
-
                             <div className="p-3 space-y-2 border rounded bg-bg-light">
                                 <div className="space-y-2">
                                     <HogFunctionInputs
