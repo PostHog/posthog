@@ -22,7 +22,7 @@ from posthog.schema import (
     FunnelsFilter,
     FunnelsQuery,
     FunnelVizType,
-    InsightDateRange,
+    DateRange,
     LifecycleFilter,
     LifecycleQuery,
     PathsFilter,
@@ -277,7 +277,7 @@ INSIGHT_TYPE = Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "
 
 
 def _date_range(filter: dict):
-    date_range = InsightDateRange(
+    date_range = DateRange(
         date_from=filter.get("date_from"),
         date_to=filter.get("date_to"),
         explicitDate=str_to_bool(filter.get("explicit_date")) if filter.get("explicit_date") else None,

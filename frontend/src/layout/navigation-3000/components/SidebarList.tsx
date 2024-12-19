@@ -232,7 +232,8 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
     if (isItemClickable(item)) {
         content = (
             <li className="SidebarListItem__button" onClick={item.onClick}>
-                <h5>{item.name}</h5>
+                {item.icon && <div className="SidebarListItem__icon">{item.icon}</div>}
+                <h5 className="SidebarListItem__name">{item.name}</h5>
             </li>
         )
     } else if (!save || (!isItemTentative(item) && newName === null)) {
