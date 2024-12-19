@@ -410,7 +410,7 @@ def _recalculate_cohortpeople_for_team_hogql(
             **hogql_context.values,
             "cohort_id": cohort.pk,
             "team_id": team.id,
-            "new_version": -pending_version,
+            "new_version": pending_version - 1,
         },
         settings={
             "max_execution_time": 600,
