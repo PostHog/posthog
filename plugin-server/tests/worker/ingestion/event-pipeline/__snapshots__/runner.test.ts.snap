@@ -20,6 +20,22 @@ Array [
     ],
   ],
   Array [
+    "cookielessServerHashStep",
+    Array [
+      Object {
+        "distinct_id": "my_id",
+        "event": "default event",
+        "ip": "127.0.0.1",
+        "now": "2020-02-23T02:15:00.000Z",
+        "properties": Object {},
+        "site_url": "http://localhost",
+        "team_id": 2,
+        "timestamp": "2020-02-23T02:15:00.000Z",
+        "uuid": "uuid1",
+      },
+    ],
+  ],
+  Array [
     "pluginsProcessEventStep",
     Array [
       Object {
