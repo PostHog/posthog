@@ -29,7 +29,7 @@ import {
 import type { codeEditorLogicType } from './codeEditorLogicType'
 
 export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
-export const activemodelStateKey = (key: string | number): string => `${key}/activeModelUri`
+export const activeModelStateKey = (key: string | number): string => `${key}/activeModelUri`
 
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 
@@ -206,7 +206,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
 
             if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] || values.featureFlags[FEATURE_FLAGS.SQL_EDITOR]) {
                 const path = modelName.path.split('/').pop()
-                path && props.multitab && actions.setLocalState(activemodelStateKey(props.key), path)
+                path && props.multitab && actions.setLocalState(activeModelStateKey(props.key), path)
             }
         },
         deleteModel: ({ modelName }) => {

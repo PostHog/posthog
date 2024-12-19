@@ -46,7 +46,7 @@ function QueryTabComponent({ model, active, onClear, onClick }: QueryTabProps): 
                 onClear ? 'pl-3 pr-2' : 'px-3'
             )}
         >
-            {model.view?.name ?? 'Untitled'}
+            {model.view?.name ?? 'New query'}
             {onClear && (
                 <LemonButton
                     onClick={(e) => {
