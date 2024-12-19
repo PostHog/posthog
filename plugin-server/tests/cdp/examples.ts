@@ -481,6 +481,76 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
             },
         },
     },
+
+    inputs_reference_working: {
+        inputs_schema: [
+            {
+                key: 'simple',
+                type: 'string',
+                secret: false,
+                required: true,
+            },
+            {
+                key: 'json',
+                type: 'json',
+                secret: false,
+                required: false,
+            },
+            {
+                key: 'mixed',
+                type: 'string',
+                secret: false,
+                required: false,
+            },
+        ],
+        inputs: {
+            json: {
+                value: {
+                    mixed: '{inputs.mixed}',
+                    simple: '{inputs.simple}',
+                },
+                bytecode: {
+                    mixed: ['_H', 1, 32, 'mixed', 32, 'inputs', 1, 2],
+                    simple: ['_H', 1, 32, 'simple', 32, 'inputs', 1, 2],
+                },
+            },
+            mixed: {
+                value: 'Message: {inputs.simple}',
+                bytecode: ['_H', 1, 32, 'Message: ', 32, 'simple', 32, 'inputs', 1, 2, 2, 'concat', 2],
+            },
+            simple: {
+                value: 'Hello {event.properties.email}',
+                bytecode: ['_H', 1, 32, 'Hello ', 32, 'email', 32, 'properties', 32, 'event', 1, 3, 2, 'concat', 2],
+            },
+        },
+    },
+
+    inputs_reference_circular: {
+        inputs_schema: [
+            {
+                key: 'circular',
+                type: 'string',
+                secret: false,
+                required: true,
+            },
+            {
+                key: 'circular_2',
+                type: 'string',
+                secret: false,
+                required: false,
+            },
+        ],
+        inputs: {
+            circular_2: {
+                value: '{inputs.circular}',
+                bytecode: ['_H', 1, 32, 'circular', 32, 'inputs', 1, 2],
+            },
+            circular: {
+                value: '{inputs.circular_2}',
+                bytecode: ['_H', 1, 32, 'circular_2', 32, 'inputs', 1, 2],
+            },
+        },
+    },
 }
 
 export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters'>> = {

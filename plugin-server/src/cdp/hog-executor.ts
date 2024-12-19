@@ -10,6 +10,8 @@ import { status } from '../utils/status'
 import { HogFunctionManager } from './hog-function-manager'
 import {
     CyclotronFetchFailureInfo,
+    HogBytecode,
+    HogFunctionInputType,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
@@ -101,6 +103,26 @@ const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => 
     }
 
     return message
+}
+
+const findGlobals = (bytecode: HogBytecode[]): string[] => {
+    // TODO!
+
+    return []
+}
+
+const orderInputsByDependency = (hogFunction: HogFunctionType): [string, HogFunctionInputType][] => {
+    // TODO - take all the inputs and order them by dependency so that we can execute them in the correct order to derive all the values
+
+    const allInputs: HogFunctionType['inputs'] = {
+        ...hogFunction.inputs,
+        ...hogFunction.encrypted_inputs,
+    }
+
+    // TODO: Actually do the check
+
+    // if there is a circular dependency, throw an error
+    throw new Error('Circular input reference found: input.TODO in input FOO')
 }
 
 export class HogExecutor {
@@ -529,30 +551,23 @@ export class HogExecutor {
     }
 
     buildHogFunctionGlobals(invocation: HogFunctionInvocation): HogFunctionInvocationGlobalsWithInputs {
-        const builtInputs: Record<string, any> = {}
-
-        Object.entries(invocation.hogFunction.inputs ?? {}).forEach(([key, item]) => {
-            builtInputs[key] = item.value
-
-            if (item.bytecode) {
-                // Use the bytecode to compile the field
-                builtInputs[key] = formatInput(item.bytecode, invocation.globals, key)
-            }
-        })
-
-        Object.entries(invocation.hogFunction.encrypted_inputs ?? {}).forEach(([key, item]) => {
-            builtInputs[key] = item.value
-
-            if (item.bytecode) {
-                // Use the bytecode to compile the field
-                builtInputs[key] = formatInput(item.bytecode, invocation.globals, key)
-            }
-        })
-
-        return {
+        const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
             ...invocation.globals,
-            inputs: builtInputs,
+            inputs: {},
         }
+
+        const orderedInputs = orderInputsByDependency(invocation.hogFunction)
+
+        for (const [key, input] of orderedInputs) {
+            newGlobals.inputs[key] = input.value
+
+            if (input.bytecode) {
+                // Use the bytecode to compile the field
+                newGlobals.inputs[key] = formatInput(input.bytecode, newGlobals, key)
+            }
+        }
+
+        return newGlobals
     }
 
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {
