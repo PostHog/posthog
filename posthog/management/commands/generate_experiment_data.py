@@ -163,8 +163,8 @@ class Command(BaseCommand):
                 event="$feature_flag_called",
                 timestamp=random_timestamp,
                 properties={
+                    "$feature_flag_response": variant,
                     "$feature_flag": experiment_id,
-                    f"$feature/{experiment_id}": variant,
                 },
             )
 
