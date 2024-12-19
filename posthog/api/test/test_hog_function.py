@@ -479,6 +479,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "I AM SECRET",
                 ],
                 "value": "I AM SECRET",
+                "order": 0,
             },
         }
 
@@ -486,7 +487,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert (
             raw_encrypted_inputs
-            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1WLE6eeZEhBJqFv8fQacoHXhDbDh5fvL7DTr1sc2R_DmTwvPQDiSss790vZ6d_vm1Q="
+            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1Uvej4GHsYRbsTN_txcQHNnU7zvLee83DhHIrThEjceoq8i7hbfKrvqjEi7GCGc_k_Gi3V5KFxDOfLKnke4KM4s"
         )
 
     def test_secret_inputs_not_updated_if_not_changed(self, *args):
@@ -642,6 +643,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     32,
                     "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
                 ],
+                "order": 0,
             },
             "payload": {
                 "value": {
@@ -651,6 +653,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "person": "{person}",
                     "event_url": "{f'{event.url}-test'}",
                 },
+                "order": 1,
                 "bytecode": {
                     "event": ["_H", HOGQL_BYTECODE_VERSION, 32, "event", 1, 1],
                     "groups": ["_H", HOGQL_BYTECODE_VERSION, 32, "groups", 1, 1],
@@ -673,7 +676,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     ],
                 },
             },
-            "method": {"value": "POST"},
+            "method": {"value": "POST", "order": 2},
             "headers": {
                 "value": {"version": "v={event.properties.$lib_version}"},
                 "bytecode": {
@@ -695,6 +698,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         2,
                     ]
                 },
+                "order": 3,
             },
         }
 
@@ -1164,6 +1168,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         inputs["message"]["transpiled"]["stl"].sort()
         assert result["inputs"] == {
             "message": {
+                "order": 0,
                 "transpiled": {
                     "code": 'concat("Hello, TypeScript ", arrayMap(__lambda((a) => a), [1, 2, 3]), "!")',
                     "lang": "ts",

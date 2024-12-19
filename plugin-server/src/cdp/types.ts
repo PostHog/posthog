@@ -297,6 +297,7 @@ export type HogFunctionInputType = {
     value: any
     secret?: boolean
     bytecode?: HogBytecode | object
+    order?: number
 }
 
 export type IntegrationType = {

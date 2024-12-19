@@ -79,7 +79,7 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
     bytecode = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, attrs):
-        attrs["bytecode"] = generate_template_bytecode(attrs["hash"])
+        attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
 
         return super().validate(attrs)
 
