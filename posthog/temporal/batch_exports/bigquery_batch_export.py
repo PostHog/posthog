@@ -40,7 +40,7 @@ from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
-    run_consumer_loop,
+    run_consumer,
     wait_for_schema_or_producer,
 )
 from posthog.temporal.batch_exports.temporary_file import (
@@ -519,12 +519,19 @@ class BigQueryConsumer(Consumer):
         heartbeater: Heartbeater,
         heartbeat_details: BigQueryHeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        data_interval_end: dt.datetime | str,
         writer_format: WriterFormat,
         bigquery_client: BigQueryClient,
         bigquery_table: bigquery.Table,
-        table_schema: list[BatchExportField],
+        table_schema: list[bigquery.SchemaField],
     ):
-        super().__init__(heartbeater, heartbeat_details, data_interval_start, writer_format)
+        super().__init__(
+            heartbeater=heartbeater,
+            heartbeat_details=heartbeat_details,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            writer_format=writer_format,
+        )
         self.bigquery_client = bigquery_client
         self.bigquery_table = bigquery_table
         self.table_schema = table_schema
@@ -629,11 +636,10 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
         )
-        records_completed = 0
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            return records_completed
+            return 0
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -700,21 +706,23 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     create=can_perform_merge,
                     delete=can_perform_merge,
                 ) as bigquery_stage_table:
-                    records_completed = await run_consumer_loop(
-                        queue=queue,
-                        consumer_cls=BigQueryConsumer,
-                        producer_task=producer_task,
+                    consumer = BigQueryConsumer(
                         heartbeater=heartbeater,
                         heartbeat_details=details,
                         data_interval_end=data_interval_end,
                         data_interval_start=data_interval_start,
-                        schema=record_batch_schema,
                         writer_format=WriterFormat.PARQUET if can_perform_merge else WriterFormat.JSONL,
-                        max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                        json_columns=() if can_perform_merge else json_columns,
                         bigquery_client=bq_client,
                         bigquery_table=bigquery_stage_table if can_perform_merge else bigquery_table,
                         table_schema=stage_schema if can_perform_merge else schema,
+                    )
+                    records_completed = await run_consumer(
+                        consumer=consumer,
+                        queue=queue,
+                        producer_task=producer_task,
+                        schema=record_batch_schema,
+                        max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                        json_columns=() if can_perform_merge else json_columns,
                         writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
                         multiple_files=True,
                     )
