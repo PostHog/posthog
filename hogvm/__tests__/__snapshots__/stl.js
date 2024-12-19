@@ -7,6 +7,8 @@ function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function notEmpty (value) { return !empty(value) }
 function lower (value) { return value.toLowerCase() }
 function length (value) { return value.length }
+function isNull (value) { return value === null || value === undefined }
+function isNotNull (value) { return value !== null && value !== undefined }
 function generateUUIDv4 () { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) { const r = (Math.random() * 16) | 0; const v = c === 'x' ? r : (r & 0x3) | 0x8; return v.toString(16) })}
 function encodeURLComponent (str) { return encodeURIComponent(str) }
 function empty (value) {
@@ -119,3 +121,11 @@ print(replaceOne("hello world", "l", "L"));
 print("");
 print("-- generateUUIDv4 --");
 print(length(generateUUIDv4()));
+print("");
+print("-- isNull, isNotNull --");
+print(isNull(null), isNotNull(null));
+print(isNull(true), isNotNull(true));
+print(isNull("banana"), isNotNull("banana"));
+print(isNull(false), isNotNull(false));
+print(isNull(0), isNotNull(0));
+print(isNull(1), isNotNull(1));

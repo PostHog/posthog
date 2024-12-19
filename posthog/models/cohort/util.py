@@ -393,14 +393,18 @@ def _recalculate_cohortpeople_for_team_hogql(
         limit_context=LimitContext.QUERY_ASYNC,
     ).generate_clickhouse_sql()
 
-    recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID_HOGQL_TEST.format(cohort_filter=cohort_query)
+    # Hacky: Clickhouse doesn't like there being a top level "SETTINGS" clause in a SelectSet statement when that SelectSet
+    # statement is used in a subquery. We remove it here.
+    cohort_query = cohort_query[: cohort_query.rfind("SETTINGS")]
+
+    recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID_HOGQL_TEST.format(cohort_filter=cohort_query)
 
     tag_queries(kind="cohort_calculation", team_id=team.id, query_type="CohortsQuery")
     if initiating_user_id:
         tag_queries(user_id=initiating_user_id)
 
     sync_execute(
-        recalcluate_cohortpeople_sql,
+        recalculate_cohortpeople_sql,
         {
             # **cohort_params,
             **hogql_context.values,
