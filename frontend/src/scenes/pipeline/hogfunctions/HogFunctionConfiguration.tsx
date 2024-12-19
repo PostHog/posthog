@@ -6,7 +6,6 @@ import {
     LemonDropdown,
     LemonInput,
     LemonLabel,
-    LemonSelect,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
