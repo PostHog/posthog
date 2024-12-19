@@ -662,4 +662,30 @@ describe('Hog Executor', () => {
             )
         })
     })
+
+    describe('inputs building', () => {
+        // TODO: Fix these tests
+        it('builds inputs from bytecode with input dependencies', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.inputs_reference_working,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const result = executor.buildHogFunctionGlobals(createInvocation(fn))
+            expect(result.inputs).toMatchInlineSnapshot()
+        })
+
+        it('throws an error if there is a circular dependency', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.inputs_reference_circular,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            expect(() => executor.buildHogFunctionGlobals(createInvocation(fn))).toThrow(
+                'Circular dependency detected in inputs: circular_2 -> circular'
+            )
+        })
+    })
 })
