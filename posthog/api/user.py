@@ -94,11 +94,7 @@ class UserSerializer(serializers.ModelSerializer):
     notification_settings = serializers.DictField(required=False)
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
     anonymize_data = ClassicBehaviorBooleanFieldSerializer()
-    role_at_organization = serializers.ChoiceField(
-        choices=User.ROLE_CHOICES,  # Use the choices from User model
-        required=True,  # Make it optional
-        # allow_null=True  # Allow null values
-    )
+    role_at_organization = serializers.ChoiceField(choices=User.ROLE_CHOICES, required=True)
 
     class Meta:
         model = User
@@ -256,7 +252,6 @@ class UserSerializer(serializers.ModelSerializer):
             raise exceptions.PermissionDenied("You are not a staff user, contact your instance admin.")
         return value
 
-    # not sure if this is needed here
     def validate_role_at_organization(self, value):
         if value and value not in dict(User.ROLE_CHOICES):
             raise serializers.ValidationError("Invalid role selected")

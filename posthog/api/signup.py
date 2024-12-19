@@ -111,6 +111,7 @@ class SignupSerializer(serializers.Serializer):
                 create_team=self.create_team,
                 is_staff=is_instance_first_user,
                 is_email_verified=self.is_email_auto_verified(),
+                role_at_organization=role_at_organization,
                 **validated_data,
             )
         except IntegrityError:
@@ -142,6 +143,7 @@ class SignupSerializer(serializers.Serializer):
         email = validated_data["email"]
         first_name = validated_data["first_name"]
         organization_name = validated_data["organization_name"]
+        role_at_organization = validated_data["role_at_organization"]
         # In the demo env, social signups gets staff privileges
         # - grep SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS for more info
         is_staff = self.is_social_signup
@@ -152,7 +154,9 @@ class SignupSerializer(serializers.Serializer):
                 self._organization,
                 self._team,
                 self._user,
-            ) = manager.ensure_account_and_save(email, first_name, organization_name, is_staff=is_staff)
+            ) = manager.ensure_account_and_save(
+                email, first_name, organization_name, role_at_organization, is_staff=is_staff
+            )
 
         login(
             self.context["request"],
@@ -209,8 +213,6 @@ class InviteSignupSerializer(serializers.Serializer):
         user: Optional[User] = None
         is_new_user: bool = False
 
-        role_at_organization = validated_data.pop("role_at_organization", "")
-
         if self.context["request"].user.is_authenticated:
             user = cast(User, self.context["request"].user)
 
@@ -236,11 +238,13 @@ class InviteSignupSerializer(serializers.Serializer):
             if not user:
                 is_new_user = True
                 try:
+                    role = validated_data.pop("role_at_organization", "")
                     user = User.objects.create_user(
                         invite.target_email,
                         validated_data.pop("password"),
                         validated_data.pop("first_name"),
                         is_email_verified=False,
+                        role_at_organization=role,
                         **validated_data,
                     )
                 except IntegrityError:
@@ -264,7 +268,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 backend_processor="OrganizationInviteSignupSerializer",
                 user_analytics_metadata=user.get_analytics_metadata(),
                 org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
-                role_at_organization=role_at_organization,
+                role_at_organization=role,
                 referral_source="signed up from invite link",
             )
 
