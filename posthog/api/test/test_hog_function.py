@@ -367,6 +367,29 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         assert filtered_actual_activities == expected_activities
 
+    def test_can_undelete_hog_function(self, *args):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={**EXAMPLE_FULL},
+        )
+        id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{id}/",
+            data={"deleted": True},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert (
+            self.client.get(f"/api/projects/{self.team.id}/hog_functions/{id}").status_code == status.HTTP_404_NOT_FOUND
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{id}/",
+            data={"deleted": False},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self.client.get(f"/api/projects/{self.team.id}/hog_functions/{id}").status_code == status.HTTP_200_OK
+
     def test_inputs_required(self, *args):
         payload = {
             "name": "Fetch URL",

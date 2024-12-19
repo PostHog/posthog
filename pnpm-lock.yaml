@@ -53,8 +53,8 @@ dependencies:
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/hogvm':
-    specifier: ^1.0.64
-    version: 1.0.64(luxon@3.5.0)
+    specifier: ^1.0.66
+    version: 1.0.66(luxon@3.5.0)
   '@posthog/icons':
     specifier: 0.9.2
     version: 0.9.2(react-dom@18.2.0)(react@18.2.0)
@@ -241,6 +241,9 @@ dependencies:
   image-blob-reduce:
     specifier: ^4.1.0
     version: 4.1.0
+  jsoncrush:
+    specifier: ^1.1.8
+    version: 1.1.8
   kea:
     specifier: ^3.1.5
     version: 3.1.5(react@18.2.0)
@@ -305,8 +308,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.201.1
-    version: 1.201.1
+    specifier: 1.202.2
+    version: 1.202.2
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -609,8 +612,8 @@ devDependencies:
     specifier: ^1.13.0
     version: 1.13.8
   caniuse-lite:
-    specifier: ^1.0.30001687
-    version: 1.0.30001687
+    specifier: ^1.0.30001689
+    version: 1.0.30001689
   concurrently:
     specifier: ^5.3.0
     version: 5.3.0
@@ -5446,8 +5449,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/hogvm@1.0.64(luxon@3.5.0):
-    resolution: {integrity: sha512-s6l5IhrtfLWXapW7Bl/YDvwX7hng9ypmhGul6Tljxu4ea5TBgexowf9+BhIGKo2JIUzyaZbLvDwQpTQopR1qvA==}
+  /@posthog/hogvm@1.0.66(luxon@3.5.0):
+    resolution: {integrity: sha512-bczn4tB2rXRJVXihkRHGiNT+6ruYRLRtGRf9xhGlZmdFBL/QSJa5/gQqflp5de+N6UMofkyjdX8yvBwiTt3VHw==}
     peerDependencies:
       luxon: ^3.4.4
     dependencies:
@@ -9638,7 +9641,7 @@ packages:
       postcss: ^8.1.0
     dependencies:
       browserslist: 4.22.2
-      caniuse-lite: 1.0.30001687
+      caniuse-lite: 1.0.30001689
       fraction.js: 4.2.0
       normalize-range: 0.1.2
       picocolors: 1.0.0
@@ -9654,7 +9657,7 @@ packages:
       postcss: ^8.1.0
     dependencies:
       browserslist: 4.22.2
-      caniuse-lite: 1.0.30001687
+      caniuse-lite: 1.0.30001689
       fraction.js: 4.3.7
       normalize-range: 0.1.2
       picocolors: 1.0.0
@@ -10018,7 +10021,7 @@ packages:
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
     dependencies:
-      caniuse-lite: 1.0.30001687
+      caniuse-lite: 1.0.30001689
       electron-to-chromium: 1.4.492
       node-releases: 2.0.13
       update-browserslist-db: 1.0.11(browserslist@4.21.10)
@@ -10028,7 +10031,7 @@ packages:
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
     dependencies:
-      caniuse-lite: 1.0.30001687
+      caniuse-lite: 1.0.30001689
       electron-to-chromium: 1.4.609
       node-releases: 2.0.14
       update-browserslist-db: 1.0.13(browserslist@4.22.2)
@@ -10178,13 +10181,13 @@ packages:
     resolution: {integrity: sha512-bsTwuIg/BZZK/vreVTYYbSWoe2F+71P7K5QGEX+pT250DZbfU1MQ5prOKpPR+LL6uWKK3KMwMCAS74QB3Um1uw==}
     dependencies:
       browserslist: 4.22.2
-      caniuse-lite: 1.0.30001687
+      caniuse-lite: 1.0.30001689
       lodash.memoize: 4.1.2
       lodash.uniq: 4.5.0
     dev: false
 
-  /caniuse-lite@1.0.30001687:
-    resolution: {integrity: sha512-0S/FDhf4ZiqrTUiQ39dKeUjYRjkv7lOZU1Dgif2rIqrTzX/1wV2hfKu9TOm1IHkdSijfLswxTFzl/cvir+SLSQ==}
+  /caniuse-lite@1.0.30001689:
+    resolution: {integrity: sha512-CmeR2VBycfa+5/jOfnp/NpWPGd06nf1XYiefUvhXFfZE4GkRc9jv+eGPS4nT558WS/8lYCzV8SlANCIPvbWP1g==}
 
   /case-anything@2.1.10:
     resolution: {integrity: sha512-JczJwVrCP0jPKh05McyVsuOg6AYosrB9XWZKbQzXeDAm2ClE/PJE/BcrrQrVyGYH7Jg8V/LDupmyL4kFlVsVFQ==}
@@ -12318,7 +12321,7 @@ packages:
       '@mdn/browser-compat-data': 5.3.16
       ast-metadata-inferer: 0.8.0
       browserslist: 4.21.10
-      caniuse-lite: 1.0.30001687
+      caniuse-lite: 1.0.30001689
       eslint: 8.57.0
       find-up: 5.0.0
       lodash.memoize: 4.1.2
@@ -15412,6 +15415,10 @@ packages:
     resolution: {integrity: sha512-gfFQZrcTc8CnKXp6Y4/CBT3fTc0OVuDofpre4aEeEpSBPV5X5v4+Vmx+8snU7RLPrNHPKSgLxGo9YuQzz20o+w==}
     dev: true
 
+  /jsoncrush@1.1.8:
+    resolution: {integrity: sha512-lvIMGzMUA0fjuqwNcxlTNRq2bibPZ9auqT/LyGdlR5hvydJtA/BasSgkx4qclqTKVeTidrJvsS/oVjlTCPQ4Nw==}
+    dev: false
+
   /jsonfile@6.1.0:
     resolution: {integrity: sha512-5dgndWOriYSm5cnYaJNhalLNDKOqFwyDB/rr1E9ZsGciGvKPs8R2xYGCacuf3z6K1YKDz182fd+fY3cn3pMqXQ==}
     dependencies:
@@ -16348,8 +16355,8 @@ packages:
       object-assign: 4.1.1
       thenify-all: 1.6.0
 
-  /nanoid@3.3.6:
-    resolution: {integrity: sha512-BGcqMMJuToF7i1rt+2PWSNVnWIkGCU78jBG3RxO/bZlnZPK2Cmi2QaffxGO/2RvWi9sL+FAiRiXMgsyxQ1DIDA==}
+  /nanoid@3.3.8:
+    resolution: {integrity: sha512-WNLf5Sd8oZxOm+TzppcYk8gVOgP+l58xNy58D0nbUnOxOWRWvlcCV4kUF7ltmI6PsrLl/BgKEyS4mqsGChFN0w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -17894,7 +17901,7 @@ packages:
     resolution: {integrity: sha512-PS08Iboia9mts/2ygV3eLpY5ghnUcfLV/EXTOW1E2qYxJKGGBUtNjN76FYHnMs36RmARn41bC0AZmn+rR0OVpQ==}
     engines: {node: ^10 || ^12 || >=14}
     dependencies:
-      nanoid: 3.3.6
+      nanoid: 3.3.8
       picocolors: 1.0.0
       source-map-js: 1.0.2
 
@@ -17902,8 +17909,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.201.1:
-    resolution: {integrity: sha512-srzbJLIzGp0DirGFhadXE1BDB9JGsfaTKLNX3PWehtVf3TSd4i1nX75hQHJmqrzRkGyMNMArQAuVCQN3aWMn3A==}
+  /posthog-js@1.202.2:
+    resolution: {integrity: sha512-9p7dAWuCfoM0WrasubGwtC8i38HU3iMqK3gd0mhyAoTrEVMVozTQq64Toc2VEv8H69NGNn6ikk5t2LclHT9XFA==}
     dependencies:
       core-js: 3.39.0
       fflate: 0.4.8
@@ -18520,7 +18527,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.182.0
+      unlayer-types: 1.188.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -21107,8 +21114,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.182.0:
-    resolution: {integrity: sha512-x+YSeA7/Wb/znKDtRws8M3Mu6TyKP3d+MddPVX/iUyDPVEOapoPWk0QxjIaNYtWt6troADZdhzgr2EwsZ61HrA==}
+  /unlayer-types@1.188.0:
+    resolution: {integrity: sha512-tnn+FjUZv1qUOoRUYRFxSDz9kHfhy7dLxzMZgnU5+k6GDSBlpa8mA+r4+r0D83M+mUUd/XwuM+gvfRLGzrqZ+g==}
     dev: false
 
   /unpipe@1.0.0:

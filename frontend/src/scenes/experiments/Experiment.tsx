@@ -1,5 +1,3 @@
-import './Experiment.scss'
-
 import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneExport } from 'scenes/sceneTypes'

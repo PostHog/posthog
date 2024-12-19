@@ -1,6 +1,6 @@
 import './PlayerMeta.scss'
 
-import { LemonBanner, LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -57,26 +57,6 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
             </span>
         </span>
     )
-}
-
-function PlayerWarningsRow(): JSX.Element | null {
-    const { messageTooLargeWarnings } = useValues(sessionRecordingPlayerLogic)
-
-    return messageTooLargeWarnings.length ? (
-        <div>
-            <LemonBanner
-                type="error"
-                action={{
-                    children: 'Learn more',
-                    to: 'https://posthog.com/docs/session-replay/troubleshooting#message-too-large-warning',
-                    targetBlank: true,
-                }}
-            >
-                This session recording had recording data that was too large and could not be captured. This will mean
-                playback is not 100% accurate.{' '}
-            </LemonBanner>
-        </div>
-    ) : null
 }
 
 export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
@@ -206,7 +186,6 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                     <PlayerMetaLinks iconsOnly={iconsOnly} />
                     {resolutionView}
                 </div>
-                <PlayerWarningsRow />
             </div>
         </DraggableToNotebook>
     )
