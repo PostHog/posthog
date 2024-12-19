@@ -101,5 +101,11 @@ if (inputs.debug) {
             name="HTTP Webhook on survey response",
             filters=SUB_TEMPLATE_COMMON["survey-response"].filters,
         ),
+        HogFunctionSubTemplate(
+            id="activity-log",
+            name="HTTP Webhook on team activity",
+            filters=SUB_TEMPLATE_COMMON["activity-log"].filters,
+            type="internal_destination",
+        ),
     ],
 )

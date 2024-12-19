@@ -87,5 +87,22 @@ if (res.status >= 400) {
                 },
             ],
         ),
+        HogFunctionSubTemplate(
+            id="activity-log",
+            type="internal_destination",
+            name="Post to Discord on team activity",
+            filters=SUB_TEMPLATE_COMMON["activity-log"].filters,
+            inputs_schema=[
+                *COMMON_INPUTS_SCHEMA,
+                {
+                    "key": "content",
+                    "type": "string",
+                    "label": "Content",
+                    "default": "**{person.name}** {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
+                    "secret": False,
+                    "required": True,
+                },
+            ],
+        ),
     ],
 )
