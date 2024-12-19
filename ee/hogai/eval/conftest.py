@@ -1,5 +1,6 @@
 import functools
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 from django.conf import settings
@@ -36,12 +37,14 @@ def retry_test_only(max_retries=3):
 
 # Apply decorators to all tests in the package.
 def pytest_collection_modifyitems(items):
+    current_dir = Path(__file__).parent
     for item in items:
-        item.add_marker(
-            pytest.mark.skipif(not settings.IN_EVAL_TESTING, reason="Only runs for the assistant evaluation")
-        )
-        # Apply our custom retry decorator to the test function
-        item.obj = retry_test_only(max_retries=3)(item.obj)
+        if Path(item.fspath).is_relative_to(current_dir):
+            item.add_marker(
+                pytest.mark.skipif(not settings.IN_EVAL_TESTING, reason="Only runs for the assistant evaluation")
+            )
+            # Apply our custom retry decorator to the test function
+            item.obj = retry_test_only(max_retries=3)(item.obj)
 
 
 @pytest.fixture(scope="package")
