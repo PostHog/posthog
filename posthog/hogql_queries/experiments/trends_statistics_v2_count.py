@@ -1,6 +1,10 @@
 from rest_framework.exceptions import ValidationError
 from sentry_sdk import capture_exception
-from posthog.hogql_queries.experiments import FF_DISTRIBUTION_THRESHOLD, MIN_PROBABILITY_FOR_SIGNIFICANCE
+from posthog.hogql_queries.experiments import (
+    EXPECTED_LOSS_SIGNIFICANCE_LEVEL,
+    FF_DISTRIBUTION_THRESHOLD,
+    MIN_PROBABILITY_FOR_SIGNIFICANCE,
+)
 from posthog.hogql_queries.experiments.funnels_statistics import Probability
 from posthog.schema import ExperimentSignificanceCode, ExperimentVariantTrendsBaseStats
 from scipy.stats import gamma
@@ -98,6 +102,7 @@ def are_results_significant_v2_count(
     is significantly better than the others. The method:
     1. Checks if sample sizes meet minimum threshold requirements
     2. Evaluates win probabilities from the posterior distributions
+    3. Calculates expected loss for the winning variant
 
     Parameters:
     -----------
@@ -111,17 +116,8 @@ def are_results_significant_v2_count(
     Returns:
     --------
     tuple[ExperimentSignificanceCode, Probability]
-        - ExperimentSignificanceCode indicating the significance status:
-            NOT_ENOUGH_EXPOSURE: Insufficient sample size
-            LOW_WIN_PROBABILITY: No variant has a high enough probability of being best
-            SIGNIFICANT: Clear winner with high probability of being best
-        - Probability value (1.0 for NOT_ENOUGH_EXPOSURE and LOW_WIN_PROBABILITY, 0.0 for SIGNIFICANT)
-
-    Notes:
-    ------
-    - Uses a Bayesian approach to determine significance
-    - Does not use credible interval comparisons
-    - p_value is a placeholder (1.0 or 0.0) to indicate significance status
+        - ExperimentSignificanceCode indicating the significance status
+        - Expected loss value for significant results, 1.0 for non-significant results
     """
     # Check exposure thresholds
     for variant in test_variants:
@@ -135,10 +131,22 @@ def are_results_significant_v2_count(
     max_probability = max(probabilities)
 
     # Check if any variant has a high enough probability of being best
-    if max_probability < MIN_PROBABILITY_FOR_SIGNIFICANCE:
-        return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1.0
+    if max_probability >= MIN_PROBABILITY_FOR_SIGNIFICANCE:
+        # Find best performing variant
+        all_variants = [control_variant, *test_variants]
+        rates = [v.count / v.absolute_exposure for v in all_variants]
+        best_idx = np.argmax(rates)
+        best_variant = all_variants[best_idx]
+        other_variants = all_variants[:best_idx] + all_variants[best_idx + 1 :]
 
-    return ExperimentSignificanceCode.SIGNIFICANT, 0.0
+        expected_loss = calculate_expected_loss_v2_count(best_variant, other_variants)
+
+        if expected_loss >= EXPECTED_LOSS_SIGNIFICANCE_LEVEL:
+            return ExperimentSignificanceCode.HIGH_LOSS, expected_loss
+
+        return ExperimentSignificanceCode.SIGNIFICANT, expected_loss
+
+    return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1.0
 
 
 def calculate_credible_intervals_v2_count(variants, lower_bound=0.025, upper_bound=0.975):
@@ -201,3 +209,47 @@ def calculate_credible_intervals_v2_count(variants, lower_bound=0.025, upper_bou
             return {}
 
     return intervals
+
+
+def calculate_expected_loss_v2_count(
+    target_variant: ExperimentVariantTrendsBaseStats, variants: list[ExperimentVariantTrendsBaseStats]
+) -> float:
+    """
+    Calculates expected loss in count/rate using Gamma-Poisson conjugate prior.
+
+    This implementation uses a Bayesian approach with Gamma-Poisson model
+    to estimate the expected loss when choosing the target variant over others.
+
+    Parameters:
+    -----------
+    target_variant : ExperimentVariantTrendsBaseStats
+        The variant being evaluated for loss
+    variants : list[ExperimentVariantTrendsBaseStats]
+        List of other variants to compare against
+
+    Returns:
+    --------
+    float
+        Expected loss in rate if choosing the target variant
+    """
+    # Calculate posterior parameters for target variant
+    target_alpha = ALPHA_0 + target_variant.count
+    target_beta = BETA_0 + target_variant.absolute_exposure
+
+    # Draw samples from target variant's Gamma posterior
+    target_samples = gamma.rvs(target_alpha, scale=1 / target_beta, size=SAMPLE_SIZE)
+
+    # Draw samples from each comparison variant's Gamma posterior
+    variant_samples = []
+    for variant in variants:
+        alpha = ALPHA_0 + variant.count
+        beta = BETA_0 + variant.absolute_exposure
+        samples = gamma.rvs(alpha, scale=1 / beta, size=SAMPLE_SIZE)
+        variant_samples.append(samples)
+
+    # Calculate loss
+    variant_max = np.maximum.reduce(variant_samples)
+    losses = np.maximum(0, variant_max - target_samples)
+    expected_loss = float(np.mean(losses))
+
+    return expected_loss

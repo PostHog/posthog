@@ -290,7 +290,8 @@ class TestExperimentTrendsStatistics(APIBaseTest):
             self.assertAlmostEqual(probabilities[0], 0.034, places=2)  # control should be losing
             if stats_version == 2:
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
-                self.assertEqual(p_value, 0)
+                self.assertLess(p_value, 0.01)
+                self.assertGreater(p_value, 0.0)
             else:
                 self.assertEqual(significance, ExperimentSignificanceCode.HIGH_P_VALUE)
                 self.assertAlmostEqual(p_value, 0.07, delta=0.01)
@@ -370,5 +371,62 @@ class TestExperimentTrendsStatistics(APIBaseTest):
 
             self.assertAlmostEqual(intervals["test"][0], 0.0, places=3)
             self.assertAlmostEqual(intervals["test"][1], 0.004, places=3)
+
+        self.run_test_for_both_implementations(run_test)
+
+    def test_expected_loss_minimal_difference(self):
+        """Test expected loss when variants have very similar performance"""
+
+        def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
+            control_absolute_exposure = 10000
+            control = create_variant("control", count=1000, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 10000
+            test = create_variant(
+                "test",
+                count=1075,  # Slightly higher count
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
+
+            probabilities = calculate_probabilities(control, [test])
+            significance, expected_loss = are_results_significant(control, [test], probabilities)
+
+            if stats_version == 2:
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
+                # Expected loss should be relatively small
+                self.assertLess(expected_loss, 0.03)  # Less than 3% expected loss
+                self.assertGreater(expected_loss, 0)  # But still some loss
+            else:
+                # Original implementation behavior (returns p_value in expected_loss)
+                self.assertEqual(significance, ExperimentSignificanceCode.HIGH_P_VALUE)
+                self.assertAlmostEqual(expected_loss, 0.1, delta=0.1)
+
+        self.run_test_for_both_implementations(run_test)
+
+    def test_expected_loss_test_variant_clear_winner(self):
+        """Test expected loss when one variant is clearly better"""
+
+        def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
+            control_absolute_exposure = 10000
+            control = create_variant("control", count=1000, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 10000
+            test = create_variant(
+                "test",
+                count=2000,  # Much higher count
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
+
+            probabilities = calculate_probabilities(control, [test])
+            significance, expected_loss = are_results_significant(control, [test], probabilities)
+
+            if stats_version == 2:
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
+                # Expected loss should be very close to zero since test is clearly better
+                self.assertLess(expected_loss, 0.001)  # Essentially zero loss
+            else:
+                # Original implementation behavior
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
+                self.assertLess(expected_loss, 0.001)
 
         self.run_test_for_both_implementations(run_test)
