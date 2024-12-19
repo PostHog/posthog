@@ -43,7 +43,7 @@ function Container({ children, primary, className, column }: Omit<PanelContainer
             className={clsx(
                 'flex',
                 primary && 'flex-1',
-                column ? 'flex-col gap-y-2' : 'gap-x-2',
+                column ? 'flex-col gap-y-4' : 'gap-x-2',
                 primary ? 'PanelLayout__container--primary' : 'PanelLayout__container--secondary',
                 className
             )}

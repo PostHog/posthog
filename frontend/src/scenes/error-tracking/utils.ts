@@ -45,7 +45,7 @@ export const mergeIssues = (
 export function getExceptionAttributes(
     properties: Record<string, any>
 ): { ingestionErrors?: string[]; exceptionList: ErrorTrackingException[] } & Record<
-    'type' | 'value' | 'synthetic' | 'library' | 'browser' | 'os' | 'sentryUrl' | 'level',
+    'type' | 'value' | 'synthetic' | 'library' | 'browser' | 'os' | 'sentryUrl' | 'level' | 'unhandled',
     any
 > {
     const {
@@ -84,6 +84,8 @@ export function getExceptionAttributes(
         synthetic = exceptionList?.[0]?.mechanism?.synthetic
     }
 
+    const handled = exceptionList?.[0]?.mechanism?.handled ?? false
+
     return {
         type,
         value,
@@ -93,6 +95,7 @@ export function getExceptionAttributes(
         os: os ? `${os} ${osVersion}` : undefined,
         sentryUrl,
         exceptionList: exceptionList || [],
+        unhandled: !handled,
         level,
         ingestionErrors,
     }

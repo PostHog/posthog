@@ -14,8 +14,19 @@ import { ChainedStackTraces } from './StackTraces'
 import { ErrorTrackingException } from './types'
 
 export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
-    const { type, value, synthetic, library, browser, os, sentryUrl, exceptionList, level, ingestionErrors } =
-        getExceptionAttributes(eventProperties)
+    const {
+        type,
+        value,
+        synthetic,
+        library,
+        browser,
+        os,
+        sentryUrl,
+        exceptionList,
+        level,
+        ingestionErrors,
+        unhandled,
+    } = getExceptionAttributes(eventProperties)
 
     const exceptionWithStack = hasStacktrace(exceptionList)
 
@@ -42,6 +53,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                     }
                 />
                 <TitledSnack title="synthetic" value={synthetic ?? false} />
+                <TitledSnack title="unhandled" value={unhandled} />
                 <TitledSnack title="library" value={library} />
                 <TitledSnack title="browser" value={browser ?? 'unknown'} />
                 <TitledSnack title="os" value={os ?? 'unknown'} />

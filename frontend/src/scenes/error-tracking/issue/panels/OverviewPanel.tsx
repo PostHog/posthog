@@ -5,7 +5,7 @@ import { getExceptionAttributes } from 'scenes/error-tracking/utils'
 export const OverviewPanel = (): JSX.Element => {
     const { issueProperties } = useValues(errorTrackingIssueSceneLogic)
 
-    const { synthetic, level, browser, os, library } = getExceptionAttributes(issueProperties)
+    const { synthetic, level, browser, os, library, unhandled } = getExceptionAttributes(issueProperties)
 
     const TableRow = ({ label, value }: { label: string; value: string | undefined }): JSX.Element => (
         <tr>
@@ -22,6 +22,7 @@ export const OverviewPanel = (): JSX.Element => {
                         { label: 'Level', value: level },
                         { label: 'Synthetic', value: synthetic },
                         { label: 'Library', value: library },
+                        { label: 'Unhandled', value: unhandled },
                     ].map((row, index) => (
                         <TableRow key={index} {...row} />
                     ))}
