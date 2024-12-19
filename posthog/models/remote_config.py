@@ -266,7 +266,7 @@ class RemoteConfig(UUIDModel):
             )
         site_functions = (
             HogFunction.objects.select_related("team")
-            .filter(team=self.team, enabled=True, type__in=("site_destination", "site_app"))
+            .filter(team=self.team, enabled=True, deleted=False, type__in=("site_destination", "site_app"))
             .all()
         )
 
@@ -279,12 +279,12 @@ class RemoteConfig(UUIDModel):
                 # Indentation to make it more readable (and therefore debuggable)
                 site_functions_js.append(
                     indent_js(
-                        f"\n{{\n  id: '{json.dumps(site_function.id)}',\n  type: '{json.dumps(site_function.type)}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
+                        f"\n{{\n  id: {json.dumps(str(site_function.id))},\n  type: {json.dumps(site_function.type)},\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
                     )
                 )
-            except Exception:
+            except Exception as e:
                 # TODO: Should we track this to somewhere?
-                logger.exception(f"Failed to build JS for site function {site_function.id}")
+                logger.exception(f"Failed to build JS for site function {site_function.id}", e)
                 pass
 
         return site_apps_js + site_functions_js
