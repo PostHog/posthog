@@ -46,6 +46,14 @@ class ConversationCheckpoint(UUIDModel):
 
 class ConversationCheckpointBlob(UUIDModel):
     checkpoint = models.ForeignKey(ConversationCheckpoint, on_delete=models.CASCADE, related_name="blobs")
+    """
+    The checkpoint that created the blob. Do not use this field to query blobs.
+    """
+    thread = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="blobs", null=True)
+    checkpoint_ns = models.TextField(
+        default="",
+        help_text='Checkpoint namespace. Denotes the path to the subgraph node the checkpoint originates from, separated by `|` character, e.g. `"child|grandchild"`. Defaults to "" (root graph).',
+    )
     channel = models.TextField(
         help_text="An arbitrary string defining the channel name. For example, it can be a node name or a reserved LangGraph's enum."
     )
@@ -56,7 +64,7 @@ class ConversationCheckpointBlob(UUIDModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["checkpoint_id", "channel", "version"],
+                fields=["thread_id", "checkpoint_ns", "channel", "version"],
                 name="unique_checkpoint_blob",
             )
         ]
