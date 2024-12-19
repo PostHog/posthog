@@ -6,8 +6,9 @@ import type { Decorator } from '@storybook/react'
 export const withTheme: Decorator = (Story, context) => {
     const theme = context.globals.theme
 
-    // set the theme
-    document.body.setAttribute('theme', theme === 'dark' ? 'dark' : 'light')
+    // Update class instead of attribute
+    document.body.classList.remove('theme-light', 'theme-dark')
+    document.body.classList.add(theme === 'dark' ? 'theme-dark' : 'theme-light')
 
     return <Story />
 }

@@ -18,7 +18,7 @@ const TRON_THEME = `:root {
     --radius: 0px;
 }
 
-body[theme=dark] {
+.theme-dark {
     --border: rgba(0, 255, 1, 0.5);
     --link: #00FF01;
     --border-bold: #00FF01;
@@ -49,7 +49,7 @@ const BARBIE_THEME = `:root {
     --radius: 16px;
 }
 
-body[theme=light] {
+.theme-light {
     --border: rgba(255, 105, 180, 0.5);
     --border-3000: #ff409f;
     --link: #E306AD;

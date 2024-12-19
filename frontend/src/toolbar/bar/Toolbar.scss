@@ -33,7 +33,7 @@
         z-index: 2147483020;
     }
 
-    &[theme='dark'] {
+    &.theme-dark {
         // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
         --mark: var(--secondary-3000-hover-dark);
 

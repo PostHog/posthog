@@ -2,7 +2,7 @@ import '~/styles'
 import '~/toolbar/styles.scss'
 
 import { Meta, StoryFn } from '@storybook/react'
-import { useActions, useMountedLogic } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -89,13 +89,17 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
     const theToolbarLogic = toolbarLogic()
 
     const { setVisibleMenu, setDragPosition, toggleMinimized, toggleTheme } = useActions(theToolbarLogic)
+    const { theme: currentTheme } = useValues(theToolbarLogic)
 
     useEffect(() => {
         setDragPosition(50, 50)
         setVisibleMenu(props.menu || 'none')
         toggleMinimized(props.minimized ?? false)
-        toggleTheme(props.theme || 'light')
-    }, [Object.values(props)])
+
+        if (props.theme && props.theme !== currentTheme) {
+            toggleTheme()
+        }
+    }, [props.menu, props.minimized, props.theme])
 
     return (
         <div className="min-h-[32rem]">

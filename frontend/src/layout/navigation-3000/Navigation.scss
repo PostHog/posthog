@@ -187,7 +187,7 @@
     // Hidden when the sidebar is closed
     border-right: min(1px, var(--sidebar-width)) solid transparent;
 
-    [theme='dark'] & {
+    .theme-dark & {
         --sidebar-background: var(--accent-3000);
     }
 
@@ -360,7 +360,7 @@
     flex-shrink: 0;
     min-height: var(--accordion-row-height);
 
-    [theme='dark'] & {
+    .theme-dark & {
         --accordion-header-background: var(--bg-3000);
     }
 
