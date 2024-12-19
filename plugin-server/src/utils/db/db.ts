@@ -298,7 +298,7 @@ export class DB {
 
         return instrumentQuery('query.redisSetNX', tag, async () => {
             const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key (NK)', { key })
+            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key (NX)', { key })
             try {
                 const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
                 if (ttlSeconds) {
