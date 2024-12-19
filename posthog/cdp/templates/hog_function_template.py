@@ -12,6 +12,21 @@ SubTemplateId = Literal["early_access_feature_enrollment", "survey_response"]
 
 SUB_TEMPLATE_ID: tuple[SubTemplateId, ...] = get_args(SubTemplateId)
 
+HogFunctionTemplateType = Literal[
+    "destination",
+    "internal_destination",
+    "site_destination",
+    "site_app",
+    "transformation",
+    "shared",
+    "email",
+    "sms",
+    "push",
+    "broadcast",
+    "activity",
+    "alert",
+]
+
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionSubTemplate:
@@ -42,19 +57,7 @@ class HogFunctionMappingTemplate:
 @dataclasses.dataclass(frozen=True)
 class HogFunctionTemplate:
     status: Literal["alpha", "beta", "stable", "free", "client-side"]
-    type: Literal[
-        "destination",
-        "site_destination",
-        "site_app",
-        "transformation",
-        "shared",
-        "email",
-        "sms",
-        "push",
-        "broadcast",
-        "activity",
-        "alert",
-    ]
+    type: HogFunctionTemplateType
     id: str
     name: str
     description: str

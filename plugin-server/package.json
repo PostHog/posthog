@@ -75,10 +75,10 @@
         "ioredis": "^4.27.6",
         "ipaddr.js": "^2.1.0",
         "kafkajs": "^2.2.0",
-        "lz4-kafkajs": "1.0.0",
         "kafkajs-snappy": "^1.1.0",
         "lru-cache": "^6.0.0",
         "luxon": "^3.4.4",
+        "lz4-kafkajs": "1.0.0",
         "node-fetch": "^2.6.1",
         "node-rdkafka": "^2.17.0",
         "node-schedule": "^2.1.0",
@@ -92,7 +92,8 @@
         "tail": "^2.2.6",
         "uuid": "^9.0.1",
         "v8-profiler-next": "^1.9.0",
-        "vm2": "3.9.18"
+        "vm2": "3.9.18",
+        "zod": "^3.24.1"
     },
     "devDependencies": {
         "0x": "^5.5.0",
