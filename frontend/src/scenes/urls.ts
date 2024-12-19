@@ -1,4 +1,3 @@
-import JSONCrush from 'jsoncrush'
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -75,8 +74,7 @@ export const urls = {
     insightNew: (type?: InsightType, dashboardId?: DashboardType['id'] | null, query?: Node): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(type ? { insight: type } : {}),
-            // have to use JSONCrush directly rather than the util to avoid circular dep
-            ...(query ? { q: typeof query === 'string' ? query : JSONCrush.crush(JSON.stringify(query)) } : {}),
+            ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
         }).url,
     insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
         combineUrl(

@@ -18,6 +18,8 @@ from dlt.common.typing import TDataItem, TSortOrder
 
 from dlt.sources.credentials import ConnectionStringCredentials
 
+from posthog.temporal.data_imports.pipelines.sql_database_v2.settings import DEFAULT_CHUNK_SIZE
+
 from .arrow_helpers import row_tuples_to_arrow
 from .schema_types import (
     default_table_adapter,
@@ -44,7 +46,7 @@ class TableLoader:
         backend: TableBackend,
         table: Table,
         columns: TTableSchemaColumns,
-        chunk_size: int = 1000,
+        chunk_size: int = DEFAULT_CHUNK_SIZE,
         incremental: Optional[dlt.sources.incremental[Any]] = None,
         db_incremental_field_last_value: Optional[Any] = None,
         query_adapter_callback: Optional[TQueryAdapter] = None,
@@ -302,7 +304,7 @@ class SqlTableResourceConfiguration(BaseConfiguration):
     table: Optional[str] = None
     schema: Optional[str] = None
     incremental: Optional[dlt.sources.incremental] = None  # type: ignore[type-arg]
-    chunk_size: int = 50000
+    chunk_size: int = DEFAULT_CHUNK_SIZE
     backend: TableBackend = "sqlalchemy"
     detect_precision_hints: Optional[bool] = None
     defer_table_reflect: Optional[bool] = False

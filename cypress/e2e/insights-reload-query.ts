@@ -1,5 +1,3 @@
-import JSONCrush from 'jsoncrush'
-
 describe('ReloadInsight component', () => {
     beforeEach(() => {
         // Clear local storage before each test to ensure a clean state
@@ -21,8 +19,7 @@ describe('ReloadInsight component', () => {
             const draftQuery = window.localStorage.getItem(`draft-query-${currentTeamId}`)
             expect(draftQuery).to.not.be.null
 
-            const draftQueryObjUncrushed = JSONCrush.uncrush(draftQuery)
-            const draftQueryObj = JSON.parse(draftQueryObjUncrushed)
+            const draftQueryObj = JSON.parse(draftQuery)
 
             expect(draftQueryObj).to.have.property('query')
 
