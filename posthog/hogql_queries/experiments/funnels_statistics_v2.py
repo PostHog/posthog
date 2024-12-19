@@ -4,7 +4,9 @@ from posthog.schema import ExperimentVariantFunnelsBaseStats, ExperimentSignific
 from posthog.hogql_queries.experiments import (
     FF_DISTRIBUTION_THRESHOLD,
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
+    EXPECTED_LOSS_SIGNIFICANCE_LEVEL,
 )
+from scipy.stats import betabinom
 
 ALPHA_PRIOR = 1
 BETA_PRIOR = 1
@@ -64,6 +66,52 @@ def calculate_probabilities_v2(
     return probabilities
 
 
+def calculate_expected_loss_v2(
+    target_variant: ExperimentVariantFunnelsBaseStats, variants: list[ExperimentVariantFunnelsBaseStats]
+) -> float:
+    """
+    Calculates expected loss in conversion rate using Beta-Binomial conjugate prior.
+
+    This implementation uses a Bayesian approach with Beta-Binomial model
+    to estimate the expected loss when choosing the target variant over others.
+
+    Parameters:
+    -----------
+    target_variant : ExperimentVariantFunnelsBaseStats
+        The variant being evaluated for loss
+    variants : list[ExperimentVariantFunnelsBaseStats]
+        List of other variants to compare against
+
+    Returns:
+    --------
+    float
+        Expected loss in conversion rate if choosing the target variant
+    """
+    # Calculate posterior parameters for target variant
+    target_alpha = int(ALPHA_PRIOR + target_variant.success_count)
+    target_beta = int(BETA_PRIOR + target_variant.failure_count)
+    target_n = int(target_variant.success_count + target_variant.failure_count)
+
+    # Get samples from target variant's Beta-Binomial
+    target_samples = betabinom.rvs(target_n, target_alpha, target_beta, size=SAMPLE_SIZE) / target_n
+
+    # Get samples from each comparison variant
+    variant_samples = []
+    for variant in variants:
+        n = int(variant.success_count + variant.failure_count)
+        alpha = int(ALPHA_PRIOR + variant.success_count)
+        beta = int(BETA_PRIOR + variant.failure_count)
+        samples = betabinom.rvs(n, alpha, beta, size=SAMPLE_SIZE) / n
+        variant_samples.append(samples)
+
+    # Calculate loss
+    variant_max = np.maximum.reduce(variant_samples)
+    losses = np.maximum(0, variant_max - target_samples)
+    expected_loss = float(np.mean(losses))
+
+    return expected_loss
+
+
 def are_results_significant_v2(
     control: ExperimentVariantFunnelsBaseStats,
     variants: list[ExperimentVariantFunnelsBaseStats],
@@ -74,7 +122,8 @@ def are_results_significant_v2(
     for funnel conversion rates.
 
     This function evaluates whether there is strong evidence that any variant is better
-    than the others, and checks if the sample size is sufficient for reliable conclusions.
+    than the others by considering both winning probabilities and expected loss. It checks
+    if the sample size is sufficient and evaluates the risk of choosing the winning variant.
 
     Parameters:
     -----------
@@ -89,13 +138,15 @@ def are_results_significant_v2(
     --------
     tuple[ExperimentSignificanceCode, float]
         A tuple containing:
-        - Significance code indicating the result (significant, not enough exposure, etc.)
-        - P-value (0.0 for significant results, 1.0 otherwise)
+        - Significance code indicating the result (significant, not enough exposure, high loss, etc.)
+        - Expected loss value for significant results, 1.0 for non-significant results
 
     Notes:
     ------
-    - Requires minimum 100 total conversions per variant for reliable results
+    - Requires minimum exposure threshold per variant for reliable results
     - Uses probability threshold from MIN_PROBABILITY_FOR_SIGNIFICANCE
+    - Calculates expected loss for the best-performing variant
+    - Returns HIGH_LOSS if expected loss exceeds significance threshold
     - Returns NOT_ENOUGH_EXPOSURE if sample size requirements not met
     """
     # Check minimum exposure
@@ -107,9 +158,19 @@ def are_results_significant_v2(
     # Check if any variant has high enough probability
     max_probability = max(probabilities)
     if max_probability >= MIN_PROBABILITY_FOR_SIGNIFICANCE:
-        return ExperimentSignificanceCode.SIGNIFICANT, 0.0
+        # Find best performing variant
+        all_variants = [control, *variants]
+        conversion_rates = [v.success_count / (v.success_count + v.failure_count) for v in all_variants]
+        best_idx = np.argmax(conversion_rates)
+        best_variant = all_variants[best_idx]
+        other_variants = all_variants[:best_idx] + all_variants[best_idx + 1 :]
+        expected_loss = calculate_expected_loss_v2(best_variant, other_variants)
 
-    # TODO: Add expected loss calculation
+        if expected_loss >= EXPECTED_LOSS_SIGNIFICANCE_LEVEL:
+            return ExperimentSignificanceCode.HIGH_LOSS, expected_loss
+
+        return ExperimentSignificanceCode.SIGNIFICANT, expected_loss
+
     return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1.0
 
 

@@ -198,3 +198,46 @@ class TestExperimentFunnelStatistics(APIBaseTest):
                 self.assertTrue(intervals["test"][1] - intervals["test"][0] > 0.15)
 
         self.run_test_for_both_implementations(run_test)
+
+    def test_expected_loss_minimal_difference(self):
+        """Test expected loss when variants have very similar performance"""
+
+        def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
+            control = create_variant("control", success_count=1000, failure_count=9000)  # 11% conversion
+            test = create_variant("test", success_count=1050, failure_count=8800)  # 11.9% conversion
+
+            probabilities = calculate_probabilities(control, [test])
+            significance, expected_loss = are_results_significant(control, [test], probabilities)
+
+            if stats_version == 2:
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
+                # Expected loss should still be relatively small
+                self.assertLess(expected_loss, 0.03)  # Less than 3% expected loss
+                self.assertGreater(expected_loss, 0)
+            else:
+                # Original implementation behavior
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
+                self.assertLess(expected_loss, 0.03)  # Less than 3% expected loss
+                self.assertGreater(expected_loss, 0)
+
+        self.run_test_for_both_implementations(run_test)
+
+    def test_expected_loss_test_variant_clear_winner(self):
+        """Test expected loss when one variant is clearly better"""
+
+        def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
+            control = create_variant("control", success_count=1000, failure_count=9000)  # 11% conversion
+            test = create_variant("test", success_count=2000, failure_count=8000)  # 20% conversion
+
+            probabilities = calculate_probabilities(control, [test])
+            significance, expected_loss = are_results_significant(control, [test], probabilities)
+
+            if stats_version == 2:
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
+                self.assertEqual(expected_loss, 0.0)
+            else:
+                # Original implementation behavior
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
+                self.assertEqual(expected_loss, 0.0)
+
+        self.run_test_for_both_implementations(run_test)
