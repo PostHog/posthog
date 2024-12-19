@@ -25,11 +25,15 @@ import {
 } from './Selectors'
 export function PrimaryGoalFunnels(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
+    const { experiment, isExperimentRunning, featureFlags, editingPrimaryMetricIndex } = useValues(experimentLogic)
     const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
-    const metricIdx = 0
+    if (!editingPrimaryMetricIndex && editingPrimaryMetricIndex !== 0) {
+        return <></>
+    }
+
+    const metricIdx = editingPrimaryMetricIndex
     const currentMetric = experiment.metrics[metricIdx] as ExperimentFunnelsQuery
 
     const actionFilterProps = {
@@ -261,7 +265,7 @@ export function PrimaryGoalFunnels(): JSX.Element {
                     checked={(() => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            const val = (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query
+                            const val = (experiment.metrics[metricIdx] as ExperimentFunnelsQuery).funnels_query
                                 ?.filterTestAccounts
                             return hasFilters ? !!val : false
                         }

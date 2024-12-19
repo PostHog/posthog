@@ -7,6 +7,11 @@ from posthog.hogql_queries.experiments.funnels_statistics import (
     calculate_credible_intervals,
     calculate_probabilities,
 )
+from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
+    are_results_significant_v2,
+    calculate_credible_intervals_v2,
+    calculate_probabilities_v2,
+)
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
 from ..insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -20,7 +25,7 @@ from posthog.schema import (
     FunnelsFilter,
     FunnelsQuery,
     FunnelsQueryResponse,
-    InsightDateRange,
+    DateRange,
     BreakdownFilter,
 )
 from typing import Optional, Any, cast
@@ -45,6 +50,8 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
+        self.stats_version = self.query.stats_version or 1
+
         self.prepared_funnels_query = self._prepare_funnel_query()
         self.funnels_query_runner = FunnelsQueryRunner(
             query=self.prepared_funnels_query, team=self.team, timings=self.timings, limit_context=self.limit_context
@@ -63,9 +70,14 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
             # Statistical analysis
             control_variant, test_variants = self._get_variants_with_base_stats(funnels_result)
-            probabilities = calculate_probabilities(control_variant, test_variants)
-            significance_code, loss = are_results_significant(control_variant, test_variants, probabilities)
-            credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+            if self.stats_version == 2:
+                probabilities = calculate_probabilities_v2(control_variant, test_variants)
+                significance_code, loss = are_results_significant_v2(control_variant, test_variants, probabilities)
+                credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
+            else:
+                probabilities = calculate_probabilities(control_variant, test_variants)
+                significance_code, loss = are_results_significant(control_variant, test_variants, probabilities)
+                credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
         except Exception as e:
             raise ValueError(f"Error calculating experiment funnel results: {str(e)}") from e
 
@@ -80,6 +92,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             },
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
+            stats_version=self.stats_version,
             expected_loss=loss,
             credible_intervals=credible_intervals,
         )
@@ -105,7 +118,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             start_date = self.experiment.start_date
             end_date = self.experiment.end_date
 
-        prepared_funnels_query.dateRange = InsightDateRange(
+        prepared_funnels_query.dateRange = DateRange(
             date_from=start_date.isoformat() if start_date else None,
             date_to=end_date.isoformat() if end_date else None,
             explicitDate=True,
