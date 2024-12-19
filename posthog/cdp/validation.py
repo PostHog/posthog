@@ -247,7 +247,14 @@ def validate_inputs(
         if not serializer.is_valid():
             raise serializers.ValidationError(serializer.errors)
 
-        validated_inputs[schema["key"]] = serializer.validated_data
+        validated_data = serializer.validated_data
+
+        # If it's a secret input, not required, and no value was provided, don't add it
+        if schema.get("secret", False) and not schema.get("required", False) and "value" not in validated_data:
+            # Skip adding this input entirely
+            continue
+
+        validated_inputs[schema["key"]] = validated_data
 
     # We'll topologically sort keys based on their input_deps.
     edges = {}
