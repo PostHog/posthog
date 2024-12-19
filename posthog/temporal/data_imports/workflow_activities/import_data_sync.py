@@ -101,6 +101,9 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 schema.sync_type_config.get("incremental_field_type"),
             )
 
+        if schema.is_incremental:
+            logger.debug(f"Incremental last value being used is: {processed_incremental_last_value}")
+
         source = None
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
             from posthog.temporal.data_imports.pipelines.stripe import stripe_source
