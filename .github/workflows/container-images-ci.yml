@@ -37,6 +37,12 @@ jobs:
             - name: Check out
               uses: actions/checkout@v3
 
+            - name: Check files
+              run: |
+                  ls -al ./docker
+                  ls -al ./docker/posthog
+                  cat ./docker/posthog/docker-entrypoint.sh
+
             - name: Build and cache Docker image in Depot
               uses: ./.github/actions/build-n-cache-image
               with:
