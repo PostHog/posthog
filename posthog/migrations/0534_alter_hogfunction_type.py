@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0532_taxonomy_unique_on_project"),
+        ("posthog", "0533_externaldatajob_pipeline_version"),
     ]
 
     operations = [
