@@ -217,20 +217,39 @@ def calculate_expected_loss_v2_count(
     """
     Calculates expected loss in count/rate using Gamma-Poisson conjugate prior.
 
-    This implementation uses a Bayesian approach with Gamma-Poisson model
-    to estimate the expected loss when choosing the target variant over others.
+    This implementation uses a Bayesian approach with Gamma-Poisson model to estimate
+    the expected loss when choosing the target variant over others. The Gamma-Poisson
+    model is used because:
+    1. Count data follows a Poisson distribution (discrete events over time/exposure)
+    2. The Gamma distribution is the conjugate prior for the Poisson rate parameter
+    3. This combination allows for analytical posterior updates and handles rate uncertainty
+
+    The model assumes:
+    - Events occur independently at a constant rate
+    - The number of events in any interval follows a Poisson distribution
+    - The rate parameter has a Gamma prior distribution
+    - The posterior distribution of the rate is also Gamma
 
     Parameters:
     -----------
     target_variant : ExperimentVariantTrendsBaseStats
-        The variant being evaluated for loss
+        The variant being evaluated for loss, containing count and exposure data
     variants : list[ExperimentVariantTrendsBaseStats]
         List of other variants to compare against
 
     Returns:
     --------
     float
-        Expected loss in rate if choosing the target variant
+        Expected loss in rate if choosing the target variant. This represents
+        the expected difference in rate between the target variant and the best
+        performing alternative.
+
+    Notes:
+    ------
+    - Uses minimally informative prior: Gamma(1,1)
+    - Posterior parameters: alpha = prior_alpha + count, beta = prior_beta + exposure
+    - Samples are drawn from posterior distributions to estimate expected loss
+    - Loss is calculated as max(0, best_alternative - target) for each sample
     """
     # Calculate posterior parameters for target variant
     target_alpha = ALPHA_0 + target_variant.count
