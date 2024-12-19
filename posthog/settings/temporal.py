@@ -16,6 +16,12 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
 
 BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 50  # 50MB
+# TODO - not sure if this makes sense to be a global setting or not
+# (would obviously be best to allow it to be configurable by the end user)
+# (set to 1GB by default for now)
+BATCH_EXPORT_S3_UPLOAD_MAX_FILE_SIZE_BYTES: int = get_from_env(
+    "BATCH_EXPORT_S3_UPLOAD_MAX_FILE_SIZE_BYTES", 1024 * 1024 * 1024, type_cast=int
+)
 BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES: int = get_from_env(
     "BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES", 0, type_cast=int
 )
