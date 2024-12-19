@@ -106,7 +106,7 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
     }
 
 
-def get_s3_key(inputs) -> str:
+def get_s3_key(inputs, file_number: int | None = None) -> str:
     """Return an S3 key given S3InsertInputs."""
     template_variables = get_allowed_template_variables(inputs)
     key_prefix = inputs.prefix.format(**template_variables)
@@ -117,6 +117,9 @@ def get_s3_key(inputs) -> str:
         raise UnsupportedFileFormatError(inputs.file_format, "S3")
 
     base_file_name = f"{inputs.data_interval_start}-{inputs.data_interval_end}"
+    # to maintain backwards compatibility with the old file naming scheme
+    if file_number is not None and file_number > 0:
+        base_file_name = f"{base_file_name}-{file_number}"
     if inputs.compression is not None:
         file_name = base_file_name + f".{file_extension}.{COMPRESSION_EXTENSIONS[inputs.compression]}"
     else:
@@ -424,107 +427,6 @@ class S3MultiPartUpload:
 
 
 @dataclasses.dataclass
-class S3HeartbeatDetails(BatchExportRangeHeartbeatDetails):
-    """This tuple allows us to enforce a schema on the Heartbeat details.
-
-    Attributes:
-        upload_state: State to continue a S3MultiPartUpload when activity execution resumes.
-    """
-
-    upload_state: S3MultiPartUploadState | None = None
-
-    @classmethod
-    def deserialize_details(cls, details: collections.abc.Sequence[typing.Any]) -> dict[str, typing.Any]:
-        """Attempt to initialize HeartbeatDetails from an activity's details."""
-        upload_state = None
-        remaining = super().deserialize_details(details)
-
-        if len(remaining["_remaining"]) == 0:
-            return {"upload_state": upload_state, **remaining}
-
-        first_detail = remaining["_remaining"][0]
-        remaining["_remaining"] = remaining["_remaining"][1:]
-
-        if first_detail is None:
-            return {"upload_state": None, **remaining}
-
-        try:
-            upload_state = S3MultiPartUploadState(*first_detail)
-        except (TypeError, ValueError) as e:
-            raise HeartbeatParseError("upload_state") from e
-
-        return {"upload_state": upload_state, **remaining}
-
-    def serialize_details(self) -> tuple[typing.Any, ...]:
-        """Attempt to initialize HeartbeatDetails from an activity's details."""
-        serialized_parent_details = super().serialize_details()
-        return (*serialized_parent_details[:-1], self.upload_state, self._remaining)
-
-    def append_upload_state(self, upload_state: S3MultiPartUploadState):
-        if self.upload_state is None:
-            self.upload_state = upload_state
-
-        current_parts = {part["PartNumber"] for part in self.upload_state.parts}
-        for part in upload_state.parts:
-            if part["PartNumber"] not in current_parts:
-                self.upload_state.parts.append(part)
-
-
-class S3Consumer(Consumer):
-    def __init__(
-        self,
-        heartbeater: Heartbeater,
-        heartbeat_details: S3HeartbeatDetails,
-        data_interval_start: dt.datetime | str | None,
-        data_interval_end: dt.datetime | str,
-        writer_format: WriterFormat,
-        s3_upload: S3MultiPartUpload,
-    ):
-        super().__init__(
-            heartbeater=heartbeater,
-            heartbeat_details=heartbeat_details,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            writer_format=writer_format,
-        )
-        self.heartbeat_details: S3HeartbeatDetails = heartbeat_details
-        self.s3_upload = s3_upload
-
-    async def flush(
-        self,
-        batch_export_file: BatchExportTemporaryFile,
-        records_since_last_flush: int,
-        bytes_since_last_flush: int,
-        flush_counter: int,
-        last_date_range: DateRange,
-        is_last: bool,
-        error: Exception | None,
-    ):
-        if error is not None:
-            await self.logger.adebug("Error while writing part %d", self.s3_upload.part_number + 1, exc_info=error)
-            await self.logger.awarning(
-                "An error was detected while writing part %d. Partial part will not be uploaded in case it can be retried.",
-                self.s3_upload.part_number + 1,
-            )
-            return
-
-        await self.logger.adebug(
-            "Uploading part %s containing %s records with size %s bytes",
-            self.s3_upload.part_number + 1,
-            records_since_last_flush,
-            bytes_since_last_flush,
-        )
-
-        await self.s3_upload.upload_part(batch_export_file)
-
-        self.rows_exported_counter.add(records_since_last_flush)
-        self.bytes_exported_counter.add(bytes_since_last_flush)
-
-        self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
-        self.heartbeat_details.append_upload_state(self.s3_upload.to_state())
-
-
-@dataclasses.dataclass
 class S3InsertInputs:
     """Inputs for S3 exports."""
 
@@ -555,31 +457,160 @@ class S3InsertInputs:
     batch_export_schema: BatchExportSchema | None = None
 
 
+@dataclasses.dataclass
+class S3HeartbeatDetails(BatchExportRangeHeartbeatDetails):
+    """This tuple allows us to enforce a schema on the Heartbeat details.
+
+    Attributes:
+        upload_state: State to continue a S3MultiPartUpload when activity execution resumes.
+        files_uploaded: The number of files we have uploaded so far
+            (we can upload several multi-part uploads in a single activity)
+    """
+
+    upload_state: S3MultiPartUploadState | None = None
+    files_uploaded: int = 0
+
+    @classmethod
+    def deserialize_details(cls, details: collections.abc.Sequence[typing.Any]) -> dict[str, typing.Any]:
+        """Attempt to initialize HeartbeatDetails from an activity's details."""
+        upload_state = None
+        files_uploaded = 0
+        remaining = super().deserialize_details(details)
+
+        if len(remaining["_remaining"]) == 0:
+            return {"upload_state": upload_state, "files_uploaded": files_uploaded, **remaining}
+
+        first_detail = remaining["_remaining"][0]
+        remaining["_remaining"] = remaining["_remaining"][1:]
+
+        if first_detail is None:
+            upload_state = None
+        else:
+            try:
+                upload_state = S3MultiPartUploadState(*first_detail)
+            except (TypeError, ValueError) as e:
+                raise HeartbeatParseError("upload_state") from e
+
+        second_detail = remaining["_remaining"][0]
+        remaining["_remaining"] = remaining["_remaining"][1:]
+
+        try:
+            files_uploaded = second_detail or 0
+        except (TypeError, ValueError) as e:
+            raise HeartbeatParseError("files_uploaded") from e
+
+        return {"upload_state": upload_state, "files_uploaded": files_uploaded, **remaining}
+
+    def serialize_details(self) -> tuple[typing.Any, ...]:
+        """Attempt to initialize HeartbeatDetails from an activity's details."""
+        serialized_parent_details = super().serialize_details()
+        return (*serialized_parent_details[:-1], self.upload_state, self.files_uploaded, self._remaining)
+
+    def append_upload_state(self, upload_state: S3MultiPartUploadState):
+        if self.upload_state is None:
+            self.upload_state = upload_state
+
+        current_parts = {part["PartNumber"] for part in self.upload_state.parts}
+        for part in upload_state.parts:
+            if part["PartNumber"] not in current_parts:
+                self.upload_state.parts.append(part)
+
+    def mark_file_upload_as_complete(self):
+        self.files_uploaded += 1
+        self.upload_state = None
+
+
+class S3Consumer(Consumer):
+    def __init__(
+        self,
+        heartbeater: Heartbeater,
+        heartbeat_details: S3HeartbeatDetails,
+        data_interval_start: dt.datetime | str | None,
+        data_interval_end: dt.datetime | str,
+        writer_format: WriterFormat,
+        s3_upload: S3MultiPartUpload,
+        s3_inputs: S3InsertInputs,
+    ):
+        super().__init__(
+            heartbeater=heartbeater,
+            heartbeat_details=heartbeat_details,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            writer_format=writer_format,
+        )
+        self.heartbeat_details: S3HeartbeatDetails = heartbeat_details
+        self.s3_upload: S3MultiPartUpload | None = s3_upload
+        self.s3_inputs = s3_inputs
+        self.file_number = 0
+
+    async def flush(
+        self,
+        batch_export_file: BatchExportTemporaryFile,
+        records_since_last_flush: int,
+        bytes_since_last_flush: int,
+        flush_counter: int,
+        last_date_range: DateRange,
+        is_last: bool,
+        error: Exception | None,
+    ):
+        if error is not None:
+            if not self.s3_upload:
+                return
+            await self.logger.adebug("Error while writing part %d", self.s3_upload.part_number + 1, exc_info=error)
+            await self.logger.awarning(
+                "An error was detected while writing part %d. Partial part will not be uploaded in case it can be retried.",
+                self.s3_upload.part_number + 1,
+            )
+            return
+
+        if self.s3_upload is None:
+            self.s3_upload = initialize_upload(self.s3_inputs, self.file_number)
+
+        async with self.s3_upload as s3_upload:
+            await self.logger.adebug(
+                "Uploading file number %s part %s containing %s records with size %s bytes",
+                self.file_number,
+                s3_upload.part_number + 1,
+                records_since_last_flush,
+                bytes_since_last_flush,
+            )
+            await s3_upload.upload_part(batch_export_file)
+
+            self.rows_exported_counter.add(records_since_last_flush)
+            self.bytes_exported_counter.add(bytes_since_last_flush)
+
+            if is_last:
+                await s3_upload.complete()
+
+        if is_last:
+            self.s3_upload = None
+            self.heartbeat_details.mark_file_upload_as_complete()
+            self.file_number += 1
+        else:
+            self.heartbeat_details.append_upload_state(self.s3_upload.to_state())
+
+        self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
+
+    async def close(self):
+        if self.s3_upload is not None:
+            await self.s3_upload.complete()
+            self.heartbeat_details.mark_file_upload_as_complete()
+
+
 async def initialize_and_resume_multipart_upload(
     inputs: S3InsertInputs,
 ) -> tuple[S3MultiPartUpload, S3HeartbeatDetails]:
     """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
 
-    try:
-        key = get_s3_key(inputs)
-    except Exception as e:
-        raise InvalidS3Key(e) from e
-
-    s3_upload = S3MultiPartUpload(
-        bucket_name=inputs.bucket_name,
-        key=key,
-        encryption=inputs.encryption,
-        kms_key_id=inputs.kms_key_id,
-        region_name=inputs.region,
-        aws_access_key_id=inputs.aws_access_key_id,
-        aws_secret_access_key=inputs.aws_secret_access_key,
-        endpoint_url=inputs.endpoint_url or None,
-    )
-
     _, details = await should_resume_from_activity_heartbeat(activity, S3HeartbeatDetails)
     if details is None:
         details = S3HeartbeatDetails()
+
+    files_uploaded = details.files_uploaded or 0
+    file_number = files_uploaded
+
+    s3_upload = initialize_upload(inputs, file_number)
 
     if details.upload_state:
         s3_upload.continue_from_state(details.upload_state)
@@ -596,6 +627,26 @@ async def initialize_and_resume_multipart_upload(
             await s3_upload.abort()
 
     return s3_upload, details
+
+
+def initialize_upload(inputs: S3InsertInputs, file_number: int | None) -> S3MultiPartUpload:
+    """Initialize a S3MultiPartUpload."""
+
+    try:
+        key = get_s3_key(inputs, file_number)
+    except Exception as e:
+        raise InvalidS3Key(e) from e
+
+    return S3MultiPartUpload(
+        bucket_name=inputs.bucket_name,
+        key=key,
+        encryption=inputs.encryption,
+        kms_key_id=inputs.kms_key_id,
+        region_name=inputs.region,
+        aws_access_key_id=inputs.aws_access_key_id,
+        aws_secret_access_key=inputs.aws_secret_access_key,
+        endpoint_url=inputs.endpoint_url or None,
+    )
 
 
 def s3_default_fields() -> list[BatchExportField]:
@@ -724,6 +775,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 data_interval_start=data_interval_start,
                 writer_format=WriterFormat.from_str(inputs.file_format, "S3"),
                 s3_upload=s3_upload,
+                s3_inputs=inputs,
             )
             records_completed = await run_consumer(
                 consumer=consumer,
@@ -733,6 +785,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
                 include_inserted_at=True,
                 writer_file_kwargs={"compression": inputs.compression},
+                max_file_size_bytes=settings.BATCH_EXPORT_S3_UPLOAD_MAX_FILE_SIZE_BYTES,
             )
 
             await s3_upload.complete()
