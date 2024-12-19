@@ -111,7 +111,7 @@
         "@types/ioredis": "^4.26.4",
         "@types/jest": "^28.1.1",
         "@types/long": "4.x.x",
-        "@types/luxon": "^1.27.0",
+        "@types/luxon": "^3.4.2",
         "@types/node": "^16.0.0",
         "@types/node-fetch": "^2.5.10",
         "@types/node-schedule": "^2.1.0",
