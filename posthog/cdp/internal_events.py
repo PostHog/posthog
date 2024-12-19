@@ -1,6 +1,5 @@
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime
-import json
 from typing import Optional
 import uuid
 
