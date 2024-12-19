@@ -20,12 +20,10 @@ import { Logo } from '~/toolbar/assets/Logo'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 
 function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element | null {
-    if (isObject(lastUrl)) {
-        if ('href' in lastUrl) {
-            // regression protection, we saw a user whose site was sometimes sending the string-ified location object
-            // this is a best-effort attempt to show the href in that case
-            lastUrl = lastUrl['href'] as string | undefined
-        }
+    if (isObject(lastUrl) && 'href' in lastUrl) {
+        // regression protection, we saw a user whose site was sometimes sending the string-ified location object
+        // this is a best-effort attempt to show the href in that case
+        lastUrl = lastUrl['href'] as string | undefined
     }
 
     if (!lastUrl) {
