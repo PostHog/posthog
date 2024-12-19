@@ -1,4 +1,3 @@
-from dataclasses import asdict
 from unittest.mock import ANY
 from inline_snapshot import snapshot
 from rest_framework import status
