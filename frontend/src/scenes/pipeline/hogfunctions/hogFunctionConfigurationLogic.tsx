@@ -458,6 +458,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         data.type === 'site_destination' && (!data.mappings || data.mappings.length === 0)
                             ? 'You must add at least one mapping'
                             : undefined,
+                    filters:
+                        data.type === 'internal_destination' && data.filters?.events?.length === 0
+                            ? 'You must choose a filter'
+                            : undefined,
                     ...(values.inputFormErrors as any),
                 }
             },

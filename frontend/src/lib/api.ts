@@ -1826,18 +1826,13 @@ const api = {
             return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
         async listTemplates(params: {
-            type?: HogFunctionTypeType | HogFunctionTypeType[]
+            types: HogFunctionTypeType[]
             sub_template_id?: HogFunctionSubTemplateIdType
         }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             const finalParams = {
                 ...params,
-                ...(params.type
-                    ? Array.isArray(params.type)
-                        ? { types: params.type.join(',') }
-                        : { type: params.type ?? 'destination' }
-                    : {}),
+                types: params.types.join(','),
             }
-
             return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
         async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {

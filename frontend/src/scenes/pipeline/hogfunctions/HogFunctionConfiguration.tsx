@@ -42,9 +42,23 @@ const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
     id?: string | null
+
+    displayOptions?: {
+        showFilters?: boolean
+        showExpectedVolume?: boolean
+        showStatus?: boolean
+        showEnabled?: boolean
+        showTesting?: boolean
+        canEditSource?: boolean
+        showPersonsCount?: boolean
+    }
 }
 
-export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigurationProps): JSX.Element {
+export function HogFunctionConfiguration({
+    templateId,
+    id,
+    displayOptions = {},
+}: HogFunctionConfigurationProps): JSX.Element {
     const logicProps = { templateId, id }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {
@@ -152,26 +166,24 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
-    const showFilters = [
-        'destination',
-        'internal_destination',
-        'site_destination',
-        'broadcast',
-        'transformation',
-    ].includes(type)
-    const showExpectedVolume = ['destination', 'site_destination'].includes(type)
-    const showStatus = ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
-    const showEnabled = [
-        'destination',
-        'internal_destination',
-        'email',
-        'site_destination',
-        'site_app',
-        'transformation',
-    ].includes(type)
-    const canEditSource = ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
-    const showPersonsCount = ['broadcast'].includes(type)
-    const showTesting = ['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type)
+    const showFilters =
+        displayOptions.showFilters ??
+        ['destination', 'internal_destination', 'site_destination', 'broadcast', 'transformation'].includes(type)
+    const showExpectedVolume = displayOptions.showExpectedVolume ?? ['destination', 'site_destination'].includes(type)
+    const showStatus =
+        displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
+    const showEnabled =
+        displayOptions.showEnabled ??
+        ['destination', 'internal_destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(
+            type
+        )
+    const canEditSource =
+        displayOptions.canEditSource ??
+        ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
+    const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
+    const showTesting =
+        displayOptions.showTesting ??
+        ['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type)
 
     return (
         <div className="space-y-3">
