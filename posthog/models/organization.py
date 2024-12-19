@@ -131,6 +131,7 @@ class Organization(UUIDModel):
     )
     for_internal_metrics = models.BooleanField(default=False)
     is_member_join_email_enabled = models.BooleanField(default=True)
+    is_openai_data_processing_approved = models.BooleanField(null=True, blank=True)
     enforce_2fa = models.BooleanField(null=True, blank=True)
 
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
