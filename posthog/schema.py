@@ -5584,6 +5584,7 @@ class EventTaxonomyQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    properties: Optional[list[str]] = None
     response: Optional[EventTaxonomyQueryResponse] = None
 
 

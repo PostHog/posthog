@@ -29,7 +29,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     const savedQueries = await api.dataWarehouseSavedQueries.list()
 
                     if (router.values.location.pathname.includes(urls.dataModel()) && !cache.pollingInterval) {
-                        cache.pollingInterval = setInterval(actions.loadDataWarehouseSavedQueries, 5000)
+                        cache.pollingInterval = setInterval(() => actions.loadDataWarehouseSavedQueries(), 5000)
                     } else {
                         clearInterval(cache.pollingInterval)
                     }
