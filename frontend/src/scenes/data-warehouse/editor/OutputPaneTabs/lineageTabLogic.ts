@@ -45,57 +45,50 @@ export const lineageTabLogic = kea<lineageTabLogicType>([
         runQuery: () => {
             actions.loadNodes()
         },
-        loadNodes: () => {
-            actions.setNodes({})
+        loadNodes: async () => {
+            const nodes: Record<string, Node> = {}
 
-            values.sources.forEach((source) => {
-                if (!source) {
-                    return
-                }
-                actions.setNodes({
-                    ...values.nodeMap,
-                    [source]: {
-                        nodeId: source,
-                        name: source,
-                        savedQueryId: undefined,
-                        leaf: [],
-                    },
-                })
-            })
-            values.views.forEach((view) => {
-                if (!view) {
-                    return
-                }
-                actions.setNodes({
-                    ...values.nodeMap,
-                    [view.id]: {
-                        nodeId: view.id,
-                        name: view.name,
-                        savedQueryId: view.id,
-                        leaf: [],
-                    },
-                })
-                actions.traverseAncestors(view.id, 1)
-            })
-        },
-        traverseAncestors: async ({ viewId, level }) => {
-            const result = await api.dataWarehouseSavedQueries.ancestors(viewId, level)
-
-            result.ancestors.forEach((ancestor) => {
-                actions.setNodes({
-                    ...values.nodeMap,
-                    [ancestor]: {
+            const traverseAncestors = async (viewId: DataWarehouseSavedQuery['id'], level: number): Promise<void> => {
+                const result = await api.dataWarehouseSavedQueries.ancestors(viewId, level)
+                for (const ancestor of result.ancestors) {
+                    nodes[ancestor] = {
                         nodeId: ancestor,
                         name:
                             values.viewsMapById[ancestor]?.name ||
                             values.dataWarehouseTablesMapById[ancestor]?.name ||
                             ancestor,
                         savedQueryId: values.viewsMapById[ancestor]?.id,
-                        leaf: [...(values.nodeMap[ancestor]?.leaf || []), viewId],
-                    },
-                })
-                actions.traverseAncestors(ancestor, 1)
+                        leaf: [...(nodes[ancestor]?.leaf || []), viewId],
+                    }
+                    await traverseAncestors(ancestor, 1)
+                }
+            }
+
+            values.sources.forEach((source) => {
+                if (!source) {
+                    return
+                }
+                nodes[source] = {
+                    nodeId: source,
+                    name: source,
+                    savedQueryId: undefined,
+                    leaf: [],
+                }
             })
+
+            for (const view of values.views) {
+                if (!view) {
+                    continue
+                }
+                nodes[view.id] = {
+                    nodeId: view.id,
+                    name: view.name,
+                    savedQueryId: view.id,
+                    leaf: [],
+                }
+                await traverseAncestors(view.id, 1)
+            }
+            actions.setNodes(nodes)
         },
     })),
     selectors({
