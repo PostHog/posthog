@@ -61,8 +61,18 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
 
         templates_list = HOG_FUNCTION_SUB_TEMPLATES if sub_template_id else HOG_FUNCTION_TEMPLATES
 
-        templates = [item for item in templates_list if item.type in types]
-        page = self.paginate_queryset(templates)
+        matching_templates = []
+
+        for template in templates_list:
+            if template.type not in types:
+                continue
+
+            if sub_template_id and sub_template_id not in template.id:
+                continue
+
+            matching_templates.append(template)
+
+        page = self.paginate_queryset(matching_templates)
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)
 
