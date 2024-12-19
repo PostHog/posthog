@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { IconInfo, IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'

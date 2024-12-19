@@ -102,7 +102,7 @@ export function MetricsView(): JSX.Element {
     const commonTickValues = getNiceTickValues(chartBound)
 
     return (
-        <div className="mb-4">
+        <div className="mb-4 -mt-2">
             <div className="flex">
                 <div className="w-1/2 pt-5">
                     <div className="inline-flex space-x-2 mb-0">

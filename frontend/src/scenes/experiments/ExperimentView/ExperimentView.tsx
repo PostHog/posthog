@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -33,7 +31,9 @@ const ResultsTab = (): JSX.Element => {
 
     return (
         <div className="space-y-8">
-            {hasResultsInsight ? (
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
+                <MetricsView />
+            ) : hasResultsInsight ? (
                 <Results />
             ) : (
                 <>
@@ -51,7 +51,6 @@ const ResultsTab = (): JSX.Element => {
                     )}
                 </>
             )}
-            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] && <MetricsView />}
             <SecondaryMetricsTable experimentId={experiment.id} />
         </div>
     )
@@ -70,7 +69,7 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentResultsLoading, experimentId, experimentResults, tabKey } =
+    const { experimentLoading, experimentResultsLoading, experimentId, experimentResults, tabKey, featureFlags } =
         useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
@@ -90,20 +89,27 @@ export function ExperimentView(): JSX.Element {
                             <ExperimentLoadingAnimation />
                         ) : (
                             <>
-                                {hasResultsInsight ? (
+                                {hasResultsInsight && !featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
                                     <div>
                                         <Overview />
                                         <LemonDivider className="mt-4" />
                                     </div>
                                 ) : null}
                                 <div className="xl:flex">
-                                    <div className="w-1/2 pr-2">
-                                        <Goal />
-                                    </div>
-
-                                    <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">
-                                        <DataCollection />
-                                    </div>
+                                    {featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
+                                        <div className="w-1/2 mt-8 xl:mt-0">
+                                            <DataCollection />
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className="w-1/2 pr-2">
+                                                <Goal />
+                                            </div>
+                                            <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">
+                                                <DataCollection />
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                                 <LemonTabs
                                     activeKey={tabKey}

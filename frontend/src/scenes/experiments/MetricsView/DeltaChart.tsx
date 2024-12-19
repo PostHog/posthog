@@ -156,7 +156,7 @@ export function DeltaChart({
                     className="p-1 overflow-auto"
                 >
                     <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
-                        <div className="space-y-1">
+                        <div className="space-y-1 pl-1">
                             <div className="flex items-center gap-2">
                                 <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow">
                                     {metricIndex + 1}.{' '}
@@ -422,7 +422,7 @@ export function DeltaChart({
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ fontSize: '10px', fontWeight: 400 }}
                             >
-                                <span>Results loading...</span>
+                                <span>Results loading&hellip;</span>
                             </div>
                         </foreignObject>
                     </svg>
@@ -432,22 +432,13 @@ export function DeltaChart({
                         viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
                         preserveAspectRatio="xMidYMid meet"
                     >
-                        <foreignObject
-                            x={VIEW_BOX_WIDTH / 2 - 100} // Center the 200px wide container
-                            y={chartHeight / 2 - 10} // Roughly center vertically
-                            width="250"
-                            height="20"
-                            onMouseEnter={(e) => {
-                                const rect = e.currentTarget.getBoundingClientRect()
-                                setTooltipPosition({
-                                    x: rect.left + rect.width / 2,
-                                    y: rect.top,
-                                })
-                                setEmptyStateTooltipVisible(true)
-                            }}
-                            onMouseLeave={() => setEmptyStateTooltipVisible(false)}
-                        >
-                            {!experiment.start_date ? (
+                        {!experiment.start_date ? (
+                            <foreignObject
+                                x={VIEW_BOX_WIDTH / 2 - 100}
+                                y={chartHeight / 2 - 10}
+                                width="250"
+                                height="20"
+                            >
                                 <div
                                     className="flex items-center justify-center text-muted cursor-default"
                                     // eslint-disable-next-line react/forbid-dom-props
@@ -455,7 +446,23 @@ export function DeltaChart({
                                 >
                                     <span>Waiting for experiment to start&hellip;</span>
                                 </div>
-                            ) : (
+                            </foreignObject>
+                        ) : (
+                            <foreignObject
+                                x={VIEW_BOX_WIDTH / 2 - 100}
+                                y={chartHeight / 2 - 10}
+                                width="250"
+                                height="20"
+                                onMouseEnter={(e) => {
+                                    const rect = e.currentTarget.getBoundingClientRect()
+                                    setTooltipPosition({
+                                        x: rect.left + rect.width / 2,
+                                        y: rect.top,
+                                    })
+                                    setEmptyStateTooltipVisible(true)
+                                }}
+                                onMouseLeave={() => setEmptyStateTooltipVisible(false)}
+                            >
                                 <div
                                     className="flex items-center justify-center text-muted cursor-default"
                                     // eslint-disable-next-line react/forbid-dom-props
@@ -483,8 +490,8 @@ export function DeltaChart({
                                     )}
                                     <span>Results not yet available</span>
                                 </div>
-                            )}
-                        </foreignObject>
+                            </foreignObject>
+                        )}
                     </svg>
                 )}
 
