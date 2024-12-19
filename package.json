@@ -66,6 +66,7 @@
         "mypy-baseline-sync": "mypy -p posthog | mypy-baseline sync"
     },
     "dependencies": {
+        "@anthropic-ai/sdk": "^0.33.1",
         "@babel/runtime": "^7.24.0",
         "@dnd-kit/core": "^6.0.8",
         "@dnd-kit/modifiers": "^6.0.1",

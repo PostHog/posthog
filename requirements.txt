@@ -25,10 +25,13 @@ amqp==5.1.1
     # via kombu
 annotated-types==0.7.0
     # via pydantic
+anthropic==0.40.0
+    # via -r requirements.in
 antlr4-python3-runtime==4.13.1
     # via -r requirements.in
 anyio==4.6.2.post1
     # via
+    #   anthropic
     #   httpx
     #   langfuse
     #   openai
@@ -56,6 +59,8 @@ backoff==2.2.1
     #   posthoganalytics
 bcrypt==4.1.3
     # via paramiko
+beautifulsoup4==4.12.3
+    # via -r requirements.in
 billiard==4.1.0
     # via celery
 boto3==1.28.16
@@ -141,7 +146,9 @@ defusedxml==0.6.0
 deltalake==0.19.1
     # via dlt
 distro==1.9.0
-    # via openai
+    # via
+    #   anthropic
+    #   openai
 dj-database-url==0.5.0
     # via -r requirements.in
 django==4.2.15
@@ -273,8 +280,6 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-greenlet==3.1.1
-    # via sqlalchemy
 grpcio==1.63.2
     # via
     #   -r requirements.in
@@ -297,6 +302,7 @@ httpcore==1.0.2
     # via httpx
 httpx==0.26.0
     # via
+    #   anthropic
     #   langfuse
     #   langgraph-sdk
     #   langsmith
@@ -323,8 +329,10 @@ isodate==0.6.1
     # via
     #   python3-saml
     #   zeep
-jiter==0.5.0
-    # via openai
+jiter==0.8.2
+    # via
+    #   anthropic
+    #   openai
 jmespath==1.0.0
     # via
     #   boto3
@@ -518,6 +526,7 @@ pycparser==2.20
 pydantic==2.9.2
     # via
     #   -r requirements.in
+    #   anthropic
     #   langchain
     #   langchain-core
     #   langfuse
@@ -676,6 +685,7 @@ smmap==5.0.1
     # via gitdb
 sniffio==1.3.1
     # via
+    #   anthropic
     #   anyio
     #   httpx
     #   openai
@@ -696,6 +706,8 @@ sortedcontainers==2.4.0
     # via
     #   snowflake-connector-python
     #   trio
+soupsieve==2.6
+    # via beautifulsoup4
 sqlalchemy==2.0.31
     # via
     #   -r requirements.in
@@ -756,6 +768,7 @@ types-setuptools==69.0.0.0
     # via requirements-parser
 typing-extensions==4.12.2
     # via
+    #   anthropic
     #   dlt
     #   langchain-core
     #   openai
