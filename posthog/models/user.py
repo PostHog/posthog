@@ -172,6 +172,19 @@ class User(AbstractUser, UUIDClassicModel):
     # Remove unused attributes from `AbstractUser`
     username = None
 
+    ROLE_CHOICES = (
+        ("engineering", "Engineering"),
+        ("data", "Data"),
+        ("product", "Product Management"),
+        ("founder", "Founder"),
+        ("leadership", "Leadership"),
+        ("marketing", "Marketing"),
+        ("sales", "Sales / Success"),
+        ("other", "Other"),
+    )
+
+    role_at_organization = models.CharField(max_length=64, choices=ROLE_CHOICES, null=True, blank=True)
+
     objects: UserManager = UserManager()
 
     @property

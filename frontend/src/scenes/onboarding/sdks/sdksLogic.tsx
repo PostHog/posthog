@@ -6,6 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
@@ -14,7 +15,6 @@ import { ProductKey, SDK, SDKInstructionsMap } from '~/types'
 import { onboardingLogic } from '../onboardingLogic'
 import { allSDKs } from './allSDKs'
 import type { sdksLogicType } from './sdksLogicType'
-
 /*
 To add SDK instructions for your product:
     1. If needed, add a new ProductKey enum value in ~/types.ts
@@ -59,6 +59,8 @@ export const sdksLogic = kea<sdksLogicType>([
             ['eventHosts'],
             featureFlagLogic,
             ['featureFlags'],
+            userLogic,
+            ['user'],
         ],
     }),
     actions({
@@ -198,7 +200,6 @@ export const sdksLogic = kea<sdksLogicType>([
                     return sdk.tags.includes(values.sourceFilter)
                 })
                 .filter((sdk) => Object.keys(values.availableSDKInstructionsMap).includes(sdk.key))
-
             if (
                 values.featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_MODIFIED_SDK_LIST] === 'test' &&
                 values.productKey === ProductKey.PRODUCT_ANALYTICS
