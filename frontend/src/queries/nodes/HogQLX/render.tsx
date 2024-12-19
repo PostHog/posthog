@@ -51,6 +51,7 @@ export function renderHogQLX(value: any): JSX.Element {
                         data-attr="hog-ql-view-recording-button"
                         className="inline-block"
                         {...props}
+                        disabledReason={sessionId ? undefined : 'No session id associated with this event'}
                     />
                 </ErrorBoundary>
             )

@@ -54,6 +54,10 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+            ast.Alias(
+                alias="earliest",
+                expr=ast.Call(name="argMin", args=[ast.Field(chain=["properties"]), ast.Field(chain=["timestamp"])]),
+            ),
             ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
         ]
 
