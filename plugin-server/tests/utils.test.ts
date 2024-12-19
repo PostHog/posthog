@@ -145,6 +145,11 @@ describe('utils', () => {
             const uuid7 = new UUID7(timestamp, randomBytes)
             expect(uuid7.toString()).toEqual('0192df64-df98-7123-8567-89abcdef0123')
         })
+        it('can be loaded from a buffer', () => {
+            const str = '0192df64df987123856789abcdef0123'
+            const uuid = new UUID7(new Buffer(str, 'hex'))
+            expect(uuid.toString().replace(/-/g, '')).toEqual(str)
+        })
     })
 
     describe('sanitizeSqlIdentifier', () => {
