@@ -112,11 +112,11 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             [
                 'dataAttributes',
                 'apiURL',
-                'temporaryToken',
                 'buttonVisible',
                 'userIntent',
                 'dataAttributes',
                 'experimentId',
+                'accessToken',
             ],
             experimentsLogic,
             ['allExperiments'],
@@ -194,20 +194,30 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 // this property is used in the editor to undo transforms
                 // don't need to roundtrip this to the server.
                 delete experimentToSave.undo_transforms
-                const { apiURL, temporaryToken } = values
+                const { apiURL, accessToken } = values
                 const { selectedExperimentId } = values
 
                 let response: Experiment
                 try {
                     if (selectedExperimentId && selectedExperimentId !== 'new') {
                         response = await api.update(
-                            `${apiURL}/api/projects/@current/web_experiments/${selectedExperimentId}/?temporary_token=${temporaryToken}`,
-                            experimentToSave
+                            `${apiURL}/api/projects/@current/web_experiments/${selectedExperimentId}/`,
+                            experimentToSave,
+                            {
+                                headers: {
+                                    Authorization: `Bearer ${accessToken}`,
+                                },
+                            }
                         )
                     } else {
                         response = await api.create(
-                            `${apiURL}/api/projects/@current/web_experiments/?temporary_token=${temporaryToken}`,
-                            experimentToSave
+                            `${apiURL}/api/projects/@current/web_experiments/`,
+                            experimentToSave,
+                            {
+                                headers: {
+                                    Authorization: `Bearer ${accessToken}`,
+                                },
+                            }
                         )
                     }
 
