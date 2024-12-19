@@ -1,6 +1,10 @@
 from rest_framework.exceptions import ValidationError
 from sentry_sdk import capture_exception
-from posthog.hogql_queries.experiments import FF_DISTRIBUTION_THRESHOLD, MIN_PROBABILITY_FOR_SIGNIFICANCE
+from posthog.hogql_queries.experiments import (
+    FF_DISTRIBUTION_THRESHOLD,
+    MIN_PROBABILITY_FOR_SIGNIFICANCE,
+    EXPECTED_LOSS_SIGNIFICANCE_LEVEL,
+)
 from posthog.schema import ExperimentSignificanceCode, ExperimentVariantTrendsBaseStats
 from scipy.stats import t
 import numpy as np
@@ -123,7 +127,7 @@ def are_results_significant_v2_continuous(
     --------
     tuple[ExperimentSignificanceCode, float]
         - ExperimentSignificanceCode indicating the significance status
-        - Probability value
+        - Expected loss value for significant results, 1.0 for non-significant results
     """
     # Check exposure thresholds
     for variant in test_variants:
@@ -137,10 +141,22 @@ def are_results_significant_v2_continuous(
     max_probability = max(probabilities)
 
     # Check if any variant has a high enough probability of being best
-    if max_probability < MIN_PROBABILITY_FOR_SIGNIFICANCE:
-        return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1.0
+    if max_probability >= MIN_PROBABILITY_FOR_SIGNIFICANCE:
+        # Find best performing variant
+        all_variants = [control_variant, *test_variants]
+        means = [v.count for v in all_variants]  # count field stores mean value
+        best_idx = np.argmax(means)
+        best_variant = all_variants[best_idx]
+        other_variants = all_variants[:best_idx] + all_variants[best_idx + 1 :]
 
-    return ExperimentSignificanceCode.SIGNIFICANT, 0.0
+        expected_loss = calculate_expected_loss_v2_continuous(best_variant, other_variants)
+
+        if expected_loss >= EXPECTED_LOSS_SIGNIFICANCE_LEVEL:
+            return ExperimentSignificanceCode.HIGH_LOSS, expected_loss
+
+        return ExperimentSignificanceCode.SIGNIFICANT, expected_loss
+
+    return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1.0
 
 
 def calculate_credible_intervals_v2_continuous(variants, lower_bound=0.025, upper_bound=0.975):
@@ -193,3 +209,65 @@ def calculate_credible_intervals_v2_continuous(variants, lower_bound=0.025, uppe
             return {}
 
     return intervals
+
+
+def calculate_expected_loss_v2_continuous(
+    target_variant: ExperimentVariantTrendsBaseStats, variants: list[ExperimentVariantTrendsBaseStats]
+) -> float:
+    """
+    Calculates expected loss in mean value using Normal-Inverse-Gamma conjugate prior.
+
+    This implementation uses a Bayesian approach with Normal-Inverse-Gamma model
+    to estimate the expected loss when choosing the target variant over others.
+    The data is log-transformed to handle typical revenue/continuous metric distributions.
+
+    Parameters:
+    -----------
+    target_variant : ExperimentVariantTrendsBaseStats
+        The variant being evaluated for loss
+    variants : list[ExperimentVariantTrendsBaseStats]
+        List of other variants to compare against
+
+    Returns:
+    --------
+    float
+        Expected loss in mean value if choosing the target variant
+    """
+    # Calculate posterior parameters for target variant
+    log_target_mean = np.log(target_variant.count + EPSILON)
+
+    # Update parameters for target variant
+    kappa_n_target = KAPPA_0 + target_variant.absolute_exposure
+    mu_n_target = (KAPPA_0 * MU_0 + target_variant.absolute_exposure * log_target_mean) / kappa_n_target
+    alpha_n_target = ALPHA_0 + target_variant.absolute_exposure / 2
+    beta_n_target = BETA_0 + 0.5 * target_variant.absolute_exposure * LOG_VARIANCE
+
+    # Draw samples from target variant's posterior
+    target_posterior = t(
+        df=2 * alpha_n_target, loc=mu_n_target, scale=np.sqrt(beta_n_target / (kappa_n_target * alpha_n_target))
+    )
+    target_samples = target_posterior.rvs(SAMPLE_SIZE)
+
+    # Draw samples from each comparison variant's posterior
+    variant_samples = []
+    for variant in variants:
+        log_variant_mean = np.log(variant.count + EPSILON)
+
+        kappa_n = KAPPA_0 + variant.absolute_exposure
+        mu_n = (KAPPA_0 * MU_0 + variant.absolute_exposure * log_variant_mean) / kappa_n
+        alpha_n = ALPHA_0 + variant.absolute_exposure / 2
+        beta_n = BETA_0 + 0.5 * variant.absolute_exposure * LOG_VARIANCE
+
+        variant_posterior = t(df=2 * alpha_n, loc=mu_n, scale=np.sqrt(beta_n / (kappa_n * alpha_n)))
+        variant_samples.append(variant_posterior.rvs(SAMPLE_SIZE))
+
+    # Transform samples back from log space
+    target_samples = np.exp(target_samples) - EPSILON
+    variant_samples = [np.exp(samples) - EPSILON for samples in variant_samples]
+
+    # Calculate loss
+    variant_max = np.maximum.reduce(variant_samples)
+    losses = np.maximum(0, variant_max - target_samples)
+    expected_loss = float(np.mean(losses))
+
+    return expected_loss
