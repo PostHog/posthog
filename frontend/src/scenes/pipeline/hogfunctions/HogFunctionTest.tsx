@@ -1,9 +1,19 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconInfo, IconX } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonLabel,
+    LemonSwitch,
+    LemonTable,
+    LemonTag,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
@@ -75,7 +85,10 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
             >
                 <div className="flex items-center gap-2 justify-end">
                     <div className="flex-1 space-y-2">
-                        <h2 className="mb-0">Testing</h2>
+                        <div className="mb-0 flex gap-2">
+                            <h2>Testing</h2>
+                            {sampleGlobalsLoading ? <Spinner /> : null}
+                        </div>
                         {!expanded &&
                             (type === 'email' ? (
                                 <p>Click here to test the provider with a sample e-mail</p>
@@ -102,38 +115,47 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                 </LemonButton>
                             ) : (
                                 <>
-                                    <LemonButton
-                                        type="secondary"
-                                        onClick={loadSampleGlobals}
-                                        loading={sampleGlobalsLoading}
-                                        tooltip="Find the last event matching filters, and use it to populate the globals below."
-                                    >
-                                        Refresh globals
-                                    </LemonButton>
-                                    <LemonField name="mock_async_functions">
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                bordered
-                                                onChange={(v) => onChange(!v)}
-                                                checked={!value}
-                                                label={
-                                                    <Tooltip
-                                                        title={
-                                                            <>
-                                                                When disabled, async functions such as `fetch` will not
-                                                                be called. Instead they will be mocked out and logged.
-                                                            </>
-                                                        }
-                                                    >
-                                                        <span className="flex gap-2">
-                                                            Make real HTTP requests
-                                                            <IconInfo className="text-lg" />
-                                                        </span>
-                                                    </Tooltip>
-                                                }
-                                            />
-                                        )}
-                                    </LemonField>
+                                    <More
+                                        dropdown={{ closeOnClickInside: false }}
+                                        overlay={
+                                            <>
+                                                <LemonField name="mock_async_functions">
+                                                    {({ value, onChange }) => (
+                                                        <LemonSwitch
+                                                            onChange={(v) => onChange(!v)}
+                                                            checked={!value}
+                                                            className="px-2 py-1"
+                                                            label={
+                                                                <Tooltip
+                                                                    title={
+                                                                        <>
+                                                                            When disabled, async functions such as
+                                                                            `fetch` will not be called. Instead they
+                                                                            will be mocked out and logged.
+                                                                        </>
+                                                                    }
+                                                                >
+                                                                    <span className="flex gap-2">
+                                                                        Make real HTTP requests
+                                                                        <IconInfo className="text-lg" />
+                                                                    </span>
+                                                                </Tooltip>
+                                                            }
+                                                        />
+                                                    )}
+                                                </LemonField>
+                                                <LemonDivider />
+                                                <LemonButton
+                                                    fullWidth
+                                                    onClick={loadSampleGlobals}
+                                                    loading={sampleGlobalsLoading}
+                                                    tooltip="Find the last event matching filters, and use it to populate the globals below."
+                                                >
+                                                    Fetch new event
+                                                </LemonButton>
+                                            </>
+                                        }
+                                    />
                                     <LemonButton
                                         type="primary"
                                         onClick={submitTestInvocation}
