@@ -57,6 +57,7 @@ where
 
     let flags_router = Router::new()
         .route("/flags", post(endpoint::flags).get(endpoint::flags))
+        .route("/flags/", post(endpoint::flags).get(endpoint::flags))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
         .with_state(state);
 
