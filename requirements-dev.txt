@@ -167,10 +167,6 @@ googleapis-common-protos==1.60.0
     # via
     #   -c requirements.txt
     #   opentelemetry-exporter-otlp-proto-grpc
-greenlet==3.1.1
-    # via
-    #   -c requirements.txt
-    #   sqlalchemy
 grpcio==1.63.2
     # via
     #   -c requirements.txt
@@ -189,7 +185,7 @@ httpx==0.26.0
     #   -c requirements.txt
     #   langsmith
     #   openai
-huggingface-hub==0.26.2
+huggingface-hub==0.26.5
     # via datasets
 icdiff==2.0.5
     # via pytest-icdiff
@@ -215,7 +211,7 @@ isort==5.2.2
     # via datamodel-code-generator
 jinja2==3.1.4
     # via datamodel-code-generator
-jiter==0.5.0
+jiter==0.8.2
     # via
     #   -c requirements.txt
     #   openai
@@ -277,7 +273,7 @@ lupa==2.2
     # via fakeredis
 markdown-it-py==3.0.0
     # via rich
-markupsafe==2.1.5
+markupsafe==3.0.2
     # via jinja2
 marshmallow==3.23.1
     # via dataclasses-json
