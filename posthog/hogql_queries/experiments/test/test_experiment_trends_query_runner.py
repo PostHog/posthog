@@ -1,4 +1,5 @@
 from django.test import override_settings
+from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns
 from posthog.hogql_queries.experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
 from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -17,7 +18,14 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
     XDIST_SUFFIX,
 )
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+)
 from freezegun import freeze_time
 from typing import cast
 from django.utils import timezone
@@ -795,6 +803,11 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [0.0, 50.0, 125.0, 125.0, 125.0, 205.0, 205.0, 205.0, 205.0, 205.0],
         )
 
+    @also_test_with_materialized_columns(
+        event_properties=["$host"],
+        person_properties=["email"],
+        verify_no_jsonextract=False,
+    )
     def test_query_runner_with_data_warehouse_series_no_end_date_and_nested_id(self):
         table_name = self.create_data_warehouse_table_with_usage()
 
@@ -943,13 +956,39 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 limit_context=query_runner.count_query_runner.limit_context,
             )
 
-            # Assert the expected join condition in the clickhouse SQL
-            expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_9)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_10)s, 6, %(hogql_val_11)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_12)s, 6, %(hogql_val_13)s))))) AS e__events ON"
-            self.assertIn(
-                expected_join_condition,
-                str(response.clickhouse),
-                "Please check to make sure the timestamp statements are included in the ASOF LEFT JOIN select statement. This may also fail if the placeholder numbers have changed.",
-            )
+            materialized_columns = get_enabled_materialized_columns("events")
+            if any(col.name == "mat_pp_email" for col in materialized_columns.values()):
+                # Assert the expected email where statement in the clickhouse SQL
+                expected_email_where_statement = (
+                    "ifNull(notILike(e__events__person.properties___email, %(hogql_val_26)s), 1)"
+                )
+                self.assertIn(
+                    expected_email_where_statement,
+                    str(response.clickhouse),
+                )
+                # Assert the expected join condition in the clickhouse SQL
+                expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_8)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_9)s, 6, %(hogql_val_10)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_11)s, 6, %(hogql_val_12)s))))) AS e__events ON"
+                self.assertIn(
+                    expected_join_condition,
+                    str(response.clickhouse),
+                    "Please check to make sure the timestamp statements are included in the ASOF LEFT JOIN select statement. This may also fail if the placeholder numbers have changed.",
+                )
+            else:
+                # Assert the expected email where statement in the clickhouse SQL
+                expected_email_where_statement = (
+                    "ifNull(notILike(e__events__person.properties___email, %(hogql_val_28)s), 1)"
+                )
+                self.assertIn(
+                    expected_email_where_statement,
+                    str(response.clickhouse),
+                )
+                # Assert the expected join condition in the clickhouse SQL
+                expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_9)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_10)s, 6, %(hogql_val_11)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_12)s, 6, %(hogql_val_13)s))))) AS e__events ON"
+                self.assertIn(
+                    expected_join_condition,
+                    str(response.clickhouse),
+                    "Please check to make sure the timestamp statements are included in the ASOF LEFT JOIN select statement. This may also fail if the placeholder numbers have changed.",
+                )
 
             result = query_runner.calculate()
 
