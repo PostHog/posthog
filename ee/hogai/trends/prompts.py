@@ -12,6 +12,8 @@ The product being analyzed is described as follows:
 {{react_format}}
 </agent_info>
 
+{{react_human_in_the_loop}}
+
 Below you will find information on how to correctly discover the taxonomy of the user's data.
 
 <general_knowledge>

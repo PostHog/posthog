@@ -57,6 +57,7 @@ import { NodeKind } from '~/queries/schema'
 import { isNodeWithSource } from '~/queries/utils'
 import { ActivityScope, InsightType, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
+import { ReloadInsight } from './ReloadInsight'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 
 interface NewInsightButtonProps {
@@ -671,6 +672,7 @@ export function SavedInsights(): JSX.Element {
                         <SavedInsightsEmptyState />
                     ) : (
                         <>
+                            <ReloadInsight />
                             {layoutView === LayoutView.List ? (
                                 <LemonTable
                                     loading={insightsLoading}
