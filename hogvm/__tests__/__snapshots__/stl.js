@@ -1,4 +1,17 @@
 function upper (value) { return value.toUpperCase() }
+function __x_typeof (value) {
+    if (value === null || value === undefined) { return 'null'
+    } else if (__isHogDateTime(value)) { return 'datetime'
+    } else if (__isHogDate(value)) { return 'date'
+    } else if (__isHogError(value)) { return 'error'
+    } else if (typeof value === 'function') { return 'function'
+    } else if (Array.isArray(value)) { if (value.__isHogTuple) { return 'tuple' } return 'array'
+    } else if (typeof value === 'object') { return 'object'
+    } else if (typeof value === 'number') { return Number.isInteger(value) ? 'integer' : 'float'
+    } else if (typeof value === 'string') { return 'string'
+    } else if (typeof value === 'boolean') { return 'boolean' }
+    return 'unknown'
+}
 function tuple (...args) { const tuple = args.slice(); tuple.__isHogTuple = true; return tuple; }
 function today() {
     const now = new Date();
@@ -522,7 +535,8 @@ print(coalesce(null, null, "firstNonNull"), assumeNotNull("notNull"));
 print("");
 print("-- date --");
 print(toYear(toDateTime("2024-12-18T00:00:00Z")), toMonth(toDateTime("2024-12-18T00:00:00Z")));
-print(toStartOfDay(now()), toStartOfWeek(now()));
+print(__x_typeof(now()));
+print(toStartOfDay(toDateTime("2024-12-18T11:11:11Z")), toStartOfWeek(toDateTime("2024-12-18T11:11:11Z")));
 print(toYYYYMM(toDateTime("2024-12-18T00:00:00Z")));
 print(dateAdd("day", 1, toDate("2024-12-18")), dateDiff("day", toDate("2024-12-18"), dateAdd("day", 5, toDate("2024-12-18"))));
 print(dateTrunc("day", toDateTime("2024-12-18T12:34:56Z")));
