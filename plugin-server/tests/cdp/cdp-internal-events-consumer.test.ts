@@ -54,7 +54,7 @@ describe('CDP Internal Events Consumer', () => {
                     ...HOG_EXAMPLES.simple_fetch,
                     ...HOG_INPUTS_EXAMPLES.simple_fetch,
                     ...HOG_FILTERS_EXAMPLES.no_filters,
-                    type: 'internal-destination',
+                    type: 'internal_destination',
                 })
             })
 

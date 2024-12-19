@@ -278,7 +278,7 @@ export type HogFunctionInputSchemaType = {
 export type HogFunctionTypeType =
     | 'destination'
     | 'transformation'
-    | 'internal-destination'
+    | 'internal_destination'
     | 'email'
     | 'sms'
     | 'push'

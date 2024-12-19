@@ -79,7 +79,7 @@ const decodeAllKafkaMessages = (): any[] => {
  */
 describe.each([
     [CdpProcessedEventsConsumer.name, CdpProcessedEventsConsumer, 'destination' as const],
-    [CdpInternalEventsConsumer.name, CdpInternalEventsConsumer, 'internal-destination' as const],
+    [CdpInternalEventsConsumer.name, CdpInternalEventsConsumer, 'internal_destination' as const],
 ])('%s', (_name, Consumer, hogType) => {
     let processor: CdpProcessedEventsConsumer | CdpInternalEventsConsumer
     let hub: Hub

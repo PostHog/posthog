@@ -642,7 +642,7 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
     protected name = 'CdpInternalEventsConsumer'
     protected topic = KAFKA_CDP_INTERNAL_EVENTS
     protected groupId = 'cdp-internal-events-consumer'
-    protected hogTypes: HogFunctionTypeType[] = ['internal-destination']
+    protected hogTypes: HogFunctionTypeType[] = ['internal_destination']
 
     // This consumer always parses from kafka
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
@@ -693,7 +693,7 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
  */
 export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
     protected name = 'CdpFunctionCallbackConsumer'
-    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal-destination']
+    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
 
     public async processBatch(invocations: HogFunctionInvocation[]): Promise<void> {
         if (!invocations.length) {
@@ -821,7 +821,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     private cyclotronWorker?: CyclotronWorker
     private runningWorker: Promise<void> | undefined
     protected queue: 'hog' | 'fetch' = 'hog'
-    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal-destination']
+    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
 
     public async processBatch(invocations: HogFunctionInvocation[]): Promise<void> {
         if (!invocations.length) {

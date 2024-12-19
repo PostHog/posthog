@@ -9,17 +9,18 @@ export const CdpInternalEventSchema = z.object({
         distinct_id: z.string(),
         properties: z.record(z.any()),
         timestamp: z.string(),
-        url: z.string().optional(),
+        url: z.string().optional().nullable(),
     }),
     // Person may be a event-style person or an org member
     person: z
         .object({
             id: z.string(),
             properties: z.record(z.any()),
-            name: z.string().optional(),
-            url: z.string().optional(),
+            name: z.string().optional().nullable(),
+            url: z.string().optional().nullable(),
         })
-        .optional(),
+        .optional()
+        .nullable(),
 })
 
 // Infer the TypeScript type

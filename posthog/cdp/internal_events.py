@@ -1,9 +1,15 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
+import json
 from typing import Optional
 import uuid
+
+import structlog
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_CDP_INTERNAL_EVENTS
+from rest_framework_dataclasses.serializers import DataclassSerializer
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -31,6 +37,15 @@ class InternalEvent:
     person: Optional[InternalEventPerson] = None
 
 
+class InternalEventSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = InternalEvent
+
+
+def internal_event_to_dict(data: InternalEvent) -> dict:
+    return InternalEventSerializer(data).data
+
+
 def create_internal_event(
     team_id: int, event: InternalEventEvent, person: Optional[InternalEventPerson] = None
 ) -> InternalEvent:
@@ -46,12 +61,13 @@ def create_internal_event(
 
 def produce_internal_event(team_id: int, event: InternalEventEvent, person: Optional[InternalEventPerson] = None):
     data = create_internal_event(team_id, event, person)
+    serialized_data = internal_event_to_dict(data)
     kafka_topic = KAFKA_CDP_INTERNAL_EVENTS
 
     try:
         producer = KafkaProducer()
-
-        future = producer.produce(topic=kafka_topic, data=data, key=data.event.uuid)
-        return future
-    except Exception:
+        future = producer.produce(topic=kafka_topic, data=serialized_data, key=data.event.uuid)
+        future.get()
+    except Exception as e:
+        logger.exception("Failed to produce internal event", data=serialized_data, error=e)
         raise
