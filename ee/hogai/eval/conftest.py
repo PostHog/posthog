@@ -1,104 +1,28 @@
-import functools
-from collections.abc import Generator
-
 import pytest
-from django.conf import settings
-from django.test import override_settings
-from langchain_core.runnables import RunnableConfig
 
-from ee.models import Conversation
-from posthog.demo.matrix.manager import MatrixManager
-from posthog.models import Organization, Project, Team, User
-from posthog.tasks.demo_create_data import HedgeboxMatrix
-from posthog.test.base import BaseTest
+from posthog.test.base import run_clickhouse_statement_in_parallel
 
 
-# Flaky is a handy tool, but it always runs setup fixtures for retries.
-# This decorator will just retry without re-running setup.
-def retry_test_only(max_retries=3):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_error: Exception | None = None
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_error = e
-                    print(f"\nRetrying test (attempt {attempt + 1}/{max_retries})...")  # noqa
-            if last_error:
-                raise last_error
+@pytest.fixture(scope="module", autouse=True)
+def setup_kafka_tables(django_db_setup):
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.schema import (
+        CREATE_KAFKA_TABLE_QUERIES,
+        build_query,
+    )
+    from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
-        return wrapper
+    kafka_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
+    run_clickhouse_statement_in_parallel(kafka_queries)
 
-    return decorator
+    yield
 
-
-# Apply decorators to all tests in the package.
-def pytest_collection_modifyitems(items):
-    for item in items:
-        item.add_marker(
-            pytest.mark.skipif(not settings.IN_EVAL_TESTING, reason="Only runs for the assistant evaluation")
-        )
-        # Apply our custom retry decorator to the test function
-        item.obj = retry_test_only(max_retries=3)(item.obj)
-
-
-@pytest.fixture(scope="package")
-def team(django_db_blocker) -> Generator[Team, None, None]:
-    with django_db_blocker.unblock():
-        organization = Organization.objects.create(name=BaseTest.CONFIG_ORGANIZATION_NAME)
-        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
-        team = Team.objects.create(
-            id=project.id,
-            project=project,
-            organization=organization,
-            test_account_filters=[
-                {
-                    "key": "email",
-                    "value": "@posthog.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                }
-            ],
-            has_completed_onboarding_for={"product_analytics": True},
-        )
-        yield team
-        organization.delete()
-
-
-@pytest.fixture(scope="package")
-def user(team, django_db_blocker) -> Generator[User, None, None]:
-    with django_db_blocker.unblock():
-        user = User.objects.create_and_join(team.organization, "eval@posthog.com", "password1234")
-        yield user
-        user.delete()
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.fixture
-def runnable_config(team, user) -> Generator[RunnableConfig, None, None]:
-    conversation = Conversation.objects.create(team=team, user=user)
-    yield {
-        "configurable": {
-            "thread_id": conversation.id,
-        }
-    }
-    conversation.delete()
-
-
-@pytest.fixture(scope="package", autouse=True)
-def setup_test_data(django_db_setup, team, user, django_db_blocker):
-    with django_db_blocker.unblock():
-        matrix = HedgeboxMatrix(
-            seed="b1ef3c66-5f43-488a-98be-6b46d92fbcef",  # this seed generates all events
-            days_past=120,
-            days_future=30,
-            n_clusters=500,
-            group_type_index_offset=0,
-        )
-        matrix_manager = MatrixManager(matrix, print_steps=True)
-        with override_settings(TEST=False):
-            # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
-            # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
-            matrix_manager.run_on_team(team, user)
+    kafka_tables = sync_execute(
+        f"""
+        SELECT name
+        FROM system.tables
+        WHERE database = '{CLICKHOUSE_DATABASE}' AND name LIKE 'kafka_%'
+        """,
+    )
+    kafka_truncate_queries = [f"DROP TABLE {table[0]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'" for table in kafka_tables]
+    run_clickhouse_statement_in_parallel(kafka_truncate_queries)
