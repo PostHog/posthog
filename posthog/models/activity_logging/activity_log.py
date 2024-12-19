@@ -5,6 +5,8 @@ from decimal import Decimal
 from typing import Any, Literal, Optional, Union
 from uuid import UUID
 
+from django.db.models.signals import post_save
+from django.dispatch.dispatcher import receiver
 import structlog
 from django.core.paginator import Paginator
 from django.core.exceptions import ObjectDoesNotExist
@@ -498,3 +500,34 @@ def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int 
     )
 
     return get_activity_page(activity_query, limit, page)
+
+
+@receiver(post_save, sender=ActivityLog)
+def survey_saved(sender, instance: "ActivityLog", created, **kwargs):
+    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
+
+    if created and instance.team_id is not None:
+        produce_internal_event(
+            team_id=instance.team_id,
+            event=InternalEventEvent(
+                event="$activity_log_entry_created",
+                distinct_id=instance.user.distinct_id,
+                properties={
+                    "activity": instance.activity,
+                    "scope": instance.scope,
+                    "item_id": instance.item_id,
+                    "detail": instance.detail,
+                    "was_impersonated": instance.was_impersonated,
+                    "is_system": instance.is_system,
+                    "organization_id": instance.organization_id,
+                },
+            ),
+            person=InternalEventPerson(
+                id=instance.user.uuid,
+                properties={
+                    "distinct_id": instance.user.distinct_id,
+                    "name": instance.user.first_name,
+                    "email": instance.user.email,
+                },
+            ),
+        )
