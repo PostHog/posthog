@@ -5,13 +5,17 @@ import { ResultsHeader, ResultsQuery } from './components'
 import { SummaryTable } from './SummaryTable'
 
 export function Results(): JSX.Element {
-    const { experimentResults } = useValues(experimentLogic)
+    const { metricResults } = useValues(experimentLogic)
+    const result = metricResults?.[0]
+    if (!result) {
+        return <></>
+    }
 
     return (
         <div>
             <ResultsHeader />
             <SummaryTable />
-            <ResultsQuery targetResults={experimentResults} showTable={true} />
+            <ResultsQuery targetResults={result} showTable={true} />
         </div>
     )
 }

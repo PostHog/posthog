@@ -1,17 +1,29 @@
 import { useValues } from 'kea'
 
+import { CachedExperimentFunnelsQueryResponse, CachedExperimentTrendsQueryResponse } from '~/queries/schema'
+
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
 export function Overview(): JSX.Element {
-    const { experimentId, experimentResults, getIndexForVariant, getHighestProbabilityVariant, areResultsSignificant } =
+    const { experimentId, metricResults, getIndexForVariant, getHighestProbabilityVariant, areResultsSignificant } =
         useValues(experimentLogic)
 
+    const result = metricResults?.[0]
+    if (!result) {
+        return <></>
+    }
+
     function WinningVariantText(): JSX.Element {
-        const highestProbabilityVariant = getHighestProbabilityVariant(experimentResults)
-        const index = getIndexForVariant(experimentResults, highestProbabilityVariant || '')
-        if (highestProbabilityVariant && index !== null && experimentResults) {
-            const { probability } = experimentResults
+        const highestProbabilityVariant = getHighestProbabilityVariant(
+            result as CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse
+        )
+        const index = getIndexForVariant(
+            result as CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse,
+            highestProbabilityVariant || ''
+        )
+        if (highestProbabilityVariant && index !== null && result) {
+            const { probability } = result
 
             return (
                 <div className="items-center inline-flex flex-wrap">
@@ -32,7 +44,9 @@ export function Overview(): JSX.Element {
         return (
             <div className="flex-wrap">
                 <span>Your results are&nbsp;</span>
-                <span className="font-semibold">{`${areResultsSignificant ? 'significant' : 'not significant'}`}.</span>
+                <span className="font-semibold">
+                    {`${areResultsSignificant(0) ? 'significant' : 'not significant'}`}.
+                </span>
             </div>
         )
     }

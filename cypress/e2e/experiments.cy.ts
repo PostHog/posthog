@@ -96,6 +96,7 @@ describe('Experiments', () => {
         cy.get('[data-attr="experiment-creation-date"]').contains('a few seconds ago').should('be.visible')
         cy.get('[data-attr="experiment-start-date"]').should('not.exist')
 
+        cy.wait(1000)
         cy.get('[data-attr="launch-experiment"]').first().click()
         cy.get('[data-attr="experiment-creation-date"]').should('not.exist')
         cy.get('[data-attr="experiment-start-date"]').contains('a few seconds ago').should('be.visible')
@@ -114,6 +115,7 @@ describe('Experiments', () => {
     it('move start date', () => {
         createExperimentInNewUi()
 
+        cy.wait(1000)
         cy.get('[data-attr="launch-experiment"]').first().click()
 
         cy.get('[data-attr="move-experiment-start-date"]').first().click()
