@@ -57,7 +57,9 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
         template = response1.json()["results"][0]
 
-        assert template["sub_templates"] == {}
+        assert template["sub_templates"] is None
+        assert template["type"] == "internal_destination"
+        assert template["id"] == "template-slack-activity-log"
 
     def test_public_list_function_templates(self):
         self.client.logout()
