@@ -1,6 +1,13 @@
 import { TZLabel } from '@posthog/apps-common'
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { IconEllipsis, IconGear } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonMenu,
+    LemonMenuItems,
+    LemonSegmentedButton,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
@@ -176,21 +183,26 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
 const Header = (): JSX.Element => {
     const { user } = useValues(userLogic)
 
+    const items: LemonMenuItems = [{ label: 'Manage symbol sets', to: urls.errorTrackingSymbolSets() }]
+
+    if (user?.is_staff) {
+        items.push({
+            label: 'Send an exception',
+            onClick: () => {
+                throw Error('Oh my!')
+            },
+        })
+    }
+
     return (
         <PageHeader
             buttons={
                 <>
-                    {user?.is_staff ? (
-                        <LemonButton
-                            onClick={() => {
-                                throw Error('Oh my!')
-                            }}
-                        >
-                            Send an exception
-                        </LemonButton>
-                    ) : null}
-                    <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
-                        Configure
+                    <LemonMenu items={items}>
+                        <LemonButton icon={<IconEllipsis />} />
+                    </LemonMenu>
+                    <LemonButton to={urls.errorTrackingAlerts()} type="secondary" icon={<IconGear />}>
+                        Configure alerts
                     </LemonButton>
                 </>
             }
