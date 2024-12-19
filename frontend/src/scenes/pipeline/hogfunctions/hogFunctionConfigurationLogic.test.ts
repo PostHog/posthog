@@ -38,7 +38,7 @@ const HOG_TEMPLATE: HogFunctionTemplateType = {
             inputs: null,
         },
         {
-            id: 'survey_response',
+            id: 'survey-response',
             name: 'HTTP Webhook on survey response',
             description: null,
             filters: {
