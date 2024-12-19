@@ -248,7 +248,7 @@ class TestAssistant(NonAtomicBaseTest):
         )
         self._test_human_in_the_loop(graph)
 
-    def test_intermediate_steps_are_updated_after_feedback(self):
+    def test_messages_are_updated_after_feedback(self):
         with patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as mock:
             graph = (
                 AssistantGraph(self.team)
@@ -282,6 +282,7 @@ class TestAssistant(NonAtomicBaseTest):
             action, observation = snapshot.values["intermediate_steps"][0]
             self.assertEqual(action.tool, "ask_user_for_help")
             self.assertIsNone(observation)
+            self.assertNotIn("resumed", snapshot.values)
 
             self._run_assistant_graph(graph, conversation=self.conversation, message="It's straightforward")
             snapshot: StateSnapshot = graph.get_state(config)
@@ -294,6 +295,44 @@ class TestAssistant(NonAtomicBaseTest):
             action, observation = snapshot.values["intermediate_steps"][1]
             self.assertEqual(action.tool, "ask_user_for_help")
             self.assertIsNone(observation)
+            self.assertFalse(snapshot.values["resumed"])
+
+    def test_resuming_uses_saved_state(self):
+        with patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as mock:
+            graph = (
+                AssistantGraph(self.team)
+                .add_edge(AssistantNodeName.START, AssistantNodeName.FUNNEL_PLANNER)
+                .add_funnel_planner(AssistantNodeName.END)
+                .compile()
+            )
+            config: RunnableConfig = {
+                "configurable": {
+                    "thread_id": self.conversation.id,
+                }
+            }
+
+            # Interrupt the graph
+            message = """
+            Thought: Let's ask for help.
+            Action:
+            ```
+            {
+                "action": "ask_user_for_help",
+                "action_input": "Need help with this query"
+            }
+            ```
+            """
+            mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content=message))
+
+            self._run_assistant_graph(graph, conversation=self.conversation)
+            state: StateSnapshot = graph.get_state(config).values
+            self.assertIn("start_id", state)
+            self.assertIsNotNone(state["start_id"])
+
+            self._run_assistant_graph(graph, conversation=self.conversation, message="It's straightforward")
+            state: StateSnapshot = graph.get_state(config).values
+            self.assertIn("start_id", state)
+            self.assertIsNotNone(state["start_id"])
 
     def test_new_conversation_handles_serialized_conversation(self):
         graph = (
