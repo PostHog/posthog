@@ -95,6 +95,8 @@ charset-normalizer==2.1.0
     # via
     #   requests
     #   snowflake-connector-python
+circular-dict==1.9
+    # via conditional-cache
 click==8.1.7
     # via
     #   celery
@@ -114,6 +116,8 @@ clickhouse-driver==0.2.7
     #   clickhouse-pool
     #   sentry-sdk
 clickhouse-pool==0.5.3
+    # via -r requirements.in
+conditional-cache==1.2
     # via -r requirements.in
 cryptography==39.0.2
     # via
