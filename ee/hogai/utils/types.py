@@ -35,7 +35,7 @@ class AssistantState(_SharedAssistantState):
 
 
 class PartialAssistantState(_SharedAssistantState):
-    messages: Optional[Sequence[AssistantMessageUnion]] = Field(default=None)
+    messages: Sequence[AssistantMessageUnion] = Field(default=None)
 
 
 class AssistantNodeName(StrEnum):
