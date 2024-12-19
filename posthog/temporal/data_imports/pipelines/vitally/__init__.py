@@ -55,6 +55,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     "limit": 100,
                     "sortBy": "updatedAt",
+                    "status": "activeOrChurned",
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
