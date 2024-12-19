@@ -100,5 +100,5 @@ class SummarizerNode(AssistantNode):
             elif isinstance(message, AssistantMessage):
                 conversation.append(("assistant", message.content))
 
-        conversation.append(("human", SUMMARIZER_INSTRUCTION_PROMPT))
+        conversation.append(("system", SUMMARIZER_INSTRUCTION_PROMPT))
         return conversation
