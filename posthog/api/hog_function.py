@@ -360,13 +360,13 @@ class HogFunctionViewSet(
         # Remove the team from the config
         configuration.pop("team")
 
-        globals = serializer.validated_data["globals"]
+        hog_globals = serializer.validated_data["globals"]
         mock_async_functions = serializer.validated_data["mock_async_functions"]
 
         res = create_hog_invocation_test(
             team_id=hog_function.team_id,
             hog_function_id=hog_function.id,
-            globals=globals,
+            globals=hog_globals,
             configuration=configuration,
             mock_async_functions=mock_async_functions,
         )

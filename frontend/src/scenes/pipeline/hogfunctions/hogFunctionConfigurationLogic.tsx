@@ -231,8 +231,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
+        setSampleGlobals: (sampleGlobals: HogFunctionInvocationGlobals | null) => ({ sampleGlobals }),
     }),
     reducers(({ props }) => ({
+        sampleGlobals: [
+            null as HogFunctionInvocationGlobals | null,
+            {
+                setSampleGlobals: (_, { sampleGlobals }) => sampleGlobals,
+            },
+        ],
         showSource: [
             // Show source by default for blank templates when creating a new function
             !!(!props.id && props.templateId?.startsWith('template-blank-')),

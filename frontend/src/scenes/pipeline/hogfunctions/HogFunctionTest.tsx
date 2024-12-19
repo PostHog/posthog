@@ -72,11 +72,25 @@ export function HogFunctionTestPlaceholder({
 }
 
 export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
-    const { isTestInvocationSubmitting, testResult, expanded, sampleGlobalsLoading, sampleGlobalsError, type } =
-        useValues(hogFunctionTestLogic(props))
-    const { submitTestInvocation, setTestResult, toggleExpanded, loadSampleGlobals } = useActions(
-        hogFunctionTestLogic(props)
-    )
+    const {
+        isTestInvocationSubmitting,
+        testResult,
+        expanded,
+        sampleGlobalsLoading,
+        sampleGlobalsError,
+        type,
+        savedGlobals,
+        testInvocation,
+    } = useValues(hogFunctionTestLogic(props))
+    const {
+        submitTestInvocation,
+        setTestResult,
+        toggleExpanded,
+        loadSampleGlobals,
+        deleteSavedGlobals,
+        setSampleGlobals,
+        saveGlobals,
+    } = useActions(hogFunctionTestLogic(props))
 
     return (
         <Form logic={hogFunctionTestLogic} props={props} formKey="testInvocation" enableFormOnSubmit>
@@ -85,10 +99,10 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
             >
                 <div className="flex items-center gap-2 justify-end">
                     <div className="flex-1 space-y-2">
-                        <div className="mb-0 flex gap-2">
-                            <h2>Testing</h2>
+                        <h2 className="mb-0 flex gap-2 items-center">
+                            <span>Testing</span>
                             {sampleGlobalsLoading ? <Spinner /> : null}
-                        </div>
+                        </h2>
                         {!expanded &&
                             (type === 'email' ? (
                                 <p>Click here to test the provider with a sample e-mail</p>
@@ -153,6 +167,47 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                                 >
                                                     Fetch new event
                                                 </LemonButton>
+                                                <LemonDivider />
+                                                {savedGlobals.map(({ name, globals }, index) => (
+                                                    <div className="flex w-full justify-between" key={index}>
+                                                        <LemonButton
+                                                            key={index}
+                                                            onClick={() => setSampleGlobals(globals)}
+                                                            fullWidth
+                                                            className="flex-1"
+                                                        >
+                                                            {name}
+                                                        </LemonButton>
+                                                        <LemonButton
+                                                            size="small"
+                                                            icon={<IconX />}
+                                                            onClick={() => deleteSavedGlobals(index)}
+                                                            tooltip="Delete this saved set of globals"
+                                                        />
+                                                    </div>
+                                                ))}
+                                                {testInvocation.globals && (
+                                                    <LemonButton
+                                                        fullWidth
+                                                        onClick={() => {
+                                                            const name = prompt('Name this set of globals')
+                                                            if (name) {
+                                                                saveGlobals(name, JSON.parse(testInvocation.globals))
+                                                            }
+                                                        }}
+                                                        disabledReason={(() => {
+                                                            try {
+                                                                JSON.parse(testInvocation.globals)
+                                                            } catch (e) {
+                                                                return 'Invalid globals JSON'
+                                                            }
+                                                            return undefined
+                                                        })()}
+                                                        tooltip="Perist the globals into a named set, so you can reuse them later."
+                                                    >
+                                                        Save globals
+                                                    </LemonButton>
+                                                )}
                                             </>
                                         }
                                     />
