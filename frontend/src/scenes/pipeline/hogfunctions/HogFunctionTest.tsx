@@ -121,8 +121,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                                         title={
                                                             <>
                                                                 When disabled, async functions such as `fetch` will not
-                                                                actually be called, but will instead be mocked out with
-                                                                the fetch content logged.
+                                                                be called. Instead they will be mocked out and logged.
                                                             </>
                                                         }
                                                     >
