@@ -14,7 +14,7 @@ export function FeatureManagementEmptyState(): JSX.Element {
             <p>Start your first big feature rollout today.</p>
 
             <div className="flex justify-center">
-                <Link to={urls.featureManagement('new')}>
+                <Link to={urls.featureManagementNew()}>
                     <LemonButton type="primary" data-attr="empty-state-add-feature-button" icon={<IconPlusSmall />}>
                         New feature
                     </LemonButton>

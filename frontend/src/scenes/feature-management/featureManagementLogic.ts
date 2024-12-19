@@ -90,7 +90,7 @@ export const featureManagementLogic = kea<featureManagementLogicType>([
     }),
     urlToAction(({ actions, values }) => ({
         '/features/:id': ({ id }) => {
-            if (id && String(values.activeFeatureId) !== id) {
+            if (id && String(values.activeFeatureId) !== id && id !== 'new') {
                 actions.setActiveFeatureId(Number(id))
             }
         },

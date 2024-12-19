@@ -160,6 +160,7 @@ export const urls = {
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
+    featureManagementNew: (): string => `/features/new`,
     earlyAccessFeatures: (): string => '/early_access_features',
     /** @param id A UUID or 'new'. ':id' for routing. */
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
