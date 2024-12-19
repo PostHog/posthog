@@ -114,7 +114,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                     </div>
 
                     {!expanded ? (
-                        <LemonButton type="secondary" onClick={() => toggleExpanded()}>
+                        <LemonButton data-attr="expand-hog-testing" type="secondary" onClick={() => toggleExpanded()}>
                             Start testing
                         </LemonButton>
                     ) : (
@@ -124,6 +124,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                     type="primary"
                                     onClick={() => setTestResult(null)}
                                     loading={isTestInvocationSubmitting}
+                                    data-attr="clear-hog-test-result"
                                 >
                                     Clear test result
                                 </LemonButton>
@@ -138,6 +139,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                                         <LemonSwitch
                                                             onChange={(v) => onChange(!v)}
                                                             checked={!value}
+                                                            data-attr="toggle-hog-test-mocking"
                                                             className="px-2 py-1"
                                                             label={
                                                                 <Tooltip
@@ -171,6 +173,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                                 {savedGlobals.map(({ name, globals }, index) => (
                                                     <div className="flex w-full justify-between" key={index}>
                                                         <LemonButton
+                                                            data-attr="open-hog-test-data"
                                                             key={index}
                                                             onClick={() => setSampleGlobals(globals)}
                                                             fullWidth
@@ -179,18 +182,20 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                                             {name}
                                                         </LemonButton>
                                                         <LemonButton
+                                                            data-attr="delete-hog-test-data"
                                                             size="small"
                                                             icon={<IconX />}
                                                             onClick={() => deleteSavedGlobals(index)}
-                                                            tooltip="Delete this saved set of globals"
+                                                            tooltip="Delete saved test data"
                                                         />
                                                     </div>
                                                 ))}
                                                 {testInvocation.globals && (
                                                     <LemonButton
                                                         fullWidth
+                                                        data-attr="save-hog-test-data"
                                                         onClick={() => {
-                                                            const name = prompt('Name this set of globals')
+                                                            const name = prompt('Name this test data')
                                                             if (name) {
                                                                 saveGlobals(name, JSON.parse(testInvocation.globals))
                                                             }
@@ -203,9 +208,8 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                                             }
                                                             return undefined
                                                         })()}
-                                                        tooltip="Perist the globals into a named set, so you can reuse them later."
                                                     >
-                                                        Save globals
+                                                        Save test data
                                                     </LemonButton>
                                                 )}
                                             </>
@@ -213,6 +217,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                     />
                                     <LemonButton
                                         type="primary"
+                                        data-attr="test-hog-function"
                                         onClick={submitTestInvocation}
                                         loading={isTestInvocationSubmitting}
                                     >
@@ -221,7 +226,12 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                 </>
                             )}
 
-                            <LemonButton icon={<IconX />} onClick={() => toggleExpanded()} tooltip="Hide testing" />
+                            <LemonButton
+                                data-attr="hide-hog-testing"
+                                icon={<IconX />}
+                                onClick={() => toggleExpanded()}
+                                tooltip="Hide testing"
+                            />
                         </>
                     )}
                 </div>
