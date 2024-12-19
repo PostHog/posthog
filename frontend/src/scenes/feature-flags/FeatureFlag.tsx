@@ -10,6 +10,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -33,9 +34,9 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
-import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { concatWithPunctuation } from 'scenes/insights/utils'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { ResourcePermission } from 'scenes/ResourcePermissionModal'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -57,12 +58,14 @@ import {
     PropertyOperator,
     QueryBasedInsightModel,
     ReplayTabs,
+    Resource,
 } from '~/types'
 
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
+import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -99,6 +102,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         setFeatureFlagFilters,
         setActiveTab,
     } = useActions(featureFlagLogic)
+
+    const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
+        featureFlagPermissionsLogic({ flagId: featureFlag.id })
+    )
+    const { setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
+        featureFlagPermissionsLogic({ flagId: featureFlag.id })
+    )
 
     const { tags } = useValues(tagsModel)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -211,7 +221,21 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         tabs.push({
             label: 'Permissions',
             key: FeatureFlagsTab.PERMISSIONS,
-            content: <FeatureFlagPermissions featureFlag={featureFlag} />,
+            content: (
+                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                    <ResourcePermission
+                        resourceType={Resource.FEATURE_FLAGS}
+                        onChange={(roleIds) => setRolesToAdd(roleIds)}
+                        rolesToAdd={rolesToAdd}
+                        addableRoles={addableRoles}
+                        addableRolesLoading={unfilteredAddableRolesLoading}
+                        onAdd={() => addAssociatedRoles()}
+                        roles={derivedRoles}
+                        deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                        canEdit={featureFlag.can_edit}
+                    />
+                </PayGateMini>
+            ),
         })
     }
 
@@ -409,7 +433,21 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <h3 className="p-2 mb-0">Permissions</h3>
                                             <LemonDivider className="my-0" />
                                             <div className="p-3">
-                                                <FeatureFlagPermissions featureFlag={featureFlag} />
+                                                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                                    <ResourcePermission
+                                                        resourceType={Resource.FEATURE_FLAGS}
+                                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                        rolesToAdd={rolesToAdd}
+                                                        addableRoles={addableRoles}
+                                                        addableRolesLoading={unfilteredAddableRolesLoading}
+                                                        onAdd={() => addAssociatedRoles()}
+                                                        roles={derivedRoles}
+                                                        deleteAssociatedRole={(id) =>
+                                                            deleteAssociatedRole({ roleId: id })
+                                                        }
+                                                        canEdit={featureFlag.can_edit}
+                                                    />
+                                                </PayGateMini>
                                             </div>
                                         </div>
                                     </>

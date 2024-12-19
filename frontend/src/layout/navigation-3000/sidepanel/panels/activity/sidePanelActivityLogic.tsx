@@ -10,20 +10,11 @@ import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { ActivityScope, UserBasicType } from '~/types'
-
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
-import { SidePanelSceneContext } from '../../types'
-import { sidePanelContextLogic } from '../sidePanelContextLogic'
+import { ActivityFilters, activityForSceneLogic } from './activityForSceneLogic'
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
-
-export type ActivityFilters = {
-    scope?: ActivityScope
-    item_id?: ActivityLogItem['item_id']
-    user?: UserBasicType['id']
-}
 
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
@@ -45,7 +36,7 @@ export enum SidePanelActivityTab {
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
     connect({
-        values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
+        values: [activityForSceneLogic, ['sceneActivityFilters'], projectLogic, ['currentProjectId']],
         actions: [sidePanelStateLogic, ['openSidePanel']],
     }),
     actions({
@@ -276,16 +267,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     }),
 
     subscriptions(({ actions, values }) => ({
-        sceneSidePanelContext: (sceneSidePanelContext: SidePanelSceneContext) => {
-            actions.setFiltersForCurrentPage(
-                sceneSidePanelContext
-                    ? {
-                          ...values.filters,
-                          scope: sceneSidePanelContext.activity_scope,
-                          item_id: sceneSidePanelContext.activity_item_id,
-                      }
-                    : null
-            )
+        sceneActivityFilters: (activityFilters) => {
+            actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
         },
         filters: () => {
             if (values.activeTab === SidePanelActivityTab.All) {
@@ -297,7 +280,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     afterMount(({ actions, values }) => {
         actions.loadImportantChanges()
 
-        const activityFilters = values.sceneSidePanelContext
+        const activityFilters = values.sceneActivityFilters
         actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
     }),
 

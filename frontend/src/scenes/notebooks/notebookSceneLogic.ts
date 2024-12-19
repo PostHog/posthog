@@ -2,9 +2,8 @@ import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { notebooksModel } from '~/models/notebooksModel'
-import { ActivityScope, Breadcrumb } from '~/types'
+import { Breadcrumb } from '~/types'
 
 import { notebookLogic } from './Notebook/notebookLogic'
 import type { notebookSceneLogicType } from './notebookSceneLogicType'
@@ -17,12 +16,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     props({} as NotebookSceneLogicProps),
     key(({ shortId }) => shortId),
     connect((props: NotebookSceneLogicProps) => ({
-        values: [
-            notebookLogic(props),
-            ['notebook', 'notebookLoading', 'isLocalOnly'],
-            notebooksModel,
-            ['notebooksLoading'],
-        ],
+        values: [notebookLogic(props), ['notebook', 'notebookLoading'], notebooksModel, ['notebooksLoading']],
         actions: [notebookLogic(props), ['loadNotebook'], notebooksModel, ['createNotebook']],
     })),
     selectors(() => ({
@@ -46,20 +40,6 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
                     name: notebook ? notebook?.title || 'Unnamed' : loading ? null : 'Notebook not found',
                 },
             ],
-        ],
-
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.notebookId, s.isLocalOnly],
-            (notebookId, isLocalOnly): SidePanelSceneContext | null => {
-                return notebookId && !isLocalOnly
-                    ? {
-                          activity_scope: ActivityScope.NOTEBOOK,
-                          activity_item_id: notebookId,
-                          access_control_resource: 'notebook',
-                          access_control_resource_id: notebookId,
-                      }
-                    : null
-            },
         ],
     })),
 

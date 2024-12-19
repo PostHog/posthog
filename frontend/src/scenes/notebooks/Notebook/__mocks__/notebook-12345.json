@@ -59,6 +59,5 @@
         "first_name": "Paul",
         "email": "paul@posthog.com",
         "is_email_verified": false
-    },
-    "user_access_level": "editor"
+    }
 }

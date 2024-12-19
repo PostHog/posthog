@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -12,7 +11,6 @@ import { organizationLogic } from '../scenes/organizationLogic'
 export function ErrorProjectUnavailable(): JSX.Element {
     const { projectCreationForbiddenReason } = useValues(organizationLogic)
     const { user } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
     const [options, setOptions] = useState<JSX.Element[]>([])
 
     useEffect(() => {
@@ -47,8 +45,7 @@ export function ErrorProjectUnavailable(): JSX.Element {
             <PageHeader />
             {!user?.organization ? (
                 <CreateOrganizationModal isVisible inline />
-            ) : (user?.team && !user.organization?.teams.some((team) => team.id === user?.team?.id || user.team)) ||
-              currentTeam?.user_access_level === 'none' ? (
+            ) : user?.team && !user.organization?.teams.some((team) => team.id === user?.team?.id) ? (
                 <>
                     <h1>Project access has been removed</h1>
                     <p>
