@@ -84,6 +84,7 @@ export enum PluginServerMode {
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     cdp_processed_events = 'cdp-processed-events',
+    cdp_internal_events = 'cdp-internal-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     functional_tests = 'functional-tests',
@@ -358,6 +359,7 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
     cdpProcessedEvents?: boolean
+    cdpInternalEvents?: boolean
     cdpFunctionCallbacks?: boolean
     cdpCyclotronWorker?: boolean
     appManagementSingleton?: boolean

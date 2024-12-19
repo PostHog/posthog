@@ -32,6 +32,7 @@ import { ActivityScope, AvailableFeature } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelActivityMetalytics } from './SidePanelActivityMetalytics'
+import { SidePanelActivitySubscriptions } from './SidePanelActivitySubscriptions'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -149,6 +150,14 @@ export const SidePanelActivity = (): JSX.Element => {
                                           {
                                               key: SidePanelActivityTab.Metalytics,
                                               label: 'Analytics',
+                                          },
+                                      ]
+                                    : []),
+                                ...(featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS]
+                                    ? [
+                                          {
+                                              key: SidePanelActivityTab.Subscriptions,
+                                              label: 'Subscriptions',
                                           },
                                       ]
                                     : []),
@@ -280,6 +289,8 @@ export const SidePanelActivity = (): JSX.Element => {
                                 </>
                             ) : activeTab === SidePanelActivityTab.Metalytics ? (
                                 <SidePanelActivityMetalytics />
+                            ) : activeTab === SidePanelActivityTab.Subscriptions ? (
+                                <SidePanelActivitySubscriptions />
                             ) : null}
                         </ScrollableShadows>
                     </div>

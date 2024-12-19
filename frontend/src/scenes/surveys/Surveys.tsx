@@ -139,7 +139,7 @@ export function Surveys(): JSX.Element {
             />
             {tab === SurveysTabs.Settings && (
                 <>
-                    <div className="flex items-center mb-2 gap-2">
+                    <div className="flex items-center gap-2 mb-2">
                         <LemonField.Pure className="mt-2" label="Appearance">
                             <span>These settings apply to new surveys in this organization.</span>
                         </LemonField.Pure>
@@ -165,7 +165,7 @@ export function Surveys(): JSX.Element {
                         )}
                     </div>
                     <LemonDivider />
-                    <div className="flex align-top mb-2 gap-2">
+                    <div className="flex gap-2 mb-2 align-top">
                         <Customization
                             key="survey-settings-customization"
                             appearance={editableSurveyConfig}
@@ -197,7 +197,7 @@ export function Surveys(): JSX.Element {
                     <p>Get notified whenever a survey result is submitted</p>
                     <LinkedHogFunctions
                         type="destination"
-                        subTemplateId="survey_response"
+                        subTemplateId="survey-response"
                         filters={{
                             events: [
                                 {
@@ -248,7 +248,7 @@ export function Surveys(): JSX.Element {
                     {!shouldShowEmptyState && (
                         <>
                             <div>
-                                <div className="flex justify-between mb-4 gap-2 flex-wrap">
+                                <div className="flex flex-wrap justify-between gap-2 mb-4">
                                     <LemonInput
                                         type="search"
                                         placeholder="Search for surveys"
