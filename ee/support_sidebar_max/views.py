@@ -12,12 +12,11 @@ import json
 
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
-from .sidebar_max_AI import (
-    ConversationHistory,
-    get_system_prompt,
-    max_search_tool_tool,
-)
+
+from ee.support_sidebar_max.supportSidebarMax_system_prompt import get_system_prompt
+from .sidebar_max_AI import ConversationHistory, max_search_tool_tool
 from .max_search_tool import max_search_tool
+
 
 # Configure logging
 django_logger = logging.getLogger("django")
@@ -258,7 +257,7 @@ class MaxChatViewSet(viewsets.ViewSet):
         # Return the formatted results and current response
         return full_response, self._format_tool_result(tool_use_block["id"], formatted_results)
 
-    def send_message(self, client, tools, system_prompt, messages):
+    def send_message(self, client: anthropic.Anthropic, tools, system_prompt, messages):
         """Send message to Anthropic API with proper error handling"""
         try:
             django_logger.info("Preparing to send message to Anthropic API")
@@ -275,7 +274,7 @@ class MaxChatViewSet(viewsets.ViewSet):
                 tools=tools,
                 system=system_prompt,
                 messages=messages,
-                headers=headers,
+                extra_headers=headers,
             )
 
             django_logger.debug(f"Response from Anthropic API: {response}")

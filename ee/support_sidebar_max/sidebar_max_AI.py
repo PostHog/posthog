@@ -34,7 +34,7 @@ class ConversationHistory:
                     {
                         "type": "text",
                         "text": content,
-                        "cache_control": {"type": "stable"},  # User messages are stable for caching
+                        "cache_control": {"type": "ephemeral"},  # User messages are stable for caching
                     }
                 ],
             }
@@ -54,7 +54,7 @@ class ConversationHistory:
                         {
                             "type": "text",
                             "text": content,
-                            "cache_control": {"type": "stable"},  # Assistant responses are stable for caching
+                            "cache_control": {"type": "ephemeral"},  # Assistant responses are stable for caching
                         }
                     ],
                 }
