@@ -114,20 +114,20 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                         {({ value, onChange }) => (
                                             <LemonSwitch
                                                 bordered
-                                                onChange={onChange}
-                                                checked={value}
+                                                onChange={(v) => onChange(!v)}
+                                                checked={!value}
                                                 label={
                                                     <Tooltip
                                                         title={
                                                             <>
-                                                                When selected, async functions such as `fetch` will not
-                                                                actually be called but instead will be mocked out with
-                                                                the fetch content logged instead
+                                                                When disabled, async functions such as `fetch` will not
+                                                                actually be called, but will instead be mocked out with
+                                                                the fetch content logged.
                                                             </>
                                                         }
                                                     >
                                                         <span className="flex gap-2">
-                                                            Mock out HTTP requests
+                                                            Make real HTTP requests
                                                             <IconInfo className="text-lg" />
                                                         </span>
                                                     </Tooltip>
