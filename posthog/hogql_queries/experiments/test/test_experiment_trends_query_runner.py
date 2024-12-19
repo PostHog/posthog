@@ -91,8 +91,12 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             feature_flag = self.create_feature_flag(name)
         if start_date is None:
             start_date = timezone.now()
+        else:
+            start_date = timezone.make_aware(start_date)  # Make naive datetime timezone-aware
         if end_date is None:
             end_date = timezone.now() + timedelta(days=14)
+        elif end_date is not None:
+            end_date = timezone.make_aware(end_date)  # Make naive datetime timezone-aware
         return Experiment.objects.create(
             name=name,
             team=self.team,
@@ -147,7 +151,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             filesystem=fs,
             use_dictionary=True,
             compression="snappy",
-            version="2.0",
         )
 
         table_name = "payments"
@@ -212,7 +215,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             filesystem=fs,
             use_dictionary=True,
             compression="snappy",
-            version="2.0",
         )
 
         table_name = "usage"
