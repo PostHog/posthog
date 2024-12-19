@@ -339,7 +339,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         setSourceQuery: ({ sourceQuery }) => {
             // NOTE: this is a hack to get the variables to persist.
-            // Variables should be handled first in this logic and now in the downstream vraiablesLogic
+            // Variables should be handled first in this logic and then in the downstream variablesLogic
             localStorage.setItem(activeModelVariablesStateKey(props.key), JSON.stringify(sourceQuery.source.variables))
         },
         runQuery: ({ queryOverride, switchTab }) => {
