@@ -3347,6 +3347,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_with_cohort_properties.2
   '''
+  /* cohort_calculation: */
   SELECT s.session_id AS session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -3416,6 +3417,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_with_events_and_cohorts.2
   '''
+  /* cohort_calculation: */
   SELECT s.session_id AS session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -3470,6 +3472,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_with_events_and_cohorts.3
   '''
+  /* cohort_calculation: */
   SELECT s.session_id AS session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -3663,7 +3666,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_with_static_and_dynamic_cohort_properties.3
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
