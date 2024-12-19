@@ -141,7 +141,7 @@ describe('sessionRecordingPlayerLogic', () => {
                     sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesFailure,
                 ])
                 .toFinishAllListeners()
-                .toDispatchActions(['setErrorPlayerState'])
+                .toDispatchActions(['setPlayerError'])
 
             expect(logic.values).toMatchObject({
                 sessionPlayerData: {
@@ -149,7 +149,7 @@ describe('sessionRecordingPlayerLogic', () => {
                     snapshotsByWindowId: {},
                     bufferedToTime: 0,
                 },
-                isErrored: true,
+                playerError: 'loadSnapshotSourcesFailure',
             })
             resumeKeaLoadersErrors()
         })
