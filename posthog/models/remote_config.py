@@ -279,7 +279,7 @@ class RemoteConfig(UUIDModel):
                 # Indentation to make it more readable (and therefore debuggable)
                 site_functions_js.append(
                     indent_js(
-                        f"\n{{\n  id: '{site_function.id}',\n  type: '{site_function.type}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
+                        f"\n{{\n  id: '{json.dumps(site_function.id)}',\n  type: '{json.dumps(site_function.type)}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
                     )
                 )
             except Exception:
