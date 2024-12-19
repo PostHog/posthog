@@ -419,6 +419,7 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            is_cookieless_mode: false,
         };
 
         let metadata = ProcessedEventMetadata {
@@ -460,6 +461,7 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            is_cookieless_mode: false,
         };
 
         let big_event = ProcessedEvent {
@@ -487,6 +489,7 @@ mod tests {
                 now: "".to_string(),
                 sent_at: None,
                 token: "token1".to_string(),
+                is_cookieless_mode: false,
             },
             metadata: metadata.clone(),
         };

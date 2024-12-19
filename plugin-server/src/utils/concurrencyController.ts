@@ -1,5 +1,20 @@
 import FastPriorityQueue from 'fastpriorityqueue'
-import { promiseResolveReject } from 'lib/utils'
+
+export function promiseResolveReject<T>(): {
+    resolve: (value: T) => void
+    reject: (reason?: any) => void
+    promise: Promise<T>
+} {
+    let resolve: (value: T) => void
+    let reject: (reason?: any) => void
+    const promise = new Promise<T>((innerResolve, innerReject) => {
+        resolve = innerResolve
+        reject = innerReject
+    })
+    return { resolve: resolve!, reject: reject!, promise }
+}
+
+// Copied from front end codebase
 class ConcurrencyControllerItem<T> {
     _debugTag?: string
     _runFn: () => Promise<void>
