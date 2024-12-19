@@ -67,6 +67,7 @@ def sql_source_for_type(
     sslmode: str,
     schema: str,
     table_names: list[str],
+    db_incremental_field_last_value: Optional[Any],
     using_ssl: Optional[bool] = True,
     team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
@@ -115,10 +116,11 @@ def sql_source_for_type(
         raise Exception("Unsupported source_type")
 
     db_source = sql_database(
-        credentials,
+        credentials=credentials,
         schema=schema,
         table_names=table_names,
         incremental=incremental,
+        db_incremental_field_last_value=db_incremental_field_last_value,
         team_id=team_id,
         connect_args=connect_args,
     )
@@ -137,6 +139,7 @@ def snowflake_source(
     warehouse: str,
     schema: str,
     table_names: list[str],
+    db_incremental_field_last_value: Optional[Any],
     role: Optional[str] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
@@ -188,7 +191,13 @@ def snowflake_source(
             },
         )
 
-    db_source = sql_database(credentials, schema=schema, table_names=table_names, incremental=incremental)
+    db_source = sql_database(
+        credentials=credentials,
+        schema=schema,
+        table_names=table_names,
+        incremental=incremental,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
 
     return db_source
 
@@ -202,6 +211,7 @@ def bigquery_source(
     token_uri: str,
     table_name: str,
     bq_destination_table_id: str,
+    db_incremental_field_last_value: Optional[Any],
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> DltSource:
@@ -226,11 +236,18 @@ def bigquery_source(
         credentials_info=credentials_info,
     )
 
-    return sql_database(engine, schema=None, table_names=[table_name], incremental=incremental)
+    return sql_database(
+        credentials=engine,
+        schema=None,
+        table_names=[table_name],
+        incremental=incremental,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
 
 
 @dlt.source(max_table_nesting=0)
 def sql_database(
+    db_incremental_field_last_value: Optional[Any],
     credentials: Union[ConnectionStringCredentials, Engine, str] = dlt.secrets.value,
     schema: Optional[str] = dlt.config.value,
     metadata: Optional[MetaData] = None,
@@ -317,6 +334,7 @@ def sql_database(
             backend_kwargs=backend_kwargs,
             type_adapter_callback=type_adapter_callback,
             incremental=incremental,
+            db_incremental_field_last_value=db_incremental_field_last_value,
             team_id=team_id,
             connect_args=connect_args,
         )
@@ -341,6 +359,7 @@ def remove_columns(columns_to_drop: list[str], team_id: Optional[int]):
 
 @dlt.resource(name=lambda args: args["table"], standalone=True, spec=SqlTableResourceConfiguration)
 def sql_table(
+    db_incremental_field_last_value: Optional[Any],
     credentials: Union[ConnectionStringCredentials, Engine, str] = dlt.secrets.value,
     table: str = dlt.config.value,
     schema: Optional[str] = dlt.config.value,
@@ -438,6 +457,7 @@ def sql_table(
         chunk_size=chunk_size,
         backend=backend,
         incremental=incremental,
+        db_incremental_field_last_value=db_incremental_field_last_value,
         reflection_level=reflection_level,
         defer_table_reflect=defer_table_reflect,
         table_adapter_callback=table_adapter_callback,
