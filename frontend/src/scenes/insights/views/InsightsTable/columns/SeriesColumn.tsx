@@ -24,7 +24,7 @@ export const CustomizationIcon = ({ isVisible }: CustomizationIconProps): JSX.El
     }
 
     // we always render a spacer so that hovering doesn't result in layout shifts
-    return <div className="w-4 h-4">{isVisible && <IconPencil fontSize={14} />}</div>
+    return <div className="w-4 h-4 flex">{isVisible && <IconPencil fontSize={14} />}</div>
 }
 
 type SeriesColumnItemProps = {
