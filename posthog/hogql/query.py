@@ -50,8 +50,9 @@ class HogQLQueryExecutor:
     limit_context: Optional[LimitContext] = LimitContext.QUERY
     timings: HogQLTimings = dataclasses.field(default_factory=HogQLTimings)
     pretty: Optional[bool] = True
-    __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
+
+    __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
     def __post_init__(self):
         if self.context is self.__uninitialized_context:
@@ -184,7 +185,7 @@ class HogQLQueryExecutor:
             )
         except Exception as e:
             if self.debug:
-                self.clickhouse_sql = None
+                self.clickhouse_sql = ""
                 if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
                     self.error = str(e)
                 else:
@@ -243,7 +244,7 @@ class HogQLQueryExecutor:
                     HogQLMetadata(language=HogLanguage.HOG_QL, query=self.hogql, debug=True), self.team
                 )
 
-    def generate_clickhouse_sql(self) -> (str, HogQLContext):
+    def generate_clickhouse_sql(self) -> tuple[str, HogQLContext]:
         self._parse_query()
         self._process_variables()
         self._process_placeholders()

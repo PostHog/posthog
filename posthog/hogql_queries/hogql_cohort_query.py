@@ -64,11 +64,9 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
 
 
 class HogQLCohortQuery:
-    def __init__(self, cohort_query: CohortQuery = None, cohort: Cohort = None):
-        team_id = (cohort and cohort.team.pk) or cohort_query._team_id
-        self.hogql_context = HogQLContext(team_id=team_id, enable_select_queries=True)
-
+    def __init__(self, cohort_query: Optional[CohortQuery] = None, cohort: Optional[Cohort] = None):
         if cohort is not None:
+            self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
             self.cohort_query = CohortQuery(
                 Filter(
                     data={"properties": cohort.properties},
@@ -78,8 +76,11 @@ class HogQLCohortQuery:
                 cohort.team,
                 cohort_pk=cohort.pk,
             )
-        else:
+        elif cohort_query is not None:
+            self.hogql_context = HogQLContext(team_id=cohort_query._team_id, enable_select_queries=True)
             self.cohort_query = cohort_query
+        else:
+            raise
 
         # self.properties = clean_global_properties(self.cohort_query._filter._data["properties"])
         self._inner_property_groups = self.cohort_query._inner_property_groups
@@ -87,12 +88,14 @@ class HogQLCohortQuery:
         self.team = self.cohort_query._team
 
     def _actors_query(self):
-        pgfv = convert(self._inner_property_groups)
+        pgfv = None
+        if self._inner_property_groups:
+            pgfv = convert(self._inner_property_groups)
         actors_query = ActorsQuery(properties=pgfv, select=["id"])
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
         return query_runner.to_query()
 
-    def get_query(self) -> SelectQuery:
+    def get_query(self) -> SelectQuery | SelectSetQuery:
         if not self.cohort_query._outer_property_groups:
             # everything is pushed down, no behavioral stuff to do
             # thus, use personQuery directly
@@ -194,6 +197,7 @@ class HogQLCohortQuery:
     def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
         count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
         # either an action or an event
+        series: list[Union[EventsNode, ActionsNode]]
         if prop.event_type == "events":
             series = [EventsNode(event=prop.key)] * (count + 1)
         elif prop.event_type == "actions":
@@ -201,9 +205,9 @@ class HogQLCohortQuery:
         else:
             raise ValueError(f"Event type must be 'events' or 'actions'")
 
-        funnelStep: int = None
+        funnelStep: Optional[int] = None
 
-        funnelCustomSteps: list[int] = None
+        funnelCustomSteps: Optional[list[int]] = None
 
         if prop.operator == "gte":
             funnelStep = count
