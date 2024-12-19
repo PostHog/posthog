@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 
 import {
     FilterLogicalOperator,
-    FunnelExperimentVariant,
     InsightType,
     PropertyFilterType,
     PropertyOperator,
@@ -45,7 +44,7 @@ export function SummaryTable(): JSX.Element {
 
     const winningVariant = getHighestProbabilityVariant(result)
 
-    const columns: LemonTableColumns<TrendExperimentVariant | FunnelExperimentVariant> = [
+    const columns: LemonTableColumns<any> = [
         {
             key: 'variants',
             title: 'Variant',
