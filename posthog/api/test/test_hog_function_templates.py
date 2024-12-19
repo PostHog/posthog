@@ -61,6 +61,16 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert template["type"] == "internal_destination"
         assert template["id"] == "template-slack-activity-log"
 
+    def test_retrieve_function_template(self):
+        response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] == "template-slack"
+
+    def test_retrieve_function_sub_template(self):
+        response = self.client.get("/api/projects/@current/hog_function_templates/template-slack-activity-log")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] == "template-slack-activity-log"
+
     def test_public_list_function_templates(self):
         self.client.logout()
         response = self.client.get("/api/public_hog_function_templates/")
