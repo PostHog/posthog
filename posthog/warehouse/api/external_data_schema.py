@@ -147,6 +147,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             payload = instance.sync_type_config
             payload.pop("incremental_field", None)
             payload.pop("incremental_field_type", None)
+            payload.pop("incremental_field_last_value", None)
+            payload.pop("incremental_field_last_value_v2", None)
 
             validated_data["sync_type_config"] = payload
 
