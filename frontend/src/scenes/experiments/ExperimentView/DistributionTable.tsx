@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { IconBalance, IconFlag } from '@posthog/icons'
 import {
     LemonBanner,
@@ -64,7 +62,12 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
                     <LemonButton
                         onClick={() => {
                             saveSidebarExperimentFeatureFlag(featureFlag)
-                            updateExperiment({ holdout_id: experiment.holdout_id })
+                            updateExperiment({
+                                holdout_id: experiment.holdout_id,
+                                parameters: {
+                                    feature_flag_variants: featureFlag?.filters?.multivariate?.variants ?? [],
+                                },
+                            })
                             closeDistributionModal()
                         }}
                         type="primary"

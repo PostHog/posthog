@@ -27,7 +27,9 @@ const customOptions: Record<string, SparklineOption[]> = {
     all: [lastYear, lastMonth, lastDay],
 }
 
-const DEFAULT_FILTER_GROUP = {
+export const DEFAULT_ERROR_TRACKING_DATE_RANGE = { date_from: '-7d', date_to: null }
+
+export const DEFAULT_ERROR_TRACKING_FILTER_GROUP = {
     type: FilterLogicalOperator.And,
     values: [{ type: FilterLogicalOperator.And, values: [] }],
 }
@@ -42,15 +44,15 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setAssignee: (assignee: number | null) => ({ assignee }),
+        setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
-        setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setSparklineSelectedPeriod: (period: string | null) => ({ period }),
         _setSparklineOptions: (options: SparklineOption[]) => ({ options }),
     }),
     reducers({
         dateRange: [
-            { date_from: '-7d', date_to: null } as DateRange,
+            DEFAULT_ERROR_TRACKING_DATE_RANGE as DateRange,
             { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
@@ -64,7 +66,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             },
         ],
         filterGroup: [
-            DEFAULT_FILTER_GROUP as UniversalFiltersGroup,
+            DEFAULT_ERROR_TRACKING_FILTER_GROUP as UniversalFiltersGroup,
             { persist: true },
             {
                 setFilterGroup: (_, { filterGroup }) => filterGroup,

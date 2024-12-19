@@ -207,6 +207,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     --content-link: var(--brand-500);
     --content-link-hover: var(--brand-400);
     --content-link-pressed: var(--brand-600);
+    --content-warning: var(--orange-400);
     --content-warning-bold: var(--orange-700);
     --content-danger: var(--red-500);
     --content-danger-bold: var(--red-600);
@@ -577,6 +578,7 @@ body {
     &[theme='dark'] {
         // Semantic colors (Dark mode) WIP
         --content-primary: var(--neutral-cool-100);
+        --content-warning: var(--orange-300);
         --content-warning-bold: var(--orange-100);
         --content-danger-bold: var(--red-100);
         --content-success-bold: var(--green-100);

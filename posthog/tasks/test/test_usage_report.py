@@ -43,6 +43,7 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     capture_event,
+    capture_report,
     get_instance_metadata,
     send_all_org_usage_reports,
 )
@@ -50,6 +51,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseDestroyTablesMixin,
     ClickhouseTestMixin,
+    QueryMatchingTest,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
@@ -140,7 +142,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
 
 
 @freeze_time("2022-01-10T00:01:00Z")
-class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
 
@@ -1600,13 +1602,59 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
         capture_event(
-            mock_client,
-            "test event",
-            organization.id,
-            {"prop1": "val1"},
-            "2021-10-10T23:01:00.00Z",
+            pha_client=mock_client,
+            name="test event",
+            organization_id=organization.id,
+            properties={"prop1": "val1"},
+            timestamp="2021-10-10T23:01:00.00Z",
         )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
+
+    @patch("posthog.tasks.usage_report.Client")
+    def test_capture_report_transforms_team_id_to_org_id(self, mock_client: MagicMock) -> None:
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+
+        # Create a second team in the same organization to verify the mapping
+        team2 = Team.objects.create(organization=self.organization)
+
+        # Create a report with team-level data
+        report = {
+            "organization_name": "Test Org",
+            "date": "2024-01-01",
+        }
+
+        with self.is_cloud(True):
+            # Call capture_report
+            capture_report(capture_event_name="test event", team_id=team2.id, full_report_dict=report)
+
+        # Verify the capture call was made with the organization ID
+        mock_posthog.capture.assert_called_once_with(
+            self.user.distinct_id,
+            "test event",
+            {**report, "scope": "user"},
+            groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
+            timestamp=None,
+        )
+
+        # now check with send_for_all_members=True
+        mock_posthog.reset_mock()
+
+        with self.is_cloud(True):
+            capture_report(
+                capture_event_name="test event",
+                team_id=self.team.id,
+                full_report_dict=report,
+                send_for_all_members=True,
+            )
+
+        mock_posthog.capture.assert_called_once_with(
+            self.user.distinct_id,
+            "test event",
+            {**report, "scope": "user"},
+            groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
+            timestamp=None,
+        )
 
 
 class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

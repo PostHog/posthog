@@ -794,3 +794,43 @@ async def aupdate_batch_export_backfill_status(backfill_id: UUID, status: str) -
         raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
 
     return await model.aget()
+
+
+async def aupdate_records_total_count(
+    batch_export_id: UUID, interval_start: dt.datetime, interval_end: dt.datetime, count: int
+) -> int:
+    """Update the expected records count for a set of batch export runs.
+
+    Typically, there is one batch export run per batch export interval, however
+    there could be multiple if data has been backfilled.
+    """
+    rows_updated = await BatchExportRun.objects.filter(
+        batch_export_id=batch_export_id,
+        data_interval_start=interval_start,
+        data_interval_end=interval_end,
+    ).aupdate(records_total_count=count)
+    return rows_updated
+
+
+async def afetch_batch_export_runs_in_range(
+    batch_export_id: UUID,
+    interval_start: dt.datetime,
+    interval_end: dt.datetime,
+) -> list[BatchExportRun]:
+    """Async fetch all BatchExportRuns for a given batch export within a time interval.
+
+    Arguments:
+        batch_export_id: The UUID of the BatchExport to fetch runs for.
+        interval_start: The start of the time interval to fetch runs from.
+        interval_end: The end of the time interval to fetch runs until.
+
+    Returns:
+        A list of BatchExportRun objects within the given interval, ordered by data_interval_start.
+    """
+    queryset = BatchExportRun.objects.filter(
+        batch_export_id=batch_export_id,
+        data_interval_start__gte=interval_start,
+        data_interval_end__lte=interval_end,
+    ).order_by("data_interval_start")
+
+    return [run async for run in queryset]

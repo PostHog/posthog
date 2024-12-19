@@ -82,3 +82,15 @@ def is_hog_upvalue(obj: Any) -> bool:
         and "value" in obj
         and "id" in obj
     )
+
+
+def is_hog_interval(obj: Any) -> bool:
+    return isinstance(obj, dict) and obj.get("__hogInterval__") is True
+
+
+def to_hog_interval(value: int, unit: str):
+    return {
+        "__hogInterval__": True,
+        "value": value,
+        "unit": unit,
+    }

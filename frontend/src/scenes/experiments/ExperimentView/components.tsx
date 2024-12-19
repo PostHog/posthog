@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { IconArchive, IconCheck, IconFlask, IconX } from '@posthog/icons'
 import {
     LemonBanner,
@@ -493,44 +491,38 @@ export function PageHeaderCustom(): JSX.Element {
                     )}
                     {experiment && isExperimentRunning && (
                         <div className="flex flex-row gap-2">
-                            {!isExperimentStopped && !experiment.archived && (
-                                <>
-                                    <More
-                                        overlay={
-                                            <>
-                                                <LemonButton
-                                                    onClick={() =>
-                                                        exposureCohortId ? undefined : createExposureCohort()
-                                                    }
-                                                    fullWidth
-                                                    data-attr={`${
-                                                        exposureCohortId ? 'view' : 'create'
-                                                    }-exposure-cohort`}
-                                                    to={exposureCohortId ? urls.cohort(exposureCohortId) : undefined}
-                                                    targetBlank={!!exposureCohortId}
-                                                >
-                                                    {exposureCohortId ? 'View' : 'Create'} exposure cohort
-                                                </LemonButton>
-                                                <LemonButton
-                                                    onClick={() => loadExperimentResults(true)}
-                                                    fullWidth
-                                                    data-attr="refresh-experiment"
-                                                >
-                                                    Refresh experiment results
-                                                </LemonButton>
-                                                <LemonButton
-                                                    onClick={() => loadSecondaryMetricResults(true)}
-                                                    fullWidth
-                                                    data-attr="refresh-secondary-metrics"
-                                                >
-                                                    Refresh secondary metrics
-                                                </LemonButton>
-                                            </>
-                                        }
-                                    />
-                                    <LemonDivider vertical />
-                                </>
-                            )}
+                            <>
+                                <More
+                                    overlay={
+                                        <>
+                                            <LemonButton
+                                                onClick={() => (exposureCohortId ? undefined : createExposureCohort())}
+                                                fullWidth
+                                                data-attr={`${exposureCohortId ? 'view' : 'create'}-exposure-cohort`}
+                                                to={exposureCohortId ? urls.cohort(exposureCohortId) : undefined}
+                                                targetBlank={!!exposureCohortId}
+                                            >
+                                                {exposureCohortId ? 'View' : 'Create'} exposure cohort
+                                            </LemonButton>
+                                            <LemonButton
+                                                onClick={() => loadExperimentResults(true)}
+                                                fullWidth
+                                                data-attr="refresh-experiment"
+                                            >
+                                                Refresh experiment results
+                                            </LemonButton>
+                                            <LemonButton
+                                                onClick={() => loadSecondaryMetricResults(true)}
+                                                fullWidth
+                                                data-attr="refresh-secondary-metrics"
+                                            >
+                                                Refresh secondary metrics
+                                            </LemonButton>
+                                        </>
+                                    }
+                                />
+                                <LemonDivider vertical />
+                            </>
                             <ResetButton experimentId={experiment.id} />
                             {!experiment.end_date && (
                                 <LemonButton

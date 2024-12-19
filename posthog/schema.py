@@ -82,23 +82,6 @@ class AssistantBreakdownFilter(BaseModel):
     breakdown_limit: Optional[int] = Field(default=25, description="How many distinct values to show.")
 
 
-class AssistantCompareFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compare: Optional[bool] = Field(
-        default=False, description="Whether to compare the current date range to a previous date range."
-    )
-    compare_to: Optional[str] = Field(
-        default="-7d",
-        description=(
-            "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1"
-            " year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30"
-            " hours ago."
-        ),
-    )
-
-
 class AssistantDateTimePropertyFilterOperator(StrEnum):
     IS_DATE_EXACT = "is_date_exact"
     IS_DATE_BEFORE = "is_date_before"
@@ -115,6 +98,7 @@ class AssistantEventMultipleBreakdownFilterType(StrEnum):
 class AssistantEventType(StrEnum):
     STATUS = "status"
     MESSAGE = "message"
+    CONVERSATION = "conversation"
 
 
 class AssistantFunnelsBreakdownType(StrEnum):
@@ -221,40 +205,12 @@ class AssistantGroupPropertyFilter3(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
-class AssistantInsightDateRange(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    date_from: Optional[str] = Field(
-        default="-7d",
-        description=(
-            "Start date. The value can be:\n- a relative date. Examples of relative dates are: `-1y` for 1 year ago,"
-            " `-14m` for 14 months ago, `-1w` for 1 week ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.\n- an"
-            " absolute ISO 8601 date string. a constant `yStart` for the current year start. a constant `mStart` for"
-            " the current month start. a constant `dStart` for the current day start. Prefer using relative dates."
-        ),
-    )
-    date_to: Optional[str] = Field(
-        default=None,
-        description=(
-            "Right boundary of the date range. Use `null` for the current date. You can not use relative dates here."
-        ),
-    )
-
-
 class AssistantMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     content: str
-    done: Optional[bool] = Field(
-        default=None,
-        description=(
-            'We only need this "done" value to tell when the particular message is finished during its streaming. It'
-            " won't be necessary when we optimize streaming to NOT send the entire message every time a character is"
-            " added."
-        ),
-    )
+    id: Optional[str] = None
     type: Literal["ai"] = "ai"
 
 
@@ -413,6 +369,13 @@ class AutocompleteCompletionItemKind(StrEnum):
     SNIPPET = "Snippet"
 
 
+class BaseAssistantMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Optional[str] = None
+
+
 class BaseMathType(StrEnum):
     TOTAL = "total"
     DAU = "dau"
@@ -420,6 +383,7 @@ class BaseMathType(StrEnum):
     MONTHLY_ACTIVE = "monthly_active"
     UNIQUE_SESSION = "unique_session"
     FIRST_TIME_FOR_USER = "first_time_for_user"
+    FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
 class BreakdownAttributionType(StrEnum):
@@ -538,8 +502,17 @@ class CompareFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    compare: Optional[bool] = None
-    compare_to: Optional[str] = None
+    compare: Optional[bool] = Field(
+        default=False, description="Whether to compare the current date range to a previous date range."
+    )
+    compare_to: Optional[str] = Field(
+        default=None,
+        description=(
+            "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1"
+            " year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30"
+            " hours ago."
+        ),
+    )
 
 
 class ColorMode(StrEnum):
@@ -879,7 +852,7 @@ class FailureMessage(BaseModel):
         extra="forbid",
     )
     content: Optional[str] = None
-    done: Literal[True] = True
+    id: Optional[str] = None
     type: Literal["ai/failure"] = "ai/failure"
 
 
@@ -1077,7 +1050,7 @@ class HumanMessage(BaseModel):
         extra="forbid",
     )
     content: str
-    done: Literal[True] = Field(default=True, description="Human messages are only appended when done.")
+    id: Optional[str] = None
     type: Literal["human"] = "human"
 
 
@@ -1092,21 +1065,6 @@ class DayItem(BaseModel):
     )
     label: str
     value: Union[str, AwareDatetime, int]
-
-
-class InsightDateRange(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    date_from: Optional[str] = "-7d"
-    date_to: Optional[str] = None
-    explicitDate: Optional[bool] = Field(
-        default=False,
-        description=(
-            "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of"
-            " period."
-        ),
-    )
 
 
 class InsightFilterProperty(StrEnum):
@@ -1353,6 +1311,7 @@ class QueryResponseAlternative7(BaseModel):
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
+    table_names: Optional[list[str]] = None
     warnings: list[HogQLNotice]
 
 
@@ -1420,7 +1379,7 @@ class ReasoningMessage(BaseModel):
         extra="forbid",
     )
     content: str
-    done: Literal[True] = True
+    id: Optional[str] = None
     substeps: Optional[list[str]] = None
     type: Literal["ai/reasoning"] = "ai/reasoning"
 
@@ -1483,7 +1442,7 @@ class RouterMessage(BaseModel):
         extra="forbid",
     )
     content: str
-    done: Literal[True] = Field(default=True, description="Router messages are not streamed, so they can only be done.")
+    id: Optional[str] = None
     type: Literal["ai/router"] = "ai/router"
 
 
@@ -2285,6 +2244,7 @@ class HogQLMetadataResponse(BaseModel):
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
+    table_names: Optional[list[str]] = None
     warnings: list[HogQLNotice]
 
 
@@ -3574,7 +3534,7 @@ class AssistantFunnelsQuery(BaseModel):
     breakdownFilter: Optional[AssistantFunnelsBreakdownFilter] = Field(
         default=None, description="Breakdown the chart by a property"
     )
-    dateRange: Optional[AssistantInsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3613,7 +3573,7 @@ class AssistantInsightsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: Optional[AssistantInsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3691,7 +3651,7 @@ class AssistantTrendsQuery(BaseModel):
         default=None, description="Breakdown of the events"
     )
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
-    dateRange: Optional[AssistantInsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -5386,7 +5346,8 @@ class VisualizationMessage(BaseModel):
         extra="forbid",
     )
     answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
-    done: Optional[bool] = None
+    id: Optional[str] = None
+    initiator: Optional[str] = None
     plan: Optional[str] = None
     type: Literal["ai/viz"] = "ai/viz"
 
@@ -5395,6 +5356,7 @@ class WebExternalClicksTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
     filterTestAccounts: Optional[bool] = None
@@ -5414,6 +5376,7 @@ class WebGoalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
     filterTestAccounts: Optional[bool] = None
@@ -5619,6 +5582,7 @@ class EventTaxonomyQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    properties: Optional[list[str]] = None
     response: Optional[EventTaxonomyQueryResponse] = None
 
 
@@ -5724,7 +5688,7 @@ class RetentionQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -5772,7 +5736,7 @@ class StickinessQuery(BaseModel):
         extra="forbid",
     )
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -5823,7 +5787,10 @@ class TrendsQuery(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = Field(
+        default=None, description="Whether we should be comparing against a specific conversion goal"
+    )
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -5889,6 +5856,7 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
     )
     significance_code: ExperimentSignificanceCode
     significant: bool
+    stats_version: Optional[int] = None
     timezone: str
     variants: list[ExperimentVariantTrendsBaseStats]
 
@@ -5906,6 +5874,7 @@ class Response10(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
+    stats_version: Optional[int] = None
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
@@ -6010,6 +5979,7 @@ class ExperimentTrendsQueryResponse(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
+    stats_version: Optional[int] = None
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
@@ -6019,7 +5989,7 @@ class FunnelsQuery(BaseModel):
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -6071,7 +6041,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -6110,7 +6080,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -6149,7 +6119,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -6188,7 +6158,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -6227,7 +6197,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -6266,7 +6236,7 @@ class LifecycleQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -6338,6 +6308,7 @@ class QueryResponseAlternative16(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
+    stats_version: Optional[int] = None
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
@@ -6369,6 +6340,7 @@ class QueryResponseAlternative27(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
+    stats_version: Optional[int] = None
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
@@ -6552,6 +6524,7 @@ class ExperimentTrendsQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentTrendsQueryResponse] = None
+    stats_version: Optional[int] = None
 
 
 class FunnelPathsFilter(BaseModel):
@@ -6606,7 +6579,7 @@ class PathsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
