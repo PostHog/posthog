@@ -1935,7 +1935,6 @@ export interface ErrorTrackingIssue {
     /**  @format date-time */
     last_seen: string
     earliest: string
-    latest: string
     // Sparkline data handled by the DataTable
     volume?: any
     assignee: number | null

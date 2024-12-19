@@ -729,7 +729,6 @@ class ErrorTrackingIssue(BaseModel):
     first_seen: AwareDatetime
     id: str
     last_seen: AwareDatetime
-    latest: str
     name: Optional[str] = None
     occurrences: float
     sessions: float

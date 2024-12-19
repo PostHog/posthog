@@ -7,12 +7,10 @@ export const OverviewPanel = (): JSX.Element => {
 
     const { synthetic, level, browser, os, library } = getExceptionAttributes(issueProperties)
 
-    const unknown = <div className="italic">unknown</div>
-
     const TableRow = ({ label, value }: { label: string; value: string | undefined }): JSX.Element => (
         <tr>
             <td className="text-muted">{label}</td>
-            <td>{value ?? unknown}</td>
+            <td>{value ?? <div className="italic">unknown</div>}</td>
         </tr>
     )
 

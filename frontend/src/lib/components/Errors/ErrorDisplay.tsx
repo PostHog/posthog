@@ -1,14 +1,15 @@
 import { LemonBanner } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { useState } from 'react'
 import { getExceptionAttributes, hasAnyInAppFrames, hasStacktrace } from 'scenes/error-tracking/utils'
 
 import { EventType } from '~/types'
 
+import { stackFrameLogic } from './stackFrameLogic'
 import { ChainedStackTraces } from './StackTraces'
 import { ErrorTrackingException } from './types'
 
@@ -64,8 +65,9 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
 }
 
 const StackTrace = ({ exceptionList }: { exceptionList: ErrorTrackingException[] }): JSX.Element => {
+    const { showAllFrames } = useValues(stackFrameLogic)
+    const { setShowAllFrames } = useActions(stackFrameLogic)
     const hasAnyInApp = hasAnyInAppFrames(exceptionList)
-    const [showAllFrames, setShowAllFrames] = useState(!hasAnyInApp)
 
     return (
         <>
@@ -79,7 +81,7 @@ const StackTrace = ({ exceptionList }: { exceptionList: ErrorTrackingException[]
                     />
                 ) : null}
             </div>
-            <ChainedStackTraces exceptionList={exceptionList} showAllFrames />
+            <ChainedStackTraces exceptionList={exceptionList} showAllFrames={hasAnyInApp ? showAllFrames : true} />
         </>
     )
 }

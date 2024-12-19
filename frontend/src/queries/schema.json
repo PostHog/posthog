@@ -5392,9 +5392,6 @@
                     "format": "date-time",
                     "type": "string"
                 },
-                "latest": {
-                    "type": "string"
-                },
                 "name": {
                     "type": ["string", "null"]
                 },
@@ -5423,7 +5420,6 @@
                 "first_seen",
                 "last_seen",
                 "earliest",
-                "latest",
                 "assignee",
                 "status"
             ],
