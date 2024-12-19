@@ -278,13 +278,10 @@ class AutoProjectMiddleware:
 
         # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
         #   However this should be a rare operation!
-        if not user_access_control.check_access_level_for_object(new_team, "member"):
-            # Do something to indicate that they don't have access to the team...
-            return False
-
-        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
-        #   However this should be a rare operation!
-        if user_permissions.team(new_team).effective_membership_level is None:
+        if (
+            not user_access_control.check_access_level_for_object(new_team, "member")
+            and user_permissions.team(new_team).effective_membership_level is None
+        ):
             if user.is_staff:
                 # Staff users get a popup with suggested users to log in as, facilating support
                 request.suggested_users_with_access = UserBasicSerializer(  # type: ignore
