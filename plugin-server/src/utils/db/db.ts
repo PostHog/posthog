@@ -304,7 +304,7 @@ export class DB {
                 if (ttlSeconds) {
                     return await client.set(key, serializedValue, 'EX', ttlSeconds, 'NX')
                 } else {
-                    return await client.set(key, serializedValue)
+                    return await client.set(key, serializedValue, 'NX')
                 }
             } finally {
                 clearTimeout(timeout)
@@ -477,7 +477,8 @@ export class DB {
                 }
                 multi.scard(key)
                 const results = await multi.exec()
-                return results[2][1] // Result of SCARD
+                const scardResult = ttlSeconds ? results[2] : results[1]
+                return scardResult[1]
             } finally {
                 clearTimeout(timeout)
                 await this.redisPool.release(client)
