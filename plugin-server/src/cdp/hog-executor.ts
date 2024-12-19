@@ -10,7 +10,6 @@ import { status } from '../utils/status'
 import { HogFunctionManager } from './hog-function-manager'
 import {
     CyclotronFetchFailureInfo,
-    HogBytecode,
     HogFunctionInputType,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
@@ -105,24 +104,14 @@ const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => 
     return message
 }
 
-const findGlobals = (bytecode: HogBytecode[]): string[] => {
-    // TODO!
-
-    return []
-}
-
 const orderInputsByDependency = (hogFunction: HogFunctionType): [string, HogFunctionInputType][] => {
-    // TODO - take all the inputs and order them by dependency so that we can execute them in the correct order to derive all the values
-
     const allInputs: HogFunctionType['inputs'] = {
         ...hogFunction.inputs,
         ...hogFunction.encrypted_inputs,
     }
-
-    // TODO: Actually do the check
-
-    // if there is a circular dependency, throw an error
-    throw new Error('Circular input reference found: input.TODO in input FOO')
+    return Object.entries(allInputs).sort(([_, input1], [__, input2]) => {
+        return (input1.order ?? -1) - (input2.order ?? -1)
+    })
 }
 
 export class HogExecutor {
