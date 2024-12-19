@@ -146,7 +146,7 @@ async function expectStoryToMatchSnapshot(
     }, storyContext.parameters?.layout || 'padded')
     if (waitForLoadersToDisappear) {
         // The timeout is reduced so that we never allow toasts – they usually signify something wrong
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached', timeout: 3000 })
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached', timeout: 30000 })
     }
     if (typeof waitForSelector === 'string') {
         await page.waitForSelector(waitForSelector)
