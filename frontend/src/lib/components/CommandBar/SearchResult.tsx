@@ -1,6 +1,8 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { TAILWIND_BREAKPOINTS } from 'lib/constants'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useLayoutEffect, useRef } from 'react'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -22,9 +24,11 @@ type SearchResultProps = {
 
 export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps): JSX.Element => {
     const { aggregationLabel } = useValues(searchBarLogic)
-    const { openResult } = useActions(searchBarLogic)
+    const { setActiveResultIndex, openResult } = useActions(searchBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
+
+    const { width } = useWindowSize()
 
     useLayoutEffect(() => {
         if (focused) {
@@ -40,27 +44,33 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
     }, [focused])
 
     return (
-        <div
-            className={clsx(
-                'w-full px-2 hover:bg-bg-3000 border-l-4 border-r border-b cursor-pointer',
-                focused ? 'bg-bg-3000 border-l-primary-3000' : 'bg-bg-light'
-            )}
-            onClick={() => {
-                openResult(resultIndex)
-            }}
-            ref={ref}
-        >
-            <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
-                <span className="text-muted-3000 text-xs">
-                    {result.type !== 'group'
-                        ? tabToName[result.type]
-                        : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
-                </span>
-                <span className="text-text-3000 font-bold">
-                    <ResultName result={result} />
-                </span>
+        <>
+            <div
+                className={clsx(
+                    'w-full px-2 hover:bg-bg-3000 border-l-4 border-b cursor-pointer',
+                    focused ? 'bg-bg-3000 border-l-primary-3000' : 'bg-bg-light'
+                )}
+                onClick={() => {
+                    if (width && width <= TAILWIND_BREAKPOINTS.md) {
+                        openResult(resultIndex)
+                    } else {
+                        setActiveResultIndex(resultIndex)
+                    }
+                }}
+                ref={ref}
+            >
+                <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
+                    <span className="text-muted-3000 text-xs">
+                        {result.type !== 'group'
+                            ? tabToName[result.type]
+                            : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
+                    </span>
+                    <span className="text-text-3000 font-bold">
+                        <ResultName result={result} />
+                    </span>
+                </div>
             </div>
-        </div>
+        </>
     )
 }
 
