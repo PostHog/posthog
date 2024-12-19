@@ -24,11 +24,10 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
+                ("key", models.CharField(max_length=400, blank=False)),
                 ("team", models.ForeignKey(on_delete=models.deletion.CASCADE, to="posthog.team")),
                 ("name", models.CharField(max_length=400, blank=False)),
                 ("description", models.TextField(default="")),
-                ("documentation_url", models.URLField(blank=True)),
-                ("issue_url", models.URLField(blank=True)),
                 (
                     "primary_early_access_feature",
                     models.ForeignKey(on_delete=models.deletion.RESTRICT, to="posthog.earlyaccessfeature"),

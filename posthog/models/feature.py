@@ -4,11 +4,12 @@ from posthog.models.utils import UUIDModel, CreatedMetaFields
 
 
 class Feature(CreatedMetaFields, UUIDModel):
-    name = models.CharField(max_length=400, blank=False)
+    # Key must be unique per team across all features and all feature flags,
+    # as the early access feature will create a flag with this same key.
+    key = models.CharField(max_length=400, blank=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=400, blank=False)
     description = models.TextField(default="")
-    documentation_url = models.URLField(blank=True)
-    issue_url = models.URLField(blank=True)
     primary_early_access_feature = models.ForeignKey(
         "posthog.EarlyAccessFeature", on_delete=models.RESTRICT, blank=False
     )

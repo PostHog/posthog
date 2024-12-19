@@ -506,6 +506,7 @@ export const redirects: Record<
     '/apps': urls.pipeline(PipelineTab.Overview),
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
     '/messaging': urls.messagingBroadcasts(),
+    '/settings/organization-rbac': urls.settings('organization-roles'),
 }
 
 export const routes: Record<string, Scene> = {
