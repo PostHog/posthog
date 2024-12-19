@@ -687,6 +687,7 @@ def get_teams_with_survey_responses_count_in_period(
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     return list(
         ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end)
+        .exclude(pipeline_version=ExternalDataJob.PipelineVersion.V2)
         .values("team_id")
         .annotate(total=Sum("rows_synced"))
     )
