@@ -218,7 +218,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'channel-type',
                 title: 'Custom channel type',
                 component: <CustomChannelTypes />,
-                flag: 'CUSTOM_CHANNEL_TYPE_RULES',
             },
             {
                 id: 'cookieless-server-hash-mode',
