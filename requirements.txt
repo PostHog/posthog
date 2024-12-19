@@ -143,8 +143,8 @@ defusedxml==0.6.0
     # via
     #   python3-openid
     #   social-auth-core
-deltalake==0.19.1
-    # via dlt
+deltalake==0.22.3
+    # via -r requirements.in
 distro==1.9.0
     # via
     #   anthropic
@@ -513,7 +513,6 @@ pyarrow==17.0.0
     # via
     #   -r requirements.in
     #   deltalake
-    #   dlt
     #   sqlalchemy-bigquery
 pyasn1==0.5.0
     # via
