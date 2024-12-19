@@ -1,9 +1,9 @@
 from posthog.hogql_queries.experiments import MIN_PROBABILITY_FOR_SIGNIFICANCE
 from posthog.schema import ExperimentVariantTrendsBaseStats, ExperimentSignificanceCode
-from posthog.hogql_queries.experiments.trends_statistics_v2 import (
-    calculate_probabilities_v2,
-    are_results_significant_v2,
-    calculate_credible_intervals_v2,
+from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
+    calculate_probabilities_v2_count,
+    are_results_significant_v2_count,
+    calculate_credible_intervals_v2_count,
 )
 from posthog.hogql_queries.experiments.trends_statistics import (
     calculate_probabilities,
@@ -13,8 +13,10 @@ from posthog.hogql_queries.experiments.trends_statistics import (
 from posthog.test.base import APIBaseTest
 
 
-def create_variant(key: str, count: int, exposure: int) -> ExperimentVariantTrendsBaseStats:
-    return ExperimentVariantTrendsBaseStats(key=key, count=count, exposure=exposure, absolute_exposure=exposure)
+def create_variant(key: str, count: int, exposure: float, absolute_exposure: int) -> ExperimentVariantTrendsBaseStats:
+    return ExperimentVariantTrendsBaseStats(
+        key=key, count=count, exposure=exposure, absolute_exposure=absolute_exposure
+    )
 
 
 def create_variant_with_different_exposures(
@@ -41,17 +43,24 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         # Run for v2 implementation
         test_fn(
             stats_version=2,
-            calculate_probabilities=calculate_probabilities_v2,
-            are_results_significant=are_results_significant_v2,
-            calculate_credible_intervals=calculate_credible_intervals_v2,
+            calculate_probabilities=calculate_probabilities_v2_count,
+            are_results_significant=are_results_significant_v2_count,
+            calculate_credible_intervals=calculate_credible_intervals_v2_count,
         )
 
     def test_small_sample_two_variants_not_significant(self):
         """Test with small sample size, two variants, no clear winner"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", count=10, exposure=100)
-            test = create_variant("test", count=11, exposure=100)
+            control_absolute_exposure = 100
+            control = create_variant("control", count=10, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 100
+            test = create_variant(
+                "test",
+                count=11,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test])
             significance, p_value = are_results_significant(control, [test], probabilities)
@@ -77,8 +86,15 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         """Test with large sample size, two variants, clear winner"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", count=1000, exposure=10000)
-            test = create_variant("test", count=1200, exposure=10000)
+            control_absolute_exposure = 10000
+            control = create_variant("control", count=1000, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 10000
+            test = create_variant(
+                "test",
+                count=1200,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test])
             significance, p_value = are_results_significant(control, [test], probabilities)
@@ -107,8 +123,15 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         """Test with large sample size, two variants, very clear winner"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", count=1000, exposure=10000)
-            test = create_variant("test", count=1500, exposure=10000)
+            control_absolute_exposure = 10000
+            control = create_variant("control", count=1000, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 10000
+            test = create_variant(
+                "test",
+                count=1500,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test])
             significance, p_value = are_results_significant(control, [test], probabilities)
@@ -137,10 +160,29 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         """Test with multiple variants, no clear winner"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", count=100, exposure=1000)
-            test_a = create_variant("test_a", count=98, exposure=1000)
-            test_b = create_variant("test_b", count=102, exposure=1000)
-            test_c = create_variant("test_c", count=101, exposure=1000)
+            control_absolute_exposure = 1000
+            control = create_variant("control", count=100, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_a_absolute_exposure = 1000
+            test_a = create_variant(
+                "test_a",
+                count=98,
+                exposure=test_a_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_a_absolute_exposure,
+            )
+            test_b_absolute_exposure = 1000
+            test_b = create_variant(
+                "test_b",
+                count=102,
+                exposure=test_b_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_b_absolute_exposure,
+            )
+            test_c_absolute_exposure = 1000
+            test_c = create_variant(
+                "test_c",
+                count=101,
+                exposure=test_c_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_c_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test_a, test_b, test_c])
             significance, p_value = are_results_significant(control, [test_a, test_b, test_c], probabilities)
@@ -170,10 +212,29 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         """Test with multiple variants, one clear winner"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", count=1000, exposure=10000)
-            test_a = create_variant("test_a", count=1050, exposure=10000)
-            test_b = create_variant("test_b", count=1500, exposure=10000)
-            test_c = create_variant("test_c", count=1100, exposure=10000)
+            control_absolute_exposure = 10000
+            control = create_variant("control", count=1000, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_a_absolute_exposure = 10000
+            test_a = create_variant(
+                "test_a",
+                count=1050,
+                exposure=test_a_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_a_absolute_exposure,
+            )
+            test_b_absolute_exposure = 10000
+            test_b = create_variant(
+                "test_b",
+                count=1500,
+                exposure=test_b_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_b_absolute_exposure,
+            )
+            test_c_absolute_exposure = 10000
+            test_c = create_variant(
+                "test_c",
+                count=1100,
+                exposure=test_c_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_c_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test_a, test_b, test_c])
             significance, p_value = are_results_significant(control, [test_a, test_b, test_c], probabilities)
@@ -207,12 +268,54 @@ class TestExperimentTrendsStatistics(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
+    def test_real_world_data_1(self):
+        """Test with multiple variants, one clear winner"""
+
+        def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
+            control_absolute_exposure = 2608
+            control = create_variant("control", count=269, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 2615
+            test = create_variant(
+                "test",
+                count=314,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
+
+            probabilities = calculate_probabilities(control, [test])
+            significance, p_value = are_results_significant(control, [test], probabilities)
+            intervals = calculate_credible_intervals([control, test])
+            self.assertEqual(len(probabilities), 2)
+            self.assertAlmostEqual(probabilities[1], 0.966, places=2)  # test should be winning
+            self.assertAlmostEqual(probabilities[0], 0.034, places=2)  # control should be losing
+            if stats_version == 2:
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
+                self.assertEqual(p_value, 0)
+            else:
+                self.assertEqual(significance, ExperimentSignificanceCode.HIGH_P_VALUE)
+                self.assertAlmostEqual(p_value, 0.07, delta=0.01)
+
+            self.assertAlmostEqual(intervals["control"][0], 0.094, delta=0.01)
+            self.assertAlmostEqual(intervals["control"][1], 0.116, delta=0.01)
+
+            self.assertAlmostEqual(intervals["test"][0], 0.107, delta=0.01)
+            self.assertAlmostEqual(intervals["test"][1], 0.129, delta=0.01)
+
+        self.run_test_for_both_implementations(run_test)
+
     def test_insufficient_sample_size(self):
         """Test with sample size below threshold"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", count=5, exposure=50)
-            test = create_variant("test", count=8, exposure=50)
+            control_absolute_exposure = 50
+            control = create_variant("control", count=5, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 50
+            test = create_variant(
+                "test",
+                count=8,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test])
             significance, p_value = are_results_significant(control, [test], probabilities)
@@ -241,8 +344,15 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         """Test edge cases like zero counts"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            control = create_variant("control", count=0, exposure=1000)
-            test = create_variant("test", count=0, exposure=1000)
+            control_absolute_exposure = 1000
+            control = create_variant("control", count=0, exposure=1, absolute_exposure=control_absolute_exposure)
+            test_absolute_exposure = 1000
+            test = create_variant(
+                "test",
+                count=0,
+                exposure=test_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_absolute_exposure,
+            )
 
             probabilities = calculate_probabilities(control, [test])
             significance, p_value = are_results_significant(control, [test], probabilities)
@@ -260,36 +370,5 @@ class TestExperimentTrendsStatistics(APIBaseTest):
 
             self.assertAlmostEqual(intervals["test"][0], 0.0, places=3)
             self.assertAlmostEqual(intervals["test"][1], 0.004, places=3)
-
-        self.run_test_for_both_implementations(run_test)
-
-    def test_different_relative_and_absolute_exposure(self):
-        """Test that credible intervals are calculated using absolute_exposure rather than relative exposure"""
-
-        def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            # Control has exposure=1 (relative) but absolute_exposure=10000
-            control = create_variant_with_different_exposures(
-                "control", count=1000, exposure=1, absolute_exposure=10000
-            )
-            # Test has exposure=1.2 (relative) but absolute_exposure=12000
-            test = create_variant_with_different_exposures("test", count=1200, exposure=1.2, absolute_exposure=12000)
-
-            probabilities = calculate_probabilities(control, [test])
-            significance, p_value = are_results_significant(control, [test], probabilities)
-            intervals = calculate_credible_intervals([control, test])
-
-            self.assertEqual(len(probabilities), 2)
-            self.assertTrue(0.4 < probabilities[0] < 0.6)  # Close to 50/50
-            self.assertTrue(0.4 < probabilities[1] < 0.6)  # Close to 50/50
-            self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
-            self.assertEqual(p_value, 1)
-
-            # Control at ~10% conversion rate
-            self.assertAlmostEqual(intervals["control"][0], 0.094, places=2)
-            self.assertAlmostEqual(intervals["control"][1], 0.106, places=2)
-
-            # Test at ~10% conversion rate
-            self.assertAlmostEqual(intervals["test"][0], 0.094, places=2)
-            self.assertAlmostEqual(intervals["test"][1], 0.106, places=2)
 
         self.run_test_for_both_implementations(run_test)
