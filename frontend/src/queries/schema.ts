@@ -2003,6 +2003,7 @@ export interface ExperimentFunnelsQueryResponse {
     significance_code: ExperimentSignificanceCode
     expected_loss: number
     credible_intervals: Record<string, [number, number]>
+    stats_version?: integer
 }
 
 export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<ExperimentFunnelsQueryResponse>
@@ -2012,6 +2013,7 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
     name?: string
     experiment_id?: integer
     funnels_query: FunnelsQuery
+    stats_version?: integer
 }
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {

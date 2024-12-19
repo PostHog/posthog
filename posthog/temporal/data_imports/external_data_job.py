@@ -9,6 +9,8 @@ from django.db import close_old_connections
 import posthoganalytics
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
+
 
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 
@@ -144,20 +146,22 @@ def trigger_pipeline_v2(inputs: ExternalDataWorkflowInputs):
     logger.debug("Triggering V2 pipeline")
 
     temporal = sync_connect()
-
-    asyncio.run(
-        temporal.start_workflow(
-            workflow="external-data-job",
-            arg=dataclasses.asdict(inputs),
-            id=f"{inputs.external_data_schema_id}-V2",
-            task_queue=str(DATA_WAREHOUSE_TASK_QUEUE_V2),
-            retry_policy=RetryPolicy(
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=1,
-                non_retryable_error_types=["NondeterminismError"],
-            ),
+    try:
+        asyncio.run(
+            temporal.start_workflow(
+                workflow="external-data-job",
+                arg=dataclasses.asdict(inputs),
+                id=f"{inputs.external_data_schema_id}-V2",
+                task_queue=str(DATA_WAREHOUSE_TASK_QUEUE_V2),
+                retry_policy=RetryPolicy(
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=1,
+                    non_retryable_error_types=["NondeterminismError"],
+                ),
+            )
         )
-    )
+    except WorkflowAlreadyStartedError:
+        pass
 
     logger.debug("V2 pipeline triggered")
 

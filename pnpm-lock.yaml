@@ -241,9 +241,6 @@ dependencies:
   image-blob-reduce:
     specifier: ^4.1.0
     version: 4.1.0
-  jsoncrush:
-    specifier: ^1.1.8
-    version: 1.1.8
   kea:
     specifier: ^3.1.5
     version: 3.1.5(react@18.2.0)
@@ -15414,10 +15411,6 @@ packages:
   /jsonc-parser@3.2.0:
     resolution: {integrity: sha512-gfFQZrcTc8CnKXp6Y4/CBT3fTc0OVuDofpre4aEeEpSBPV5X5v4+Vmx+8snU7RLPrNHPKSgLxGo9YuQzz20o+w==}
     dev: true
-
-  /jsoncrush@1.1.8:
-    resolution: {integrity: sha512-lvIMGzMUA0fjuqwNcxlTNRq2bibPZ9auqT/LyGdlR5hvydJtA/BasSgkx4qclqTKVeTidrJvsS/oVjlTCPQ4Nw==}
-    dev: false
 
   /jsonfile@6.1.0:
     resolution: {integrity: sha512-5dgndWOriYSm5cnYaJNhalLNDKOqFwyDB/rr1E9ZsGciGvKPs8R2xYGCacuf3z6K1YKDz182fd+fY3cn3pMqXQ==}
