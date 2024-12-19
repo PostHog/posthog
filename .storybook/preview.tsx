@@ -110,10 +110,17 @@ const preview: Preview = {
                 </>
             ),
         },
+        backgrounds: {
+            default: 'light',
+            values: [
+                { name: 'light', value: 'var(--bg-light)' },
+                { name: 'dark', value: 'var(--bg-3000-dark)' }
+            ]
+        }
     },
     globalTypes: {
         theme: {
-            description: '',
+            description: 'Global theme for components',
             defaultValue: 'light',
             toolbar: {
                 title: 'Theme',
