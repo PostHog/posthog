@@ -542,7 +542,7 @@ print(dateAdd("day", 1, toDate("2024-12-18")), dateDiff("day", toDate("2024-12-1
 print(dateTrunc("day", toDateTime("2024-12-18T12:34:56Z")));
 print(addDays(toDate("2024-12-18"), 3));
 print(toIntervalDay(5), toIntervalMonth(2));
-print(today());
+print(__x_typeof(today()));
 print("");
 print("-- json --");
 print(jsonStringify(JSONExtractInt("{\"a\":123.1}", "a")), jsonStringify(JSONExtractInt("{\"a\":\"hello\"}", "a")));

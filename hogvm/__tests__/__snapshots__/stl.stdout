@@ -100,7 +100,7 @@ Date(2024, 12, 19) 5
 DateTime(1734480000.0, 'UTC')
 Date(2024, 12, 21)
 {'__hogInterval__': true, 'value': 5, 'unit': 'day'} {'__hogInterval__': true, 'value': 2, 'unit': 'month'}
-Date(2024, 12, 19)
+date
 
 -- json --
 123 null
