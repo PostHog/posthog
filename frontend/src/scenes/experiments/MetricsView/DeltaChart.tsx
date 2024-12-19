@@ -1,5 +1,5 @@
-import { IconActivity, IconPencil } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { IconActivity, IconGraph, IconPencil } from '@posthog/icons'
+import { LemonButton, LemonModal, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
@@ -8,7 +8,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { VariantTag } from '../ExperimentView/components'
+import { ResultsQuery, VariantTag } from '../ExperimentView/components'
 import { NoResultEmptyState } from './NoResultEmptyState'
 
 function formatTickValue(value: number): string {
@@ -68,6 +68,7 @@ export function DeltaChart({
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
+    const [isModalOpen, setIsModalOpen] = useState(false)
 
     const BAR_HEIGHT = 8
     const BAR_PADDING = 10
@@ -101,6 +102,7 @@ export function DeltaChart({
 
     const metricTitlePanelWidth = '20%'
     const variantsPanelWidth = '10%'
+    const detailedResultsPanelWidth = '10%'
 
     const ticksSvgRef = useRef<SVGSVGElement>(null)
     const chartSvgRef = useRef<SVGSVGElement>(null)
@@ -184,7 +186,7 @@ export function DeltaChart({
                 {isFirstMetric && (
                     <svg
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: `${ticksSvgHeight}px` }}
+                        style={{ height: `${ticksSvgHeight}px`, width: '100%' }}
                     />
                 )}
                 {isFirstMetric && <div className="w-full border-t border-border" />}
@@ -206,13 +208,12 @@ export function DeltaChart({
                     ))}
                 </div>
             </div>
-
             {/* SVGs container */}
             <div
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     display: 'inline-block',
-                    width: `calc(100% - ${metricTitlePanelWidth} - ${variantsPanelWidth})`,
+                    width: `calc(100% - ${metricTitlePanelWidth} - ${variantsPanelWidth} - ${detailedResultsPanelWidth})`,
                     verticalAlign: 'top',
                 }}
             >
@@ -407,15 +408,6 @@ export function DeltaChart({
                             y={chartHeight / 2 - 10} // Roughly center vertically
                             width="200"
                             height="20"
-                            onMouseEnter={(e) => {
-                                const rect = e.currentTarget.getBoundingClientRect()
-                                setTooltipPosition({
-                                    x: rect.left + rect.width / 2,
-                                    y: rect.top,
-                                })
-                                setEmptyStateTooltipVisible(true)
-                            }}
-                            onMouseLeave={() => setEmptyStateTooltipVisible(false)}
                         >
                             <div
                                 className="flex items-center justify-center text-muted cursor-default"
@@ -662,6 +654,63 @@ export function DeltaChart({
                     </div>
                 )}
             </div>
+            {/* Detailed results panel */}
+            <div
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    display: 'inline-block',
+                    width: detailedResultsPanelWidth,
+                    verticalAlign: 'top',
+                }}
+            >
+                {isFirstMetric && (
+                    <svg
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ height: `${ticksSvgHeight}px`, width: '100%' }}
+                    />
+                )}
+                {isFirstMetric && <div className="w-full border-t border-border" />}
+                {result && (
+                    <div
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            height: `${chartSvgHeight}px`,
+                            borderLeft: result ? `1px solid ${COLORS.BOUNDARY_LINES}` : 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '0 4px',
+                        }}
+                    >
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconGraph />}
+                            onClick={() => setIsModalOpen(true)}
+                        >
+                            Detailed results
+                        </LemonButton>
+                    </div>
+                )}
+            </div>
+
+            <LemonModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                width={1200}
+                title={`Results for ${metric.name || 'Untitled metric'}`}
+                footer={
+                    <LemonButton
+                        form="secondary-metric-modal-form"
+                        type="secondary"
+                        onClick={() => setIsModalOpen(false)}
+                    >
+                        Close
+                    </LemonButton>
+                }
+            >
+                <ResultsQuery targetResults={result} showTable={true} />
+            </LemonModal>
         </div>
     )
 }
