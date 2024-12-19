@@ -266,7 +266,7 @@ class RemoteConfig(UUIDModel):
             )
         site_functions = (
             HogFunction.objects.select_related("team")
-            .filter(team=self.team, enabled=True, type__in=("site_destination", "site_app"))
+            .filter(team=self.team, enabled=True, deleted=False, type__in=("site_destination", "site_app"))
             .all()
         )
 
