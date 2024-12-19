@@ -15,6 +15,7 @@ from dlt.common.libs.pyarrow import pyarrow as pa
 from dlt.sources.credentials import ConnectionStringCredentials
 
 from posthog.settings.utils import get_from_env
+from posthog.temporal.data_imports.pipelines.sql_database_v2.settings import DEFAULT_CHUNK_SIZE
 from posthog.temporal.data_imports.pipelines.sql_database_v2._json import BigQueryJSON
 from posthog.utils import str_to_bool
 from posthog.warehouse.models import ExternalDataSource
@@ -252,7 +253,7 @@ def sql_database(
     schema: Optional[str] = dlt.config.value,
     metadata: Optional[MetaData] = None,
     table_names: Optional[list[str]] = dlt.config.value,
-    chunk_size: int = 50000,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
     backend: TableBackend = "pyarrow",
     detect_precision_hints: Optional[bool] = False,
     reflection_level: Optional[ReflectionLevel] = "full",
