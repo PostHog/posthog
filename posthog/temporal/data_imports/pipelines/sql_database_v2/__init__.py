@@ -366,7 +366,7 @@ def sql_table(
     schema: Optional[str] = dlt.config.value,
     metadata: Optional[MetaData] = None,
     incremental: Optional[dlt.sources.incremental[Any]] = None,
-    chunk_size: int = 50000,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
     backend: TableBackend = "sqlalchemy",
     detect_precision_hints: Optional[bool] = None,
     reflection_level: Optional[ReflectionLevel] = "full",
