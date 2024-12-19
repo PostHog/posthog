@@ -218,6 +218,17 @@ services:
             - kafka
             - objectstorage
             - temporal
+    property-defs-rs:
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
+        environment:
+            FILTER_MODE: 'opt_out'
+            CAPTURE_MODE: 'events'
+
+        depends_on:
+            - db
+            - kafka
 
 volumes:
     zookeeper-data:
