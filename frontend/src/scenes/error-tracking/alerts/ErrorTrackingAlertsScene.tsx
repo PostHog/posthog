@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { kea, path, selectors } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { DestinationsTable } from 'scenes/pipeline/destinations/Destinations'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -45,7 +45,20 @@ export function ErrorTrackingAlertsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <DestinationsTable types={['error_tracking_alert']} hideKind hideFeedback />
+
+            <LinkedHogFunctions
+                type="internal_destination"
+                subTemplateId="activity_log"
+                filters={{
+                    events: [
+                        {
+                            id: `$activity_log_entry_created`,
+                            type: 'events',
+                        },
+                    ],
+                }}
+            />
+            {/* <DestinationsTable types={['error_tracking_alert']} hideKind hideFeedback /> */}
         </>
     )
 }
