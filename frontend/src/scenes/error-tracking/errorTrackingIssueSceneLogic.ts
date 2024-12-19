@@ -155,11 +155,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     actionToUrl(({ values }) => ({
         setTab: () => {
             const searchParams = router.values.searchParams
-
-            if (values.tab != IssueTab.Overview) {
-                searchParams['tab'] = values.tab
-            }
-
+            searchParams['tab'] = values.tab
             return [router.values.location.pathname, searchParams]
         },
     })),

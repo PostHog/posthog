@@ -13,7 +13,7 @@ import { AssigneeSelect } from './AssigneeSelect'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { OverviewTab } from './groups/OverviewTab'
-import { SymbolSetUploadModal } from './SymbolSetUploadModal'
+import { SymbolSetUploadModal } from './symbol-sets/SymbolSetUploadModal'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
