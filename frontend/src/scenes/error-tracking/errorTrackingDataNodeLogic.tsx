@@ -42,14 +42,17 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                     ...values.response,
                     results: results
                         // remove merged issues
-                        .filter(({ id }) => !ids.includes(id))
+                        .filter(({ id }) => !mergingIds.includes(id))
                         .map((issue) =>
                             // replace primary issue
                             mergedIssue.id === issue.id ? mergedIssue : issue
                         ),
                 })
-                await api.errorTracking.mergeInto(primaryIssue.id, mergingIds)
-                actions.loadData(true)
+                try {
+                    await api.errorTracking.mergeInto(primaryIssue.id, mergingIds)
+                } catch (e) {
+                    actions.loadData(true)
+                }
             }
         },
         assignIssue: async ({ id, assigneeId }) => {
