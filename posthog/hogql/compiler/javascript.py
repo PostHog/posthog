@@ -279,10 +279,10 @@ class JavaScriptCompiler(Visitor):
             return f"(!{expr_code})"
         if node.name == "and" and len(node.args) > 1:
             exprs_code = " && ".join([self.visit(arg) for arg in node.args])
-            return f"({exprs_code})"
+            return f"!!({exprs_code})"
         if node.name == "or" and len(node.args) > 1:
             exprs_code = " || ".join([self.visit(arg) for arg in node.args])
-            return f"({exprs_code})"
+            return f"!!({exprs_code})"
         if node.name == "if" and len(node.args) >= 2:
             condition_code = self.visit(node.args[0])
             then_code = self.visit(node.args[1])

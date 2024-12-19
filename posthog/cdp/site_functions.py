@@ -92,7 +92,7 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
         """
     let processEvent = undefined;
     if ('onEvent' in source) {
-        processEvent = function processEvent(globals) {
+        processEvent = function processEvent(globals, posthog) {
             if (!('onEvent' in source)) { return; };
             const inputs = buildInputs(globals);
             const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
@@ -122,9 +122,13 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
             callback(true);
         }
 
-        return {
-            processEvent: processEvent
+        const response = {}
+
+        if (processEvent) {
+            response.processEvent = (globals) => processEvent(globals, posthog)
         }
+
+        return response
     }
 
     return { init: init };"""

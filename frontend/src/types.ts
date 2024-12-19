@@ -4488,7 +4488,7 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
-    // AccessControl = 'access-control',
+    AccessControl = 'access-control',
 }
 
 export interface SourceFieldOauthConfig {
@@ -4827,4 +4827,11 @@ export type ReplayTemplateVariableType = {
     description?: string
     filterGroup?: UniversalFiltersGroupValue
     noTouch?: boolean
+}
+
+/**
+ * Assistant Conversation
+ */
+export interface Conversation {
+    id: string
 }

@@ -48,7 +48,7 @@ from posthog.schema import (
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
-    InsightDateRange,
+    DateRange,
     PropertyGroupFilter,
     TrendsFilter,
     TrendsQuery,
@@ -178,7 +178,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
         series=series,
         kind="TrendsQuery",
         filterTestAccounts=filter.filter_test_accounts,
-        dateRange=InsightDateRange(date_from=filter_as_dict.get("date_from"), date_to=filter_as_dict.get("date_to")),
+        dateRange=DateRange(date_from=filter_as_dict.get("date_from"), date_to=filter_as_dict.get("date_to")),
         samplingFactor=filter.sampling_factor,
         aggregation_group_type_index=filter.aggregation_group_type_index,
         breakdownFilter=BreakdownFilter(
