@@ -23,7 +23,7 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
     if (isObject(lastUrl)) {
         if ('href' in lastUrl) {
             // regression protection, we saw a user whose site was sometimes sending the string-ified location object
-            // this is a best-effort attempt to show the href in that case in that case
+            // this is a best-effort attempt to show the href in that case
             lastUrl = lastUrl['href'] as string | undefined
         }
     }
