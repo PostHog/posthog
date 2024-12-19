@@ -15,6 +15,7 @@ describe('mergeIssues', () => {
             sessions: 100,
             status: 'active',
             users: 50,
+            earliest: '',
             volume: [
                 '__hx_tag',
                 'Sparkline',
@@ -43,6 +44,7 @@ describe('mergeIssues', () => {
                 sessions: 5,
                 status: 'active',
                 users: 1,
+                earliest: '',
                 volume: [
                     '__hx_tag',
                     'Sparkline',
@@ -69,6 +71,7 @@ describe('mergeIssues', () => {
                 sessions: 1,
                 status: 'active',
                 users: 1,
+                earliest: '',
                 volume: [
                     '__hx_tag',
                     'Sparkline',
@@ -95,6 +98,7 @@ describe('mergeIssues', () => {
                 sessions: 500,
                 status: 'active',
                 users: 50,
+                earliest: '',
                 volume: [
                     '__hx_tag',
                     'Sparkline',
