@@ -972,6 +972,22 @@ describe('DB', () => {
                 expect(add5).toEqual(2)
             })
         })
+
+        describe('redisSCard', () => {
+            it('it should return the number of elements in the set', async () => {
+                await db.redisSAddAndSCard('test', 'A')
+                const scard1 = await db.redisSCard('test')
+                expect(scard1).toEqual(1)
+
+                await db.redisSAddAndSCard('test', 'B')
+                const scard2 = await db.redisSCard('test')
+                expect(scard2).toEqual(2)
+
+                await db.redisSAddAndSCard('test', 'B')
+                const scard3 = await db.redisSCard('test')
+                expect(scard3).toEqual(2)
+            })
+        })
     })
 })
 
