@@ -92,14 +92,14 @@ if (inputs.debug) {
     ],
     sub_templates=[
         HogFunctionSubTemplate(
-            id="early_access_feature_enrollment",
+            id="early-access-feature-enrollment",
             name="HTTP Webhook on feature enrollment",
-            filters=SUB_TEMPLATE_COMMON["early_access_feature_enrollment"].filters,
+            filters=SUB_TEMPLATE_COMMON["early-access-feature-enrollment"].filters,
         ),
         HogFunctionSubTemplate(
-            id="survey_response",
+            id="survey-response",
             name="HTTP Webhook on survey response",
-            filters=SUB_TEMPLATE_COMMON["survey_response"].filters,
+            filters=SUB_TEMPLATE_COMMON["survey-response"].filters,
         ),
     ],
 )

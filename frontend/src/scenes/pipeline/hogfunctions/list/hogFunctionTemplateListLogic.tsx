@@ -8,7 +8,7 @@ import { objectsEqual } from 'lib/utils'
 import { hogFunctionNewUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 
-import { HogFunctionTemplateType, HogFunctionTypeType } from '~/types'
+import { HogFunctionSubTemplateIdType, HogFunctionTemplateType, HogFunctionTypeType } from '~/types'
 
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
 
@@ -18,11 +18,11 @@ export interface Fuse extends FuseClass<HogFunctionTemplateType> {}
 export type HogFunctionTemplateListFilters = {
     search?: string
     filters?: Record<string, any>
-    subTemplateId?: string
 }
 
 export type HogFunctionTemplateListLogicProps = {
     type: HogFunctionTypeType
+    subTemplateId?: HogFunctionSubTemplateIdType
     defaultFilters?: HogFunctionTemplateListFilters
     forceFilters?: HogFunctionTemplateListFilters
     syncFiltersWithUrl?: boolean
@@ -30,7 +30,12 @@ export type HogFunctionTemplateListLogicProps = {
 
 export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType>([
     props({} as HogFunctionTemplateListLogicProps),
-    key((props) => `${props.syncFiltersWithUrl ? 'scene' : 'default'}/${props.type ?? 'destination'}`),
+    key(
+        (props) =>
+            `${props.syncFiltersWithUrl ? 'scene' : 'default'}/${props.type ?? 'destination'}/${
+                props.subTemplateId ?? ''
+            }`
+    ),
     path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
     connect({
         values: [pipelineAccessLogic, ['canEnableNewDestinations'], featureFlagLogic, ['featureFlags']],
@@ -55,41 +60,19 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
     })),
     loaders(({ props }) => ({
-        rawTemplates: [
+        templates: [
             [] as HogFunctionTemplateType[],
             {
                 loadHogFunctionTemplates: async () => {
-                    return (await api.hogFunctions.listTemplates(props.type)).results
+                    return (
+                        await api.hogFunctions.listTemplates({ type: props.type, sub_template_id: props.subTemplateId })
+                    ).results
                 },
             },
         ],
     })),
     selectors({
-        loading: [(s) => [s.rawTemplatesLoading], (x) => x],
-        templates: [
-            (s) => [s.rawTemplates, s.filters],
-            (rawTemplates, { subTemplateId }): HogFunctionTemplateType[] => {
-                if (!subTemplateId) {
-                    return rawTemplates
-                }
-                const templates: HogFunctionTemplateType[] = []
-                // We want to pull out the sub templates and return the template but with overrides applied
-
-                rawTemplates.forEach((template) => {
-                    const subTemplate = template.sub_templates?.find((subTemplate) => subTemplate.id === subTemplateId)
-
-                    if (subTemplate) {
-                        templates.push({
-                            ...template,
-                            name: subTemplate.name,
-                            description: subTemplate.description ?? template.description,
-                        })
-                    }
-                })
-
-                return templates
-            },
-        ],
+        loading: [(s) => [s.templatesLoading], (x) => x],
         templatesFuse: [
             (s) => [s.templates],
             (hogFunctionTemplates): Fuse => {
@@ -123,13 +106,9 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             (filters): ((template: HogFunctionTemplateType) => string) => {
                 return (template: HogFunctionTemplateType) => {
                     // Add the filters to the url and the template id
-                    const subTemplateId = filters.subTemplateId
-
                     return combineUrl(
                         hogFunctionNewUrl(template.type, template.id),
-                        {
-                            sub_template: subTemplateId,
-                        },
+                        {},
                         {
                             configuration: {
                                 filters: filters.filters,

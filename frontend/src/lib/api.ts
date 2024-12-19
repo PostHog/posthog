@@ -60,6 +60,7 @@ import {
     GroupListParams,
     HogFunctionIconResponse,
     HogFunctionStatus,
+    HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
@@ -1824,13 +1825,20 @@ const api = {
         ): Promise<AppMetricsTotalsV2Response> {
             return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
-        async listTemplates(
+        async listTemplates(params: {
             type?: HogFunctionTypeType | HogFunctionTypeType[]
-        ): Promise<PaginatedResponse<HogFunctionTemplateType>> {
-            return new ApiRequest()
-                .hogFunctionTemplates()
-                .withQueryString(Array.isArray(type) ? { types: type.join(',') } : { type: type ?? 'destination' })
-                .get()
+            sub_template_id?: HogFunctionSubTemplateIdType
+        }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
+            const finalParams = {
+                ...params,
+                ...(params.type
+                    ? Array.isArray(params.type)
+                        ? { types: params.type.join(',') }
+                        : { type: params.type ?? 'destination' }
+                    : {}),
+            }
+
+            return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
         async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
             return await new ApiRequest().hogFunctionTemplate(id).get()

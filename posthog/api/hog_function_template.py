@@ -5,7 +5,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 
-from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
+from posthog.cdp.templates import HOG_FUNCTION_SUB_TEMPLATES, HOG_FUNCTION_TEMPLATES
 from posthog.cdp.templates.hog_function_template import (
     HogFunctionMapping,
     HogFunctionMappingTemplate,
@@ -51,11 +51,17 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
 
     def list(self, request: Request, *args, **kwargs):
         types = ["destination"]
+
+        sub_template_id = request.GET.get("sub_template_id")
+
         if "type" in request.GET:
             types = [self.request.GET.get("type", "destination")]
         elif "types" in request.GET:
             types = self.request.GET.get("types", "destination").split(",")
-        templates = [item for item in HOG_FUNCTION_TEMPLATES if item.type in types]
+
+        templates_list = HOG_FUNCTION_SUB_TEMPLATES if sub_template_id else HOG_FUNCTION_TEMPLATES
+
+        templates = [item for item in templates_list if item.type in types]
         page = self.paginate_queryset(templates)
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)

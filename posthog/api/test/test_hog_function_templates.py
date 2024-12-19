@@ -48,6 +48,17 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         response5 = self.client.get("/api/projects/@current/hog_function_templates/?types=site_destination,destination")
         assert len(response5.json()["results"]) > 0
 
+    def test_filter_sub_templates(self):
+        response1 = self.client.get(
+            "/api/projects/@current/hog_function_templates/?type=internal_destination&sub_template_id=activity_log"
+        )
+        assert response1.status_code == status.HTTP_200_OK, response1.json()
+        assert len(response1.json()["results"]) == 1
+
+        template = response1.json()["results"][0]
+
+        assert template["sub_templates"] == {}
+
     def test_public_list_function_templates(self):
         self.client.logout()
         response = self.client.get("/api/public_hog_function_templates/")

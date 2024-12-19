@@ -8,7 +8,7 @@ else:
     PluginConfig = None
 
 
-SubTemplateId = Literal["early_access_feature_enrollment", "survey_response"]
+SubTemplateId = Literal["early-access-feature-enrollment", "survey-response", "activity-log"]
 
 SUB_TEMPLATE_ID: tuple[SubTemplateId, ...] = get_args(SubTemplateId)
 
@@ -35,7 +35,8 @@ class HogFunctionSubTemplate:
     description: Optional[str] = None
     filters: Optional[dict] = None
     masking: Optional[dict] = None
-    inputs: Optional[dict] = None
+    inputs_schema: Optional[list[dict]] = None
+    type: Optional[HogFunctionTemplateType] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -82,8 +83,8 @@ class HogFunctionTemplateMigrator:
 
 
 SUB_TEMPLATE_COMMON: dict[SubTemplateId, HogFunctionSubTemplate] = {
-    "survey_response": HogFunctionSubTemplate(
-        id="survey_response",
+    "survey-response": HogFunctionSubTemplate(
+        id="survey-response",
         name="Survey Response",
         filters={
             "events": [
@@ -102,9 +103,15 @@ SUB_TEMPLATE_COMMON: dict[SubTemplateId, HogFunctionSubTemplate] = {
             ]
         },
     ),
-    "early_access_feature_enrollment": HogFunctionSubTemplate(
-        id="early_access_feature_enrollment",
+    "early-access-feature-enrollment": HogFunctionSubTemplate(
+        id="early-access-feature-enrollment",
         name="Early Access Feature Enrollment",
         filters={"events": [{"id": "$feature_enrollment_update", "type": "events"}]},
+    ),
+    "activity-log": HogFunctionSubTemplate(
+        id="activity-log",
+        name="Team Activity",
+        type="internal_destination",
+        filters={"events": [{"id": "$activity_log_entry_created", "type": "events"}]},
     ),
 }

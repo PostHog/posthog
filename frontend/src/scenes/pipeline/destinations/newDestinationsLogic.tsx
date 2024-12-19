@@ -63,7 +63,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                     const destinationTypes = siteDesinationsEnabled
                         ? props.types
                         : props.types.filter((type) => type !== 'site_destination')
-                    const templates = await api.hogFunctions.listTemplates(destinationTypes)
+                    const templates = await api.hogFunctions.listTemplates({ type: destinationTypes })
                     return templates.results.reduce((acc, template) => {
                         acc[template.id] = template
                         return acc
