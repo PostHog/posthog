@@ -292,6 +292,7 @@ class HogFunctionViewSet(
         return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = queryset.filter(deleted=False)
         if self.action == "list":
             if "type" in self.request.GET:
                 types = [self.request.GET.get("type", "destination")]
@@ -299,7 +300,7 @@ class HogFunctionViewSet(
                 types = self.request.GET.get("types", "destination").split(",")
             else:
                 types = ["destination"]
-            queryset = queryset.filter(deleted=False, type__in=types)
+            queryset = queryset.filter(type__in=types)
 
         if self.request.GET.get("filters"):
             try:
