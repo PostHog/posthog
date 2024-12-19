@@ -1,8 +1,20 @@
 import FastPriorityQueue from 'fastpriorityqueue'
-import { promiseResolveReject } from 'lib/utils'
 
-// Note that this file also exists in the plugin-server, please keep them in sync as the tests only exist for this version
+export function promiseResolveReject<T>(): {
+    resolve: (value: T) => void
+    reject: (reason?: any) => void
+    promise: Promise<T>
+} {
+    let resolve: (value: T) => void
+    let reject: (reason?: any) => void
+    const promise = new Promise<T>((innerResolve, innerReject) => {
+        resolve = innerResolve
+        reject = innerReject
+    })
+    return { resolve: resolve!, reject: reject!, promise }
+}
 
+// Note that this file also exists in the frontend code, please keep them in sync as the tests only exist in the other version
 class ConcurrencyControllerItem<T> {
     _debugTag?: string
     _runFn: () => Promise<void>
