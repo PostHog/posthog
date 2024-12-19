@@ -1,6 +1,6 @@
 # HogVM
 
-A HogVM is a 🦔 that runs Hog bytecode. It's purpose is to locally evaluate Hog/QL expressions against any object.
+A HogVM is a 🦔 that runs Hog bytecode. Its purpose is to locally evaluate Hog/QL expressions against any object.
 
 ## Hog bytecode
 
@@ -19,7 +19,7 @@ call('arg', 'another') # [_H, op.STRING, "another", op.STRING, "arg", op.CALL_GL
 
 ## Compliant implementation
 
-The `python/execute.py` function in this folder acts as the reference implementation in case of disputes.
+The `rust/hogvm/src/execute.rs` function in this folder acts as the reference implementation in case of disputes.
 
 ### Operations
 
@@ -84,3 +84,17 @@ In Hog/QL equality comparisons, `null` is treated as any other variable. Its pre
 ```
 
 Nulls are just ignored in `concat`
+
+## Building and Testing the Rust Implementation
+
+To build the Rust implementation of HogVM, navigate to the `rust/hogvm` directory and run:
+
+```bash
+cargo build --release
+```
+
+To run the tests for the Rust implementation, navigate to the `hogvm` directory and run:
+
+```bash
+./test.sh
+```
