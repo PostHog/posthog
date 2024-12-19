@@ -5,7 +5,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 
-from posthog.cdp.templates import HOG_FUNCTION_SUB_TEMPLATES, HOG_FUNCTION_TEMPLATES
+from posthog.cdp.templates import HOG_FUNCTION_SUB_TEMPLATES, HOG_FUNCTION_TEMPLATES, ALL_HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.templates.hog_function_template import (
     HogFunctionMapping,
     HogFunctionMappingTemplate,
@@ -67,7 +67,7 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
         return self.get_paginated_response(serializer.data)
 
     def retrieve(self, request: Request, *args, **kwargs):
-        item = next((item for item in HOG_FUNCTION_TEMPLATES if item.id == kwargs["pk"]), None)
+        item = ALL_HOG_FUNCTION_TEMPLATES_BY_ID.get(kwargs["pk"], None)
 
         if not item:
             raise NotFound(f"Template with id {kwargs['pk']} not found.")

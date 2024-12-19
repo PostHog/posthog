@@ -94,9 +94,9 @@ class HogFunction(UUIDModel):
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
-        from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
+        from posthog.cdp.templates import ALL_HOG_FUNCTION_TEMPLATES_BY_ID
 
-        return HOG_FUNCTION_TEMPLATES_BY_ID.get(self.template_id, None)
+        return ALL_HOG_FUNCTION_TEMPLATES_BY_ID.get(self.template_id, None)
 
     @property
     def filter_action_ids(self) -> list[int]:

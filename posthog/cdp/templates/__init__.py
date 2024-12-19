@@ -123,6 +123,8 @@ for template in HOG_FUNCTION_TEMPLATES:
 
 
 HOG_FUNCTION_TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTION_TEMPLATES}
+HOG_FUNCTION_SUB_TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTION_SUB_TEMPLATES}
+ALL_HOG_FUNCTION_TEMPLATES_BY_ID = {**HOG_FUNCTION_TEMPLATES_BY_ID, **HOG_FUNCTION_SUB_TEMPLATES_BY_ID}
 
 HOG_FUNCTION_MIGRATORS = {
     TemplateCustomerioMigrator.plugin_url: TemplateCustomerioMigrator,
@@ -138,4 +140,4 @@ HOG_FUNCTION_MIGRATORS = {
     TemplateAvoMigrator.plugin_url: TemplateAvoMigrator,
 }
 
-__all__ = ["HOG_FUNCTION_TEMPLATES", "HOG_FUNCTION_TEMPLATES_BY_ID"]
+__all__ = ["HOG_FUNCTION_TEMPLATES", "HOG_FUNCTION_TEMPLATES_BY_ID", "ALL_HOG_FUNCTION_TEMPLATES_BY_ID"]
