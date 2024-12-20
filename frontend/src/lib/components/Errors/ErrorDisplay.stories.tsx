@@ -82,8 +82,6 @@ function errorProperties(properties: Record<string, any>): EventType['properties
             customer: 'the-customer',
             instance: 'https://app.posthog.com',
         },
-        // $exception_message: 'ResizeObserver loop limit exceeded',
-        // $exception_type: 'Error',
         $exception_fingerprint: 'Error',
         $exception_personURL: 'https://app.posthog.com/person/the-person-id',
         $sentry_event_id: 'id-from-the-sentry-integration',
@@ -292,6 +290,10 @@ export function WithCymbalErrors(): JSX.Element {
             })}
         />
     )
+}
+
+export function SentryStackTrace(): JSX.Element {
+    return <ErrorDisplay eventProperties={errorProperties({ $exception_list: [] })} />
 }
 
 export function LegacyEventProperties(): JSX.Element {
