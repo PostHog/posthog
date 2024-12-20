@@ -63,7 +63,7 @@ export function PrimaryGoalTrends(): JSX.Element {
                 showSeriesIndicator={true}
                 entitiesLimit={1}
                 showNumericalPropsOnly={true}
-                onlyPropertyMathDefinitions={[PropertyMathType.Average, PropertyMathType.Sum]}
+                onlyPropertyMathDefinitions={[PropertyMathType.Average]}
                 {...commonActionFilterProps}
             />
             <div className="mt-4 space-y-4">
