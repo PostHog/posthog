@@ -53,6 +53,23 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
 
+NON_RETRYABLE_ERROR_TYPES = [
+    # Raised on errors that are related to database operation.
+    # For example: unexpected disconnect, database or other object not found.
+    "OperationalError",
+    # The schema name provided is invalid (usually because it doesn't exist).
+    "InvalidSchemaName",
+    # Missing permissions to, e.g., insert into table.
+    "InsufficientPrivilege",
+    # A column, usually properties, exceeds the limit for a VARCHAR field,
+    # usually the max of 65535 bytes
+    "StringDataRightTruncation",
+    # Raised by our PostgreSQL client when failing to connect after several attempts.
+    "PostgreSQLConnectionError",
+    # Column missing in Redshift, likely the schema was altered.
+    "UndefinedColumn",
+]
+
 
 def remove_escaped_whitespace_recursive(value):
     """Remove all escaped whitespace characters from given value.
@@ -593,7 +610,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                                 )
                                 return
                             else:
-                                await asyncio.sleep(0.1)
+                                await asyncio.sleep(0)
                                 continue
 
                         for record in record_batch.to_pylist():
@@ -702,21 +719,6 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             insert_into_redshift_activity,
             insert_inputs,
             interval=inputs.interval,
-            non_retryable_error_types=[
-                # Raised on errors that are related to database operation.
-                # For example: unexpected disconnect, database or other object not found.
-                "OperationalError",
-                # The schema name provided is invalid (usually because it doesn't exist).
-                "InvalidSchemaName",
-                # Missing permissions to, e.g., insert into table.
-                "InsufficientPrivilege",
-                # A column, usually properties, exceeds the limit for a VARCHAR field,
-                # usually the max of 65535 bytes
-                "StringDataRightTruncation",
-                # Raised by our PostgreSQL client when failing to connect after several attempts.
-                "PostgreSQLConnectionError",
-                # Column missing in Redshift, likely the schema was altered.
-                "UndefinedColumn",
-            ],
+            non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
             finish_inputs=finish_inputs,
         )
