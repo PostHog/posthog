@@ -112,7 +112,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             initiator=start_id,
             id=str(uuid4()),
         )
-        if final_message.answer.breakdownFilter:
+        if final_message.answer and final_message.answer.breakdownFilter:
             # Increase breakdown limit, since the "Other" series is pretty low-value for the assistant
             final_message.answer.breakdownFilter.breakdown_limit = 100
 
