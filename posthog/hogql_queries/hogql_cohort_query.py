@@ -8,6 +8,7 @@ from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.hogql.property import get_property_type
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models import Filter, Cohort, Team, Property
@@ -38,8 +39,11 @@ from posthog.schema import (
     PropertyOperator,
     PropertyGroupFilterValue,
     PersonsOnEventsMode,
+    EventPropertyFilter,
+    HogQLPropertyFilter,
 )
 from posthog.queries.cohort_query import CohortQuery
+from posthog.types import AnyPropertyFilter
 
 
 class TestWrapperCohortQuery(CohortQuery):
@@ -53,6 +57,15 @@ class TestWrapperCohortQuery(CohortQuery):
 
 def convert_property(prop: Property) -> PersonPropertyFilter:
     return PersonPropertyFilter(key=prop.key, value=prop.value, operator=prop.operator or PropertyOperator.EXACT)
+
+
+def property_to_typed_property(property: Property) -> EventPropertyFilter | HogQLPropertyFilter:
+    type = get_property_type(property)
+    if type == "event":
+        return EventPropertyFilter(**property.to_dict())
+    if type == "hogql":
+        return HogQLPropertyFilter(**property.to_dict())
+    raise ValidationError("Property type not supported")
 
 
 def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
@@ -219,23 +232,31 @@ class HogQLCohortQuery:
             funnelStep = count + 1
         elif prop.operator == "lt":
             funnelCustomSteps = list(range(1, count))
-        elif (
-            prop.operator == "exact" or prop.operator is None
-        ):  # mypy refuses this: if any errors crop up prop.operator == "eq"
+        elif prop.operator == "eq" or prop.operator == "exact" or prop.operator is None:  # type: ignore[comparison-overlap]
             # People who dropped out at count + 1
             funnelStep = -(count + 1)
         else:
             raise ValidationError("count_operator must be gt(e), lt(e), exact, or None")
 
         if prop.event_filters:
+            property_groups = Filter(data={"properties": prop.event_filters}).property_groups
+            typed_properties: list[AnyPropertyFilter] = []
+            for property in property_groups.values:
+                if isinstance(property, PropertyGroup):
+                    raise ValidationError("Property groups are not supported in this behavioral cohort type")
+                typed_properties.append(property_to_typed_property(property))
+            for serie in series:
+                serie.properties = typed_properties
+            """
             property_group = Filter(data={"properties": prop.event_filters}).property_groups
-            # TODO: this is testing - we need to figure out how to handle ORs here
+            # We don't support ORs here
             if isinstance(property_group.values[0], PropertyGroup):
-                if property_group.type == PropertyOperatorType.OR:
-                    raise Exception("Don't support OR at the event level")
-                series[0].properties = property_group.values
+                raise ValidationError("Property groups are not supported in this behavioral cohort type")
             else:
+                if property_group.type == PropertyOperatorType.OR:
+                    raise ValidationError("This behavioral cohort type only supports AND operators")
                 series[0].properties = cast(list[Property], property_group.values)
+            """
 
         if prop.explicit_datetime:
             date_from = prop.explicit_datetime
