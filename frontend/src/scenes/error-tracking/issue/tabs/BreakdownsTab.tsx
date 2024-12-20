@@ -6,8 +6,8 @@ import { useState } from 'react'
 
 import { Query } from '~/queries/Query/Query'
 
-import { errorTrackingLogic } from '../errorTrackingLogic'
-import { errorTrackingIssueBreakdownQuery } from '../queries'
+import { errorTrackingLogic } from '../../errorTrackingLogic'
+import { errorTrackingIssueBreakdownQuery } from '../../queries'
 
 const gridColumnsMap = {
     small: 'grid-cols-1',
