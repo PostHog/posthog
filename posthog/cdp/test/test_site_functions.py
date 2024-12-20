@@ -46,6 +46,12 @@ class TestSiteFunctions(TestCase):
 
         return result
 
+    def _execute_javascript(self, js) -> str:
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(js.encode("utf-8"))
+            f.flush()
+            return subprocess.check_output(["node", f.name]).decode("utf-8")
+
     def test_get_transpiled_function_basic(self):
         result = self.compile_and_run()
         assert isinstance(result, str)
@@ -343,8 +349,51 @@ function onLoad() {
         )
         assert "Loaded" == response.strip()
 
-    def _execute_javascript(self, js) -> str:
-        with tempfile.NamedTemporaryFile(delete=False) as f:
-            f.write(js.encode("utf-8"))
-            f.flush()
-            return subprocess.check_output(["node", f.name]).decode("utf-8")
+    def test_get_transpiled_function_with_ordered_inputs(self):
+        self.hog_function.hog = "export function onLoad() { console.log(inputs); }"
+        self.hog_function.inputs = {
+            "first": {"value": "I am first", "order": 0},
+            "second": {"value": "{person.properties.name}", "order": 1},
+            "third": {"value": "{event.properties.url}", "order": 2},
+        }
+
+        result = self.compile_and_run()
+
+        assert '"first": "I am first"' in result
+        idx_first = result.index('"first": "I am first"')
+        idx_second = result.index('inputs["second"] = getInputsKey("second");')
+        idx_third = result.index('inputs["third"] = getInputsKey("third");')
+
+        assert idx_first < idx_second < idx_third
+
+    def test_get_transpiled_function_without_order(self):
+        self.hog_function.hog = "export function onLoad() { console.log(inputs); }"
+        self.hog_function.inputs = {
+            "noOrder": {"value": "I have no order"},
+            "alsoNoOrder": {"value": "{person.properties.name}"},
+            "withOrder": {"value": "{event.properties.url}", "order": 10},
+        }
+
+        result = self.compile_and_run()
+
+        idx_noOrder = result.index('"noOrder": "I have no order"')
+        idx_alsoNoOrder = result.index('inputs["alsoNoOrder"] = getInputsKey("alsoNoOrder");')
+        idx_withOrder = result.index('inputs["withOrder"] = getInputsKey("withOrder");')
+
+        assert idx_noOrder < idx_alsoNoOrder < idx_withOrder
+
+    def test_get_transpiled_function_with_duplicate_orders(self):
+        self.hog_function.hog = "export function onLoad() { console.log(inputs); }"
+        self.hog_function.inputs = {
+            "alpha": {"value": "{person.properties.alpha}", "order": 1},
+            "beta": {"value": "{person.properties.beta}", "order": 1},
+            "gamma": {"value": "Just gamma", "order": 1},
+        }
+
+        result = self.compile_and_run()
+
+        idx_alpha = result.index('inputs["alpha"] = getInputsKey("alpha");')
+        idx_beta = result.index('inputs["beta"] = getInputsKey("beta");')
+        idx_gamma = result.index('"gamma": "Just gamma"')
+
+        assert idx_alpha is not None and idx_beta is not None and idx_gamma is not None
