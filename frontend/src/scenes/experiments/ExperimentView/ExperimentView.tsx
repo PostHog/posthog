@@ -26,9 +26,9 @@ import { Results } from './Results'
 import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 const ResultsTab = (): JSX.Element => {
-    const { experiment, experimentResults, featureFlags } = useValues(experimentLogic)
-
-    const hasResultsInsight = experimentResults && experimentResults.insight
+    const { experiment, metricResults, featureFlags } = useValues(experimentLogic)
+    const result = metricResults?.[0]
+    const hasResultsInsight = result && result.insight
 
     return (
         <div className="space-y-8">
@@ -70,12 +70,12 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentResultsLoading, experimentId, experimentResults, tabKey, featureFlags } =
+    const { experimentLoading, metricResultsLoading, experimentId, metricResults, tabKey, featureFlags } =
         useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
-
-    const hasResultsInsight = experimentResults && experimentResults.insight
+    const result = metricResults?.[0]
+    const hasResultsInsight = result && result.insight
 
     return (
         <>
@@ -86,7 +86,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        {experimentResultsLoading ? (
+                        {metricResultsLoading ? (
                             <ExperimentLoadingAnimation />
                         ) : (
                             <>

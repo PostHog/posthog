@@ -24,7 +24,7 @@ class TableLoader:
         self,
         engine: Engine,
         table: Table,
-        chunk_size: int = 1000,
+        chunk_size: int = DEFAULT_CHUNK_SIZE,
         incremental: Optional[dlt.sources.incremental[Any]] = None,
         connect_args: Optional[list[str]] = None,
         db_incremental_field_last_value: Optional[Any] = None,
