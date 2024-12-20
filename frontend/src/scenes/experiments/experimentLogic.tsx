@@ -1501,7 +1501,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
 
                 const variantsWithResults: TabularSecondaryMetricResults[] = []
-                experiment?.parameters?.feature_flag_variants?.forEach((variant) => {
+                experiment?.feature_flag?.filters?.multivariate?.variants?.forEach((variant) => {
                     const metricResults: SecondaryMetricResult[] = []
                     experiment?.secondary_metrics?.forEach((metric, idx) => {
                         let result
