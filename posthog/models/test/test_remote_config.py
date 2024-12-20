@@ -542,21 +542,21 @@ class TestRemoteConfigJS(_RemoteConfigBase):
       init: function(config) {
             (function () { return { inject: (data) => console.log('injected!', data)}; })().inject({ config:{}, posthog:config.posthog });
         config.callback();
-      }
+     return {}  }
     },    
     {
       id: 'tokentoken',
       init: function(config) {
             (function () { return { inject: (data) => console.log('injected 2!', data)}; })().inject({ config:{}, posthog:config.posthog });
         config.callback();
-      }
+     return {}  }
     },    
     {
       id: 'tokentoken',
       init: function(config) {
             (function () { return { inject: (data) => console.log('injected but disabled!', data)}; })().inject({ config:{}, posthog:config.posthog });
         config.callback();
-      }
+     return {}  }
     }]
   }
 })();\

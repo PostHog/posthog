@@ -261,7 +261,7 @@ class RemoteConfig(UUIDModel):
             config = get_site_config_from_schema(site_app.config_schema, site_app.config)
             site_apps_js.append(
                 indent_js(
-                    f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback();\n return {{}}  }}\n}}"
+                    f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback(); return {{}}  }}\n}}"
                 )
             )
         site_functions = (
