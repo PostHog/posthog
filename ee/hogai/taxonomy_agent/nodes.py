@@ -272,9 +272,13 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
 
             # Feedback was provided.
             last_message = state.messages[-1]
+            response = ""
+            if isinstance(last_message, HumanMessage):
+                response = last_message.content
+
             return PartialAssistantState(
                 resumed=False,
-                intermediate_steps=[*intermediate_steps[:-1], (action, last_message.content)],
+                intermediate_steps=[*intermediate_steps[:-1], (action, response)],
             )
 
         output = ""
