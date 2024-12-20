@@ -107,15 +107,15 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 ],
             )
 
+        final_message = VisualizationMessage(
+            plan=generated_plan,
+            answer=message.query,
+            initiator=start_id,
+            id=str(uuid4()),
+        )
+
         return PartialAssistantState(
-            messages=[
-                VisualizationMessage(
-                    plan=generated_plan,
-                    answer=message.query,
-                    initiator=start_id,
-                    id=str(uuid4()),
-                )
-            ],
+            messages=[final_message],
             intermediate_steps=[],
             plan="",
         )
