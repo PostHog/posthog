@@ -247,16 +247,6 @@ class HogQLCohortQuery:
                 typed_properties.append(property_to_typed_property(property))
             for serie in series:
                 serie.properties = typed_properties
-            """
-            property_group = Filter(data={"properties": prop.event_filters}).property_groups
-            # We don't support ORs here
-            if isinstance(property_group.values[0], PropertyGroup):
-                raise ValidationError("Property groups are not supported in this behavioral cohort type")
-            else:
-                if property_group.type == PropertyOperatorType.OR:
-                    raise ValidationError("This behavioral cohort type only supports AND operators")
-                series[0].properties = cast(list[Property], property_group.values)
-            """
 
         if prop.explicit_datetime:
             date_from = prop.explicit_datetime
