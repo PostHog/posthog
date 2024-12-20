@@ -11,6 +11,7 @@ import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
 import { status } from '../utils/status'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
+import { CdpInternalEvent } from './schema'
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
@@ -83,6 +84,47 @@ export function convertToHogFunctionInvocationGlobals(
             properties,
             timestamp: eventTimestamp,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
+        },
+        person,
+    }
+
+    return context
+}
+
+export function convertInternalEventToHogFunctionInvocationGlobals(
+    data: CdpInternalEvent,
+    team: Team,
+    siteUrl: string
+): HogFunctionInvocationGlobals {
+    const projectUrl = `${siteUrl}/project/${team.id}`
+
+    let person: HogFunctionInvocationGlobals['person']
+
+    if (data.person) {
+        const personDisplayName = getPersonDisplayName(team, data.event.distinct_id, data.person.properties)
+
+        person = {
+            id: data.person.id,
+            properties: data.person.properties,
+            name: personDisplayName,
+            url: data.person.url ?? '',
+        }
+    }
+
+    const context: HogFunctionInvocationGlobals = {
+        project: {
+            id: team.id,
+            name: team.name,
+            url: projectUrl,
+        },
+        event: {
+            uuid: data.event.uuid,
+            event: data.event.event,
+            elements_chain: '', // Not applicable but left here for compatibility
+            distinct_id: data.event.distinct_id,
+            properties: data.event.properties,
+            timestamp: data.event.timestamp,
+            url: data.event.url ?? '',
         },
         person,
     }

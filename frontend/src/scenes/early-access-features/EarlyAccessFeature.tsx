@@ -276,7 +276,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             </div>
                         )}
                     </div>
-                    <div className="flex flex-wrap gap-4 items-start">
+                    <div className="flex flex-wrap items-start gap-4">
                         <div className="flex-1 min-w-[20rem]">
                             {isEditingFeature || isNewEarlyAccessFeature ? (
                                 <LemonField name="description" label="Description" showOptional>
@@ -333,14 +333,14 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         <LinkedHogFunctions
                             type="destination"
                             filters={destinationFilters}
-                            subTemplateId="early_access_feature_enrollment"
+                            subTemplateId="early-access-feature-enrollment"
                         />
                     </>
                 )}
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
                     <>
                         <LemonDivider className="my-8" />
-                        <div className="flex items-start  justify-between gap-4">
+                        <div className="flex items-start justify-between gap-4">
                             <div>
                                 <h3>Users</h3>
                                 <p>

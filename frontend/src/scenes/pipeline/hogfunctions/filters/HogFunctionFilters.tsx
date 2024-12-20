@@ -13,6 +13,7 @@ import { NodeKind } from '~/queries/schema'
 import { AnyPropertyFilter, EntityTypes, FilterType, HogFunctionFiltersType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
+import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
 function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFiltersType> {
     if (!filters) {
@@ -72,6 +73,10 @@ export function HogFunctionFilters(): JSX.Element {
                 </LemonField>
             </div>
         )
+    }
+
+    if (type === 'internal_destination') {
+        return <HogFunctionFiltersInternal />
     }
 
     const showMasking = type === 'destination'
