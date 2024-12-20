@@ -232,6 +232,53 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(None, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
+    def test_comparison(self):
+        s1a = str(uuid7("2023-12-02"))
+        s1b = str(uuid7("2023-12-12"))
+        s2 = str(uuid7("2023-12-11"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1a), ("2023-12-03", s1a), ("2023-12-12", s1b)]),
+                ("p2", [("2023-12-11", s2)]),
+            ]
+        )
+
+        results = self._run_web_overview_query(
+            "2023-12-06",
+            "2023-12-13",
+            compare=True,
+        ).results
+
+        visitors = results[0]
+        self.assertEqual("visitors", visitors.key)
+        self.assertEqual(2, visitors.value)
+        self.assertEqual(1, visitors.previous)
+        self.assertEqual(100, visitors.changeFromPreviousPct)
+
+        views = results[1]
+        self.assertEqual("views", views.key)
+        self.assertEqual(2, views.value)
+        self.assertEqual(2, views.previous)
+        self.assertEqual(0, views.changeFromPreviousPct)
+
+        sessions = results[2]
+        self.assertEqual("sessions", sessions.key)
+        self.assertEqual(2, sessions.value)
+        self.assertEqual(1, sessions.previous)
+        self.assertEqual(100, sessions.changeFromPreviousPct)
+
+        duration_s = results[3]
+        self.assertEqual("session duration", duration_s.key)
+        self.assertEqual(0, duration_s.value)
+        self.assertEqual(60 * 60 * 24, duration_s.previous)
+        self.assertEqual(-100, duration_s.changeFromPreviousPct)
+
+        bounce = results[4]
+        self.assertEqual("bounce rate", bounce.key)
+        self.assertAlmostEqual(100, bounce.value)
+        self.assertEqual(0, bounce.previous)
+        self.assertEqual(None, bounce.changeFromPreviousPct)
+
     def test_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account

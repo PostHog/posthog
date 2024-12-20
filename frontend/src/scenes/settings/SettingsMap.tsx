@@ -1,4 +1,5 @@
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
+import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
@@ -50,7 +51,7 @@ import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrganizationLogo } from './organization/OrgLogo'
-import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
+import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectDisplayName, ProjectProductDescription } from './project/ProjectSettings'
@@ -218,8 +219,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Custom channel type',
                 component: <CustomChannelTypes />,
             },
+            {
+                id: 'cookieless-server-hash-mode',
+                title: 'Cookieless server hash mode',
+                component: <CookielessServerHashModeSetting />,
+                flag: 'COOKIELESS_SERVER_HASH_MODE_SETTING',
+            },
         ],
-        flag: 'CUSTOM_CHANNEL_TYPE_RULES',
     },
 
     {
@@ -315,11 +321,11 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'environment-rbac',
+        id: 'environment-access-control',
         title: 'Access control',
         settings: [
             {
-                id: 'environment-rbac',
+                id: 'environment-access-control',
                 title: 'Access control',
                 component: <TeamAccessControl />,
             },
@@ -414,6 +420,18 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-roles',
+        title: 'Roles',
+        settings: [
+            {
+                id: 'organization-roles',
+                title: 'Roles',
+                component: <RoleBasedAccess />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-authentication',
         title: 'Authentication domains & SSO',
         settings: [
@@ -421,18 +439,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'authentication-domains',
                 title: 'Authentication Domains',
                 component: <VerifiedDomains />,
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-rbac',
-        title: 'Role-based access',
-        settings: [
-            {
-                id: 'organization-rbac',
-                title: 'Role-based access',
-                component: <PermissionsGrid />,
             },
         ],
     },

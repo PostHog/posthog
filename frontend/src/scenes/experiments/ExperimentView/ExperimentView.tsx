@@ -1,12 +1,13 @@
-import '../Experiment.scss'
-
 import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { PostHogFeature } from 'posthog-js/react'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
+import { PrimaryMetricModal } from '../Metrics/PrimaryMetricModal'
+import { MetricsView } from '../MetricsView/MetricsView'
 import {
     ExperimentLoadingAnimation,
     LoadingState,
@@ -25,13 +26,15 @@ import { Results } from './Results'
 import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 const ResultsTab = (): JSX.Element => {
-    const { experiment, experimentResults } = useValues(experimentLogic)
-
-    const hasResultsInsight = experimentResults && experimentResults.insight
+    const { experiment, metricResults, featureFlags } = useValues(experimentLogic)
+    const result = metricResults?.[0]
+    const hasResultsInsight = result && result.insight
 
     return (
         <div className="space-y-8">
-            {hasResultsInsight ? (
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
+                <MetricsView />
+            ) : hasResultsInsight ? (
                 <Results />
             ) : (
                 <>
@@ -67,12 +70,12 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentResultsLoading, experimentId, experimentResults, tabKey } =
+    const { experimentLoading, metricResultsLoading, experimentId, metricResults, tabKey, featureFlags } =
         useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
-
-    const hasResultsInsight = experimentResults && experimentResults.insight
+    const result = metricResults?.[0]
+    const hasResultsInsight = result && result.insight
 
     return (
         <>
@@ -83,24 +86,31 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        {experimentResultsLoading ? (
+                        {metricResultsLoading ? (
                             <ExperimentLoadingAnimation />
                         ) : (
                             <>
-                                {hasResultsInsight ? (
+                                {hasResultsInsight && !featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
                                     <div>
                                         <Overview />
                                         <LemonDivider className="mt-4" />
                                     </div>
                                 ) : null}
                                 <div className="xl:flex">
-                                    <div className="w-1/2 pr-2">
-                                        <Goal />
-                                    </div>
-
-                                    <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">
-                                        <DataCollection />
-                                    </div>
+                                    {featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
+                                        <div className="w-1/2 mt-8 xl:mt-0">
+                                            <DataCollection />
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className="w-1/2 pr-2">
+                                                <Goal />
+                                            </div>
+                                            <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">
+                                                <DataCollection />
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                                 <LemonTabs
                                     activeKey={tabKey}
@@ -120,6 +130,7 @@ export function ExperimentView(): JSX.Element {
                                 />
                             </>
                         )}
+                        <PrimaryMetricModal experimentId={experimentId} />
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />
                     </>

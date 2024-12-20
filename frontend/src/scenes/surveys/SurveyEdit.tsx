@@ -692,7 +692,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                         }
                                                                     }}
                                                                 />
-                                                                Don't show to users who saw a survey within the last
+                                                                Don't show to users who saw any survey in the last
                                                                 <LemonInput
                                                                     type="number"
                                                                     size="xsmall"
@@ -722,7 +722,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     </>
                                                 )}
                                             </LemonField>
-                                            <LemonField.Pure label="User properties">
+                                            <LemonField.Pure label="Properties">
                                                 <BindLogic
                                                     logic={featureFlagLogic}
                                                     props={{ id: survey.targeting_flag?.id || 'new' }}
@@ -746,7 +746,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 setSurveyValue('remove_targeting_flag', false)
                                                             }}
                                                         >
-                                                            Add user targeting
+                                                            Add property targeting
                                                         </LemonButton>
                                                     )}
                                                     {targetingFlagFilters && (
@@ -775,7 +775,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                     setSurveyValue('remove_targeting_flag', true)
                                                                 }}
                                                             >
-                                                                Remove all user properties
+                                                                Remove all property targeting
                                                             </LemonButton>
                                                         </>
                                                     )}

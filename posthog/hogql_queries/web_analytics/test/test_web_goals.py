@@ -1,12 +1,12 @@
 from datetime import datetime
 from typing import Optional
 
-from freezegun import freeze_time
 
 from posthog.hogql_queries.web_analytics.web_goals import WebGoalsQueryRunner
 from posthog.models import Action, Person, Element
 from posthog.models.utils import uuid7
 from posthog.schema import (
+    CompareFilter,
     DateRange,
     SessionTableVersion,
     HogQLQueryModifiers,
@@ -21,29 +21,7 @@ from posthog.test.base import (
 
 
 class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    def _create_events(self, data, event="$pageview"):
-        person_result = []
-        for id, timestamps in data:
-            with freeze_time(timestamps[0][0]):
-                person_result.append(
-                    _create_person(
-                        team_id=self.team.pk,
-                        distinct_ids=[id],
-                        properties={
-                            "name": id,
-                            **({"email": "test@posthog.com"} if id == "test" else {}),
-                        },
-                    )
-                )
-            for timestamp, session_id, pathname in timestamps:
-                _create_event(
-                    team=self.team,
-                    event=event,
-                    distinct_id=id,
-                    timestamp=timestamp,
-                    properties={"$session_id": session_id, "$pathname": pathname},
-                )
-        return person_result
+    TIMESTAMP = "2024-12-01"
 
     def _create_person(self):
         distinct_id = str(uuid7())
@@ -70,6 +48,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="$pageview",
             distinct_id=person.uuid,
+            timestamp=self.TIMESTAMP,
             properties={
                 "$pathname": "/project/2/web",
                 "$current_url": "https://us.posthog.com/project/2/web",
@@ -82,6 +61,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="$autocapture",
             distinct_id=person.uuid,
+            timestamp=self.TIMESTAMP,
             elements=[Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")],
             properties={"$session_id": session_id or person.uuid},
         )
@@ -130,6 +110,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         limit=None,
         path_cleaning_filters=None,
         properties=None,
+        compare=True,
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
         filter_test_accounts: Optional[bool] = False,
     ):
@@ -139,30 +120,47 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=properties or [],
             limit=limit,
             filterTestAccounts=filter_test_accounts,
+            compareFilter=CompareFilter(compare=compare),
         )
         self.team.path_cleaning_filters = path_cleaning_filters or []
         runner = WebGoalsQueryRunner(team=self.team, query=query, modifiers=modifiers)
         return runner.calculate()
 
     def test_no_crash_when_no_data_or_actions(self):
-        results = self._run_web_goals_query("all", None).results
+        results = self._run_web_goals_query("2024-11-01", None).results
         assert results == []
 
     def test_no_crash_when_no_data_and_some_actions(self):
         self._create_actions()
-        results = self._run_web_goals_query("all", None).results
+        results = self._run_web_goals_query("2024-11-01", None).results
         assert results == [
-            ["Contacted Sales", 0, 0, None],
-            ["Visited Web Analytics", 0, 0, None],
-            ["Clicked Pay", 0, 0, None],
+            ["Contacted Sales", (0, 0), (0, 0), (0, 0)],
+            ["Visited Web Analytics", (0, 0), (0, 0), (0, 0)],
+            ["Clicked Pay", (0, 0), (0, 0), (0, 0)],
+        ]
+
+    def test_no_comparison(self):
+        self._create_actions()
+        p1, s1 = self._create_person()
+        self._visit_web_analytics(p1, s1)
+
+        results = self._run_web_goals_query("2024-11-01", None, compare=False).results
+        assert results == [
+            ["Contacted Sales", (0, None), (0, None), (0, None)],
+            ["Visited Web Analytics", (1, None), (1, None), (1, None)],
+            ["Clicked Pay", (0, None), (0, None), (0, None)],
         ]
 
     def test_one_user_one_action(self):
         self._create_actions()
         p1, s1 = self._create_person()
         self._visit_web_analytics(p1, s1)
-        results = self._run_web_goals_query("all", None).results
-        assert results == [["Contacted Sales", 0, 0, 0], ["Visited Web Analytics", 1, 1, 1], ["Clicked Pay", 0, 0, 0]]
+        results = self._run_web_goals_query("2024-11-01", None).results
+        assert results == [
+            ["Contacted Sales", (0, 0), (0, 0), (0, 0)],
+            ["Visited Web Analytics", (1, 0), (1, 0), (1, 0)],
+            ["Clicked Pay", (0, 0), (0, 0), (0, 0)],
+        ]
 
     def test_one_user_two_similar_actions_across_sessions(self):
         self._create_actions()
@@ -170,16 +168,24 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._visit_web_analytics(p1, s1)
         s2 = str(uuid7())
         self._visit_web_analytics(p1, s2)
-        results = self._run_web_goals_query("all", None).results
-        assert results == [["Contacted Sales", 0, 0, 0], ["Visited Web Analytics", 1, 2, 1], ["Clicked Pay", 0, 0, 0]]
+        results = self._run_web_goals_query("2024-11-01", None).results
+        assert results == [
+            ["Contacted Sales", (0, 0), (0, 0), (0, 0)],
+            ["Visited Web Analytics", (1, 0), (2, 0), (1, 0)],
+            ["Clicked Pay", (0, 0), (0, 0), (0, 0)],
+        ]
 
     def test_one_user_two_different_actions(self):
         self._create_actions()
         p1, s1 = self._create_person()
         self._visit_web_analytics(p1, s1)
         self._click_pay(p1, s1)
-        results = self._run_web_goals_query("all", None).results
-        assert results == [["Contacted Sales", 0, 0, 0], ["Visited Web Analytics", 1, 1, 1], ["Clicked Pay", 1, 1, 1]]
+        results = self._run_web_goals_query("2024-11-01", None).results
+        assert results == [
+            ["Contacted Sales", (0, 0), (0, 0), (0, 0)],
+            ["Visited Web Analytics", (1, 0), (1, 0), (1, 0)],
+            ["Clicked Pay", (1, 0), (1, 0), (1, 0)],
+        ]
 
     def test_one_users_one_action_each(self):
         self._create_actions()
@@ -187,11 +193,11 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         p2, s2 = self._create_person()
         self._visit_web_analytics(p1, s1)
         self._click_pay(p2, s2)
-        results = self._run_web_goals_query("all", None).results
+        results = self._run_web_goals_query("2024-11-01", None).results
         assert results == [
-            ["Contacted Sales", 0, 0, 0],
-            ["Visited Web Analytics", 1, 1, 0.5],
-            ["Clicked Pay", 1, 1, 0.5],
+            ["Contacted Sales", (0, 0), (0, 0), (0, 0)],
+            ["Visited Web Analytics", (1, 0), (1, 0), (0.5, 0)],
+            ["Clicked Pay", (1, 0), (1, 0), (0.5, 0)],
         ]
 
     def test_many_users_and_actions(self):
@@ -217,11 +223,11 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self._click_pay(p, s)
             self._click_pay(p, s)
 
-        results = self._run_web_goals_query("all", None).results
+        results = self._run_web_goals_query("2024-11-01", None).results
         assert results == [
-            ["Contacted Sales", 0, 0, 0],
-            ["Visited Web Analytics", 11, 12, 11 / 15],
-            ["Clicked Pay", 7, 8, 7 / 15],
+            ["Contacted Sales", (0, 0), (0, 0), (0, 0)],
+            ["Visited Web Analytics", (11, 0), (12, 0), (11 / 15, 0)],
+            ["Clicked Pay", (7, 0), (8, 0), (7 / 15, 0)],
         ]
 
     def test_dont_show_deleted_actions(self):
@@ -231,8 +237,8 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._visit_web_analytics(p1, s1)
         self._click_pay(p2, s2)
         actions[0].delete()
-        results = self._run_web_goals_query("all", None).results
+        results = self._run_web_goals_query("2024-11-01", None).results
         assert results == [
-            ["Contacted Sales", 0, 0, 0],
-            ["Visited Web Analytics", 1, 1, 0.5],
+            ["Contacted Sales", (0, 0), (0, 0), (0, 0)],
+            ["Visited Web Analytics", (1, 0), (1, 0), (0.5, 0)],
         ]

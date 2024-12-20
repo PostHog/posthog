@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { IconBalance, IconFlag } from '@posthog/icons'
 import {
     LemonBanner,
@@ -139,8 +137,10 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
 
 export function DistributionTable(): JSX.Element {
     const { openDistributionModal } = useActions(experimentLogic)
-    const { experimentId, experiment, experimentResults } = useValues(experimentLogic)
+    const { experimentId, experiment, metricResults } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
+
+    const result = metricResults?.[0]
 
     const onSelectElement = (variant: string): void => {
         LemonDialog.open({
@@ -168,7 +168,7 @@ export function DistributionTable(): JSX.Element {
             key: 'key',
             title: 'Variant',
             render: function Key(_, item): JSX.Element {
-                if (!experimentResults || !experimentResults.insight) {
+                if (!result || !result.insight) {
                     return <span className="font-semibold">{item.key}</span>
                 }
                 return <VariantTag experimentId={experimentId} variantKey={item.key} />
