@@ -1,7 +1,6 @@
 from typing import Literal
 from uuid import uuid4
 
-from attr import dataclass
 from langchain_community.chat_models import ChatPerplexity
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -10,8 +9,10 @@ from langgraph.errors import NodeInterrupt
 
 from ee.hogai.memory.prompts import (
     FAILED_SCRAPING_MESSAGE,
-    INITIALIZE_CORE_MEMORY_PROMPT_WITH_BUNDLE_IDS,
-    INITIALIZE_CORE_MEMORY_PROMPT_WITH_URL,
+    INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT,
+    INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT,
+    INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT,
+    INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT,
 )
 from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.nodes import AssistantNode
@@ -25,13 +26,6 @@ from posthog.schema import AssistantMessage, CachedEventTaxonomyQueryResponse, E
 
 class MemoryInitializerContextMixin:
     def _retrieve_context(self):
-        @dataclass
-        class Mock:
-            sample_count: int
-            property: str
-            sample_values: list[str]
-
-        return [Mock(sample_count=1, property="$host", sample_values=["https://posthog.com"])]
         # Retrieve the origin URL.
         runner = EventTaxonomyQueryRunner(
             team=self._team, query=EventTaxonomyQuery(event="$pageview", properties=["$host"])
@@ -75,7 +69,7 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, AssistantNode):
             core_memory = CoreMemory.objects.get(team=self._team)
         except CoreMemory.DoesNotExist:
             return True
-        return not core_memory.is_scraping_pending
+        return not core_memory.is_scraping_pending and not core_memory.is_scraping_finished
 
     def router(self, state: AssistantState) -> Literal["initialize_memory", "continue"]:
         last_message = state.messages[-1]
@@ -101,11 +95,19 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         retrieved_prop = retrieved_properties[0]
         if retrieved_prop.property == "$host":
             prompt = ChatPromptTemplate.from_messages(
-                [("human", INITIALIZE_CORE_MEMORY_PROMPT_WITH_URL)], template_format="mustache"
+                [
+                    ("system", INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT),
+                    ("human", INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT),
+                ],
+                template_format="mustache",
             ).partial(url=retrieved_prop.sample_values[0])
         else:
             prompt = ChatPromptTemplate.from_messages(
-                [("human", INITIALIZE_CORE_MEMORY_PROMPT_WITH_BUNDLE_IDS)], template_format="mustache"
+                [
+                    ("system", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT),
+                    ("human", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT),
+                ],
+                template_format="mustache",
             ).partial(bundle_ids=retrieved_prop.sample_values)
 
         chain = prompt | self._model() | StrOutputParser()
@@ -130,11 +132,11 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
 class MemoryInitializerInterruptNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
-        if isinstance(last_message, AssistantMessage):
+        if not state.resumed:
             raise NodeInterrupt("Does it look like a good summary of what your product does?")
         if not isinstance(last_message, HumanMessage):
             raise ValueError("Last message is not a human message.")
-        if "yes" in last_message.content.lower():
+        if "yes" not in last_message.content.lower():
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
