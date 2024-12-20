@@ -68,7 +68,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
     def test_filter_sub_templates(self):
         response1 = self.client.get(
-            "/api/projects/@current/hog_function_templates/?type=internal_destination&sub_template_id=activity_log"
+            "/api/projects/@current/hog_function_templates/?type=internal_destination&sub_template_id=activity-log"
         )
         assert response1.status_code == status.HTTP_200_OK, response1.json()
         assert len(response1.json()["results"]) > 0
