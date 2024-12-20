@@ -33,6 +33,7 @@ class TestFunnelsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
                 new_state,
                 PartialAssistantState(
                     messages=[VisualizationMessage(answer=self.schema, plan="Plan", id=new_state.messages[0].id)],
-                    intermediate_steps=None,
+                    intermediate_steps=[],
+                    plan="",
                 ),
             )
