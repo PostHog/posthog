@@ -1,4 +1,5 @@
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
+import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
@@ -217,6 +218,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'channel-type',
                 title: 'Custom channel type',
                 component: <CustomChannelTypes />,
+            },
+            {
+                id: 'cookieless-server-hash-mode',
+                title: 'Cookieless server hash mode',
+                component: <CookielessServerHashModeSetting />,
+                flag: 'COOKIELESS_SERVER_HASH_MODE_SETTING',
             },
         ],
     },

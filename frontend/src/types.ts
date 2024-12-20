@@ -543,6 +543,7 @@ export interface TeamType extends TeamBasicType {
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
+    cookieless_server_hash_mode?: CookielessServerHashMode
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
@@ -4837,6 +4838,12 @@ export type ReplayTemplateVariableType = {
     description?: string
     filterGroup?: UniversalFiltersGroupValue
     noTouch?: boolean
+}
+
+export enum CookielessServerHashMode {
+    Disabled = 0,
+    Stateless = 1,
+    Stateful = 2,
 }
 
 /**

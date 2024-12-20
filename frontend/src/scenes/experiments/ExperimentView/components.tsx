@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { IconArchive, IconCheck, IconFlask, IconX } from '@posthog/icons'
 import {
     LemonBanner,
@@ -64,7 +62,11 @@ export function VariantTag({
     muted?: boolean
     fontSize?: number
 }): JSX.Element {
-    const { experiment, experimentResults, getIndexForVariant } = useValues(experimentLogic({ experimentId }))
+    const { experiment, getIndexForVariant, metricResults } = useValues(experimentLogic({ experimentId }))
+
+    if (!metricResults) {
+        return <></>
+    }
 
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
         return (
@@ -73,7 +75,7 @@ export function VariantTag({
                     className="w-2 h-2 rounded-full mr-0.5"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        backgroundColor: getExperimentInsightColour(getIndexForVariant(experimentResults, variantKey)),
+                        backgroundColor: getExperimentInsightColour(getIndexForVariant(metricResults[0], variantKey)),
                     }}
                 />
                 <LemonTag type="option">{experiment.holdout.name}</LemonTag>
@@ -87,7 +89,7 @@ export function VariantTag({
                 className="w-2 h-2 rounded-full mr-0.5"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    backgroundColor: getExperimentInsightColour(getIndexForVariant(experimentResults, variantKey)),
+                    backgroundColor: getExperimentInsightColour(getIndexForVariant(metricResults[0], variantKey)),
                 }}
             />
             <span
@@ -101,15 +103,15 @@ export function VariantTag({
     )
 }
 
-export function ResultsTag(): JSX.Element {
+export function ResultsTag({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
     const { areResultsSignificant, significanceDetails } = useValues(experimentLogic)
-    const result: { color: LemonTagType; label: string } = areResultsSignificant
+    const result: { color: LemonTagType; label: string } = areResultsSignificant(metricIndex)
         ? { color: 'success', label: 'Significant' }
         : { color: 'primary', label: 'Not significant' }
 
-    if (significanceDetails) {
+    if (significanceDetails(metricIndex)) {
         return (
-            <Tooltip title={significanceDetails}>
+            <Tooltip title={significanceDetails(metricIndex)}>
                 <LemonTag className="cursor-pointer" type={result.color}>
                     <b className="uppercase">{result.label}</b>
                 </LemonTag>
@@ -207,8 +209,15 @@ export function ResultsQuery({
     )
 }
 
-export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element }): JSX.Element {
-    const { experimentResults, experiment, featureFlags } = useValues(experimentLogic)
+export function ExploreButton({
+    icon = <IconAreaChart />,
+    metricIndex = 0,
+}: {
+    icon?: JSX.Element
+    metricIndex?: number
+}): JSX.Element {
+    const { metricResults, experiment, featureFlags } = useValues(experimentLogic)
+    const result = metricResults?.[metricIndex]
 
     // keep in sync with https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/experiments/funnel_experiment_result.py#L71
     // :TRICKY: In the case of no results, we still want users to explore the query, so they can debug further.
@@ -225,7 +234,7 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
 
     let query: InsightVizNode
     if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-        const newQueryResults = experimentResults as unknown as
+        const newQueryResults = result as unknown as
             | CachedExperimentTrendsQueryResponse
             | CachedExperimentFunnelsQueryResponse
 
@@ -239,7 +248,7 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
             source: source as InsightQueryNode,
         }
     } else {
-        const oldQueryResults = experimentResults as ExperimentResults['result']
+        const oldQueryResults = result as unknown as ExperimentResults['result']
 
         if (!oldQueryResults?.filters) {
             return <></>
@@ -274,7 +283,9 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
 }
 
 export function ResultsHeader(): JSX.Element {
-    const { experimentResults } = useValues(experimentLogic)
+    const { metricResults } = useValues(experimentLogic)
+
+    const result = metricResults?.[0]
 
     return (
         <div className="flex">
@@ -286,16 +297,17 @@ export function ResultsHeader(): JSX.Element {
             </div>
 
             <div className="w-1/2 flex flex-col justify-end">
-                <div className="ml-auto">{experimentResults && <ExploreButton />}</div>
+                <div className="ml-auto">{result && <ExploreButton />}</div>
             </div>
         </div>
     )
 }
 
-export function NoResultsEmptyState(): JSX.Element {
+export function NoResultsEmptyState({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
     type ErrorCode = 'no-events' | 'no-flag-info' | 'no-control-variant' | 'no-test-variant'
 
-    const { experimentResultsLoading, experimentResultCalculationError } = useValues(experimentLogic)
+    const { metricResultsLoading, primaryMetricsResultErrors } = useValues(experimentLogic)
+    const metricError = primaryMetricsResultErrors?.[metricIndex]
 
     function ChecklistItem({ errorCode, value }: { errorCode: ErrorCode; value: boolean }): JSX.Element {
         const failureText = {
@@ -329,28 +341,25 @@ export function NoResultsEmptyState(): JSX.Element {
         )
     }
 
-    if (experimentResultsLoading) {
+    if (metricResultsLoading) {
         return <></>
     }
 
     // Validation errors return 400 and are rendered as a checklist
-    if (experimentResultCalculationError?.statusCode === 400) {
-        let parsedDetail: Record<ErrorCode, boolean>
-        try {
-            parsedDetail = JSON.parse(experimentResultCalculationError.detail)
-        } catch (error) {
+    if (metricError?.statusCode === 400) {
+        if (!metricError.hasDiagnostics) {
             return (
                 <div className="border rounded bg-bg-light p-4">
                     <div className="font-semibold leading-tight text-base text-current">
                         Experiment results could not be calculated
                     </div>
-                    <div className="mt-2">{experimentResultCalculationError.detail}</div>
+                    <div className="mt-2">{metricError.detail}</div>
                 </div>
             )
         }
 
         const checklistItems = []
-        for (const [errorCode, value] of Object.entries(parsedDetail)) {
+        for (const [errorCode, value] of Object.entries(metricError.detail as Record<ErrorCode, boolean>)) {
             checklistItems.push(<ChecklistItem key={errorCode} errorCode={errorCode as ErrorCode} value={value} />)
         }
 
@@ -379,14 +388,14 @@ export function NoResultsEmptyState(): JSX.Element {
         )
     }
 
-    if (experimentResultCalculationError?.statusCode === 504) {
+    if (metricError?.statusCode === 504) {
         return (
             <div>
                 <div className="border rounded bg-bg-light py-10">
                     <div className="flex flex-col items-center mx-auto text-muted space-y-2">
                         <IconArchive className="text-4xl text-secondary-3000" />
                         <h2 className="text-xl font-semibold leading-tight">Experiment results timed out</h2>
-                        {!!experimentResultCalculationError && (
+                        {!!metricError && (
                             <div className="text-sm text-center text-balance">
                                 This may occur when the experiment has a large amount of data or is particularly
                                 complex. We are actively working on fixing this. In the meantime, please try refreshing
@@ -406,11 +415,7 @@ export function NoResultsEmptyState(): JSX.Element {
                 <div className="flex flex-col items-center mx-auto text-muted space-y-2">
                     <IconArchive className="text-4xl text-secondary-3000" />
                     <h2 className="text-xl font-semibold leading-tight">Experiment results could not be calculated</h2>
-                    {!!experimentResultCalculationError && (
-                        <div className="text-sm text-center text-balance">
-                            {experimentResultCalculationError.detail}
-                        </div>
-                    )}
+                    {!!metricError && <div className="text-sm text-center text-balance">{metricError.detail}</div>}
                 </div>
             </div>
         </div>
@@ -466,7 +471,7 @@ export function PageHeaderCustom(): JSX.Element {
         launchExperiment,
         endExperiment,
         archiveExperiment,
-        loadExperimentResults,
+        loadMetricResults,
         loadSecondaryMetricResults,
         createExposureCohort,
         openShipVariantModal,
@@ -507,7 +512,7 @@ export function PageHeaderCustom(): JSX.Element {
                                                 {exposureCohortId ? 'View' : 'Create'} exposure cohort
                                             </LemonButton>
                                             <LemonButton
-                                                onClick={() => loadExperimentResults(true)}
+                                                onClick={() => loadMetricResults(true)}
                                                 fullWidth
                                                 data-attr="refresh-experiment"
                                             >
@@ -590,7 +595,7 @@ export function PageHeaderCustom(): JSX.Element {
                         </div>
                     )}
                     {featureFlags[FEATURE_FLAGS.EXPERIMENT_MAKE_DECISION] &&
-                        areResultsSignificant &&
+                        areResultsSignificant(0) &&
                         !isSingleVariantShipped && (
                             <>
                                 <Tooltip title="Choose a variant and roll it out to all users">
@@ -617,7 +622,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
     const { aggregationLabel } = useValues(groupsModel)
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
-    useEffect(() => setSelectedVariantKey(sortedWinProbabilities[0]?.key), [sortedWinProbabilities])
+    useEffect(() => setSelectedVariantKey(sortedWinProbabilities(0)[0]?.key), [sortedWinProbabilities(0)])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
@@ -658,12 +663,12 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
                             data-attr="metrics-selector"
                             value={selectedVariantKey}
                             onChange={(variantKey) => setSelectedVariantKey(variantKey)}
-                            options={sortedWinProbabilities.map(({ key }) => ({
+                            options={sortedWinProbabilities(0).map(({ key }) => ({
                                 value: key,
                                 label: (
                                     <div className="space-x-2 inline-flex">
                                         <VariantTag experimentId={experimentId} variantKey={key} />
-                                        {key === sortedWinProbabilities[0]?.key && (
+                                        {key === sortedWinProbabilities(0)[0]?.key && (
                                             <LemonTag type="success">
                                                 <b className="uppercase">Winning</b>
                                             </LemonTag>
@@ -695,9 +700,9 @@ export function ActionBanner(): JSX.Element {
     const {
         experiment,
         getMetricType,
-        experimentResults,
+        metricResults,
         experimentLoading,
-        experimentResultsLoading,
+        metricResultsLoading,
         isExperimentRunning,
         areResultsSignificant,
         isExperimentStopped,
@@ -708,6 +713,7 @@ export function ActionBanner(): JSX.Element {
         featureFlags,
     } = useValues(experimentLogic)
 
+    const result = metricResults?.[0]
     const { archiveExperiment } = useActions(experimentLogic)
 
     const { aggregationLabel } = useValues(groupsModel)
@@ -722,7 +728,7 @@ export function ActionBanner(): JSX.Element {
     const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
     const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
 
-    if (!experiment || experimentLoading || experimentResultsLoading) {
+    if (!experiment || experimentLoading || metricResultsLoading) {
         return <></>
     }
 
@@ -768,12 +774,12 @@ export function ActionBanner(): JSX.Element {
     }
 
     // Running, results present, not significant
-    if (isExperimentRunning && experimentResults && !isExperimentStopped && !areResultsSignificant) {
+    if (isExperimentRunning && result && !isExperimentStopped && !areResultsSignificant(0)) {
         // Results insignificant, but a large enough sample/running time has been achieved
         // Further collection unlikely to change the result -> recommmend cutting the losses
         if (
             metricType === InsightType.FUNNELS &&
-            funnelResultsPersonsTotal > Math.max(recommendedSampleSize, 500) &&
+            funnelResultsPersonsTotal(0) > Math.max(recommendedSampleSize, 500) &&
             dayjs().diff(experiment.start_date, 'day') > 2 // at least 2 days running
         ) {
             return (
@@ -802,9 +808,9 @@ export function ActionBanner(): JSX.Element {
     }
 
     // Running, results significant
-    if (isExperimentRunning && !isExperimentStopped && areResultsSignificant && experimentResults) {
-        const { probability } = experimentResults
-        const winningVariant = getHighestProbabilityVariant(experimentResults)
+    if (isExperimentRunning && !isExperimentStopped && areResultsSignificant(0) && result) {
+        const { probability } = result
+        const winningVariant = getHighestProbabilityVariant(result)
         if (!winningVariant) {
             return <></>
         }
@@ -814,7 +820,7 @@ export function ActionBanner(): JSX.Element {
         // Win probability only slightly over 0.9 and the recommended sample/time just met -> proceed with caution
         if (
             metricType === InsightType.FUNNELS &&
-            funnelResultsPersonsTotal < recommendedSampleSize + 50 &&
+            funnelResultsPersonsTotal(0) < recommendedSampleSize + 50 &&
             winProbability < 0.93
         ) {
             return (
@@ -850,7 +856,7 @@ export function ActionBanner(): JSX.Element {
     }
 
     // Stopped, results significant
-    if (isExperimentStopped && areResultsSignificant) {
+    if (isExperimentStopped && areResultsSignificant(0)) {
         return (
             <LemonBanner type="success" className="mt-4">
                 You have stopped this experiment, and it is no longer collecting data. With significant results in hand,
@@ -868,7 +874,7 @@ export function ActionBanner(): JSX.Element {
     }
 
     // Stopped, results not significant
-    if (isExperimentStopped && experimentResults && !areResultsSignificant) {
+    if (isExperimentStopped && result && !areResultsSignificant(0)) {
         return (
             <LemonBanner type="info" className="mt-4">
                 You have stopped this experiment, and it is no longer collecting data. Because your results are not

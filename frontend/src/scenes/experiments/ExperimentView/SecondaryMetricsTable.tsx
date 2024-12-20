@@ -21,7 +21,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
     const [modalMetricIdx, setModalMetricIdx] = useState<number | null>(null)
 
     const {
-        experimentResults,
+        metricResults,
         secondaryMetricResultsLoading,
         experiment,
         getSecondaryMetricType,
@@ -65,7 +65,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                 {
                     title: <div className="py-2">Variant</div>,
                     render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
-                        if (!experimentResults || !experimentResults.insight) {
+                        if (!metricResults?.[0] || !metricResults?.[0].insight) {
                             return <span className="font-semibold">{item.variant}</span>
                         }
                         return (
@@ -332,7 +332,7 @@ const AddSecondaryMetricButton = ({
         <LemonButton
             icon={<IconPlus />}
             type="secondary"
-            size="small"
+            size="xsmall"
             onClick={() => {
                 const newMetricsSecondary = [...experiment.metrics_secondary, getDefaultFunnelsMetric()]
                 setExperiment({

@@ -148,8 +148,8 @@ class TestJavaScript(BaseTest):
         self.assertEqual(to_js_expr("1 not in 2"), "(!2.includes(1))")
         self.assertEqual(to_js_expr("match('test', 'e.*')"), 'match("test", "e.*")')
         self.assertEqual(to_js_expr("not('test')"), '(!"test")')
-        self.assertEqual(to_js_expr("or('test', 'test2')"), '("test" || "test2")')
-        self.assertEqual(to_js_expr("and('test', 'test2')"), '("test" && "test2")')
+        self.assertEqual(to_js_expr("or('test', 'test2')"), '!!("test" || "test2")')
+        self.assertEqual(to_js_expr("and('test', 'test2')"), '!!("test" && "test2")')
 
     def test_javascript_code_generation(self):
         js_code = to_js_program("""
