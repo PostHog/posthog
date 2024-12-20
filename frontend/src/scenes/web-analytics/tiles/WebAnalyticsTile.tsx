@@ -145,6 +145,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Browser</>
         case WebStatsBreakdown.OS:
             return <>OS</>
+        case WebStatsBreakdown.Viewport:
+            return <>Viewport</>
         case WebStatsBreakdown.DeviceType:
             return <>Device Type</>
         case WebStatsBreakdown.Country:
@@ -173,6 +175,16 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     const { breakdownBy } = source
 
     switch (breakdownBy) {
+        case WebStatsBreakdown.Viewport:
+            if (Array.isArray(value)) {
+                const [width, height] = value
+                return (
+                    <>
+                        {width}x{height}
+                    </>
+                )
+            }
+            break
         case WebStatsBreakdown.Country:
             if (typeof value === 'string') {
                 const countryCode = value
@@ -264,6 +276,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$browser', type: PropertyFilterType.Event }
         case WebStatsBreakdown.OS:
             return { key: '$os', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Viewport:
+            return { key: '$viewport', type: PropertyFilterType.Event }
         case WebStatsBreakdown.DeviceType:
             return { key: '$device_type', type: PropertyFilterType.Event }
         case WebStatsBreakdown.Country:
