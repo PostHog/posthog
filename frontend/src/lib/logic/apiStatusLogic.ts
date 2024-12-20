@@ -10,6 +10,8 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         onApiResponse: (response?: Response, error?: any) => ({ response, error }),
         setInternetConnectionIssue: (issue: boolean) => ({ issue }),
         setTimeSensitiveAuthenticationRequired: (required: boolean) => ({ required }),
+        setResourceAccessDenied: (resource: string) => ({ resource }),
+        clearResourceAccessDenied: true,
     }),
 
     reducers({
@@ -24,6 +26,13 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             false,
             {
                 setTimeSensitiveAuthenticationRequired: (_, { required }) => required,
+            },
+        ],
+        resourceAccessDenied: [
+            null as string | null,
+            {
+                setResourceAccessDenied: (_, { resource }) => resource,
+                clearResourceAccessDenied: () => null,
             },
         ],
     }),
@@ -46,6 +55,8 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                     const data = await response?.json()
                     if (data.detail === 'This action requires you to be recently authenticated.') {
                         actions.setTimeSensitiveAuthenticationRequired(true)
+                    } else if (data.code === 'permission_denied') {
+                        actions.setResourceAccessDenied(data.resource || 'resource')
                     }
                 }
             } catch (e) {
