@@ -32,6 +32,7 @@ from posthog.models.hog_functions.hog_function import (
     TYPES_WITH_COMPILED_FILTERS,
     TYPES_WITH_TRANSPILED_FILTERS,
     TYPES_WITH_JAVASCRIPT_SOURCE,
+    HogFunctionType,
 )
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
@@ -87,6 +88,8 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
     masking = HogFunctionMaskingSerializer(required=False, allow_null=True)
+
+    type = serializers.ChoiceField(choices=HogFunctionType.choices, required=False, allow_null=True)
 
     class Meta:
         model = HogFunction
