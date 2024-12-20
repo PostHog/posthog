@@ -14,7 +14,7 @@ from posthog.api.test.batch_exports.operations import (
     unpause_batch_export,
     unpause_batch_export_ok,
 )
-from posthog.api.test.test_organization import create_organization
+from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.batch_exports.service import batch_export_delete_schedule
