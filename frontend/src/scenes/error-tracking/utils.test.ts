@@ -123,6 +123,7 @@ describe('mergeIssues', () => {
             id: 'primaryId',
             assignee: 400,
             description: 'This is the original description',
+            earliest: '',
             name: 'TypeError',
             status: 'active',
             // earliest first_seen
