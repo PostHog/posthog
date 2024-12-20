@@ -10,11 +10,7 @@ from langchain_openai import ChatOpenAI
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception
 
-from ee.hogai.summarizer.prompts import (
-    SUMMARIZER_INSTRUCTION_PROMPT,
-    SUMMARIZER_SYSTEM_PROMPT,
-    SUMMARIZER_RESULTS_PROMPT,
-)
+from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from posthog.api.services.query import process_query_dict
@@ -104,6 +100,5 @@ class SummarizerNode(AssistantNode):
             elif isinstance(message, AssistantMessage):
                 conversation.append(("assistant", message.content))
 
-        conversation.append(("system", SUMMARIZER_RESULTS_PROMPT))
         conversation.append(("user", SUMMARIZER_INSTRUCTION_PROMPT))
         return conversation
