@@ -16,8 +16,6 @@ class TestFeatureAPI(APIBaseTest):
             team=self.team,
             name="Test Feature",
             description="Test Description",
-            documentation_url="http://example.com",
-            issue_url="http://github.com/example",
             primary_early_access_feature=self.early_access_feature,
         )
 
@@ -62,8 +60,6 @@ class TestFeatureAPI(APIBaseTest):
                 "name": "New Feature",
                 "team_id": self.team.id,
                 "description": "New Description",
-                "documentation_url": "http://example.com/new",
-                "issue_url": "http://github.com/example/new",
                 "primary_early_access_feature_id": self.early_access_feature.id,
             },
         )
