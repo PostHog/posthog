@@ -47,4 +47,4 @@ def is_posthog_team(team_id: int) -> bool:
 
 
 def is_enabled_for_team(team_id: int) -> bool:
-    return team_id in settings.V2_PIPELINE_ENABLED_TEAM_IDS
+    return str(team_id) in settings.V2_PIPELINE_ENABLED_TEAM_IDS
