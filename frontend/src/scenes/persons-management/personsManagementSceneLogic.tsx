@@ -52,7 +52,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     {
                         key: 'persons',
                         url: urls.persons(),
-                        label: 'People & groups',
+                        label: 'Persons',
                         content: <Persons />,
                     },
                     {

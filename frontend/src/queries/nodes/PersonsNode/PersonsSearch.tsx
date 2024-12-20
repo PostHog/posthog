@@ -20,8 +20,7 @@ interface LabelType {
 const labels: Record<ActorType, LabelType> = {
     person: {
         label: 'persons',
-        description:
-            'Search by email or Distinct ID. Email will match partially, for example: "@gmail.com". Distinct ID needs to match exactly.',
+        description: 'Search by name, email, Person ID or Distinct ID.',
     },
     group: {
         label: 'groups',
