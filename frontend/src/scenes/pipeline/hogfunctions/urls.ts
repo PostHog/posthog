@@ -15,7 +15,8 @@ export function hogFunctionUrl(type: HogFunctionTypeType | PipelineStage, id?: s
         return id ? urls.messagingProvider(id) : urls.messagingProviders()
     } else if (type === 'broadcast') {
         return id ? urls.messagingBroadcast(id) : urls.messagingBroadcasts()
-    } else if (type === 'error_tracking_alert') {
+    } else if (type === 'internal_destination') {
+        // TODO: Fix this somehow
         return urls.errorTrackingAlerts()
     }
     return id

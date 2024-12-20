@@ -47,12 +47,13 @@ export function ErrorTrackingAlertsScene(): JSX.Element {
             />
 
             <LinkedHogFunctions
+                logicKey="error-tracking-alerts"
                 type="internal_destination"
-                subTemplateId="activity_log"
+                subTemplateId="errors"
                 filters={{
                     events: [
                         {
-                            id: `$activity_log_entry_created`,
+                            id: `$error_something`,
                             type: 'events',
                         },
                     ],

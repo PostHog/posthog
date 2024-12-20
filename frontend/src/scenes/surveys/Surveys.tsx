@@ -196,6 +196,7 @@ export function Surveys(): JSX.Element {
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
                     <LinkedHogFunctions
+                        logicKey="surveys"
                         type="destination"
                         subTemplateId="survey-response"
                         filters={{
