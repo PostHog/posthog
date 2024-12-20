@@ -24,12 +24,12 @@ describe('CDP Internal Events Consumer', () => {
         team = await getFirstTeam(hub)
 
         processor = new CdpInternalEventsConsumer(hub)
-        await processor.start()
+        // Speed hack as we don't need all of kafka to be started for this test
+        await processor.hogFunctionManager.start(processor['hogTypes'])
     })
 
     afterEach(async () => {
-        jest.setTimeout(10000)
-        await processor.stop()
+        jest.setTimeout(1000)
         await closeHub(hub)
     })
 
