@@ -365,6 +365,7 @@ const teamActionsMapping: Record<
     user_access_level: () => null,
     live_events_token: () => null,
     product_intents: () => null,
+    cookieless_server_hash_mode: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
