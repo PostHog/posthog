@@ -202,8 +202,8 @@ function UrlBlocklistOptions(): JSX.Element | null {
     return (
         <UrlConfigSection
             type="blocklist"
-            title="Block recordings when URL matches"
-            description="Adding a URL blocklist means recording will be paused when the user visits a page that matches the URL."
+            title="Pause recordings when URL matches"
+            description="Recording will be paused when the user visits a page that matches the URL."
             isAddFormVisible={isAddUrlBlocklistConfigFormVisible}
             config={urlBlocklistConfig}
             editIndex={editUrlBlocklistIndex}
