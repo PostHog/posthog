@@ -855,7 +855,7 @@ describe('DB', () => {
                 anonymize_ips: false,
                 api_token: 'token1',
                 id: teamId,
-                project_id: teamId,
+                project_id: teamId as Team['project_id'],
                 ingested_event: true,
                 name: 'TEST PROJECT',
                 organization_id: organizationId,
@@ -866,6 +866,8 @@ describe('DB', () => {
                 uuid: expect.any(String),
                 person_display_name_properties: [],
                 test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
+                cookieless_server_hash_mode: null,
+                timezone: 'UTC',
             } as Team)
         })
 
@@ -885,17 +887,20 @@ describe('DB', () => {
                 anonymize_ips: false,
                 api_token: 'token2',
                 id: teamId,
-                project_id: teamId,
+                project_id: teamId as Team['project_id'],
                 ingested_event: true,
                 name: 'TEST PROJECT',
                 organization_id: organizationId,
                 session_recording_opt_in: true,
                 person_processing_opt_out: null,
+                person_display_name_properties: [],
                 heatmaps_opt_in: null,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
                 test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
-            })
+                cookieless_server_hash_mode: null,
+                timezone: 'UTC',
+            } as Team)
         })
 
         it('returns null if the team does not exist', async () => {
