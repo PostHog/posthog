@@ -126,7 +126,7 @@ export function MetricsView(): JSX.Element {
             </div>
             {metrics.length > 0 ? (
                 <div className="w-full overflow-x-auto">
-                    <div className="min-w-[800px]">
+                    <div className="min-w-[1000px]">
                         {metrics.map((metric, metricIndex) => {
                             const result = metricResults?.[metricIndex]
                             const isFirstMetric = metricIndex === 0
