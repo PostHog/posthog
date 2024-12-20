@@ -6,7 +6,7 @@ services:
         restart: on-failure
 
     kafka:
-        image: ghcr.io/posthog/kafka-container:v2.8.2
+        image: bitnami/kafka:3.7.1
         restart: on-failure
         depends_on:
             - zookeeper
