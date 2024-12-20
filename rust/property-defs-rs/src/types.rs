@@ -175,8 +175,8 @@ impl Event {
         let updates = self.into_updates_inner();
         if updates.len() > skip_threshold {
             warn!(
-                "Event {} for team {} has more than 10,000 properties, skipping",
-                event, team_id
+                "Event {} for team {} has more than {} properties, skipping",
+                event, team_id, skip_threshold
             );
             metrics::counter!(EVENTS_SKIPPED, &[("reason", "too_many_properties")]).increment(1);
             return vec![];
@@ -427,8 +427,8 @@ impl EventDefinition {
         sqlx::query!(
             r#"
             INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
-            VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW()) ON CONFLICT
-            ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq
+            VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW())
+            ON CONFLICT (coalesce(project_id, team_id), name)
             DO UPDATE SET last_seen_at = $5
         "#,
             Uuid::now_v7(),
@@ -472,7 +472,7 @@ impl PropertyDefinition {
             r#"
             INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, project_id, property_type)
             VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, $8)
-            ON CONFLICT (team_id, name, type, coalesce(group_type_index, -1))
+            ON CONFLICT (coalesce(project_id, team_id), name, type, coalesce(group_type_index, -1))
             DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
         "#,
             Uuid::now_v7(),
