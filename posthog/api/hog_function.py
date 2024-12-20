@@ -32,6 +32,7 @@ from posthog.models.hog_functions.hog_function import (
     TYPES_WITH_COMPILED_FILTERS,
     TYPES_WITH_TRANSPILED_FILTERS,
     TYPES_WITH_JAVASCRIPT_SOURCE,
+    HogFunctionType,
 )
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
@@ -79,7 +80,7 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
     bytecode = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, attrs):
-        attrs["bytecode"] = generate_template_bytecode(attrs["hash"])
+        attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
 
         return super().validate(attrs)
 
@@ -87,6 +88,8 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
     masking = HogFunctionMaskingSerializer(required=False, allow_null=True)
+
+    type = serializers.ChoiceField(choices=HogFunctionType.choices, required=False, allow_null=True)
 
     class Meta:
         model = HogFunction
@@ -107,6 +110,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "inputs",
             "filters",
             "masking",
+            "mappings",
             "icon_url",
             "template",
             "template_id",
@@ -127,7 +131,18 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "inputs_schema": {"required": False},
             "template_id": {"write_only": True},
             "deleted": {"write_only": True},
+            "type": {"required": True},
         }
+
+    def validate_type(self, value):
+        # Ensure it is only set when creating a new function
+        if self.context.get("view") and self.context["view"].action == "create":
+            return value
+
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        if instance and instance.type != value:
+            raise serializers.ValidationError("Cannot modify the type of an existing function")
+        return value
 
     def validate(self, attrs):
         team = self.context["get_team"]()
@@ -135,6 +150,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+
+        hog_type = attrs.get("type", instance.type if instance else "destination")
 
         if not has_addon:
             template_id = attrs.get("template_id", instance.template_id if instance else None)
@@ -153,42 +170,51 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
             # Without the addon, they cannot deviate from the template
             attrs["inputs_schema"] = template.inputs_schema
+            attrs["mappings"] = template.mappings
             attrs["hog"] = template.hog
-
-        if "type" not in attrs:
-            attrs["type"] = "destination"
 
         if self.context.get("view") and self.context["view"].action == "create":
             # Ensure we have sensible defaults when created
             attrs["filters"] = attrs.get("filters") or {}
             attrs["inputs_schema"] = attrs.get("inputs_schema") or []
             attrs["inputs"] = attrs.get("inputs") or {}
+            attrs["mappings"] = attrs.get("mappings") or None
 
-        if "inputs_schema" in attrs:
-            attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
+        # Used for both top level input validation, and mappings input validation
+        def validate_input_and_filters(attrs: dict):
+            if "inputs_schema" in attrs:
+                attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
 
-        if "inputs" in attrs:
-            inputs = attrs["inputs"] or {}
-            existing_encrypted_inputs = None
+            if "inputs" in attrs:
+                inputs = attrs["inputs"] or {}
+                existing_encrypted_inputs = None
 
-            if instance and instance.encrypted_inputs:
-                existing_encrypted_inputs = instance.encrypted_inputs
+                if instance and instance.encrypted_inputs:
+                    existing_encrypted_inputs = instance.encrypted_inputs
 
-            attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
-            attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs, attrs["type"])
+                attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
+                attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs, hog_type)
 
-        if "filters" in attrs:
-            if attrs["type"] in TYPES_WITH_COMPILED_FILTERS:
-                attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
-            elif attrs["type"] in TYPES_WITH_TRANSPILED_FILTERS:
-                compiler = JavaScriptCompiler()
-                code = compiler.visit(compile_filters_expr(attrs["filters"], team))
-                attrs["filters"]["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
-                if "bytecode" in attrs["filters"]:
-                    del attrs["filters"]["bytecode"]
+            if "filters" in attrs:
+                if hog_type in TYPES_WITH_COMPILED_FILTERS:
+                    attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
+                elif hog_type in TYPES_WITH_TRANSPILED_FILTERS:
+                    compiler = JavaScriptCompiler()
+                    code = compiler.visit(compile_filters_expr(attrs["filters"], team))
+                    attrs["filters"]["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
+                    if "bytecode" in attrs["filters"]:
+                        del attrs["filters"]["bytecode"]
+
+        validate_input_and_filters(attrs)
+
+        if attrs.get("mappings", None) is not None:
+            if hog_type != "site_destination":
+                raise serializers.ValidationError({"mappings": "Mappings are only allowed for site destinations."})
+            for mapping in attrs["mappings"]:
+                validate_input_and_filters(mapping)
 
         if "hog" in attrs:
-            if attrs["type"] in TYPES_WITH_JAVASCRIPT_SOURCE:
+            if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                 try:
                     # Validate transpilation using the model instance
                     attrs["transpiled"] = get_transpiled_function(
@@ -203,7 +229,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     raise serializers.ValidationError({"hog": "Error in TypeScript code"})
                 attrs["bytecode"] = None
             else:
-                attrs["bytecode"] = compile_hog(attrs["hog"])
+                attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
                 attrs["transpiled"] = None
         else:
             attrs["bytecode"] = None
@@ -269,6 +295,10 @@ class HogFunctionViewSet(
         return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
+            # We only want to include deleted functions if we are un-deleting them
+            queryset = queryset.filter(deleted=False)
+
         if self.action == "list":
             if "type" in self.request.GET:
                 types = [self.request.GET.get("type", "destination")]
@@ -276,7 +306,7 @@ class HogFunctionViewSet(
                 types = self.request.GET.get("types", "destination").split(",")
             else:
                 types = ["destination"]
-            queryset = queryset.filter(deleted=False, type__in=types)
+            queryset = queryset.filter(type__in=types)
 
         if self.request.GET.get("filters"):
             try:
@@ -333,13 +363,13 @@ class HogFunctionViewSet(
         # Remove the team from the config
         configuration.pop("team")
 
-        globals = serializer.validated_data["globals"]
+        hog_globals = serializer.validated_data["globals"]
         mock_async_functions = serializer.validated_data["mock_async_functions"]
 
         res = create_hog_invocation_test(
             team_id=hog_function.team_id,
             hog_function_id=hog_function.id,
-            globals=globals,
+            globals=hog_globals,
             configuration=configuration,
             mock_async_functions=mock_async_functions,
         )

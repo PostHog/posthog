@@ -56,6 +56,9 @@ describe('Insights', () => {
 
             it('can open a new stickiness insight', () => {
                 insight.clickTab('STICKINESS')
+                // this test flaps, so check for a parent element, that is present even when failing
+                // in the hope that it slows the test down a little and stops it flapping
+                cy.get('.InsightVizDisplay--type-stickiness').should('exist')
                 cy.get('.TrendsInsight canvas').should('exist')
             })
 

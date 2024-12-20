@@ -136,6 +136,7 @@ export class CdpApi {
                                 id: team.id,
                                 name: team.name,
                                 url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                                ...globals.project,
                             },
                         },
                         compoundConfiguration,

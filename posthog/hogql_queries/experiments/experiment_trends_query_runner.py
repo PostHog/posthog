@@ -9,10 +9,15 @@ from posthog.hogql_queries.experiments.trends_statistics import (
     calculate_credible_intervals,
     calculate_probabilities,
 )
-from posthog.hogql_queries.experiments.trends_statistics_v2 import (
-    are_results_significant_v2,
-    calculate_credible_intervals_v2,
-    calculate_probabilities_v2,
+from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
+    are_results_significant_v2_count,
+    calculate_credible_intervals_v2_count,
+    calculate_probabilities_v2_count,
+)
+from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
+    are_results_significant_v2_continuous,
+    calculate_credible_intervals_v2_continuous,
+    calculate_probabilities_v2_continuous,
 )
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -32,7 +37,7 @@ from posthog.schema import (
     ExperimentTrendsQuery,
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
-    InsightDateRange,
+    DateRange,
     PropertyMathType,
     PropertyOperator,
     TrendsFilter,
@@ -80,9 +85,9 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             math_keys.remove("sum")
         return any(entity.math in math_keys for entity in query.series)
 
-    def _get_insight_date_range(self) -> InsightDateRange:
+    def _get_date_range(self) -> DateRange:
         """
-        Returns an InsightDateRange object based on the experiment's start and end dates,
+        Returns an DateRange object based on the experiment's start and end dates,
         adjusted for the team's timezone if applicable.
         """
         if self.team.timezone:
@@ -93,7 +98,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             start_date = self.experiment.start_date
             end_date = self.experiment.end_date
 
-        return InsightDateRange(
+        return DateRange(
             date_from=start_date.isoformat() if start_date else None,
             date_to=end_date.isoformat() if end_date else None,
             explicitDate=True,
@@ -133,7 +138,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             prepared_count_query.series[0].math = None
 
         prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
-        prepared_count_query.dateRange = self._get_insight_date_range()
+        prepared_count_query.dateRange = self._get_date_range()
         if self._is_data_warehouse_query(prepared_count_query):
             prepared_count_query.breakdownFilter = self._get_data_warehouse_breakdown_filter()
             prepared_count_query.properties = [
@@ -178,10 +183,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         # 1. If math aggregation is used, we construct an implicit exposure query: unique users for the count event
         uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(self.query.count_query)
+        prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
 
         if uses_math_aggregation:
-            prepared_exposure_query = TrendsQuery(**self.query.count_query.model_dump())
-            prepared_exposure_query.dateRange = self._get_insight_date_range()
+            prepared_exposure_query = prepared_count_query
+            prepared_exposure_query.dateRange = self._get_date_range()
             prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
 
             # For a data warehouse query, we can use the unique users for the series
@@ -226,9 +232,9 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                     raise ValueError("Expected first series item to have an 'event' attribute")
 
         # 2. Otherwise, if an exposure query is provided, we use it as is, adapting the date range and breakdown
-        elif self.query.exposure_query:
+        elif self.query.exposure_query and not self._is_data_warehouse_query(prepared_count_query):
             prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
-            prepared_exposure_query.dateRange = self._get_insight_date_range()
+            prepared_exposure_query.dateRange = self._get_date_range()
             prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
             prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()
             prepared_exposure_query.properties = [
@@ -242,7 +248,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         # 3. Otherwise, we construct a default exposure query: unique users for the $feature_flag_called event
         else:
             prepared_exposure_query = TrendsQuery(
-                dateRange=self._get_insight_date_range(),
+                dateRange=self._get_date_range(),
                 trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE),
                 breakdownFilter=BreakdownFilter(
                     breakdown="$feature_flag_response",
@@ -315,9 +321,18 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
         if self.stats_version == 2:
-            probabilities = calculate_probabilities_v2(control_variant, test_variants)
-            significance_code, p_value = are_results_significant_v2(control_variant, test_variants, probabilities)
-            credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
+            if self.query.count_query.series[0].math:
+                probabilities = calculate_probabilities_v2_continuous(control_variant, test_variants)
+                significance_code, p_value = are_results_significant_v2_continuous(
+                    control_variant, test_variants, probabilities
+                )
+                credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
+            else:
+                probabilities = calculate_probabilities_v2_count(control_variant, test_variants)
+                significance_code, p_value = are_results_significant_v2_count(
+                    control_variant, test_variants, probabilities
+                )
+                credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
         else:
             probabilities = calculate_probabilities(control_variant, test_variants)
             significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)

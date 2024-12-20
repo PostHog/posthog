@@ -2,7 +2,9 @@ import copy
 import json
 import re
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, Optional, Union, cast
+
+from pydantic import Field
 
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
 from posthog.models.entity.entity import Entity as LegacyEntity
@@ -20,11 +22,12 @@ from posthog.schema import (
     FunnelsFilter,
     FunnelsQuery,
     FunnelVizType,
-    InsightDateRange,
+    DateRange,
     LifecycleFilter,
     LifecycleQuery,
     PathsFilter,
     PathsQuery,
+    RetentionEntity,
     RetentionFilter,
     RetentionQuery,
     StickinessFilter,
@@ -54,6 +57,10 @@ actors_only_math_types = [
 funnels_math_types = [
     BaseMathType.FIRST_TIME_FOR_USER,
 ]
+
+
+def is_entity_variable(item: Any) -> bool:
+    return isinstance(item, str) and item.startswith("{") and item.endswith("}")
 
 
 def clean_display(display: str):
@@ -110,8 +117,16 @@ def transform_legacy_hidden_legend_keys(hidden_legend_keys):
 
 
 def legacy_entity_to_node(
-    entity: LegacyEntity, include_properties: bool, math_availability: MathAvailability
-) -> EventsNode | ActionsNode | DataWarehouseNode:
+    entity: LegacyEntity | str,
+    include_properties: bool,
+    math_availability: MathAvailability,
+    allow_variables: bool = False,
+) -> EventsNode | ActionsNode | DataWarehouseNode | str:
+    if allow_variables and is_entity_variable(entity):
+        return cast(str, entity)
+
+    assert not isinstance(entity, str)
+
     """
     Takes a legacy entity and converts it into an EventsNode or ActionsNode.
     """
@@ -172,6 +187,7 @@ def exlusion_entity_to_node(entity) -> FunnelExclusionEventsNode | FunnelExclusi
     base_entity = legacy_entity_to_node(
         LegacyEntity(entity), include_properties=False, math_availability=MathAvailability.Unavailable
     )
+    assert isinstance(base_entity, EventsNode | ActionsNode)
     if isinstance(base_entity, EventsNode):
         return FunnelExclusionEventsNode(
             **base_entity.model_dump(),
@@ -187,7 +203,12 @@ def exlusion_entity_to_node(entity) -> FunnelExclusionEventsNode | FunnelExclusi
 
 
 # TODO: remove this method that returns legacy entities
-def to_base_entity_dict(entity: dict):
+def to_base_entity_dict(entity: dict | str):
+    if isinstance(entity, str):
+        if is_entity_variable(entity):
+            return entity
+        raise ValueError("Expecting valid entity or template variable")
+
     return {
         "type": entity.get("type"),
         "id": entity.get("id"),
@@ -206,11 +227,57 @@ insight_to_query_type = {
     "STICKINESS": StickinessQuery,
 }
 
+
+class TrendsQueryWithTemplateVariables(TrendsQuery):
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, str]] = Field(  # type: ignore
+        ..., description="Events and actions to include"
+    )
+
+
+class FunnelsQueryWithTemplateVariables(FunnelsQuery):
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, str]] = Field(  # type: ignore
+        ..., description="Events and actions to include"
+    )
+
+
+class RetentionFilterWithTemplateVariables(RetentionFilter):
+    returningEntity: Optional[RetentionEntity | str] = None  # type: ignore
+    targetEntity: Optional[RetentionEntity | str] = None  # type: ignore
+
+
+class RetentionQueryWithTemplateVariables(RetentionQuery):
+    retentionFilter: RetentionFilterWithTemplateVariables = Field(
+        ..., description="Properties specific to the retention insight"
+    )
+
+
+class LifecycleQueryWithTemplateVariables(LifecycleQuery):
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, str]] = Field(  # type: ignore
+        ..., description="Events and actions to include"
+    )
+
+
+class StickinessQueryWithTemplateVariables(StickinessQuery):
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, str]] = Field(  # type: ignore
+        ..., description="Events and actions to include"
+    )
+
+
+#
+insight_to_query_type_with_variables = {
+    "TRENDS": TrendsQueryWithTemplateVariables,
+    "FUNNELS": FunnelsQueryWithTemplateVariables,
+    "RETENTION": RetentionQueryWithTemplateVariables,
+    "PATHS": PathsQuery,
+    "LIFECYCLE": LifecycleQueryWithTemplateVariables,
+    "STICKINESS": StickinessQueryWithTemplateVariables,
+}
+
 INSIGHT_TYPE = Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "STICKINESS"]
 
 
 def _date_range(filter: dict):
-    date_range = InsightDateRange(
+    date_range = DateRange(
         date_from=filter.get("date_from"),
         date_to=filter.get("date_to"),
         explicitDate=str_to_bool(filter.get("explicit_date")) if filter.get("explicit_date") else None,
@@ -232,12 +299,12 @@ def _interval(filter: dict):
     return {"interval": filter.get("interval")}
 
 
-def _series(filter: dict):
+def _series(filter: dict, allow_variables: bool = False):
     if _insight_type(filter) == "RETENTION" or _insight_type(filter) == "PATHS":
         return {}
 
     # remove templates gone wrong
-    if filter.get("events") is not None:
+    if not allow_variables and filter.get("events") is not None:
         filter["events"] = [event for event in filter.get("events") if not (isinstance(event, str))]
 
     math_availability: MathAvailability = MathAvailability.Unavailable
@@ -252,15 +319,16 @@ def _series(filter: dict):
 
     return {
         "series": [
-            legacy_entity_to_node(entity, include_properties, math_availability)
-            for entity in _entities(filter)
-            if not (entity.type == "actions" and entity.id is None)
+            legacy_entity_to_node(entity, include_properties, math_availability, allow_variables)
+            for entity in _entities(filter, allow_variables)
+            if isinstance(entity, str) or not (entity.type == "actions" and entity.id is None)
         ]
     }
 
 
-def _entities(filter: dict):
-    processed_entities: list[LegacyEntity] = []
+def _entities(filter: dict, allow_variables: bool = False):
+    processed_entities: list[LegacyEntity | str] = []
+    has_variables = False
 
     # add actions
     actions = filter.get("actions", [])
@@ -272,7 +340,18 @@ def _entities(filter: dict):
     events = filter.get("events", [])
     if isinstance(events, str):
         events = json.loads(events)
-    processed_entities.extend([LegacyEntity({**entity, "type": "events"}) for entity in events])
+
+    def process_event(entity) -> LegacyEntity | str:
+        nonlocal has_variables
+
+        # strings represent template variables, return them as-is
+        if allow_variables and isinstance(entity, str):
+            has_variables = True
+            return entity
+        else:
+            return LegacyEntity({**entity, "type": "events"})
+
+    processed_entities.extend([process_event(entity) for entity in events])
 
     # add data warehouse
     warehouse = filter.get("data_warehouse", [])
@@ -280,12 +359,13 @@ def _entities(filter: dict):
         warehouse = json.loads(warehouse)
     processed_entities.extend([LegacyEntity({**entity, "type": "data_warehouse"}) for entity in warehouse])
 
-    # order by order
-    processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
+    if not has_variables:
+        # order by order
+        processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)  # type: ignore
 
-    # set sequential index values on entities
-    for index, entity in enumerate(processed_entities):
-        entity.index = index
+        # set sequential index values on entities
+        for index, entity in enumerate(processed_entities):
+            entity.index = index  # type: ignore
 
     return processed_entities
 
@@ -394,7 +474,7 @@ def _group_aggregation_filter(filter: dict):
     return {"aggregation_group_type_index": filter.get("aggregation_group_type_index")}
 
 
-def _insight_filter(filter: dict):
+def _insight_filter(filter: dict, allow_variables: bool = False):
     if _insight_type(filter) == "TRENDS":
         insight_filter = {
             "trendsFilter": TrendsFilter(
@@ -440,18 +520,19 @@ def _insight_filter(filter: dict):
             ),
         }
     elif _insight_type(filter) == "RETENTION":
+        RetentionFilterClass = RetentionFilterWithTemplateVariables if allow_variables else RetentionFilter
         insight_filter = {
-            "retentionFilter": RetentionFilter(
+            "retentionFilter": RetentionFilterClass(
                 retentionType=filter.get("retention_type"),
                 retentionReference=filter.get("retention_reference"),
                 totalIntervals=filter.get("total_intervals"),
                 returningEntity=(
-                    to_base_entity_dict(filter.get("returning_entity"))
+                    to_base_entity_dict(filter.get("returning_entity"))  # type: ignore
                     if filter.get("returning_entity") is not None
                     else None
                 ),
                 targetEntity=(
-                    to_base_entity_dict(filter.get("target_entity"))
+                    to_base_entity_dict(filter.get("target_entity"))  # type: ignore
                     if filter.get("target_entity") is not None
                     else None
                 ),
@@ -526,22 +607,26 @@ def _insight_type(filter: dict) -> INSIGHT_TYPE:
     return filter.get("insight", "TRENDS")
 
 
-def filter_to_query(filter: dict) -> InsightQueryNode:
+def filter_to_query(filter: dict, allow_variables: bool = False) -> InsightQueryNode:
     filter = copy.deepcopy(filter)  # duplicate to prevent accidental filter alterations
 
-    Query = insight_to_query_type[_insight_type(filter)]
+    Query = (
+        insight_to_query_type_with_variables[_insight_type(filter)]
+        if allow_variables
+        else insight_to_query_type[_insight_type(filter)]
+    )
 
     data = {
         **_date_range(filter),
         **_interval(filter),
-        **_series(filter),
+        **_series(filter, allow_variables),
         **_sampling_factor(filter),
         **_filter_test_accounts(filter),
         **_properties(filter),
         **_breakdown_filter(filter),
         **_compare_filter(filter),
         **_group_aggregation_filter(filter),
-        **_insight_filter(filter),
+        **_insight_filter(filter, allow_variables),
     }
 
     # :KLUDGE: We do this dance to have default values instead of None, when setting
