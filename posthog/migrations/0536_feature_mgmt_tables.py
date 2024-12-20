@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0532_taxonomy_unique_on_project"),
+        ("posthog", "0535_alter_hogfunction_type"),
     ]
 
     operations = [
