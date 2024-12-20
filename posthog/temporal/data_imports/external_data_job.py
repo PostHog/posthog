@@ -21,7 +21,7 @@ from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 from posthog.settings.base_variables import TEST
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_imports.util import is_posthog_team
+from posthog.temporal.data_imports.util import is_posthog_team, is_enabled_for_team
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
@@ -211,7 +211,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         if (
             settings.TEMPORAL_TASK_QUEUE != DATA_WAREHOUSE_TASK_QUEUE_V2
             and not TEST
-            and is_posthog_team(inputs.team_id)
+            and (is_posthog_team(inputs.team_id) or is_enabled_for_team(inputs.team_id))
         ):
             await workflow.execute_activity(
                 trigger_pipeline_v2,
