@@ -17,7 +17,7 @@ pub enum FlagValue {
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlagsResponse {
-    pub error_while_computing_flags: bool,
+    pub errors_while_computing_flags: bool,
     pub feature_flags: HashMap<String, FlagValue>,
     pub feature_flag_payloads: HashMap<String, Value>, // flag key -> payload
 }
