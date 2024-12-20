@@ -1,4 +1,3 @@
-import JSONCrush from 'jsoncrush'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
@@ -445,40 +444,27 @@ export function isQueryTooLarge(query: Node<Record<string, any>>): boolean {
 export function parseDraftQueryFromLocalStorage(
     query: string
 ): { query: Node<Record<string, any>>; timestamp: number } | null {
-    // First try to uncrush the query if it's a JSONCrush query else fall back to parsing it as a JSON
     try {
-        const uncrushedQuery = JSONCrush.uncrush(query)
-        return JSON.parse(uncrushedQuery)
+        return JSON.parse(query)
     } catch (e) {
-        console.error('Error parsing uncrushed query', e)
-        try {
-            return JSON.parse(query)
-        } catch (e) {
-            console.error('Error parsing query', e)
-            return null
-        }
+        console.error('Error parsing query', e)
+        return null
     }
 }
 
 export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>, timestamp: number): string {
-    return JSONCrush.crush(JSON.stringify({ query, timestamp }))
+    return JSON.stringify({ query, timestamp })
 }
 
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
     try {
-        const uncrushedQuery = JSONCrush.uncrush(query)
-        return JSON.parse(uncrushedQuery)
+        return JSON.parse(query)
     } catch (e) {
-        console.error('Error parsing uncrushed query', e)
-        try {
-            return JSON.parse(query)
-        } catch (e) {
-            console.error('Error parsing query', e)
-            return null
-        }
+        console.error('Error parsing query', e)
+        return null
     }
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {
-    return JSONCrush.crush(JSON.stringify(query))
+    return JSON.stringify(query)
 }
