@@ -111,6 +111,40 @@ SETTINGS index_granularity=512
     engine=SESSION_REPLAY_EVENTS_DATA_TABLE_ENGINE(),
 )
 
+GROUPED_SESSION_REPLAY_EVENTS_VIEW_SQL = (
+    lambda: """
+CREATE VIEW IF NOT EXISTS grouped_session_replay_events ON CLUSTER '{cluster}'
+AS SELECT
+    session_id,
+    any(team_id) as team_id,
+    any(distinct_id) as distinct_id,
+    min(min_first_timestamp) as start_time,
+    max(max_last_timestamp) as end_time,
+    dateDiff('SECOND', start_time, end_time) as duration,
+    argMinMerge(first_url) as first_url,
+    groupUniqArrayArray(all_urls) as all_urls,
+    sum(click_count) as click_count,
+    sum(keypress_count) as keypress_count,
+    sum(mouse_activity_count) as mouse_activity_count,
+    sum(active_milliseconds) as active_milliseconds,
+    sum(console_log_count) as console_log_count,
+    sum(console_warn_count) as console_warn_count,
+    sum(console_error_count) as console_error_count,
+    sum(size) as size,
+    sum(message_count) as message_count,
+    sum(event_count) as event_count,
+    argMinMerge(snapshot_source) as snapshot_source,
+    argMinMerge(snapshot_library) as snapshot_library,
+    max(_timestamp) as _timestamp
+FROM {database}.{table_name}
+GROUP BY session_id
+""".format(
+        table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+)
+
 KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: KAFKA_SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_session_replay_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
