@@ -30,6 +30,18 @@ export const ensureTopicExists = async (adminClient: IAdminClient, topic: string
     )
 }
 
+export const deleteTopic = async (adminClient: IAdminClient, topic: string, timeout: number) => {
+    return await new Promise<boolean>((resolve) =>
+        adminClient.deleteTopic(topic, timeout, (error: LibrdKafkaError) => {
+            if (error) {
+                resolve(false)
+            } else {
+                resolve(true)
+            }
+        })
+    )
+}
+
 export const createAdminClient = (connectionConfig: GlobalConfig) => {
     return AdminClient.create(connectionConfig)
 }

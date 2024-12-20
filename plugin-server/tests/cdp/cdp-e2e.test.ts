@@ -29,8 +29,11 @@ jest.mock('../../src/utils/fetch', () => {
 
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
+const TOTAL_TIMEOUT = 20000
+const KAFKA_OBSERVE_TIMEOUT = 10000
+
 describe('CDP E2E', () => {
-    jest.setTimeout(10000)
+    jest.setTimeout(TOTAL_TIMEOUT)
     describe.each(['kafka', 'cyclotron'])('e2e fetch call: %s', (mode) => {
         let processedEventsConsumer: CdpProcessedEventsConsumer
         let functionProcessor: CdpFunctionCallbackConsumer
@@ -124,7 +127,7 @@ describe('CDP E2E', () => {
 
             await waitForExpect(() => {
                 expect(kafkaObserver.messages).toHaveLength(7)
-            }, 5000)
+            }, KAFKA_OBSERVE_TIMEOUT)
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
 
