@@ -1,10 +1,8 @@
 import json
-from collections.abc import AsyncGenerator, Generator, Iterator
-from functools import partial
+from collections.abc import Generator, Iterator
 from typing import Any, Optional
 from uuid import uuid4
 
-from asgiref.sync import sync_to_async
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langfuse.callback import CallbackHandler
@@ -20,6 +18,7 @@ from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
 )
+from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
     GraphTaskStartedUpdateTuple,
@@ -91,14 +90,8 @@ class Assistant:
             return self._astream()
         return self._stream()
 
-    async def _astream(self) -> AsyncGenerator[str, None]:
-        generator = self._stream()
-        while True:
-            try:
-                if message := await sync_to_async(partial(next, generator), thread_sensitive=False)():
-                    yield message
-            except StopIteration:
-                break
+    def _astream(self):
+        return SyncIterableToAsync(self._stream())
 
     def _stream(self) -> Generator[str, None, None]:
         state = self._init_or_update_state()
@@ -155,13 +148,8 @@ class Assistant:
         if snapshot.next:
             saved_state = validate_state_update(snapshot.values)
             self._state = saved_state
-            if saved_state.intermediate_steps:
-                intermediate_steps = saved_state.intermediate_steps.copy()
-                intermediate_steps[-1] = (intermediate_steps[-1][0], self._latest_message.content)
-                self._graph.update_state(
-                    config,
-                    PartialAssistantState(messages=[self._latest_message], intermediate_steps=intermediate_steps),
-                )
+            self._graph.update_state(config, PartialAssistantState(messages=[self._latest_message], resumed=True))
+
             return None
         initial_state = self._initial_state
         self._state = initial_state

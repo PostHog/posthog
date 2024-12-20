@@ -1,8 +1,10 @@
+import datetime
 import json
 from time import sleep
 from uuid import uuid4
 
 from django.conf import settings
+from django.utils import timezone
 from django.core.serializers.json import DjangoJSONEncoder
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
@@ -76,11 +78,17 @@ class SummarizerNode(AssistantNode):
 
         chain = summarization_prompt | self._model
 
+        utc_now = timezone.now().astimezone(datetime.UTC)
+        project_now = utc_now.astimezone(self._team.timezone_info)
+
         message = chain.invoke(
             {
                 "query_kind": viz_message.answer.kind,
                 "product_description": self._team.project.product_description,
                 "results": json.dumps(results_response["results"], cls=DjangoJSONEncoder),
+                "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
+                "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
+                "project_timezone": self._team.timezone_info.tzname(utc_now),
             },
             config,
         )
