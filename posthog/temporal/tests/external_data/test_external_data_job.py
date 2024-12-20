@@ -149,6 +149,7 @@ def _create_external_data_job(
         rows_synced=0,
         workflow_id=workflow_id,
         workflow_run_id=workflow_run_id,
+        pipeline_version=ExternalDataJob.PipelineVersion.V1,
     )
 
     return job
@@ -391,6 +392,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
             schema=customer_schema,
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
         )
 
         new_job = ExternalDataJob.objects.get(id=new_job.id)
@@ -423,6 +425,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
             schema=charge_schema,
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
         )
 
         new_job = ExternalDataJob.objects.get(id=new_job.id)
@@ -565,6 +568,7 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
             schema=customer_schema,
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
         )
 
         new_job = (
@@ -764,6 +768,7 @@ async def test_run_postgres_job(
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
             schema=posthog_test_schema,
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
         )
 
         new_job = await sync_to_async(

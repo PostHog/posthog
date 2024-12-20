@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -34,7 +32,7 @@ export function DataCollection(): JSX.Element {
 
     const experimentProgressPercent =
         metricType === InsightType.FUNNELS
-            ? (funnelResultsPersonsTotal / recommendedSampleSize) * 100
+            ? (funnelResultsPersonsTotal(0) / recommendedSampleSize) * 100
             : (actualRunningTime / recommendedRunningTime) * 100
 
     const hasHighRunningTime = recommendedRunningTime > 62
@@ -111,7 +109,7 @@ export function DataCollection(): JSX.Element {
                                 <span>
                                     Saw&nbsp;
                                     <b>
-                                        {humanFriendlyNumber(funnelResultsPersonsTotal)} of{' '}
+                                        {humanFriendlyNumber(funnelResultsPersonsTotal(0))} of{' '}
                                         {humanFriendlyNumber(recommendedSampleSize)}{' '}
                                     </b>{' '}
                                     {formatUnitByQuantity(recommendedSampleSize, 'participant')}
