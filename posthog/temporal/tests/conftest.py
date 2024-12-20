@@ -145,6 +145,24 @@ async def temporal_worker(temporal_client, workflows, activities):
     await asyncio.wait([worker_run])
 
 
+@pytest_asyncio.fixture
+async def temporal_worker_batch_exports(temporal_client, workflows, activities):
+    worker = temporalio.worker.Worker(
+        temporal_client,
+        task_queue="batch-exports-task-queue",
+        workflows=workflows,
+        activities=activities,
+        workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+    )
+
+    worker_run = asyncio.create_task(worker.run())
+
+    yield worker
+
+    worker_run.cancel()
+    await asyncio.wait([worker_run])
+
+
 @pytest.fixture(scope="session")
 def event_loop():
     try:
