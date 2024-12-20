@@ -20,8 +20,9 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
     compiler = JavaScriptCompiler()
 
-    # TODO: reorder inputs to make dependencies work
-    for key, input in (hog_function.inputs or {}).items():
+    all_inputs = hog_function.inputs or {}
+    all_inputs = sorted(all_inputs.items(), key=lambda x: x[1].get("order", -1))
+    for key, input in all_inputs:
         value = input.get("value")
         key_string = json.dumps(str(key) or "<empty>")
         if (isinstance(value, str) and "{" in value) or isinstance(value, dict) or isinstance(value, list):

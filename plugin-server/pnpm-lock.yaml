@@ -91,6 +91,9 @@ dependencies:
   fast-deep-equal:
     specifier: ^3.1.3
     version: 3.1.3
+  fastpriorityqueue:
+    specifier: ^0.7.5
+    version: 0.7.5
   fernet-nodejs:
     specifier: ^1.0.6
     version: 1.0.6
@@ -6277,6 +6280,10 @@ packages:
     hasBin: true
     dependencies:
       strnum: 1.0.5
+    dev: false
+
+  /fastpriorityqueue@0.7.5:
+    resolution: {integrity: sha512-3Pa0n9gwy8yIbEsT3m2j/E9DXgWvvjfiZjjqcJ+AdNKTAlVMIuFYrYG5Y3RHEM8O6cwv9hOpOWY/NaMfywoQVA==}
     dev: false
 
   /fastq@1.15.0:

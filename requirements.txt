@@ -138,8 +138,8 @@ defusedxml==0.6.0
     # via
     #   python3-openid
     #   social-auth-core
-deltalake==0.19.1
-    # via dlt
+deltalake==0.22.3
+    # via -r requirements.in
 distro==1.9.0
     # via openai
 dj-database-url==0.5.0
@@ -273,8 +273,6 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-greenlet==3.1.1
-    # via sqlalchemy
 grpcio==1.63.2
     # via
     #   -r requirements.in
@@ -505,7 +503,6 @@ pyarrow==17.0.0
     # via
     #   -r requirements.in
     #   deltalake
-    #   dlt
     #   sqlalchemy-bigquery
 pyasn1==0.5.0
     # via
@@ -798,7 +795,7 @@ vine==5.0.0
     #   kombu
 wcwidth==0.2.6
     # via prompt-toolkit
-webdriver-manager==4.0.1
+webdriver-manager==4.0.2
     # via -r requirements.in
 wheel==0.42.0
     # via astunparse
