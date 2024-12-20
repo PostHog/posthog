@@ -10,7 +10,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import {
+    indexToVariantKeyFeatureFlagPayloads,
+    variantKeyToIndexFeatureFlagPayloads,
+} from 'scenes/feature-flags/featureFlagLogic'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
@@ -165,6 +170,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ],
             teamLogic,
             ['addProductIntent'],
+            featureFlagsLogic,
+            ['updateFlag'],
         ],
     })),
     actions({
@@ -262,6 +269,7 @@ export const experimentLogic = kea<experimentLogicType>([
         openPrimaryMetricModal: (index: number) => ({ index }),
         closePrimaryMetricModal: true,
         setPrimaryMetricsResultErrors: (errors: any[]) => ({ errors }),
+        updateDistributionModal: (featureFlag: FeatureFlagType) => ({ featureFlag }),
     }),
     reducers({
         experiment: [
@@ -794,6 +802,23 @@ export const experimentLogic = kea<experimentLogicType>([
             } catch (error) {
                 lemonToast.error('Failed to update experiment variant images')
             }
+        },
+        updateDistributionModal: async ({ featureFlag }) => {
+            const { created_at, id, ...flag } = featureFlag
+
+            const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
+
+            const savedFlag = await api.update(
+                `api/projects/${values.currentProjectId}/feature_flags/${id}`,
+                preparedFlag
+            )
+
+            const updatedFlag = variantKeyToIndexFeatureFlagPayloads(savedFlag)
+            actions.updateFlag(updatedFlag)
+
+            actions.updateExperiment({
+                holdout_id: values.experiment.holdout_id,
+            })
         },
     })),
     loaders(({ actions, props, values }) => ({
