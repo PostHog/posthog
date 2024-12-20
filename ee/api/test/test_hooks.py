@@ -139,8 +139,9 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
                         "target": "https://hooks.zapier.com/{inputs.hook}",
                     },
                 },
+                "order": 2,
             },
-            "debug": {},
+            "debug": {"order": 1},
             "hook": {
                 "bytecode": [
                     "_H",
@@ -149,6 +150,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
                     "hooks/standard/1234/abcd",
                 ],
                 "value": "hooks/standard/1234/abcd",
+                "order": 0,
             },
         }
 
