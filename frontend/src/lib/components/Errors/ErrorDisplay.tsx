@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { getExceptionAttributes, hasAnyInAppFrames, hasStacktrace } from 'scenes/error-tracking/utils'
 
@@ -14,27 +13,16 @@ import { ChainedStackTraces } from './StackTraces'
 import { ErrorTrackingException } from './types'
 
 export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
-    const {
-        type,
-        value,
-        synthetic,
-        library,
-        browser,
-        os,
-        sentryUrl,
-        exceptionList,
-        level,
-        ingestionErrors,
-        unhandled,
-    } = getExceptionAttributes(eventProperties)
+    const { type, value, library, browser, os, sentryUrl, exceptionList, level, ingestionErrors, unhandled } =
+        getExceptionAttributes(eventProperties)
 
     const exceptionWithStack = hasStacktrace(exceptionList)
 
     return (
         <div className="flex flex-col space-y-2 pb-2">
             <h1 className="mb-0">{type || level}</h1>
+            {!exceptionWithStack && <div className="text-muted italic">{value}</div>}
             <div className="flex flex-row gap-2 flex-wrap">
-                <LemonTag type="danger">{value}</LemonTag>
                 <TitledSnack
                     type="success"
                     title="captured by"
@@ -52,8 +40,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                         )
                     }
                 />
-                <TitledSnack title="synthetic" value={synthetic ?? false} />
-                <TitledSnack title="unhandled" value={unhandled} />
+                <TitledSnack title="unhandled" value={String(unhandled)} />
                 <TitledSnack title="library" value={library} />
                 <TitledSnack title="browser" value={browser ?? 'unknown'} />
                 <TitledSnack title="os" value={os ?? 'unknown'} />

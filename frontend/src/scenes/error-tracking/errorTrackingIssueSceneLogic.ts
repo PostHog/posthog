@@ -77,7 +77,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
                             filterGroup: values.filterGroup,
-                            sparklineSelectedPeriod: '7d',
                         }),
                         {},
                         undefined,

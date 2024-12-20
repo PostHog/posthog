@@ -82,8 +82,8 @@ function errorProperties(properties: Record<string, any>): EventType['properties
             customer: 'the-customer',
             instance: 'https://app.posthog.com',
         },
-        $exception_message: 'ResizeObserver loop limit exceeded',
-        $exception_type: 'Error',
+        // $exception_message: 'ResizeObserver loop limit exceeded',
+        // $exception_type: 'Error',
         $exception_fingerprint: 'Error',
         $exception_personURL: 'https://app.posthog.com/person/the-person-id',
         $sentry_event_id: 'id-from-the-sentry-integration',
@@ -135,42 +135,37 @@ function errorProperties(properties: Record<string, any>): EventType['properties
         $lib_version__major: 1,
         $lib_version__minor: 63,
         $lib_version__patch: 3,
+        $exception_list: [
+            {
+                value: 'ResizeObserver loop limit exceeded',
+                type: 'Error',
+            },
+        ],
         ...properties,
     }
 }
 
-export function ResizeObserverLoopLimitExceeded(): JSX.Element {
+export function StacktracelessSafariScriptError(): JSX.Element {
     return (
         <ErrorDisplay
             eventProperties={errorProperties({
-                $exception_message: 'ResizeObserver loop limit exceeded',
-                $exception_type: 'Error',
-                $exception_personURL: 'https://app.posthog.com/person/the-person-id',
+                $exception_list: [{ type: 'ScriptError', value: 'Script error.', mechanism: { synthetic: true } }],
             })}
         />
     )
 }
 
-export function SafariScriptError(): JSX.Element {
+export function StacktracelessImportModuleError(): JSX.Element {
     return (
         <ErrorDisplay
             eventProperties={errorProperties({
-                $exception_type: 'Error',
-                $exception_message: 'Script error.',
-                $exception_is_synthetic: true,
-            })}
-        />
-    )
-}
-
-export function ImportingModule(): JSX.Element {
-    return (
-        <ErrorDisplay
-            eventProperties={errorProperties({
-                $exception_type: 'UnhandledRejection',
-                $exception_message: "Importing module '/static/chunk-PIJHGO7Q.js' is not found.",
-                $exception_list: [],
-                $exception_handled: false,
+                $exception_list: [
+                    {
+                        type: 'UnhandledRejection',
+                        value: "Importing module '/static/chunk-PIJHGO7Q.js' is not found.",
+                        mechanism: { handled: true },
+                    },
+                ],
             })}
         />
     )
@@ -207,8 +202,6 @@ export function ChainedErrorStack(): JSX.Element {
     return (
         <ErrorDisplay
             eventProperties={errorProperties({
-                $exception_type: 'ZeroDivisionError',
-                $exception_message: 'division by zero',
                 $exception_list: [
                     {
                         module: null,
@@ -285,21 +278,6 @@ export function StackTraceWithLineContext(): JSX.Element {
     )
 }
 
-export function Stacktraceless(): JSX.Element {
-    return (
-        <ErrorDisplay
-            eventProperties={errorProperties({
-                $exception_list: [
-                    {
-                        type: 'Error',
-                        value: 'wat123',
-                    },
-                ],
-            })}
-        />
-    )
-}
-
 export function WithCymbalErrors(): JSX.Element {
     return (
         <ErrorDisplay
@@ -311,6 +289,19 @@ export function WithCymbalErrors(): JSX.Element {
                     },
                 ],
                 $cymbal_errors: ['This is an ingestion error', 'This is a second one'],
+            })}
+        />
+    )
+}
+
+export function LegacyEventProperties(): JSX.Element {
+    return (
+        <ErrorDisplay
+            eventProperties={errorProperties({
+                $exception_message: 'ResizeObserver loop limit exceeded',
+                $exception_type: 'Error',
+                $exception_personURL: 'https://app.posthog.com/person/the-person-id',
+                $exception_synthetic: true,
             })}
         />
     )
