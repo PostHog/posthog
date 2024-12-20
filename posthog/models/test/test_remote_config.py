@@ -541,22 +541,19 @@ class TestRemoteConfigJS(_RemoteConfigBase):
       id: 'tokentoken',
       init: function(config) {
             (function () { return { inject: (data) => console.log('injected!', data)}; })().inject({ config:{}, posthog:config.posthog });
-        config.callback();
-      }
+        config.callback(); return {}  }
     },    
     {
       id: 'tokentoken',
       init: function(config) {
             (function () { return { inject: (data) => console.log('injected 2!', data)}; })().inject({ config:{}, posthog:config.posthog });
-        config.callback();
-      }
+        config.callback(); return {}  }
     },    
     {
       id: 'tokentoken',
       init: function(config) {
             (function () { return { inject: (data) => console.log('injected but disabled!', data)}; })().inject({ config:{}, posthog:config.posthog });
-        config.callback();
-      }
+        config.callback(); return {}  }
     }]
   }
 })();\
@@ -747,9 +744,13 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     callback(true);
                 }
         
-                return {
-                    processEvent: (globals) => processEvent(globals, posthog)
+                const response = {}
+        
+                if (processEvent) {
+                    response.processEvent = (globals) => processEvent(globals, posthog)
                 }
+        
+                return response
             }
         
             return { init: init };
@@ -793,9 +794,13 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     callback(true);
                 }
         
-                return {
-                    processEvent: (globals) => processEvent(globals, posthog)
+                const response = {}
+        
+                if (processEvent) {
+                    response.processEvent = (globals) => processEvent(globals, posthog)
                 }
+        
+                return response
             }
         
             return { init: init };
@@ -805,3 +810,25 @@ class TestRemoteConfigJS(_RemoteConfigBase):
 })();\
 """  # noqa: W291, W293
         )
+
+    def test_removes_deleted_site_functions(self):
+        site_destination = HogFunction.objects.create(
+            name="Site destination",
+            type=HogFunctionType.SITE_DESTINATION,
+            team=self.team,
+            enabled=True,
+            filters={
+                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                "filter_test_accounts": True,
+            },
+        )
+
+        js = self.remote_config.get_config_js_via_token(self.team.api_token)
+
+        assert str(site_destination.id) in js
+
+        site_destination.deleted = True
+        site_destination.save()
+
+        js = self.remote_config.get_config_js_via_token(self.team.api_token)
+        assert str(site_destination.id) not in js

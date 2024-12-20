@@ -8,7 +8,7 @@ process.env.TZ = process.env.TZ || 'UTC'
  * https://jestjs.io/docs/en/configuration.html
  */
 
-const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@medv', 'monaco-editor', 'jsoncrush']
+const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@medv', 'monaco-editor']
 const eeFolderExists = fs.existsSync('ee/frontend/exports.ts')
 function rootDirectories() {
     const rootDirectories = ['<rootDir>/frontend/src']

@@ -94,7 +94,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         query = Q()
         for channel, version in loaded_checkpoint["channel_versions"].items():
             query |= Q(channel=channel, version=version)
-        return checkpoint.blobs.filter(query)
+        return ConversationCheckpointBlob.objects.filter(
+            Q(thread_id=checkpoint.thread_id, checkpoint_ns=checkpoint.checkpoint_ns) & query
+        )
 
     def list(
         self,
@@ -238,6 +240,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 blobs.append(
                     ConversationCheckpointBlob(
                         checkpoint=updated_checkpoint,
+                        thread_id=thread_id,
                         channel=channel,
                         version=str(version),
                         type=type,
