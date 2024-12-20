@@ -96,7 +96,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                             content=f"Oops! It looks like I’m having trouble generating this {self.INSIGHT_NAME} insight. Could you please try again?"
                         )
                     ],
-                    intermediate_steps=None,
+                    intermediate_steps=[],
+                    plan="",
                 )
 
             return PartialAssistantState(
@@ -115,7 +116,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                     id=str(uuid4()),
                 )
             ],
-            intermediate_steps=None,
+            intermediate_steps=[],
+            plan="",
         )
 
     def router(self, state: AssistantState):
