@@ -22,9 +22,8 @@ from .max_search_tool import max_search_tool
 django_logger = logging.getLogger("django")
 django_logger.setLevel(logging.DEBUG)
 
-# Constants for API headers and configuration
+# Don't add the auth header here, the Anthropic Python SDK handles it
 REQUIRED_HEADERS = {
-    "x-api-key": settings.ANTHROPIC_API_KEY,
     "anthropic-version": "2023-06-01",
     "anthropic-beta": "prompt-caching-2024-07-31",
     "content-type": "application/json",
@@ -262,7 +261,7 @@ class MaxChatViewSet(viewsets.ViewSet):
         try:
             django_logger.info("Preparing to send message to Anthropic API")
             try:
-                headers = self._get_headers()
+                headers = {"anthropic-beta": "prompt-caching-2024-07-31"}
                 django_logger.debug("API headers prepared successfully")
             except Exception as e:
                 django_logger.error(f"Error preparing API headers: {str(e)}", exc_info=True)
@@ -279,12 +278,17 @@ class MaxChatViewSet(viewsets.ViewSet):
 
             django_logger.debug(f"Response from Anthropic API: {response}")
 
-            # The response is a Message object, not an HTTP response
-            return {
-                "content": response.content,
+            # Extract the necessary fields from the Message object
+            result = {
+                "content": [block.dict() for block in response.content]
+                if isinstance(response.content, list)
+                else response.content,
                 "stop_reason": response.stop_reason,
-                "usage": response.usage,
+                "usage": response.usage.dict() if response.usage else None,
             }
+
+            django_logger.debug(f"Processed API response: {result}")
+            return result
 
         except anthropic.RateLimitError as e:
             django_logger.warning(f"Rate limit exceeded: {str(e)}")

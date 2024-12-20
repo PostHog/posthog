@@ -1,9 +1,6 @@
 import requests
 from bs4 import BeautifulSoup  # type: ignore
-import re  # noqa: F401
-from urllib.parse import urljoin, urlparse  # noqa: F401
 import logging
-import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -96,8 +93,6 @@ def max_search_tool(query):
     max_chars = 10000
     relevance_threshold = 0.6
     min_results = 5
-    timeout = 20  # noqa: F841
-    start_time = time.time()  # noqa: F841
 
     def has_highly_relevant_results(results, threshold=2):
         return len(results) >= threshold and all(

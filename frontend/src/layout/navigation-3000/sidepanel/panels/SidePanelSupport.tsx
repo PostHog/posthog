@@ -16,6 +16,7 @@ import {
     IconToggle,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonCollapse } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { SupportForm } from 'lib/components/Support/SupportForm'
@@ -32,19 +33,8 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
 
 import AlgoliaSearch from '../../components/AlgoliaSearch'
-import { MaxChatInterface } from './sidePanelMaxChatInterface'
-{
-    /* the next two imports are on hold until after MVP */
-}
-{
-    /*import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'*/
-}
-{
-    /*import { SIDE_PANEL_TABS } from '../SidePanel'*/
-}
-import { LemonCollapse } from '@posthog/lemon-ui'
-
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
+import { MaxChatInterface } from './sidePanelMaxChatInterface'
 import { sidePanelStatusLogic } from './sidePanelStatusLogic'
 
 const PRODUCTS = [

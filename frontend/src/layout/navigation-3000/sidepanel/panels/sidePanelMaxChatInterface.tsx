@@ -95,7 +95,7 @@ export function MaxChatInterface(): JSX.Element {
 }
 
 function MaxChatInterfaceContent(): JSX.Element {
-    const { currentMessages, isSearchingThinking, isRateLimited } = useValues(sidePanelMaxAILogic)
+    const { currentMessages, isSearchingThinking, isRateLimited, hasServerError } = useValues(sidePanelMaxAILogic)
     const { submitMessage } = useActions(sidePanelMaxAILogic)
     const [inputMessage, setInputMessage] = useState('')
     const [isLoading, setIsLoading] = useState(true)
@@ -361,7 +361,9 @@ function MaxChatInterfaceContent(): JSX.Element {
                                         <div className="p-2 rounded-lg bg-bg-light dark:bg-bg-depth text-default">
                                             <div className="flex items-center gap-2">
                                                 <span>
-                                                    {isRateLimited
+                                                    {hasServerError
+                                                        ? "🫣 Uh-oh. I wasn't able to connect to the Anthropic API (my brain!) Please try sending your message again in about 1 minute?"
+                                                        : isRateLimited
                                                         ? "🫣 Uh-oh, I'm really popular today, we've been rate-limited. I just need to catch my breath. Hang on, I'll resume searching in less than a minute..."
                                                         : 'Searching and thinking...'}
                                                 </span>
