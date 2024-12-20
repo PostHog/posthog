@@ -795,7 +795,7 @@ vine==5.0.0
     #   kombu
 wcwidth==0.2.6
     # via prompt-toolkit
-webdriver-manager==4.0.1
+webdriver-manager==4.0.2
     # via -r requirements.in
 wheel==0.42.0
     # via astunparse
