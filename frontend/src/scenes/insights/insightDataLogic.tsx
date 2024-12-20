@@ -219,6 +219,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             if (isQueryTooLarge(query)) {
                 localStorage.removeItem(`draft-query-${values.currentTeamId}`)
             }
+
             localStorage.setItem(
                 `draft-query-${values.currentTeamId}`,
                 crushDraftQueryForLocalStorage(query, Date.now())
