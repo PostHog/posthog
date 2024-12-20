@@ -54,6 +54,7 @@ class HogFunctionTemplate:
         "broadcast",
         "activity",
         "alert",
+        "error_tracking_alert",
     ]
     id: str
     name: str
