@@ -152,6 +152,16 @@ export const sdksLogic = kea<sdksLogicType>([
                 return combinedSnippetAndLiveEventsHosts
             },
         ],
+        isUserInNonTechnicalTest: [
+            (s) => [s.productKey, s.featureFlags, s.isUserTechnical],
+            (productKey, featureFlags, isUserTechnical): boolean => {
+                return (
+                    productKey === ProductKey.PRODUCT_ANALYTICS &&
+                    featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_MODIFIED_SDK_LIST] === 'test' &&
+                    isUserTechnical === false
+                )
+            },
+        ],
     }),
     loaders(({ actions }) => ({
         hasSnippetEvents: [
@@ -200,11 +210,7 @@ export const sdksLogic = kea<sdksLogicType>([
                     return sdk.tags.includes(values.sourceFilter)
                 })
                 .filter((sdk) => Object.keys(values.availableSDKInstructionsMap).includes(sdk.key))
-            if (
-                values.featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_MODIFIED_SDK_LIST] === 'test' &&
-                values.productKey === ProductKey.PRODUCT_ANALYTICS &&
-                values.isUserTechnical === false
-            ) {
+            if (values.isUserInNonTechnicalTest) {
                 filteredSDks = getProductAnalyticsOrderedSDKs(filteredSDks)
             }
             actions.setSDKs(filteredSDks)
