@@ -72,7 +72,7 @@ class HogFunction(UUIDModel):
     deleted = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)
-    type = models.CharField(max_length=24, choices=HogFunctionType.choices, null=True, blank=True)
+    type = models.CharField(max_length=24, null=True, blank=True)
 
     icon_url = models.TextField(null=True, blank=True)
 
