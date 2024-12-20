@@ -1,5 +1,5 @@
-import { IconActivity, IconGraph, IconPencil } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTag } from '@posthog/lemon-ui'
+import { IconActivity, IconGraph, IconMinus, IconPencil, IconTrending } from '@posthog/icons'
+import { LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
@@ -70,8 +70,21 @@ export function DeltaChart({
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
     const [isModalOpen, setIsModalOpen] = useState(false)
 
-    const BAR_HEIGHT = 8
-    const BAR_PADDING = 10
+    const getScaleAddition = (variantCount: number): number => {
+        if (variantCount < 3) {
+            return 6
+        }
+        if (variantCount < 4) {
+            return 3
+        }
+        if (variantCount < 5) {
+            return 1
+        }
+        return 0
+    }
+
+    const BAR_HEIGHT = 8 + getScaleAddition(variants.length)
+    const BAR_PADDING = 10 + getScaleAddition(variants.length)
     const TICK_PANEL_HEIGHT = 20
     const VIEW_BOX_WIDTH = 800
     const HORIZONTAL_PADDING = 20
@@ -102,7 +115,7 @@ export function DeltaChart({
 
     const metricTitlePanelWidth = '20%'
     const variantsPanelWidth = '10%'
-    const detailedResultsPanelWidth = '10%'
+    const detailedResultsPanelWidth = '125px'
 
     const ticksSvgRef = useRef<SVGSVGElement>(null)
     const chartSvgRef = useRef<SVGSVGElement>(null)
@@ -677,19 +690,20 @@ export function DeltaChart({
                             height: `${chartSvgHeight}px`,
                             borderLeft: result ? `1px solid ${COLORS.BOUNDARY_LINES}` : 'none',
                             display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: '0 4px',
+                            flexDirection: 'column',
                         }}
                     >
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            icon={<IconGraph />}
-                            onClick={() => setIsModalOpen(true)}
-                        >
-                            Detailed results
-                        </LemonButton>
+                        <SignificanceHighlight metricIndex={metricIndex} />
+                        <div className="flex-1 flex items-center justify-center">
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                icon={<IconGraph />}
+                                onClick={() => setIsModalOpen(true)}
+                            >
+                                Detailed results
+                            </LemonButton>
+                        </div>
                     </div>
                 )}
             </div>
@@ -712,5 +726,34 @@ export function DeltaChart({
                 <ResultsQuery targetResults={result} showTable={true} />
             </LemonModal>
         </div>
+    )
+}
+
+function SignificanceHighlight({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
+    const { areResultsSignificant, significanceDetails } = useValues(experimentLogic)
+    const result: { color: LemonTagType; label: string } = areResultsSignificant(metricIndex)
+        ? { color: 'success', label: 'Significant' }
+        : { color: 'primary', label: 'Not significant' }
+
+    const inner = areResultsSignificant(metricIndex) ? (
+        <div className="bg-success-highlight text-success p-1 flex items-center gap-1">
+            <IconTrending fontSize={20} fontWeight={600} />
+            <span className="text-xs font-semibold">{result.label}</span>
+        </div>
+    ) : (
+        <div className="bg-warning-highlight text-warning p-1 flex items-center gap-1">
+            <IconMinus fontSize={20} fontWeight={600} />
+            <span className="text-xs font-semibold">{result.label}</span>
+        </div>
+    )
+
+    const details = significanceDetails(metricIndex)
+
+    return details ? (
+        <Tooltip title={details}>
+            <div className="cursor-pointer">{inner}</div>
+        </Tooltip>
+    ) : (
+        <div>{inner}</div>
     )
 }
