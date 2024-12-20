@@ -1,14 +1,14 @@
-import typing
-import datetime as dt
 import collections.abc
 import dataclasses
+import datetime as dt
+import typing
 
 import structlog
 
 from posthog.temporal.common.heartbeat import (
+    EmptyHeartbeatError,
     HeartbeatDetails,
     HeartbeatParseError,
-    EmptyHeartbeatError,
     NotEnoughHeartbeatValuesError,
 )
 
@@ -27,6 +27,7 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
     """
 
     done_ranges: list[DateRange] = dataclasses.field(default_factory=list)
+    records_completed: int = 0
     _remaining: collections.abc.Sequence[typing.Any] = dataclasses.field(default_factory=tuple)
 
     @classmethod
@@ -37,10 +38,11 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
         values. Moreover, we expect datetime values to be ISO-formatted strings.
         """
         done_ranges: list[DateRange] = []
+        records_completed = 0
         remaining = super().deserialize_details(details)
 
         if len(remaining["_remaining"]) == 0:
-            return {"done_ranges": done_ranges, **remaining}
+            return {"done_ranges": done_ranges, "records_completed": records_completed, **remaining}
 
         first_detail = remaining["_remaining"][0]
         remaining["_remaining"] = remaining["_remaining"][1:]
@@ -57,7 +59,18 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
 
             done_ranges.append(datetime_bounds)
 
-        return {"done_ranges": done_ranges, **remaining}
+        if len(remaining["_remaining"]) == 0:
+            return {"done_ranges": done_ranges, "records_completed": records_completed, **remaining}
+
+        next_detail = remaining["_remaining"][0]
+        remaining["_remaining"] = remaining["_remaining"][1:]
+
+        try:
+            records_completed = int(next_detail)
+        except (TypeError, ValueError) as e:
+            raise HeartbeatParseError("records_completed") from e
+
+        return {"done_ranges": done_ranges, "records_completed": records_completed, **remaining}
 
     def serialize_details(self) -> tuple[typing.Any, ...]:
         """Serialize this into a tuple.
@@ -69,7 +82,7 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
             (start.isoformat() if start is not None else start, end.isoformat()) for (start, end) in self.done_ranges
         ]
         serialized_parent_details = super().serialize_details()
-        return (*serialized_parent_details[:-1], serialized_done_ranges, self._remaining)
+        return (*serialized_parent_details[:-1], serialized_done_ranges, self.records_completed, self._remaining)
 
     @property
     def empty(self) -> bool:
