@@ -31,6 +31,17 @@ NOTIFICATION_DEFAULTS: Notifications = {
 # We don't ned the following attributes in most cases, so we defer them by default
 DEFERED_ATTRS = ["requested_password_reset_at"]
 
+ROLE_CHOICES = (
+    ("engineering", "Engineering"),
+    ("data", "Data"),
+    ("product", "Product Management"),
+    ("founder", "Founder"),
+    ("leadership", "Leadership"),
+    ("marketing", "Marketing"),
+    ("sales", "Sales / Success"),
+    ("other", "Other"),
+)
+
 
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
@@ -154,6 +165,7 @@ class User(AbstractUser, UUIDClassicModel):
         default=True,
         help_text=_("Unselect this to temporarily disable an account."),
     )
+    role_at_organization = models.CharField(max_length=64, choices=ROLE_CHOICES, null=True, blank=True)
 
     # Preferences / configuration options
 
