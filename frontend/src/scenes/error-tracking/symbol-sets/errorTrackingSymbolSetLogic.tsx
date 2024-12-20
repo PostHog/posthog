@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import type { errorTrackingSymbolSetLogicType } from './errorTrackingSymbolSetLogicType'
+import type { errorTrackingSymbolSetLogicType } from '../symbol-sets/errorTrackingSymbolSetLogicType'
 
 export enum ErrorGroupTab {
     Overview = 'overview',
@@ -66,8 +66,8 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
                     path: urls.errorTracking(),
                 },
                 {
-                    key: Scene.ErrorTrackingConfiguration,
-                    name: 'Configuration',
+                    key: Scene.ErrorTrackingSymbolSets,
+                    name: 'Symbol Sets',
                 },
             ],
         ],
