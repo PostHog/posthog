@@ -91,7 +91,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
     connect(() => ({
         values: [
             toolbarConfigLogic,
-            ['dataAttributes', 'apiURL', 'temporaryToken', 'buttonVisible', 'userIntent', 'actionId', 'dataAttributes'],
+            ['dataAttributes', 'apiURL', 'accessToken', 'buttonVisible', 'userIntent', 'actionId', 'dataAttributes'],
             actionsLogic,
             ['allActions'],
         ],
@@ -199,8 +199,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     steps: formValues.steps?.map(stepToDatabaseFormat) || [],
                     creation_context: values.automaticActionCreationEnabled ? 'onboarding' : null,
                 }
-                const { apiURL, temporaryToken } = values
-                const { selectedActionId } = values
+                const { apiURL, accessToken, selectedActionId } = values
 
                 const findUniqueActionName = (baseName: string, index = 0): string => {
                     const proposedName = index === 0 ? baseName : `${baseName} - ${index}`
@@ -218,14 +217,20 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 let response: ActionType
                 if (selectedActionId && selectedActionId !== 'new') {
                     response = await api.update(
-                        `${apiURL}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`,
-                        actionToSave
+                        `${apiURL}/api/projects/@current/actions/${selectedActionId}/`,
+                        actionToSave,
+                        {
+                            headers: {
+                                Authorization: `Bearer ${accessToken}`,
+                            },
+                        }
                     )
                 } else {
-                    response = await api.create(
-                        `${apiURL}/api/projects/@current/actions/?temporary_token=${temporaryToken}`,
-                        actionToSave
-                    )
+                    response = await api.create(`${apiURL}/api/projects/@current/actions`, actionToSave, {
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                        },
+                    })
                 }
                 breakpoint()
 
@@ -369,11 +374,13 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
             }
         },
         deleteAction: async () => {
-            const { selectedActionId, apiURL, temporaryToken } = values
+            const { selectedActionId, apiURL, accessToken } = values
             if (selectedActionId && selectedActionId !== 'new') {
-                await api.delete(
-                    `${apiURL}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`
-                )
+                await api.delete(`${apiURL}/api/projects/@current/actions/${selectedActionId}/`, {
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                    },
+                })
                 actionsLogic.actions.deleteAction({ id: selectedActionId })
                 actions.selectAction(null)
                 lemonToast.info('Action deleted')
