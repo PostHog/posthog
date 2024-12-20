@@ -148,13 +148,8 @@ class Assistant:
         if snapshot.next:
             saved_state = validate_state_update(snapshot.values)
             self._state = saved_state
-            if saved_state.intermediate_steps:
-                intermediate_steps = saved_state.intermediate_steps.copy()
-                intermediate_steps[-1] = (intermediate_steps[-1][0], self._latest_message.content)
-                self._graph.update_state(
-                    config,
-                    PartialAssistantState(messages=[self._latest_message], intermediate_steps=intermediate_steps),
-                )
+            self._graph.update_state(config, PartialAssistantState(messages=[self._latest_message], resumed=True))
+
             return None
         initial_state = self._initial_state
         self._state = initial_state
