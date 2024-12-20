@@ -60,7 +60,7 @@ export const sdksLogic = kea<sdksLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             userLogic,
-            ['user'],
+            ['user', 'isUserTechnical'],
         ],
     }),
     actions({
@@ -202,7 +202,8 @@ export const sdksLogic = kea<sdksLogicType>([
                 .filter((sdk) => Object.keys(values.availableSDKInstructionsMap).includes(sdk.key))
             if (
                 values.featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_MODIFIED_SDK_LIST] === 'test' &&
-                values.productKey === ProductKey.PRODUCT_ANALYTICS
+                values.productKey === ProductKey.PRODUCT_ANALYTICS &&
+                values.isUserTechnical === false
             ) {
                 filteredSDks = getProductAnalyticsOrderedSDKs(filteredSDks)
             }
@@ -250,18 +251,7 @@ export const sdksLogic = kea<sdksLogicType>([
     afterMount(({ actions }) => {
         actions.loadSnippetEvents()
     }),
-    urlToAction(({ actions, values }) => ({
-        '/onboarding/:productKey': (_product_key, { sdk }) => {
-            if (
-                values.productKey === ProductKey.PRODUCT_ANALYTICS &&
-                values.featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_MODIFIED_SDK_LIST] === 'test'
-            ) {
-                actions.setSourceFilter('Recommended')
-            }
-            const matchedSDK = allSDKs.find((s) => s.key === sdk)
-            if (matchedSDK) {
-                actions.setSelectedSDK(matchedSDK)
-            }
-        },
+    urlToAction(() => ({
+        '/onboarding/:productKey': () => {},
     })),
 ])

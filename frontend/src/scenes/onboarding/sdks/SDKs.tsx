@@ -1,11 +1,14 @@
 import { IconArrowLeft, IconArrowRight, IconCheck } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDivider, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useInterval } from 'lib/hooks/useInterval'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
 import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 import { SDKInstructionsMap } from '~/types'
@@ -38,6 +41,8 @@ export function SDKs({
     const { goToNextStep, completeOnboarding } = useActions(onboardingLogic)
     const [showListeningFor, setShowListeningFor] = React.useState(false)
     const [hasCheckedInstallation, setHasCheckedInstallation] = React.useState(false)
+    const { isUserTechnical } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { width } = useWindowSize()
 
@@ -66,8 +71,18 @@ export function SDKs({
         }
     }, 2000)
 
+    const HelpCard = (): JSX.Element => (
+        <LemonCard className="mt-6" hoverEffect={false}>
+            <h3 className="font-bold">Need help with this step?</h3>
+            <p>Invite a team member to help you get set up.</p>
+            <InviteMembersButton type="secondary" />
+        </LemonCard>
+    )
+
     return (
         <OnboardingStep title="Install" stepKey={stepKey} continueOverride={<></>}>
+            {featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_MODIFIED_SDK_LIST] === 'test' &&
+                isUserTechnical === false && <HelpCard />}
             <div className="flex gap-x-8 mt-6">
                 <div
                     className={`flex-col gap-y-2 flex-wrap gap-x-4 ${showSideBySide && 'min-w-[12.5rem] w-50'} ${
@@ -106,11 +121,8 @@ export function SDKs({
                             </LemonButton>
                         </React.Fragment>
                     ))}
-                    <LemonCard className="mt-6" hoverEffect={false}>
-                        <h3 className="font-bold">Need help with this step?</h3>
-                        <p>Invite a team member to help you get set up.</p>
-                        <InviteMembersButton type="secondary" />
-                    </LemonCard>
+                    {(featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_MODIFIED_SDK_LIST] !== 'test' ||
+                        isUserTechnical !== false) && <HelpCard />}
                 </div>
                 {selectedSDK && productKey && !!sdkInstructionMap[selectedSDK.key] && (
                     <div
