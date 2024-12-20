@@ -2,10 +2,8 @@ import functools
 import re
 from datetime import timedelta
 from typing import Any, Optional, Union
-from urllib.parse import urlsplit
 
 import jwt
-from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpRequest, JsonResponse
@@ -167,6 +165,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         )
 
         self.personal_api_key = personal_api_key_object
+        self.scopes = personal_api_key_object.scopes
+        self.scoped_organizations = personal_api_key_object.scoped_organizations
+        self.scoped_teams = personal_api_key_object.scoped_teams
 
         return personal_api_key_object.user, None
 
@@ -175,57 +176,35 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class TemporaryTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: Request):
-        # if the Origin is different, the only authentication method should be temporary_token
-        # This happens when someone is trying to create actions from the editor on their own website
-        if (
-            request.headers.get("Origin")
-            and urlsplit(request.headers["Origin"]).netloc not in urlsplit(request.build_absolute_uri("/")).netloc
-        ):
-            if not request.GET.get("temporary_token"):
-                raise AuthenticationFailed(
-                    detail="No temporary_token set. "
-                    + "That means you're either trying to access this API from a different site, "
-                    + "or it means your proxy isn't sending the correct headers. "
-                    + "See https://posthog.com/docs/deployment/running-behind-proxy for more information."
-                )
-        if request.GET.get("temporary_token"):
-            User = apps.get_model(app_label="posthog", model_name="User")
-            user = User.objects.filter(is_active=True, temporary_token=request.GET.get("temporary_token"))
-            if not user.exists():
-                raise AuthenticationFailed(detail="User doesn't exist")
-            return (user.first(), None)
-
-        return None
-
-    # NOTE: This appears first in the authentication chain often so we want to define an authenticate_header to ensure 401 and not 403
-    def authenticate_header(self, request: Request):
-        return "Bearer"
-
-
 class JwtAuthentication(authentication.BaseAuthentication):
     """
     A way of authenticating with a JWT, primarily by background jobs impersonating a User
     """
 
     keyword = "Bearer"
+    valid_audiences = [PosthogJwtAudience.IMPERSONATED_USER, PosthogJwtAudience.CLIENT]
 
-    @classmethod
-    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
-                try:
-                    token = authorization_match.group(1).strip()
-                    info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
-                    user = User.objects.get(pk=info["id"])
-                    return (user, None)
-                except jwt.DecodeError:
-                    # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
-                    return None
-                except Exception:
-                    raise AuthenticationFailed(detail=f"Token invalid.")
+                for audience in self.valid_audiences:
+                    try:
+                        token = authorization_match.group(1).strip()
+                        info = decode_jwt(token, audience=audience)
+                        user = User.objects.get(pk=info["id"])
+                        # TODO: Should we deny tokens without a scope?
+                        self.scopes = info.get("scope", "").split(",") if info.get("scope") else []
+                        self.scoped_teams = [info["team_id"]] if info.get("team_id") else []
+                        self.scoped_organizations = [info["organization_id"]] if info.get("organization_id") else []
+
+                        return (user, None)
+                    except Exception as e:
+                        # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
+                        if not isinstance(e, jwt.InvalidTokenError):
+                            raise AuthenticationFailed(detail=f"Token invalid.")
+
+                return None
             else:
                 # We don't throw so that the PersonalAPIKeyAuthentication can have a go
                 return None
