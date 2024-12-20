@@ -23,7 +23,7 @@ import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 const HOG_TEMPLATE: HogFunctionTemplateType = {
     sub_templates: [
         {
-            id: 'early_access_feature_enrollment',
+            id: 'early-access-feature-enrollment',
             name: 'HTTP Webhook on feature enrollment',
             description: null,
             filters: {
