@@ -38,7 +38,8 @@ jobs:
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
-
+                        - 'docker-compose.base.yml'
+                        - 'docker-compose.dev.yml'
     build:
         name: Build Rust services
         needs: changes
