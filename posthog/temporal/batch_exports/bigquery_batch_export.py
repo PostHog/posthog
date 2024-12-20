@@ -556,6 +556,7 @@ class BigQueryConsumer(Consumer):
         self.rows_exported_counter.add(records_since_last_flush)
         self.bytes_exported_counter.add(bytes_since_last_flush)
 
+        self.heartbeat_details.records_completed += records_since_last_flush
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
@@ -629,11 +630,10 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
         )
-        records_completed = 0
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            return records_completed
+            return 0
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -700,7 +700,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     create=can_perform_merge,
                     delete=can_perform_merge,
                 ) as bigquery_stage_table:
-                    records_completed = await run_consumer_loop(
+                    await run_consumer_loop(
                         queue=queue,
                         consumer_cls=BigQueryConsumer,
                         producer_task=producer_task,
@@ -732,7 +732,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                             stage_fields_cast_to_json=json_columns,
                         )
 
-        return records_completed
+        return details.records_completed
 
 
 @workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])

@@ -1634,8 +1634,11 @@ async def test_insert_into_snowflake_activity_heartbeats(
 @pytest.mark.parametrize(
     "details",
     [
-        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())], 1),
-        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())],),
+        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())], 10, 1),
+        (
+            [(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())],
+            10,
+        ),
     ],
 )
 def test_snowflake_heartbeat_details_parses_from_tuple(details):
@@ -1657,7 +1660,7 @@ def test_snowflake_heartbeat_details_parses_from_tuple(details):
         )
     ]
 
-    if len(details) >= 2:
-        assert snowflake_details.file_no == details[1]
+    if len(details) >= 3:
+        assert snowflake_details.file_no == details[2]
     else:
         assert snowflake_details.file_no == 0
