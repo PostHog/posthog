@@ -182,7 +182,7 @@ class SessionRecordingListFromQuery:
     def _test_account_filters(self) -> list[AnyPropertyFilter]:
         prop_filters: list[AnyPropertyFilter] = []
         for prop in self._team.test_account_filters:
-            match prop["type"]:
+            match prop.get("type", None):
                 case "person":
                     prop_filters.append(PersonPropertyFilter(**prop))
                 case "event":
@@ -191,6 +191,9 @@ class SessionRecordingListFromQuery:
                     prop_filters.append(GroupPropertyFilter(**prop))
                 case "hogql":
                     prop_filters.append(HogQLPropertyFilter(**prop))
+                case None:
+                    logger.warn("test account filter had no type", filter=prop)
+                    prop_filters.append(EventPropertyFilter(**prop))
 
         return prop_filters
 

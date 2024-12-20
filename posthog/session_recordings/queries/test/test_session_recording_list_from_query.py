@@ -3316,7 +3316,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "key": "is_internal_user",
                 "value": ["false"],
                 "operator": "exact",
-                "type": "event",
+                # in production some test account filters don't include type
+                # we default to event in that case
+                # "type": "event",
             },
             {"key": "properties.$browser == 'Chrome'", "type": "hogql"},
         ]
