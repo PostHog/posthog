@@ -58,7 +58,7 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
  * in practice, it will only wait for 1-2 retries
  * but a timeout is provided to avoid waiting forever when something breaks
  */
-const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRecordingDataLogicType>> => {
+export const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRecordingDataLogicType>> => {
     const maxRetries = 20 // 2 seconds / 100 ms per retry
     let retries = 0
     let dataLogic = null

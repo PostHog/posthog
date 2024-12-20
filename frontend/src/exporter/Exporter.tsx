@@ -19,6 +19,7 @@ import { Logo } from '~/toolbar/assets/Logo'
 import { DashboardPlacement } from '~/types'
 
 import { exporterViewLogic } from './exporterViewLogic'
+import { EmbeddedReplayHelper } from './replay/EmbeddedReplayHelper'
 
 export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
@@ -83,13 +84,16 @@ export function Exporter(props: ExportedData): JSX.Element {
                     placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
                 />
             ) : recording ? (
-                <SessionRecordingPlayer
-                    playerKey="exporter"
-                    sessionRecordingId={recording.id}
-                    mode={SessionRecordingPlayerMode.Sharing}
-                    autoPlay={false}
-                    noInspector={!showInspector}
-                />
+                <>
+                    <EmbeddedReplayHelper />
+                    <SessionRecordingPlayer
+                        playerKey="exporter"
+                        sessionRecordingId={recording.id}
+                        mode={SessionRecordingPlayerMode.Sharing}
+                        autoPlay={false}
+                        noInspector={!showInspector}
+                    />
+                </>
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>
             )}
