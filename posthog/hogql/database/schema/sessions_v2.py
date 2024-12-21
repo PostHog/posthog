@@ -37,6 +37,9 @@ from posthog.schema import BounceRatePageViewMode, CustomChannelRule
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
+
+DEFAULT_BOUNCE_RATE_DURATION_SECONDS = 30
+
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
     "team_id": IntegerDatabaseField(name="team_id"),
@@ -252,6 +255,11 @@ def select_from_sessions_table_v2(
         args=[aggregate_fields["$urls"]],
     )
 
+    bounce_rate_duration_seconds = (
+        context.modifiers.bounceRateDurationSeconds
+        if context.modifiers.bounceRateDurationSeconds is not None
+        else DEFAULT_BOUNCE_RATE_DURATION_SECONDS
+    )
     if context.modifiers.bounceRatePageViewMode == BounceRatePageViewMode.UNIQ_PAGE_SCREEN_AUTOCAPTURES:
         bounce_event_count = aggregate_fields["$page_screen_autocapture_count_up_to"]
         aggregate_fields["$is_bounce"] = ast.Call(
@@ -271,7 +279,10 @@ def select_from_sessions_table_v2(
                                 # if session duration >= 10 seconds, not a bounce
                                 ast.Call(
                                     name="greaterOrEquals",
-                                    args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
+                                    args=[
+                                        aggregate_fields["$session_duration"],
+                                        ast.Constant(value=bounce_rate_duration_seconds),
+                                    ],
                                 ),
                             ],
                         )
@@ -302,7 +313,10 @@ def select_from_sessions_table_v2(
                                 # if session duration >= 10 seconds, not a bounce
                                 ast.Call(
                                     name="greaterOrEquals",
-                                    args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
+                                    args=[
+                                        aggregate_fields["$session_duration"],
+                                        ast.Constant(value=bounce_rate_duration_seconds),
+                                    ],
                                 ),
                             ],
                         )

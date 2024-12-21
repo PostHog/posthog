@@ -236,6 +236,7 @@ export interface HogQLQueryModifiers {
     s3TableUseInvalidColumns?: boolean
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
+    bounceRateDurationSeconds?: number
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
