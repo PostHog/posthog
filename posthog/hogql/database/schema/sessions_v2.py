@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-DEFAULT_BOUNCE_RATE_DURATION_SECONDS = 30
+DEFAULT_BOUNCE_RATE_DURATION_SECONDS = 10
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
@@ -276,7 +276,7 @@ def select_from_sessions_table_v2(
                             args=[
                                 # if pageviews + autocaptures > 1, not a bounce
                                 ast.Call(name="greater", args=[bounce_event_count, ast.Constant(value=1)]),
-                                # if session duration >= 10 seconds, not a bounce
+                                # if session duration >= bounce_rate_duration_seconds, not a bounce
                                 ast.Call(
                                     name="greaterOrEquals",
                                     args=[
@@ -310,7 +310,7 @@ def select_from_sessions_table_v2(
                                 ast.Call(
                                     name="greater", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]
                                 ),
-                                # if session duration >= 10 seconds, not a bounce
+                                # if session duration >= bounce_rate_duration_seconds, not a bounce
                                 ast.Call(
                                     name="greaterOrEquals",
                                     args=[
