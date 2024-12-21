@@ -22,6 +22,7 @@ from posthog.hogql.database.schema.channel_type import (
     ChannelTypeExprs,
     DEFAULT_CHANNEL_TYPES,
 )
+from posthog.hogql.database.schema.sessions_v2 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV1
 from posthog.hogql.errors import ResolutionError
 from posthog.models.property_definition import PropertyType
@@ -205,6 +206,11 @@ def select_from_sessions_table_v1(
         args=[aggregate_fields["$urls"]],
     )
 
+    bounce_rate_duration_seconds = (
+        context.modifiers.bounceRateDurationSeconds
+        if context.modifiers.bounceRateDurationSeconds is not None
+        else DEFAULT_BOUNCE_RATE_DURATION_SECONDS
+    )
     if context.modifiers.bounceRatePageViewMode == BounceRatePageViewMode.UNIQ_URLS:
         bounce_pageview_count = aggregate_fields["$num_uniq_urls"]
     else:
@@ -230,7 +236,10 @@ def select_from_sessions_table_v1(
                             # if session duration >= 10 seconds, not a bounce
                             ast.Call(
                                 name="greaterOrEquals",
-                                args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
+                                args=[
+                                    aggregate_fields["$session_duration"],
+                                    ast.Constant(value=bounce_rate_duration_seconds),
+                                ],
                             ),
                         ],
                     )
