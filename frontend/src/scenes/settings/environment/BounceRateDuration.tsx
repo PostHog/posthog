@@ -18,7 +18,10 @@ export function BounceRateDurationSetting(): JSX.Element {
 
     return (
         <>
-            <p>Choose how long a user can stay on a page, before the session is not a bounce.</p>
+            <p>
+                Choose how long a user can stay on a page, in seconds, before the session is not a bounce. The default
+                is 10 seconds.
+            </p>
             <LemonInput type="number" min={1} max={120} value={bounceRateDuration} onChange={setBounceRateDuration} />
             <div className="mt-4">
                 <LemonButton
