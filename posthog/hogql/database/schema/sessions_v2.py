@@ -22,7 +22,7 @@ from posthog.hogql.database.schema.channel_type import (
     ChannelTypeExprs,
     DEFAULT_CHANNEL_TYPES,
 )
-from posthog.hogql.database.schema.sessions_v1 import null_if_empty
+from posthog.hogql.database.schema.sessions_v1 import null_if_empty, DEFAULT_BOUNCE_RATE_DURATION_SECONDS
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -37,8 +37,6 @@ from posthog.schema import BounceRatePageViewMode, CustomChannelRule
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
-
-DEFAULT_BOUNCE_RATE_DURATION_SECONDS = 10
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "session_id_v7": IntegerDatabaseField(name="session_id_v7"),

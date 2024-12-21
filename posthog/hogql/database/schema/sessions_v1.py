@@ -22,7 +22,6 @@ from posthog.hogql.database.schema.channel_type import (
     ChannelTypeExprs,
     DEFAULT_CHANNEL_TYPES,
 )
-from posthog.hogql.database.schema.sessions_v2 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV1
 from posthog.hogql.errors import ResolutionError
 from posthog.models.property_definition import PropertyType
@@ -35,6 +34,8 @@ from posthog.schema import BounceRatePageViewMode
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+DEFAULT_BOUNCE_RATE_DURATION_SECONDS = 10
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="session_id"),
