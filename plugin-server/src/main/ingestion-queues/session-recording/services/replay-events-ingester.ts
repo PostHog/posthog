@@ -138,7 +138,10 @@ export class ReplayEventsIngester {
                 if (replayRecord !== null) {
                     const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
                     if (!asDate.isValid || Math.abs(asDate.diffNow('day').days) >= 7) {
-                        const eventTypes = rrwebEvents.map((event) => event.type)
+                        const eventTypes = rrwebEvents.map((event) => ({
+                            type: event.type,
+                            timestamp: event.timestamp,
+                        }))
                         const customEvents = rrwebEvents.filter((event) => event.type === RRWebEventType.Custom)
                         await captureIngestionWarning(
                             new KafkaProducerWrapper(this.producer),
