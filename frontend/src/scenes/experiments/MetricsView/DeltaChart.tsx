@@ -1,5 +1,5 @@
 import { IconActivity, IconGraph, IconMinus, IconPencil, IconTrending } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
@@ -8,7 +8,9 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { ResultsQuery, VariantTag } from '../ExperimentView/components'
+import { ExploreButton, ResultsQuery, VariantTag } from '../ExperimentView/components'
+import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview'
+import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
 
 function formatTickValue(value: number): string {
@@ -34,6 +36,7 @@ function formatTickValue(value: number): string {
 }
 
 export function DeltaChart({
+    isSecondary,
     result,
     error,
     variants,
@@ -44,6 +47,7 @@ export function DeltaChart({
     tickValues,
     chartBound,
 }: {
+    isSecondary: boolean
     result: any
     error: any
     variants: any[]
@@ -64,7 +68,7 @@ export function DeltaChart({
     } = useValues(experimentLogic)
 
     const { experiment } = useValues(experimentLogic)
-    const { openPrimaryMetricModal } = useActions(experimentLogic)
+    const { openPrimaryMetricModal, openSecondaryMetricModal } = useActions(experimentLogic)
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
@@ -182,7 +186,11 @@ export function DeltaChart({
                                     type="secondary"
                                     size="xsmall"
                                     icon={<IconPencil fontSize="12" />}
-                                    onClick={() => openPrimaryMetricModal(metricIndex)}
+                                    onClick={() =>
+                                        isSecondary
+                                            ? openSecondaryMetricModal(metricIndex)
+                                            : openPrimaryMetricModal(metricIndex)
+                                    }
                                 />
                             </div>
                             <LemonTag type="muted" size="small">
@@ -712,7 +720,7 @@ export function DeltaChart({
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 width={1200}
-                title={`Results for ${metric.name || 'Untitled metric'}`}
+                title={`Metric results: ${metric.name || 'Untitled metric'}`}
                 footer={
                     <LemonButton
                         form="secondary-metric-modal-form"
@@ -723,6 +731,16 @@ export function DeltaChart({
                     </LemonButton>
                 }
             >
+                <LemonBanner type="info" className="mb-4">
+                    <div className="items-center inline-flex flex-wrap">
+                        <WinningVariantText result={result} experimentId={experimentId} />
+                        <SignificanceText metricIndex={metricIndex} />
+                    </div>
+                </LemonBanner>
+                <div className="flex justify-end">
+                    <ExploreButton metricIndex={metricIndex} isSecondary={isSecondary} />
+                </div>
+                <SummaryTable metricIndex={metricIndex} />
                 <ResultsQuery targetResults={result} showTable={true} />
             </LemonModal>
         </div>

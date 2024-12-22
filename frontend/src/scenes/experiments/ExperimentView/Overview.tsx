@@ -1,62 +1,67 @@
 import { useValues } from 'kea'
 
 import { CachedExperimentFunnelsQueryResponse, CachedExperimentTrendsQueryResponse } from '~/queries/schema'
+import { ExperimentIdType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
-export function Overview(): JSX.Element {
-    const { experimentId, metricResults, getIndexForVariant, getHighestProbabilityVariant, areResultsSignificant } =
-        useValues(experimentLogic)
+export function WinningVariantText({
+    result,
+    experimentId,
+}: {
+    result: CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse
+    experimentId: ExperimentIdType
+}): JSX.Element {
+    const { getIndexForVariant, getHighestProbabilityVariant } = useValues(experimentLogic)
 
-    const result = metricResults?.[0]
-    if (!result) {
-        return <></>
-    }
+    const highestProbabilityVariant = getHighestProbabilityVariant(result)
+    const index = getIndexForVariant(result, highestProbabilityVariant || '')
+    if (highestProbabilityVariant && index !== null && result) {
+        const { probability } = result
 
-    function WinningVariantText(): JSX.Element {
-        const highestProbabilityVariant = getHighestProbabilityVariant(
-            result as CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse
-        )
-        const index = getIndexForVariant(
-            result as CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse,
-            highestProbabilityVariant || ''
-        )
-        if (highestProbabilityVariant && index !== null && result) {
-            const { probability } = result
-
-            return (
-                <div className="items-center inline-flex flex-wrap">
-                    <VariantTag experimentId={experimentId} variantKey={highestProbabilityVariant} />
-                    <span>&nbsp;is winning with a&nbsp;</span>
-                    <span className="font-semibold text-success items-center">
-                        {`${(probability[highestProbabilityVariant] * 100).toFixed(2)}% probability`}&nbsp;
-                    </span>
-                    <span>of being best.&nbsp;</span>
-                </div>
-            )
-        }
-
-        return <></>
-    }
-
-    function SignificanceText(): JSX.Element {
         return (
-            <div className="flex-wrap">
-                <span>Your results are&nbsp;</span>
-                <span className="font-semibold">
-                    {`${areResultsSignificant(0) ? 'significant' : 'not significant'}`}.
+            <div className="items-center inline-flex flex-wrap">
+                <VariantTag experimentId={experimentId} variantKey={highestProbabilityVariant} />
+                <span>&nbsp;is winning with a&nbsp;</span>
+                <span className="font-semibold text-success items-center">
+                    {`${(probability[highestProbabilityVariant] * 100).toFixed(2)}% probability`}&nbsp;
                 </span>
+                <span>of being best.&nbsp;</span>
             </div>
         )
+    }
+
+    return <></>
+}
+
+export function SignificanceText({ metricIndex }: { metricIndex: number }): JSX.Element {
+    const { areResultsSignificant } = useValues(experimentLogic)
+
+    return (
+        <div className="flex-wrap">
+            <span>Your results are&nbsp;</span>
+            <span className="font-semibold">
+                {`${areResultsSignificant(metricIndex) ? 'significant' : 'not significant'}`}.
+            </span>
+        </div>
+    )
+}
+
+export function Overview({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
+    const { experimentId, metricResults } = useValues(experimentLogic)
+
+    const result = metricResults?.[metricIndex]
+    if (!result) {
+        return <></>
     }
 
     return (
         <div>
             <h2 className="font-semibold text-lg">Summary</h2>
             <div className="items-center inline-flex flex-wrap">
-                <WinningVariantText />
-                <SignificanceText />
+                <WinningVariantText result={result} experimentId={experimentId} />
+                <SignificanceText metricIndex={metricIndex} />
             </div>
         </div>
     )

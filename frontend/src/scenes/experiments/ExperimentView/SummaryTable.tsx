@@ -22,7 +22,7 @@ import {
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
-export function SummaryTable(): JSX.Element {
+export function SummaryTable({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
     const {
         experimentId,
         experiment,
@@ -36,8 +36,8 @@ export function SummaryTable(): JSX.Element {
         getHighestProbabilityVariant,
         credibleIntervalForVariant,
     } = useValues(experimentLogic)
-    const metricType = getMetricType(0)
-    const result = metricResults?.[0]
+    const metricType = getMetricType(metricIndex)
+    const result = metricResults?.[metricIndex]
     if (!result) {
         return <></>
     }

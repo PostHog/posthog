@@ -42,7 +42,6 @@ import {
     Experiment as ExperimentType,
     ExperimentIdType,
     ExperimentResults,
-    FilterType,
     InsightShortId,
     InsightType,
 } from '~/types'
@@ -210,63 +209,24 @@ export function ResultsQuery({
 }
 
 export function ExploreButton({
-    icon = <IconAreaChart />,
     metricIndex = 0,
+    isSecondary = false,
 }: {
-    icon?: JSX.Element
     metricIndex?: number
+    isSecondary?: boolean
 }): JSX.Element {
-    const { metricResults, experiment, featureFlags } = useValues(experimentLogic)
-    const result = metricResults?.[metricIndex]
+    const { metricResults, secondaryMetricResults } = useValues(experimentLogic)
+    const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
 
-    // keep in sync with https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/experiments/funnel_experiment_result.py#L71
-    // :TRICKY: In the case of no results, we still want users to explore the query, so they can debug further.
-    // This generates a close enough query that the backend would use to compute results.
-    const filtersFromExperiment: Partial<FilterType> = {
-        ...experiment.filters,
-        date_from: experiment.start_date,
-        date_to: experiment.end_date,
-        explicit_date: true,
-        breakdown: `$feature/${experiment.feature_flag_key ?? experiment.feature_flag?.key}`,
-        breakdown_type: 'event',
-        properties: [],
+    if (!result) {
+        return <></>
     }
 
-    let query: InsightVizNode
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-        const newQueryResults = result as unknown as
-            | CachedExperimentTrendsQueryResponse
-            | CachedExperimentFunnelsQueryResponse
-
-        const source =
-            newQueryResults.kind === NodeKind.ExperimentTrendsQuery
-                ? newQueryResults.count_query
-                : newQueryResults.funnels_query
-
-        query = {
-            kind: NodeKind.InsightVizNode,
-            source: source as InsightQueryNode,
-        }
-    } else {
-        const oldQueryResults = result as unknown as ExperimentResults['result']
-
-        if (!oldQueryResults?.filters) {
-            return <></>
-        }
-
-        query = {
-            kind: NodeKind.InsightVizNode,
-            source: filtersToQueryNode(
-                transformResultFilters(
-                    oldQueryResults?.filters
-                        ? { ...oldQueryResults.filters, explicit_date: true }
-                        : filtersFromExperiment
-                )
-            ),
-            showTable: true,
-            showLastComputation: true,
-            showLastComputationRefresh: false,
-        }
+    const query: InsightVizNode = {
+        kind: NodeKind.InsightVizNode,
+        source: (result.kind === NodeKind.ExperimentTrendsQuery
+            ? result.count_query
+            : result.funnels_query) as InsightQueryNode,
     }
 
     return (
@@ -274,10 +234,10 @@ export function ExploreButton({
             className="ml-auto -translate-y-2"
             size="xsmall"
             type="primary"
-            icon={icon}
+            icon={<IconAreaChart />}
             to={urls.insightNew(undefined, undefined, query)}
         >
-            Explore results
+            Explore as Insight
         </LemonButton>
     )
 }
@@ -516,7 +476,7 @@ export function PageHeaderCustom(): JSX.Element {
                                                 fullWidth
                                                 data-attr="refresh-experiment"
                                             >
-                                                Refresh experiment results
+                                                Refresh primary metrics
                                             </LemonButton>
                                             <LemonButton
                                                 onClick={() => loadSecondaryMetricResults(true)}
