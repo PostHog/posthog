@@ -27,7 +27,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         modifiers = HogQLQueryModifiers(
             sessionTableVersion=SessionTableVersion.V2,
             bounceRatePageViewMode=bounce_rate_mode,
-            bounce_rate_duration=bounce_rate_duration,
+            bounceRateDurationSeconds=bounce_rate_duration,
         )
         return execute_hogql_query(
             query=query,
@@ -549,9 +549,9 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
                 ),
                 bounce_rate_mode=bounce_rate_mode,
             )
-        ) == [(0, s)]
+        ).results == [(0, s)]
 
-        # with a custom 10 second duration this should be a bounce
+        # with a custom 10 second duration this should not be a bounce
         assert (
             self.__execute(
                 parse_select(
@@ -560,7 +560,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
                 bounce_rate_mode=bounce_rate_mode,
                 bounce_rate_duration=10,
             )
-        ) == [(1, s)]
+        ).results == [(0, s)]
 
         # with a custom 30 second duration this should be a bounce
         assert (
@@ -569,9 +569,9 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
                     "select $is_bounce, session_id from sessions ORDER BY session_id",
                 ),
                 bounce_rate_mode=bounce_rate_mode,
-                bounce_rate_duration=60,
+                bounce_rate_duration=30,
             )
-        ) == [(1, s)]
+        ).results == [(1, s)]
 
     def test_last_external_click_url(self):
         s1 = str(uuid7())
