@@ -220,12 +220,14 @@ export const experimentLogic = kea<experimentLogicType>([
             name,
             series,
             filterTestAccounts,
+            isSecondary = false,
         }: {
             metricIdx: number
             name?: string
             series?: any[]
             filterTestAccounts?: boolean
-        }) => ({ metricIdx, name, series, filterTestAccounts }),
+            isSecondary?: boolean
+        }) => ({ metricIdx, name, series, filterTestAccounts, isSecondary }),
         setFunnelsMetric: ({
             metricIdx,
             name,
@@ -348,8 +350,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         [metricsKey]: metrics,
                     }
                 },
-                setTrendsExposureMetric: (state, { metricIdx, name, series, filterTestAccounts }) => {
-                    const metrics = [...(state?.metrics || [])]
+                setTrendsExposureMetric: (state, { metricIdx, name, series, filterTestAccounts, isSecondary }) => {
+                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
+                    const metrics = [...(state?.[metricsKey] || [])]
                     const metric = metrics[metricIdx]
 
                     metrics[metricIdx] = {
@@ -364,7 +367,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     return {
                         ...state,
-                        metrics,
+                        [metricsKey]: metrics,
                     }
                 },
                 setFunnelsMetric: (
