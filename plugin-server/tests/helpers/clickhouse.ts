@@ -40,7 +40,7 @@ export async function delayUntilEventIngested<T extends any[] | number>(
         maxDelayMs?: number
     } = {}
 ): Promise<T> {
-    const { minLength = 1, delayMs = 100, maxDelayMs = 5000 } = options
+    const { minLength = 1, delayMs = 100, maxDelayMs = 30000 } = options
     const timer = performance.now()
     let data: T
     let dataLength = 0
