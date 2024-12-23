@@ -53,7 +53,7 @@ export function PrimaryMetricModal({ experimentId }: { experimentId: Experiment[
                             setExperiment({
                                 metrics: newMetrics,
                             })
-                            updateExperimentGoal(experiment.filters)
+                            updateExperimentGoal()
                         }}
                     >
                         Delete
@@ -74,7 +74,7 @@ export function PrimaryMetricModal({ experimentId }: { experimentId: Experiment[
                             }
                             form="edit-experiment-goal-form"
                             onClick={() => {
-                                updateExperimentGoal(experiment.filters)
+                                updateExperimentGoal()
                             }}
                             type="primary"
                             loading={experimentLoading}
