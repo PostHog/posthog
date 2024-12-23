@@ -57,6 +57,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     config: {
                         type: 'TrendsAlertConfig',
                         series_index: 0,
+                        check_ongoing_interval: false,
                     },
                     threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: {} } },
                     condition: {
@@ -65,6 +66,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     subscribed_users: [],
                     checks: [],
                     calculation_interval: AlertCalculationInterval.DAILY,
+                    skip_weekend: false,
                     insight: props.insightId,
                 } as AlertFormType),
             errors: ({ name }) => ({
@@ -75,6 +77,20 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     ...alert,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
+                    // can only skip weekends for hourly/daily alerts
+                    skip_weekend:
+                        (alert.calculation_interval === AlertCalculationInterval.DAILY ||
+                            alert.calculation_interval === AlertCalculationInterval.HOURLY) &&
+                        alert.skip_weekend,
+                    // can only check ongoing interval for absolute value/increase alerts with upper threshold
+                    config: {
+                        ...alert.config,
+                        check_ongoing_interval:
+                            (alert.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
+                                alert.condition.type === AlertConditionType.RELATIVE_INCREASE) &&
+                            alert.threshold.configuration.bounds?.upper != null &&
+                            alert.config.check_ongoing_interval,
+                    },
                 }
 
                 // absolute value alert can only have absolute threshold

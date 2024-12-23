@@ -16,6 +16,7 @@ export interface AlertTypeBase {
     enabled: boolean
     insight: QueryBasedInsightModel
     config: AlertConfig
+    skip_weekend?: boolean
 }
 
 export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
@@ -44,5 +45,4 @@ export interface AlertType extends AlertTypeBase {
     checks: AlertCheck[]
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string
-    skip_weekend?: boolean
 }

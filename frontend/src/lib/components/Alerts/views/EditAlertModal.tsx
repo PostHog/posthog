@@ -99,6 +99,11 @@ export function EditAlertModal({
     const { alertSeries, isNonTimeSeriesDisplay, isBreakdownValid, formula } = useValues(trendsLogic)
 
     const creatingNewAlert = alertForm.id === undefined
+    // can only check ongoing interval for absolute value/increase alerts with upper threshold
+    const can_check_ongoing_interval =
+        (alertForm?.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
+            alertForm?.condition.type === AlertConditionType.RELATIVE_INCREASE) &&
+        alertForm.threshold.configuration.bounds?.upper != null
 
     return (
         <LemonModal onClose={onClose} isOpen={isOpen} width={600} simple title="">
@@ -327,31 +332,23 @@ export function EditAlertModal({
                                 <h3 className="text-muted-alt">Advanced</h3>
                                 <Group name={['config']}>
                                     <div className="flex gap-1">
-                                        <LemonField name="check-current-period">
+                                        <LemonField name="check_ongoing_interval">
                                             <LemonCheckbox
                                                 checked={
-                                                    (alertForm?.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
-                                                        alertForm?.condition.type ===
-                                                            AlertConditionType.RELATIVE_INCREASE) &&
+                                                    can_check_ongoing_interval &&
                                                     alertForm?.config.check_ongoing_interval
                                                 }
-                                                data-attr="alertForm-check-current-period"
+                                                data-attr="alertForm-check-ongoing-interval"
                                                 fullWidth
-                                                label="Check current period"
+                                                label="Check ongoing period"
                                                 disabledReason={
-                                                    !(
-                                                        (alertForm?.condition.type ===
-                                                            AlertConditionType.ABSOLUTE_VALUE ||
-                                                            alertForm?.condition.type ===
-                                                                AlertConditionType.RELATIVE_INCREASE) &&
-                                                        alertForm.threshold.configuration.bounds?.upper != null
-                                                    ) &&
-                                                    'Can only alert for current period when checking for absolute value/increase above threshold'
+                                                    !can_check_ongoing_interval &&
+                                                    'Can only alert for ongoing period when checking for absolute value/increase above threshold'
                                                 }
                                             />
                                         </LemonField>
                                         <Tooltip
-                                            title={`Checks the insight value for the on going interval that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold`}
+                                            title={`Checks the insight value for the on going period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold`}
                                             placement="right"
                                             delayMs={0}
                                         >
@@ -359,11 +356,11 @@ export function EditAlertModal({
                                         </Tooltip>
                                     </div>
                                 </Group>
-                                <LemonField name="skip-weekend">
+                                <LemonField name="skip_weekend">
                                     <LemonCheckbox
                                         checked={
-                                            alertForm?.calculation_interval !== AlertCalculationInterval.DAILY &&
-                                            alertForm?.calculation_interval !== AlertCalculationInterval.HOURLY &&
+                                            (alertForm?.calculation_interval === AlertCalculationInterval.DAILY ||
+                                                alertForm?.calculation_interval === AlertCalculationInterval.HOURLY) &&
                                             alertForm?.skip_weekend
                                         }
                                         data-attr="alertForm-skip-weekend"
