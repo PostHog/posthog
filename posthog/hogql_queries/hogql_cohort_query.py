@@ -1,3 +1,4 @@
+from numbers import Number
 from typing import Literal, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
@@ -56,7 +57,12 @@ class TestWrapperCohortQuery(CohortQuery):
 
 
 def convert_property(prop: Property) -> PersonPropertyFilter:
-    return PersonPropertyFilter(key=prop.key, value=prop.value, operator=prop.operator or PropertyOperator.EXACT)
+    value = prop.value
+    if isinstance(value, Number):
+        value = str(value)
+    elif isinstance(value, list):
+        value = [str(x) for x in value]
+    return PersonPropertyFilter(key=prop.key, value=value, operator=prop.operator or PropertyOperator.EXACT)
 
 
 def property_to_typed_property(property: Property) -> EventPropertyFilter | HogQLPropertyFilter:
