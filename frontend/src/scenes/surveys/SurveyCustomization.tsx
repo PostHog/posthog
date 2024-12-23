@@ -137,7 +137,11 @@ export function Customization({
                     <>
                         <LemonField.Pure className="mt-2" label="Placeholder text">
                             <LemonInput
-                                value={appearance?.placeholder || defaultSurveyAppearance.placeholder}
+                                value={
+                                    appearance?.placeholder !== undefined
+                                        ? appearance.placeholder
+                                        : defaultSurveyAppearance.placeholder
+                                }
                                 onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
                                 disabled={!surveysStylingAvailable}
                             />
