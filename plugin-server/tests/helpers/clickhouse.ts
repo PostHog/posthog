@@ -36,12 +36,13 @@ export async function delayUntilEventIngested<T extends any[] | number>(
     fetchData: () => T | Promise<T>,
     minLength = 1,
     delayMs = 100,
-    maxDelayCount = 100
+    maxDelayMs = 5000
 ): Promise<T> {
     const timer = performance.now()
     let data: T
     let dataLength = 0
-    for (let i = 0; i < maxDelayCount; i++) {
+
+    while (performance.now() - timer < maxDelayMs) {
         data = await fetchData()
         dataLength = typeof data === 'number' ? data : data.length
         status.debug(
