@@ -127,7 +127,7 @@ export interface ActionFilterRowProps {
     /** Whether properties shown should be limited to just numerical types */
     showNumericalPropsOnly?: boolean
     /** Only show these property math definitions */
-    onlyPropertyMathDefinitions?: Array<string> | null
+    onlyPropertyMathDefinitions?: Array<string>
 }
 
 export function ActionFilterRow({
@@ -157,7 +157,7 @@ export function ActionFilterRow({
     renderRow,
     trendsDisplayCategory,
     showNumericalPropsOnly,
-    onlyPropertyMathDefinitions = null,
+    onlyPropertyMathDefinitions,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -647,7 +647,7 @@ interface MathSelectorProps {
     trendsDisplayCategory: ChartDisplayCategory | null
     style?: React.CSSProperties
     /** Only show these property math definitions */
-    onlyPropertyMathDefinitions?: Array<string> | null
+    onlyPropertyMathDefinitions?: Array<string>
 }
 
 function isPropertyValueMath(math: string | undefined): math is PropertyMathType {
@@ -767,7 +767,7 @@ function useMathSelectorOptions({
                         }}
                         options={Object.entries(PROPERTY_MATH_DEFINITIONS)
                             .filter(([key]) => {
-                                if (null === onlyPropertyMathDefinitions) {
+                                if (undefined === onlyPropertyMathDefinitions) {
                                     return true
                                 }
                                 return onlyPropertyMathDefinitions.includes(key)

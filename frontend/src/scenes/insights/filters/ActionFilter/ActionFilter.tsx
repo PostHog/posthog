@@ -87,7 +87,7 @@ export interface ActionFilterProps {
         orLabel,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element
     /** Only show these property math definitions */
-    onlyPropertyMathDefinitions?: Array<string> | null
+    onlyPropertyMathDefinitions?: Array<string>
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -118,7 +118,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         buttonType = 'tertiary',
         readOnly = false,
         bordered = false,
-        onlyPropertyMathDefinitions = null,
+        onlyPropertyMathDefinitions,
     },
     ref
 ): JSX.Element {
