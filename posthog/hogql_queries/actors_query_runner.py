@@ -126,6 +126,7 @@ class ActorsQueryRunner(QueryRunner):
             actor_column_index = input_columns.index(column_name)
             actor_ids = (row[actor_column_index] for row in self.paginator.results)
             actors_lookup = self.strategy.get_actors(actor_ids)
+            person_uuid_to_event_distinct_ids = None
 
             if "event_distinct_ids" in self.strategy.input_columns():
                 event_distinct_ids_index = self.strategy.input_columns().index("event_distinct_ids")
