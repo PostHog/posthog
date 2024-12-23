@@ -11,7 +11,16 @@ import { AlertType, AlertTypeWrite } from './types'
 
 export type AlertFormType = Pick<
     AlertType,
-    'name' | 'enabled' | 'created_at' | 'threshold' | 'condition' | 'subscribed_users' | 'checks' | 'config'
+    | 'name'
+    | 'enabled'
+    | 'created_at'
+    | 'calculation_interval'
+    | 'threshold'
+    | 'condition'
+    | 'subscribed_users'
+    | 'checks'
+    | 'config'
+    | 'skip_weekend'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null

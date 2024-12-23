@@ -44,4 +44,5 @@ export interface AlertType extends AlertTypeBase {
     checks: AlertCheck[]
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string
+    skip_weekend?: boolean
 }
