@@ -28,6 +28,8 @@ import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DashboardMode, DashboardType, ExporterFormat, QueryBasedInsightModel } from '~/types'
 
+import { addInsightToDashboardLogic } from './addInsightToDasboardModalLogic'
+import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { dashboardLogic } from './dashboardLogic'
@@ -53,7 +55,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { asDashboardTemplate } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
-
+    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
 
     const { user } = useValues(userLogic)
@@ -114,6 +116,7 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
+                    {canEditDashboard && <AddInsightToDashboardModal />}
                 </>
             )}
 
@@ -290,7 +293,9 @@ export function DashboardHeader(): JSX.Element | null {
                             )}
                             {dashboard ? (
                                 <LemonButton
-                                    to={urls.insightNew(undefined, dashboard.id)}
+                                    onClick={() => {
+                                        showAddInsightToDashboardModal()
+                                    }}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
                                     disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}

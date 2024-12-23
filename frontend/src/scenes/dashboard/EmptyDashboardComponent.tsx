@@ -1,14 +1,13 @@
 import './EmptyDashboardComponent.scss'
 
 import { IconPlus } from '@posthog/icons'
-import { useValues } from 'kea'
+import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import React from 'react'
-import { urls } from 'scenes/urls'
 
+import { addInsightToDashboardLogic } from './addInsightToDasboardModalLogic'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
-import { dashboardLogic } from './dashboardLogic'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (
@@ -77,8 +76,7 @@ function SkeletonCardTwo({ active }: { active: boolean }): JSX.Element {
 }
 
 export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean; canEdit: boolean }): JSX.Element {
-    const { dashboard } = useValues(dashboardLogic)
-
+    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     return (
         <div className="EmptyDashboard">
             {!loading && (
@@ -88,7 +86,9 @@ export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean
                     <div className="mt-4 text-center">
                         <LemonButton
                             data-attr="dashboard-add-graph-header"
-                            to={urls.insightNew(undefined, dashboard?.id)}
+                            onClick={() => {
+                                showAddInsightToDashboardModal()
+                            }}
                             type="primary"
                             icon={<IconPlus />}
                             center
