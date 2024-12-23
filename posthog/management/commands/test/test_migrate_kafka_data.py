@@ -1,3 +1,4 @@
+import time
 from unittest import mock
 from uuid import uuid4
 
@@ -64,8 +65,12 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
     # We should have produced a message to the new topic
     found_message = _wait_for_message(new_events_topic, message_key)
 
-    assert found_message and found_message.value == b'{ "event": "test" }', "Did not find message in new topic"
-    assert found_message and found_message.headers == [("foo", b"bar")], "Did not find headers in new topic"
+    assert (
+        found_message and found_message.value == b'{ "event": "test" }'
+    ), f"Did not find message in new topic {new_events_topic} from old topic {old_events_topic}"
+    assert found_message and found_message.headers == [
+        ("foo", b"bar")
+    ], f"Did not find headers in new topic {new_events_topic} from old topic {old_events_topic}"
 
     # Try running the command again, and we should't see a new message produced
     migrate_kafka_data(
@@ -312,7 +317,7 @@ def test_we_fail_on_send_errors_to_new_topic():
 
     found_message = _wait_for_message(new_topic, message_key)
 
-    assert found_message, "Did not find message in new topic"
+    assert found_message, f"Did not find message in new topic {new_topic} from old topic {old_topic}"
 
 
 def _commit_offsets_for_topic(topic, consumer_group_id):
@@ -331,7 +336,7 @@ def _commit_offsets_for_topic(topic, consumer_group_id):
         kafka_consumer.close()
 
 
-def _wait_for_message(topic: str, key: str):
+def _wait_for_message(topic: str, key: str, timeout: int = 10):
     """
     Wait for a message to appear in the topic with the specified key.
     """
@@ -342,17 +347,21 @@ def _wait_for_message(topic: str, key: str):
         group_id="test",
     )
 
+    start_time = time.time()
+
     try:
-        messages_by_topic = new_kafka_consumer.poll(timeout_ms=1000)
+        while time.time() - start_time < timeout:
+            messages_by_topic = new_kafka_consumer.poll(timeout_ms=1000)
 
-        if not messages_by_topic:
-            return
+            if not messages_by_topic:
+                continue
 
-        for _, messages in messages_by_topic.items():
-            for message in messages:
-                if message.key.decode("utf-8") == key:
-                    return message
+            for _, messages in messages_by_topic.items():
+                for message in messages:
+                    if message.key.decode("utf-8") == key:
+                        return message
 
+        print(f"Error: Did not find message in topic {topic} with key {key} within {timeout} seconds")  # noqa: T201
     finally:
         new_kafka_consumer.close()
 
