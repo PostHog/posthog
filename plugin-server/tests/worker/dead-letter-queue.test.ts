@@ -70,9 +70,7 @@ describe('events dead letter queue', () => {
         })
         expect(generateEventDeadLetterQueueMessage).toHaveBeenCalled()
 
-        await delayUntilEventIngested(() => hub.db.fetchDeadLetterQueueEvents(), 1)
-
-        const deadLetterQueueEvents = await hub.db.fetchDeadLetterQueueEvents()
+        const deadLetterQueueEvents = await delayUntilEventIngested(() => hub.db.fetchDeadLetterQueueEvents())
 
         expect(deadLetterQueueEvents.length).toEqual(1)
 
