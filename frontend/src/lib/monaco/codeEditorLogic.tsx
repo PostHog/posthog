@@ -29,7 +29,7 @@ import {
 import type { codeEditorLogicType } from './codeEditorLogicType'
 
 export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
-export const activemodelStateKey = (key: string | number): string => `${key}/activeModelUri`
+export const activeModelStateKey = (key: string | number): string => `${key}/activeModelUri`
 
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 
@@ -50,6 +50,7 @@ export interface CodeEditorLogicProps {
     globals?: Record<string, any>
     multitab?: boolean
     onError?: (error: string | null, isValidView: boolean) => void
+    onMetadata?: (metadata: HogQLMetadataResponse) => void
 }
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
@@ -100,6 +101,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         variables,
                     })
                     breakpoint()
+                    props.onMetadata?.(response)
                     return [query, response]
                 },
             },
@@ -204,7 +206,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
 
             if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] || values.featureFlags[FEATURE_FLAGS.SQL_EDITOR]) {
                 const path = modelName.path.split('/').pop()
-                path && props.multitab && actions.setLocalState(activemodelStateKey(props.key), path)
+                path && props.multitab && actions.setLocalState(activeModelStateKey(props.key), path)
             }
         },
         deleteModel: ({ modelName }) => {

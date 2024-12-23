@@ -44,8 +44,6 @@ TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 TREND_FILTER_TYPE_DATA_WAREHOUSE = "data_warehouse"
 
-SESSION_RECORDINGS_FILTER_IDS = "session_ids"
-
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"
 TRENDS_TABLE = "ActionsTable"
@@ -304,6 +302,7 @@ class FlagRequestType(StrEnum):
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
+DATA_WAREHOUSE_TASK_QUEUE_V2 = "v2-data-warehouse-task-queue"
 BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
 SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"

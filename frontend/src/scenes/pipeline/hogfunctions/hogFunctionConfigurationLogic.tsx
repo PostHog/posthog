@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
@@ -37,6 +37,7 @@ import {
     HogFunctionSubTemplateType,
     HogFunctionTemplateType,
     HogFunctionType,
+    HogFunctionTypeType,
     PersonType,
     PropertyFilterType,
     PropertyGroupFilter,
@@ -64,6 +65,8 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     hog: "print('Hello, world!');",
     status: 'stable',
 }
+
+export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     function sanitizeInputs(
@@ -228,8 +231,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
+        setSampleGlobals: (sampleGlobals: HogFunctionInvocationGlobals | null) => ({ sampleGlobals }),
     }),
     reducers(({ props }) => ({
+        sampleGlobals: [
+            null as HogFunctionInvocationGlobals | null,
+            {
+                setSampleGlobals: (_, { sampleGlobals }) => sampleGlobals,
+            },
+        ],
         showSource: [
             // Show source by default for blank templates when creating a new function
             !!(!props.id && props.templateId?.startsWith('template-blank-')),
@@ -395,7 +405,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as HogFunctionInvocationGlobals | null,
             {
                 loadSampleGlobals: async (_, breakpoint) => {
-                    if (!values.lastEventQuery || values.type !== 'destination') {
+                    if (!values.lastEventQuery) {
                         return values.sampleGlobals
                     }
                     const errorMessage =
@@ -437,7 +447,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                         return globals
                     } catch (e: any) {
-                        actions.setSampleGlobalsError(e.message ?? errorMessage)
+                        if (!isBreakpoint(e)) {
+                            actions.setSampleGlobalsError(e.message ?? errorMessage)
+                        }
                         return values.exampleInvocationGlobals
                     }
                 },
@@ -799,7 +811,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         lastEventQuery: [
             (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.type],
             (configuration, matchingFilters, groupTypes, type): EventsQuery | null => {
-                if (type !== 'destination') {
+                if (!TYPES_WITH_GLOBALS.includes(type)) {
                     return null
                 }
                 const query: EventsQuery = {
