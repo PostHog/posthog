@@ -147,6 +147,13 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedPageIndex(newIndex)
     }
 
+    function removeTargetingFlagFilters(): void {
+        setSurveyValue('targeting_flag_filters', null)
+        setSurveyValue('targeting_flag', null)
+        setSurveyValue('remove_targeting_flag', true)
+        setFlagPropertyErrors(null)
+    }
+
     return (
         <div className="flex flex-row gap-4">
             <div className="flex flex-col gap-2 flex-1 SurveyForm">
@@ -732,7 +739,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                     groups: [
                                                                         {
                                                                             properties: [],
-                                                                            rollout_percentage: undefined,
+                                                                            rollout_percentage: 50,
                                                                             variant: null,
                                                                         },
                                                                     ],
@@ -759,17 +766,17 @@ export default function SurveyEdit(): JSX.Element {
                                                                             filters
                                                                         )
                                                                     }}
+                                                                    showTrashIconWithOneCondition
+                                                                    removedLastConditionCallback={
+                                                                        removeTargetingFlagFilters
+                                                                    }
                                                                 />
                                                             </div>
                                                             <LemonButton
                                                                 type="secondary"
                                                                 status="danger"
                                                                 className="w-max"
-                                                                onClick={() => {
-                                                                    setSurveyValue('targeting_flag_filters', null)
-                                                                    setSurveyValue('targeting_flag', null)
-                                                                    setSurveyValue('remove_targeting_flag', true)
-                                                                }}
+                                                                onClick={removeTargetingFlagFilters}
                                                             >
                                                                 Remove all property targeting
                                                             </LemonButton>
