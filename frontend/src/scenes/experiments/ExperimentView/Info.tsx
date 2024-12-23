@@ -1,10 +1,9 @@
-import '../Experiment.scss'
-
 import { IconWarning } from '@posthog/icons'
 import { Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +15,7 @@ import { ActionBanner, ResultsTag, StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 
 export function Info(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
+    const { experiment, featureFlags } = useValues(experimentLogic)
     const { updateExperiment } = useActions(experimentLogic)
 
     const { created_by } = experiment
@@ -33,10 +32,12 @@ export function Info(): JSX.Element {
                         <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
                         <StatusTag experiment={experiment} />
                     </div>
-                    <div className="block">
-                        <div className="text-xs font-semibold uppercase tracking-wide">Significance</div>
-                        <ResultsTag />
-                    </div>
+                    {!featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] && (
+                        <div className="block">
+                            <div className="text-xs font-semibold uppercase tracking-wide">Significance</div>
+                            <ResultsTag />
+                        </div>
+                    )}
                     {experiment.feature_flag && (
                         <div className="block">
                             <div className="text-xs font-semibold uppercase tracking-wide">
@@ -98,7 +99,7 @@ export function Info(): JSX.Element {
                     compactButtons
                 />
             </div>
-            <ActionBanner />
+            {!featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] && <ActionBanner />}
         </div>
     )
 }

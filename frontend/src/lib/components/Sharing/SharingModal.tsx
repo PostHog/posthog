@@ -92,6 +92,7 @@ export function SharingModalContent({
                     <p>Something went wrong...</p>
                 ) : (
                     <>
+                        <h3>Sharing</h3>
                         <LemonSwitch
                             id="sharing-switch"
                             label={`Share ${resource} publicly`}

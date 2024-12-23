@@ -11,7 +11,6 @@ import { ExperimentFunnelsQuery, ExperimentTrendsQuery, FunnelsQuery, NodeKind, 
 import { ActionFilter, AnyPropertyFilter, ChartDisplayType, Experiment, FilterType, InsightType } from '~/types'
 
 import { experimentLogic, getDefaultFilters, getDefaultFunnelsMetric } from '../experimentLogic'
-import { PrimaryMetricModal } from '../Metrics/PrimaryMetricModal'
 import { PrimaryTrendsExposureModal } from '../Metrics/PrimaryTrendsExposureModal'
 
 export function MetricDisplayTrends({ query }: { query: TrendsQuery | undefined }): JSX.Element {
@@ -246,9 +245,14 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 export function Goal(): JSX.Element {
     const { experiment, experimentId, getMetricType, experimentMathAggregationForTrends, hasGoalSet, featureFlags } =
         useValues(experimentLogic)
-    const { setExperiment, loadExperiment } = useActions(experimentLogic)
-    const [isModalOpen, setIsModalOpen] = useState(false)
+    const { setExperiment, openPrimaryMetricModal } = useActions(experimentLogic)
     const metricType = getMetricType(0)
+
+    // :FLAG: CLEAN UP AFTER MIGRATION
+    const isDataWarehouseMetric =
+        featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] &&
+        metricType === InsightType.TRENDS &&
+        (experiment.metrics[0] as ExperimentTrendsQuery).count_query?.series[0].kind === NodeKind.DataWarehouseNode
 
     return (
         <div>
@@ -292,7 +296,7 @@ export function Goal(): JSX.Element {
                                     filters: getDefaultFilters(InsightType.FUNNELS, undefined),
                                 })
                             }
-                            setIsModalOpen(true)
+                            openPrimaryMetricModal(0)
                         }}
                     >
                         Add goal
@@ -318,30 +322,24 @@ export function Goal(): JSX.Element {
                         ) : (
                             <MetricDisplayOld filters={experiment.filters} />
                         )}
-                        <LemonButton size="xsmall" type="secondary" onClick={() => setIsModalOpen(true)}>
+                        <LemonButton size="xsmall" type="secondary" onClick={() => openPrimaryMetricModal(0)}>
                             Change goal
                         </LemonButton>
                     </div>
-                    {metricType === InsightType.TRENDS && !experimentMathAggregationForTrends() && (
-                        <>
-                            <LemonDivider className="" vertical />
-                            <div className="">
-                                <div className="mt-auto ml-auto">
-                                    <ExposureMetric experimentId={experimentId} />
+                    {metricType === InsightType.TRENDS &&
+                        !experimentMathAggregationForTrends() &&
+                        !isDataWarehouseMetric && (
+                            <>
+                                <LemonDivider className="" vertical />
+                                <div className="">
+                                    <div className="mt-auto ml-auto">
+                                        <ExposureMetric experimentId={experimentId} />
+                                    </div>
                                 </div>
-                            </div>
-                        </>
-                    )}
+                            </>
+                        )}
                 </div>
             )}
-            <PrimaryMetricModal
-                experimentId={experimentId}
-                isOpen={isModalOpen}
-                onClose={() => {
-                    setIsModalOpen(false)
-                    loadExperiment()
-                }}
-            />
         </div>
     )
 }

@@ -1,11 +1,11 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplate
 
 blank_site_destination: HogFunctionTemplate = HogFunctionTemplate(
     status="client-side",
     type="site_destination",
     id="template-blank-site-destination",
     name="New client-side destination",
-    description="Run code on your website when an event is sent to PostHog. Works only with posthog-js when opt_in_site_apps is set to true.",
+    description="New destination with complex event mapping. Works only with posthog-js when opt_in_site_apps is set to true.",
     icon_url="/static/hedgehog/builder-hog-01.png",
     category=["Custom", "Analytics"],
     hog="""
@@ -15,9 +15,9 @@ export async function onLoad({ inputs, posthog }) {
     await new Promise((resolve) => window.setTimeout(resolve, 1000))
     console.log("🦔 Script loaded")
 }
-export function onEvent({ posthog, ...globals }) {
-    const { event, person } = globals
-    console.log(`🦔 Sending event: ${event.event}`, globals)
+export function onEvent({ inputs, posthog }) {
+    console.log(`🦔 Sending event of type ${inputs.eventType}`, inputs.payload)
+    // fetch('url', { method: 'POST', body: JSON.stringify(inputs.payload) })
 }
 """.strip(),
     inputs_schema=[
@@ -49,6 +49,88 @@ export function onEvent({ posthog, ...globals }) {
             "secret": False,
             "required": True,
         },
+    ],
+    mappings=[],
+    mapping_templates=[
+        HogFunctionMappingTemplate(
+            name="Aquisition",
+            include_by_default=True,
+            filters={"events": [{"id": "$pageview", "type": "events"}]},
+            inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "The destination's event type",
+                    "default": "acquisition",
+                    "required": True,
+                },
+                {
+                    "key": "payload",
+                    "type": "json",
+                    "label": "Payload",
+                    "description": "Payload sent to the destination.",
+                    "default": {
+                        "event": "{event}",
+                        "person": "{person}",
+                    },
+                    "secret": False,
+                    "required": True,
+                },
+            ],
+        ),
+        HogFunctionMappingTemplate(
+            name="Conversion",
+            filters={"events": [{"id": "$autocapture", "type": "events"}]},
+            inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "The destination's event type",
+                    "default": "conversion",
+                    "required": True,
+                },
+                {
+                    "key": "payload",
+                    "type": "json",
+                    "label": "Payload",
+                    "description": "Payload sent to the destination.",
+                    "default": {
+                        "event": "{event}",
+                        "person": "{person}",
+                    },
+                    "secret": False,
+                    "required": True,
+                },
+            ],
+        ),
+        HogFunctionMappingTemplate(
+            name="Retention",
+            filters={"events": [{"id": "$pageleave", "type": "events"}]},
+            inputs_schema=[
+                {
+                    "key": "eventType",
+                    "type": "string",
+                    "label": "Event Type",
+                    "description": "The destination's event type",
+                    "default": "retention",
+                    "required": True,
+                },
+                {
+                    "key": "payload",
+                    "type": "json",
+                    "label": "Payload",
+                    "description": "Payload sent to the destination.",
+                    "default": {
+                        "event": "{event}",
+                        "person": "{person}",
+                    },
+                    "secret": False,
+                    "required": True,
+                },
+            ],
+        ),
     ],
 )
 

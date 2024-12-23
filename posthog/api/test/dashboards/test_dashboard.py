@@ -1313,7 +1313,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "effective_privilege_level": 37,
                     "effective_restriction_level": 21,
                     "favorited": False,
-                    "filters": {"filter_test_accounts": True},
+                    "filters": {},
                     "filters_hash": ANY,
                     "hasMore": None,
                     "id": ANY,

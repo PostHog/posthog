@@ -47,7 +47,7 @@ from posthog.schema import (
     EventsNode,
     HogQLQueryModifiers,
     InCohortVia,
-    InsightDateRange,
+    DateRange,
     IntervalType,
     MultipleBreakdownType,
     PersonPropertyFilter,
@@ -359,7 +359,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     ) -> TrendsQueryRunner:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
-            dateRange=InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
+            dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             interval=interval,
             series=query_series,
             trendsFilter=trends_filters,

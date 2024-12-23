@@ -20,6 +20,7 @@ import {
     PluginType,
 } from '~/types'
 
+import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import {
     BatchExportDestination,
@@ -28,6 +29,7 @@ import {
     FunctionDestination,
     PipelineBackend,
     SiteApp,
+    Transformation,
     WebhookDestination,
 } from '../types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
@@ -35,7 +37,7 @@ import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
-export interface Fuse extends FuseClass<Destination | SiteApp> {}
+export interface Fuse extends FuseClass<Destination | Transformation | SiteApp> {}
 
 export interface PipelineDestinationsLogicProps {
     types: HogFunctionTypeType[]
@@ -60,9 +62,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
     })),
     actions({
-        toggleNode: (destination: Destination | SiteApp, enabled: boolean) => ({ destination, enabled }),
+        toggleNode: (destination: Destination | SiteApp | Transformation, enabled: boolean) => ({
+            destination,
+            enabled,
+        }),
         toggleNodeHogFunction: (destination: FunctionDestination, enabled: boolean) => ({ destination, enabled }),
-        deleteNode: (destination: Destination | SiteApp) => ({ destination }),
+        deleteNode: (destination: Destination | SiteApp | Transformation) => ({ destination }),
         deleteNodeBatchExport: (destination: BatchExportDestination) => ({ destination }),
         deleteNodeHogFunction: (destination: FunctionDestination) => ({ destination }),
         deleteNodeWebhook: (destination: WebhookDestination) => ({ destination }),
@@ -240,7 +245,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 hogFunctions,
                 user,
                 featureFlags
-            ): (Destination | SiteApp)[] => {
+            ): (Destination | Transformation | SiteApp)[] => {
                 // Migrations are shown only in impersonation mode, for us to be able to trigger them.
                 const httpEnabled =
                     featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
@@ -262,7 +267,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 const convertedDestinations = rawDestinations.map((d) =>
                     convertToPipelineNode(
                         d,
-                        'type' in d && d.type === 'site_app' ? PipelineStage.SiteApp : PipelineStage.Destination
+                        'type' in d ? hogFunctionTypeToPipelineStage(d.type) : PipelineStage.Destination
                     )
                 )
                 const enabledFirst = convertedDestinations.sort((a, b) => Number(b.enabled) - Number(a.enabled))
@@ -281,7 +286,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         filteredDestinations: [
             (s) => [s.filters, s.destinations, s.destinationsFuse],
-            (filters, destinations, destinationsFuse): (Destination | SiteApp)[] => {
+            (filters, destinations, destinationsFuse): (Destination | Transformation | SiteApp)[] => {
                 const { search, showPaused, kind } = filters
 
                 return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
@@ -298,7 +303,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         hiddenDestinations: [
             (s) => [s.destinations, s.filteredDestinations],
-            (destinations, filteredDestinations): (Destination | SiteApp)[] => {
+            (destinations, filteredDestinations): (Destination | Transformation | SiteApp)[] => {
                 return destinations.filter((dest) => !filteredDestinations.includes(dest))
             },
         ],
@@ -333,10 +338,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props }) => {
         actions.loadPlugins()
         actions.loadPluginConfigs()
-        actions.loadBatchExports()
+        if (props.types.includes('destination')) {
+            actions.loadBatchExports()
+        }
         actions.loadHogFunctions()
     }),
 ])
