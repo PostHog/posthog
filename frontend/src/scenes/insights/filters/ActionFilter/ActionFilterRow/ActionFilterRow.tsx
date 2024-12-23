@@ -646,6 +646,8 @@ interface MathSelectorProps {
     onMathSelect: (index: number, value: any) => any
     trendsDisplayCategory: ChartDisplayCategory | null
     style?: React.CSSProperties
+    /** Only show these property math definitions */
+    onlyPropertyMathDefinitions?: Array<string> | null
 }
 
 function isPropertyValueMath(math: string | undefined): math is PropertyMathType {
