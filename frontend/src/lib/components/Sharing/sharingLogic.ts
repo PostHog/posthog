@@ -92,6 +92,7 @@ export const sharingLogic = kea<sharingLogicType>([
             posthog.capture('sharing insight whitelabel toggled', { enabled })
         },
     })),
+
     forms({
         embedConfig: {
             defaults: defaultEmbedConfig,
