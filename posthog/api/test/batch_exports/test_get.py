@@ -82,11 +82,11 @@ def test_cannot_get_exports_for_other_organizations(client: HttpClient):
         "interval": "hour",
     }
 
-    organization = create_organization_with_dat("Test Org")
+    organization = create_organization("Test Org")
     team = create_team(organization)
     user = create_user("test@user.com", "Test User", organization)
 
-    another_organization = create_organization_with_dat("Another Org")
+    another_organization = create_organization("Another Org")
     another_user = create_user("another-test@user.com", "Another Test User", another_organization)
 
     with start_test_worker(temporal):
@@ -126,7 +126,7 @@ def test_batch_exports_are_partitioned_by_team(client: HttpClient):
         "interval": "hour",
     }
 
-    organization = create_organization_with_dat("Test Org")
+    organization = create_organization("Test Org")
     team = create_team(organization)
     another_team = create_team(organization)
     user = create_user("test@user.com", "Test User", organization)
