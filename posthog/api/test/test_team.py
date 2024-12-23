@@ -1228,36 +1228,21 @@ def team_api_test_factory():
         def test_access_control_toggle_capture(self, mock_capture):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-
             mock_capture.reset_mock()
 
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": True})
+            response = self.client.get("/api/environments/@current/")
+            assert response.status_code == status.HTTP_200_OK
+
+            current_access_control = response.json()["access_control"]
+            new_setting = not current_access_control
+            response = self.client.patch(f"/api/environments/@current/", {"access_control": new_setting})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             mock_capture.assert_called_with(
                 str(self.user.distinct_id),
                 "project access control toggled",
                 properties={
-                    "enabled": True,
-                    "project_id": str(self.team.id),
-                    "project_name": self.team.name,
-                    "organization_id": str(self.organization.id),
-                    "organization_name": self.organization.name,
-                    "user_role": OrganizationMembership.Level.ADMIN,
-                },
-                groups=groups(self.organization),
-            )
-
-            # Test toggling back to false
-            mock_capture.reset_mock()
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": False})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            mock_capture.assert_called_with(
-                str(self.user.distinct_id),
-                "project access control toggled",
-                properties={
-                    "enabled": False,
+                    "enabled": new_setting,
                     "project_id": str(self.team.id),
                     "project_name": self.team.name,
                     "organization_id": str(self.organization.id),

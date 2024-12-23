@@ -1,4 +1,6 @@
 import json
+import posthoganalytics
+
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
@@ -52,7 +54,6 @@ from posthog.utils import (
     get_ip_address,
     get_week_start_for_country_code,
 )
-import posthoganalytics
 
 
 class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
