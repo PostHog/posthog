@@ -14,7 +14,7 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
-import { ChartDisplayType, FilterType } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
@@ -165,8 +165,9 @@ export function PrimaryGoalTrends(): JSX.Element {
                                                                   series: [
                                                                       {
                                                                           kind: NodeKind.EventsNode,
-                                                                          name: '$pageview',
-                                                                          event: '$pageview',
+                                                                          name: '$feature_flag_called',
+                                                                          event: '$feature_flag_called',
+                                                                          math: BaseMathType.UniqueUsers,
                                                                       },
                                                                   ],
                                                                   interval: 'day',
