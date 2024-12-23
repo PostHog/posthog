@@ -114,7 +114,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     # UTC time until when we shouldn't check alert/notify user
     snoozed_until = models.DateTimeField(null=True, blank=True)
 
-    skip_weekend = models.BooleanField(default=False)
+    skip_weekend = models.BooleanField(null=True, blank=True, default=False)
 
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
