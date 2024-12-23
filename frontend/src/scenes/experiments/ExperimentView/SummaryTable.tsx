@@ -22,13 +22,21 @@ import {
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
-export function SummaryTable({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
+export function SummaryTable({
+    metricIndex = 0,
+    isSecondary = false,
+}: {
+    metricIndex?: number
+    isSecondary?: boolean
+}): JSX.Element {
     const {
         experimentId,
         experiment,
         metricResults,
+        secondaryMetricResults,
         tabularExperimentResults,
         getMetricType,
+        getSecondaryMetricType,
         exposureCountDataForVariant,
         conversionRateForVariant,
         experimentMathAggregationForTrends,
@@ -36,8 +44,8 @@ export function SummaryTable({ metricIndex = 0 }: { metricIndex?: number }): JSX
         getHighestProbabilityVariant,
         credibleIntervalForVariant,
     } = useValues(experimentLogic)
-    const metricType = getMetricType(metricIndex)
-    const result = metricResults?.[metricIndex]
+    const metricType = isSecondary ? getSecondaryMetricType(metricIndex) : getMetricType(metricIndex)
+    const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
     if (!result) {
         return <></>
     }

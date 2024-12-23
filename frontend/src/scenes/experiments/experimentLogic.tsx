@@ -635,7 +635,12 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ end_date: endDate.toISOString() })
             const duration = endDate.diff(values.experiment?.start_date, 'second')
             values.experiment &&
-                actions.reportExperimentCompleted(values.experiment, endDate, duration, values.areResultsSignificant(0))
+                actions.reportExperimentCompleted(
+                    values.experiment,
+                    endDate,
+                    duration,
+                    values.isPrimaryMetricSignificant(0)
+                )
         },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })
@@ -985,27 +990,19 @@ export const experimentLogic = kea<experimentLogicType>([
             (experimentId): Experiment['id'] => experimentId,
         ],
         getMetricType: [
-            (s) => [s.experiment, s.featureFlags],
-            (experiment, featureFlags) =>
+            (s) => [s.experiment],
+            (experiment) =>
                 (metricIdx: number = 0) => {
-                    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        const query = experiment?.metrics?.[metricIdx]
-                        return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
-                    }
-
-                    return experiment?.filters?.insight || InsightType.FUNNELS
+                    const query = experiment?.metrics?.[metricIdx]
+                    return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
                 },
         ],
         getSecondaryMetricType: [
-            (s) => [s.experiment, s.featureFlags],
-            (experiment, featureFlags) =>
+            (s) => [s.experiment],
+            (experiment) =>
                 (metricIdx: number = 0) => {
-                    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        const query = experiment?.metrics_secondary?.[metricIdx]
-                        return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
-                    }
-
-                    return experiment?.secondary_metrics?.[metricIdx]?.filters?.insight || InsightType.FUNNELS
+                    const query = experiment?.metrics_secondary?.[metricIdx]
+                    return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
                 },
         ],
         isExperimentRunning: [
@@ -1114,11 +1111,24 @@ export const experimentLogic = kea<experimentLogicType>([
                 return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
             },
         ],
-        areResultsSignificant: [
+        isPrimaryMetricSignificant: [
             (s) => [s.metricResults],
             (metricResults: (CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse | null)[]) =>
                 (metricIndex: number = 0): boolean => {
                     return metricResults?.[metricIndex]?.significant || false
+                },
+        ],
+        isSecondaryMetricSignificant: [
+            (s) => [s.secondaryMetricResults],
+            (
+                    secondaryMetricResults: (
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null
+                    )[]
+                ) =>
+                (metricIndex: number = 0): boolean => {
+                    return secondaryMetricResults?.[metricIndex]?.significant || false
                 },
         ],
         significanceDetails: [

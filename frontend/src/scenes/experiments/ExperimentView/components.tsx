@@ -103,8 +103,8 @@ export function VariantTag({
 }
 
 export function ResultsTag({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
-    const { areResultsSignificant, significanceDetails } = useValues(experimentLogic)
-    const result: { color: LemonTagType; label: string } = areResultsSignificant(metricIndex)
+    const { isPrimaryMetricSignificant, significanceDetails } = useValues(experimentLogic)
+    const result: { color: LemonTagType; label: string } = isPrimaryMetricSignificant(metricIndex)
         ? { color: 'success', label: 'Significant' }
         : { color: 'primary', label: 'Not significant' }
 
@@ -422,7 +422,7 @@ export function PageHeaderCustom(): JSX.Element {
         experiment,
         isExperimentRunning,
         isExperimentStopped,
-        areResultsSignificant,
+        isPrimaryMetricSignificant,
         isSingleVariantShipped,
         featureFlags,
         hasGoalSet,
@@ -555,7 +555,7 @@ export function PageHeaderCustom(): JSX.Element {
                         </div>
                     )}
                     {featureFlags[FEATURE_FLAGS.EXPERIMENT_MAKE_DECISION] &&
-                        areResultsSignificant(0) &&
+                        isPrimaryMetricSignificant(0) &&
                         !isSingleVariantShipped && (
                             <>
                                 <Tooltip title="Choose a variant and roll it out to all users">
@@ -664,7 +664,7 @@ export function ActionBanner(): JSX.Element {
         experimentLoading,
         metricResultsLoading,
         isExperimentRunning,
-        areResultsSignificant,
+        isPrimaryMetricSignificant,
         isExperimentStopped,
         funnelResultsPersonsTotal,
         actualRunningTime,
@@ -734,7 +734,7 @@ export function ActionBanner(): JSX.Element {
     }
 
     // Running, results present, not significant
-    if (isExperimentRunning && result && !isExperimentStopped && !areResultsSignificant(0)) {
+    if (isExperimentRunning && result && !isExperimentStopped && !isPrimaryMetricSignificant(0)) {
         // Results insignificant, but a large enough sample/running time has been achieved
         // Further collection unlikely to change the result -> recommmend cutting the losses
         if (
@@ -768,7 +768,7 @@ export function ActionBanner(): JSX.Element {
     }
 
     // Running, results significant
-    if (isExperimentRunning && !isExperimentStopped && areResultsSignificant(0) && result) {
+    if (isExperimentRunning && !isExperimentStopped && isPrimaryMetricSignificant(0) && result) {
         const { probability } = result
         const winningVariant = getHighestProbabilityVariant(result)
         if (!winningVariant) {
@@ -816,7 +816,7 @@ export function ActionBanner(): JSX.Element {
     }
 
     // Stopped, results significant
-    if (isExperimentStopped && areResultsSignificant(0)) {
+    if (isExperimentStopped && isPrimaryMetricSignificant(0)) {
         return (
             <LemonBanner type="success" className="mt-4">
                 You have stopped this experiment, and it is no longer collecting data. With significant results in hand,
@@ -834,7 +834,7 @@ export function ActionBanner(): JSX.Element {
     }
 
     // Stopped, results not significant
-    if (isExperimentStopped && result && !areResultsSignificant(0)) {
+    if (isExperimentStopped && result && !isPrimaryMetricSignificant(0)) {
         return (
             <LemonBanner type="info" className="mt-4">
                 You have stopped this experiment, and it is no longer collecting data. Because your results are not

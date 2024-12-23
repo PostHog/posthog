@@ -701,7 +701,7 @@ export function DeltaChart({
                             flexDirection: 'column',
                         }}
                     >
-                        <SignificanceHighlight metricIndex={metricIndex} />
+                        <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
                         <div className="flex-1 flex items-center justify-center">
                             <LemonButton
                                 type="secondary"
@@ -731,29 +731,38 @@ export function DeltaChart({
                     </LemonButton>
                 }
             >
+                <div className="flex justify-end">
+                    <ExploreButton metricIndex={metricIndex} isSecondary={isSecondary} />
+                </div>
                 <LemonBanner type="info" className="mb-4">
                     <div className="items-center inline-flex flex-wrap">
                         <WinningVariantText result={result} experimentId={experimentId} />
                         <SignificanceText metricIndex={metricIndex} />
                     </div>
                 </LemonBanner>
-                <div className="flex justify-end">
-                    <ExploreButton metricIndex={metricIndex} isSecondary={isSecondary} />
-                </div>
-                <SummaryTable metricIndex={metricIndex} />
+                <SummaryTable metricIndex={metricIndex} isSecondary={isSecondary} />
                 <ResultsQuery targetResults={result} showTable={true} />
             </LemonModal>
         </div>
     )
 }
 
-function SignificanceHighlight({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
-    const { areResultsSignificant, significanceDetails } = useValues(experimentLogic)
-    const result: { color: LemonTagType; label: string } = areResultsSignificant(metricIndex)
+function SignificanceHighlight({
+    metricIndex = 0,
+    isSecondary = false,
+}: {
+    metricIndex?: number
+    isSecondary?: boolean
+}): JSX.Element {
+    const { isPrimaryMetricSignificant, isSecondaryMetricSignificant, significanceDetails } = useValues(experimentLogic)
+    const isSignificant = isSecondary
+        ? isSecondaryMetricSignificant(metricIndex)
+        : isPrimaryMetricSignificant(metricIndex)
+    const result: { color: LemonTagType; label: string } = isSignificant
         ? { color: 'success', label: 'Significant' }
         : { color: 'primary', label: 'Not significant' }
 
-    const inner = areResultsSignificant(metricIndex) ? (
+    const inner = isSignificant ? (
         <div className="bg-success-highlight text-success p-1 flex items-center gap-1">
             <IconTrending fontSize={20} fontWeight={600} />
             <span className="text-xs font-semibold">{result.label}</span>

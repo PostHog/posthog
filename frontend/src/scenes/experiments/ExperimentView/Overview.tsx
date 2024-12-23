@@ -35,14 +35,27 @@ export function WinningVariantText({
     return <></>
 }
 
-export function SignificanceText({ metricIndex }: { metricIndex: number }): JSX.Element {
-    const { areResultsSignificant } = useValues(experimentLogic)
+export function SignificanceText({
+    metricIndex,
+    isSecondary = false,
+}: {
+    metricIndex: number
+    isSecondary?: boolean
+}): JSX.Element {
+    const { isPrimaryMetricSignificant, isSecondaryMetricSignificant } = useValues(experimentLogic)
 
     return (
         <div className="flex-wrap">
             <span>Your results are&nbsp;</span>
             <span className="font-semibold">
-                {`${areResultsSignificant(metricIndex) ? 'significant' : 'not significant'}`}.
+                {`${
+                    isSecondary
+                        ? isSecondaryMetricSignificant(metricIndex)
+                        : isPrimaryMetricSignificant(metricIndex)
+                        ? 'significant'
+                        : 'not significant'
+                }`}
+                .
             </span>
         </div>
     )
