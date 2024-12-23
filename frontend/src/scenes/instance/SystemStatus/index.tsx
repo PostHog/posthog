@@ -7,7 +7,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -28,7 +27,6 @@ export function SystemStatus(): JSX.Element {
     const { setTab } = useActions(systemStatusLogic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     let tabs = [
         {
