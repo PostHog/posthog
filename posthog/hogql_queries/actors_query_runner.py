@@ -1,5 +1,5 @@
 import itertools
-from typing import Optional
+from typing import Any, Optional
 from collections.abc import Sequence, Iterator
 
 from posthog.hogql import ast
@@ -77,7 +77,7 @@ class ActorsQueryRunner(QueryRunner):
             if actor:
                 new_row[actor_column_index] = actor
             else:
-                actor_data = {"id": actor_id}
+                actor_data: dict[str, Any] = {"id": actor_id}
                 if events_distinct_id_lookup is not None:
                     actor_data["distinct_ids"] = events_distinct_id_lookup.get(actor_id)
                 new_row[actor_column_index] = actor_data
