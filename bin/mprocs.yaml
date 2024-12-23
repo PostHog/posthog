@@ -19,8 +19,8 @@ procs:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker'
 
     docker-compose:
-        shell: 'docker compose -f docker-compose.dev.yml up'
-        stop:
-            send-keys: ['<C-c>']
+        # docker-compose makes sure the stack is up, and then follows its logs - but doesn't tear down on exit for speed
+        shell: 'docker compose -f docker-compose.dev.yml up -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f'
 
 mouse_scroll_speed: 1
+scrollback: 10000

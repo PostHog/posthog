@@ -1292,6 +1292,124 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
         trend_result = cast(ExperimentTrendsQueryResponse, result)
 
+        self.assertEqual(trend_result.stats_version, 1)
+        self.assertEqual(trend_result.significant, False)
+        self.assertEqual(trend_result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        self.assertEqual(trend_result.p_value, 1.0)
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_result = next(variant for variant in trend_result.variants if variant.key == "control")
+        test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+
+        control_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "control")
+        test_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "test")
+
+        self.assertEqual(control_result.count, 100)
+        self.assertAlmostEqual(test_result.count, 205)
+        self.assertEqual(control_result.absolute_exposure, 1)
+        self.assertEqual(test_result.absolute_exposure, 3)
+
+        self.assertEqual(
+            control_insight["data"],
+            [0.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+        )
+        self.assertEqual(
+            test_insight["data"],
+            [0.0, 50.0, 125.0, 125.0, 125.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0],
+        )
+
+    # Uses the same values as test_query_runner_with_data_warehouse_series_avg_amount for easy comparison
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_query_runner_with_avg_math_v2_stats(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        count_query = TrendsQuery(
+            series=[
+                EventsNode(event="purchase", math="avg", math_property="amount", math_property_type="event_properties")
+            ],
+        )
+        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=exposure_query,
+            stats_version=2,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+
+        # Populate exposure events - same as data warehouse test
+        for variant, count in [("control", 1), ("test", 3)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                    timestamp=datetime(2020, 1, i + 1),
+                )
+
+        # Create purchase events with same amounts as data warehouse test
+        # Control: 1 purchase of 100
+        # Test: 3 purchases of 50, 75, and 80
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_0",
+            properties={feature_flag_property: "control", "amount": 100},
+            timestamp=datetime(2020, 1, 2),
+        )
+
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_test_1",
+            properties={feature_flag_property: "test", "amount": 50},
+            timestamp=datetime(2020, 1, 2),
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_test_2",
+            properties={feature_flag_property: "test", "amount": 75},
+            timestamp=datetime(2020, 1, 3),
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_test_3",
+            properties={feature_flag_property: "test", "amount": 80},
+            timestamp=datetime(2020, 1, 6),
+        )
+
+        flush_persons_and_events()
+
+        prepared_count_query = query_runner.prepared_count_query
+        self.assertEqual(prepared_count_query.series[0].math, "sum")
+
+        result = query_runner.calculate()
+        trend_result = cast(ExperimentTrendsQueryResponse, result)
+
+        self.assertEqual(trend_result.stats_version, 2)
+        self.assertEqual(trend_result.significant, False)
+        self.assertEqual(trend_result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        self.assertEqual(trend_result.p_value, 1.0)
+
         self.assertEqual(len(result.variants), 2)
 
         control_result = next(variant for variant in trend_result.variants if variant.key == "control")
