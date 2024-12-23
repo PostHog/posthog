@@ -55,6 +55,11 @@ class PostgreSQLConnectionError(Exception):
     pass
 
 
+class MissingPrimaryKeyError(Exception):
+    def __init__(self, table: sql.Identifier, primary_key: sql.Composed):
+        super().__init__(f"An operation could not be completed as '{table}' is missing a primary key on {primary_key}")
+
+
 @dataclasses.dataclass
 class PostgresInsertInputs:
     """Inputs for Postgres insert activity."""
@@ -346,7 +351,10 @@ class PostgreSQLClient:
                     await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
                 await cursor.execute("SET TRANSACTION READ WRITE")
 
-                await cursor.execute(merge_query)
+                try:
+                    await cursor.execute(merge_query)
+                except psycopg.errors.InvalidColumnReference:
+                    raise MissingPrimaryKeyError(final_table_identifier, conflict_fields)
 
     async def copy_tsv_to_postgres(
         self,
@@ -598,6 +606,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                         ("team_id", "INT"),
                         ("distinct_id", "TEXT"),
                     )
+
                     await pg_client.amerge_person_tables(
                         final_table_name=pg_table,
                         stage_table_name=pg_stage_table,
@@ -704,6 +713,8 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 "DiskFull",
                 # Raised by our PostgreSQL client when failing to connect after several attempts.
                 "PostgreSQLConnectionError",
+                # Raised when merging without a primary key.
+                "MissingPrimaryKeyError",
             ],
             finish_inputs=finish_inputs,
         )

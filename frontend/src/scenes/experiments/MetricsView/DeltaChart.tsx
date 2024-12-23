@@ -1,5 +1,5 @@
-import { IconActivity, IconPencil } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { IconActivity, IconGraph, IconMinus, IconPencil, IconTrending } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
@@ -8,7 +8,9 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { VariantTag } from '../ExperimentView/components'
+import { ExploreButton, ResultsQuery, VariantTag } from '../ExperimentView/components'
+import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview'
+import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
 
 function formatTickValue(value: number): string {
@@ -34,6 +36,7 @@ function formatTickValue(value: number): string {
 }
 
 export function DeltaChart({
+    isSecondary,
     result,
     error,
     variants,
@@ -44,6 +47,7 @@ export function DeltaChart({
     tickValues,
     chartBound,
 }: {
+    isSecondary: boolean
     result: any
     error: any
     variants: any[]
@@ -64,13 +68,27 @@ export function DeltaChart({
     } = useValues(experimentLogic)
 
     const { experiment } = useValues(experimentLogic)
-    const { openPrimaryMetricModal } = useActions(experimentLogic)
+    const { openPrimaryMetricModal, openSecondaryMetricModal } = useActions(experimentLogic)
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
+    const [isModalOpen, setIsModalOpen] = useState(false)
 
-    const BAR_HEIGHT = 8
-    const BAR_PADDING = 10
+    const getScaleAddition = (variantCount: number): number => {
+        if (variantCount < 3) {
+            return 6
+        }
+        if (variantCount < 4) {
+            return 3
+        }
+        if (variantCount < 5) {
+            return 1
+        }
+        return 0
+    }
+
+    const BAR_HEIGHT = 8 + getScaleAddition(variants.length)
+    const BAR_PADDING = 10 + getScaleAddition(variants.length)
     const TICK_PANEL_HEIGHT = 20
     const VIEW_BOX_WIDTH = 800
     const HORIZONTAL_PADDING = 20
@@ -101,6 +119,7 @@ export function DeltaChart({
 
     const metricTitlePanelWidth = '20%'
     const variantsPanelWidth = '10%'
+    const detailedResultsPanelWidth = '125px'
 
     const ticksSvgRef = useRef<SVGSVGElement>(null)
     const chartSvgRef = useRef<SVGSVGElement>(null)
@@ -167,7 +186,11 @@ export function DeltaChart({
                                     type="secondary"
                                     size="xsmall"
                                     icon={<IconPencil fontSize="12" />}
-                                    onClick={() => openPrimaryMetricModal(metricIndex)}
+                                    onClick={() =>
+                                        isSecondary
+                                            ? openSecondaryMetricModal(metricIndex)
+                                            : openPrimaryMetricModal(metricIndex)
+                                    }
                                 />
                             </div>
                             <LemonTag type="muted" size="small">
@@ -184,7 +207,7 @@ export function DeltaChart({
                 {isFirstMetric && (
                     <svg
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: `${ticksSvgHeight}px` }}
+                        style={{ height: `${ticksSvgHeight}px`, width: '100%' }}
                     />
                 )}
                 {isFirstMetric && <div className="w-full border-t border-border" />}
@@ -206,13 +229,12 @@ export function DeltaChart({
                     ))}
                 </div>
             </div>
-
             {/* SVGs container */}
             <div
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     display: 'inline-block',
-                    width: `calc(100% - ${metricTitlePanelWidth} - ${variantsPanelWidth})`,
+                    width: `calc(100% - ${metricTitlePanelWidth} - ${variantsPanelWidth} - ${detailedResultsPanelWidth})`,
                     verticalAlign: 'top',
                 }}
             >
@@ -407,15 +429,6 @@ export function DeltaChart({
                             y={chartHeight / 2 - 10} // Roughly center vertically
                             width="200"
                             height="20"
-                            onMouseEnter={(e) => {
-                                const rect = e.currentTarget.getBoundingClientRect()
-                                setTooltipPosition({
-                                    x: rect.left + rect.width / 2,
-                                    y: rect.top,
-                                })
-                                setEmptyStateTooltipVisible(true)
-                            }}
-                            onMouseLeave={() => setEmptyStateTooltipVisible(false)}
                         >
                             <div
                                 className="flex items-center justify-center text-muted cursor-default"
@@ -662,6 +675,112 @@ export function DeltaChart({
                     </div>
                 )}
             </div>
+            {/* Detailed results panel */}
+            <div
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    display: 'inline-block',
+                    width: detailedResultsPanelWidth,
+                    verticalAlign: 'top',
+                }}
+            >
+                {isFirstMetric && (
+                    <svg
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ height: `${ticksSvgHeight}px`, width: '100%' }}
+                    />
+                )}
+                {isFirstMetric && <div className="w-full border-t border-border" />}
+                {result && (
+                    <div
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            height: `${chartSvgHeight}px`,
+                            borderLeft: result ? `1px solid ${COLORS.BOUNDARY_LINES}` : 'none',
+                            display: 'flex',
+                            flexDirection: 'column',
+                        }}
+                    >
+                        <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
+                        <div className="flex-1 flex items-center justify-center">
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                icon={<IconGraph />}
+                                onClick={() => setIsModalOpen(true)}
+                            >
+                                Detailed results
+                            </LemonButton>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <LemonModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                width={1200}
+                title={`Metric results: ${metric.name || 'Untitled metric'}`}
+                footer={
+                    <LemonButton
+                        form="secondary-metric-modal-form"
+                        type="secondary"
+                        onClick={() => setIsModalOpen(false)}
+                    >
+                        Close
+                    </LemonButton>
+                }
+            >
+                <div className="flex justify-end">
+                    <ExploreButton metricIndex={metricIndex} isSecondary={isSecondary} />
+                </div>
+                <LemonBanner type="info" className="mb-4">
+                    <div className="items-center inline-flex flex-wrap">
+                        <WinningVariantText result={result} experimentId={experimentId} />
+                        <SignificanceText metricIndex={metricIndex} />
+                    </div>
+                </LemonBanner>
+                <SummaryTable metricIndex={metricIndex} isSecondary={isSecondary} />
+                <ResultsQuery targetResults={result} showTable={true} />
+            </LemonModal>
         </div>
+    )
+}
+
+function SignificanceHighlight({
+    metricIndex = 0,
+    isSecondary = false,
+}: {
+    metricIndex?: number
+    isSecondary?: boolean
+}): JSX.Element {
+    const { isPrimaryMetricSignificant, isSecondaryMetricSignificant, significanceDetails } = useValues(experimentLogic)
+    const isSignificant = isSecondary
+        ? isSecondaryMetricSignificant(metricIndex)
+        : isPrimaryMetricSignificant(metricIndex)
+    const result: { color: LemonTagType; label: string } = isSignificant
+        ? { color: 'success', label: 'Significant' }
+        : { color: 'primary', label: 'Not significant' }
+
+    const inner = isSignificant ? (
+        <div className="bg-success-highlight text-success p-1 flex items-center gap-1">
+            <IconTrending fontSize={20} fontWeight={600} />
+            <span className="text-xs font-semibold">{result.label}</span>
+        </div>
+    ) : (
+        <div className="bg-warning-highlight text-warning p-1 flex items-center gap-1">
+            <IconMinus fontSize={20} fontWeight={600} />
+            <span className="text-xs font-semibold">{result.label}</span>
+        </div>
+    )
+
+    const details = significanceDetails(metricIndex)
+
+    return details ? (
+        <Tooltip title={details}>
+            <div className="cursor-pointer">{inner}</div>
+        </Tooltip>
+    ) : (
+        <div>{inner}</div>
     )
 }

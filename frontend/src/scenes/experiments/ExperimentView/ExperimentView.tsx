@@ -6,6 +6,7 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
+import { MetricModal } from '../Metrics/MetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import {
     ExperimentLoadingAnimation,
@@ -25,9 +26,9 @@ import { Results } from './Results'
 import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 const ResultsTab = (): JSX.Element => {
-    const { experiment, experimentResults, featureFlags } = useValues(experimentLogic)
-
-    const hasResultsInsight = experimentResults && experimentResults.insight
+    const { experiment, metricResults, featureFlags } = useValues(experimentLogic)
+    const result = metricResults?.[0]
+    const hasResultsInsight = result && result.insight
 
     return (
         <div className="space-y-8">
@@ -51,7 +52,11 @@ const ResultsTab = (): JSX.Element => {
                     )}
                 </>
             )}
-            <SecondaryMetricsTable experimentId={experiment.id} />
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
+                <MetricsView isSecondary={true} />
+            ) : (
+                <SecondaryMetricsTable experimentId={experiment.id} />
+            )}
         </div>
     )
 }
@@ -69,12 +74,19 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentResultsLoading, experimentId, experimentResults, tabKey, featureFlags } =
-        useValues(experimentLogic)
+    const {
+        experimentLoading,
+        metricResultsLoading,
+        secondaryMetricResultsLoading,
+        experimentId,
+        metricResults,
+        tabKey,
+        featureFlags,
+    } = useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
-
-    const hasResultsInsight = experimentResults && experimentResults.insight
+    const result = metricResults?.[0]
+    const hasResultsInsight = result && result.insight
 
     return (
         <>
@@ -85,7 +97,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        {experimentResultsLoading ? (
+                        {metricResultsLoading || secondaryMetricResultsLoading ? (
                             <ExperimentLoadingAnimation />
                         ) : (
                             <>
@@ -129,6 +141,9 @@ export function ExperimentView(): JSX.Element {
                                 />
                             </>
                         )}
+                        <MetricModal experimentId={experimentId} isSecondary={true} />
+                        <MetricModal experimentId={experimentId} isSecondary={false} />
+
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />
                     </>

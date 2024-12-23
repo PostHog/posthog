@@ -3,12 +3,17 @@ import dataclasses
 import datetime as dt
 import json
 import re
+import threading
+import time
 
 from django.conf import settings
 from django.db import close_old_connections
 import posthoganalytics
+import psutil
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
+
 
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 
@@ -16,7 +21,7 @@ from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 from posthog.settings.base_variables import TEST
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_imports.util import is_posthog_team
+from posthog.temporal.data_imports.util import is_posthog_team, is_enabled_for_team
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
@@ -144,20 +149,22 @@ def trigger_pipeline_v2(inputs: ExternalDataWorkflowInputs):
     logger.debug("Triggering V2 pipeline")
 
     temporal = sync_connect()
-
-    asyncio.run(
-        temporal.start_workflow(
-            workflow="external-data-job",
-            arg=dataclasses.asdict(inputs),
-            id=f"{inputs.external_data_schema_id}-V2",
-            task_queue=str(DATA_WAREHOUSE_TASK_QUEUE_V2),
-            retry_policy=RetryPolicy(
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=1,
-                non_retryable_error_types=["NondeterminismError"],
-            ),
+    try:
+        asyncio.run(
+            temporal.start_workflow(
+                workflow="external-data-job",
+                arg=dataclasses.asdict(inputs),
+                id=f"{inputs.external_data_schema_id}-V2",
+                task_queue=str(DATA_WAREHOUSE_TASK_QUEUE_V2),
+                retry_policy=RetryPolicy(
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=1,
+                    non_retryable_error_types=["NondeterminismError"],
+                ),
+            )
         )
-    )
+    except WorkflowAlreadyStartedError:
+        pass
 
     logger.debug("V2 pipeline triggered")
 
@@ -171,6 +178,22 @@ class CreateSourceTemplateInputs:
 @activity.defn
 def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
     create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
+
+
+def log_memory_usage():
+    process = psutil.Process()
+    logger = bind_temporal_worker_logger_sync(team_id=0)
+
+    while True:
+        memory_info = process.memory_info()
+        logger.info(f"Memory Usage: RSS = {memory_info.rss / (1024 * 1024):.2f} MB")
+
+        time.sleep(10)  # Log every 10 seconds
+
+
+if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
+    thread = threading.Thread(target=log_memory_usage, daemon=True)
+    thread.start()
 
 
 # TODO: update retry policies
@@ -188,7 +211,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         if (
             settings.TEMPORAL_TASK_QUEUE != DATA_WAREHOUSE_TASK_QUEUE_V2
             and not TEST
-            and is_posthog_team(inputs.team_id)
+            and (is_posthog_team(inputs.team_id) or is_enabled_for_team(inputs.team_id))
         ):
             await workflow.execute_activity(
                 trigger_pipeline_v2,

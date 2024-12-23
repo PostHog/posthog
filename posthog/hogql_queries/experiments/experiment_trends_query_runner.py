@@ -9,10 +9,15 @@ from posthog.hogql_queries.experiments.trends_statistics import (
     calculate_credible_intervals,
     calculate_probabilities,
 )
-from posthog.hogql_queries.experiments.trends_statistics_v2 import (
-    are_results_significant_v2,
-    calculate_credible_intervals_v2,
-    calculate_probabilities_v2,
+from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
+    are_results_significant_v2_count,
+    calculate_credible_intervals_v2_count,
+    calculate_probabilities_v2_count,
+)
+from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
+    are_results_significant_v2_continuous,
+    calculate_credible_intervals_v2_continuous,
+    calculate_probabilities_v2_continuous,
 )
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -33,7 +38,6 @@ from posthog.schema import (
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
     DateRange,
-    PropertyMathType,
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
@@ -122,15 +126,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
            to separate results for different experiment variants.
         """
         prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
-
-        uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(prepared_count_query)
-
-        # :TRICKY: for `avg` aggregation, use `sum` data as an approximation
-        if prepared_count_query.series[0].math == PropertyMathType.AVG:
-            prepared_count_query.series[0].math = PropertyMathType.SUM
-        # TODO: revisit this; using the count data for the remaining aggregation types is likely wrong
-        elif uses_math_aggregation:
-            prepared_count_query.series[0].math = None
 
         prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
         prepared_count_query.dateRange = self._get_date_range()
@@ -316,9 +311,18 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
         if self.stats_version == 2:
-            probabilities = calculate_probabilities_v2(control_variant, test_variants)
-            significance_code, p_value = are_results_significant_v2(control_variant, test_variants, probabilities)
-            credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
+            if self.query.count_query.series[0].math:
+                probabilities = calculate_probabilities_v2_continuous(control_variant, test_variants)
+                significance_code, p_value = are_results_significant_v2_continuous(
+                    control_variant, test_variants, probabilities
+                )
+                credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
+            else:
+                probabilities = calculate_probabilities_v2_count(control_variant, test_variants)
+                significance_code, p_value = are_results_significant_v2_count(
+                    control_variant, test_variants, probabilities
+                )
+                credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
         else:
             probabilities = calculate_probabilities(control_variant, test_variants)
             significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
