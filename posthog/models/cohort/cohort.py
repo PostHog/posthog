@@ -262,8 +262,6 @@ class Cohort(models.Model):
                     new_version=pending_version,
                     exc_info=True,
                 )
-        else:
-            recalculate_cohortpeople(self, 1, initiating_user_id=initiating_user_id, hogql=True)
 
     def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
         """
