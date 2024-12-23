@@ -27,6 +27,7 @@ class _SharedAssistantState(BaseModel):
     The ID of the message from which the conversation started.
     """
     plan: Optional[str] = Field(default=None)
+    resumed: Optional[bool] = Field(default=None)
 
 
 class AssistantState(_SharedAssistantState):
@@ -34,7 +35,7 @@ class AssistantState(_SharedAssistantState):
 
 
 class PartialAssistantState(_SharedAssistantState):
-    messages: Optional[Annotated[Sequence[AssistantMessageUnion], operator.add]] = Field(default=None)
+    messages: Optional[Sequence[AssistantMessageUnion]] = Field(default=None)
 
 
 class AssistantNodeName(StrEnum):
