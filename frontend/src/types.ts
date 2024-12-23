@@ -3887,6 +3887,7 @@ export type APIScopeObject =
     | 'event_definition'
     | 'experiment'
     | 'export'
+    | 'feature'
     | 'feature_flag'
     | 'group'
     | 'insight'
