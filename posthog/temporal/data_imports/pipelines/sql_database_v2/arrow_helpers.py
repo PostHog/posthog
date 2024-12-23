@@ -142,19 +142,6 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
     return pa.Table.from_pydict(columnar_known_types, schema=arrow_schema)
 
 
-def _handle_large_integers(obj: Any) -> Any:
-    """Helper function to convert large integers to floats before JSON serialization."""
-    if isinstance(obj, int):
-        # Check if integer is too large for 64-bit
-        if obj > 9223372036854775807 or obj < -9223372036854775808:
-            return float(obj)
-    elif isinstance(obj, dict):
-        return {k: _handle_large_integers(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [_handle_large_integers(v) for v in obj]
-    return obj
-
-
 def json_dumps(obj: Any) -> str:
     try:
         return orjson.dumps(obj)
