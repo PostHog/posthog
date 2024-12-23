@@ -138,11 +138,16 @@ export class ReplayEventsIngester {
                 if (replayRecord !== null) {
                     const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
                     if (!asDate.isValid || Math.abs(asDate.diffNow('day').days) >= 7) {
-                        const eventTypes = rrwebEvents.map((event) => ({
-                            type: event.type,
-                            timestamp: event.timestamp,
-                        }))
-                        const customEvents = rrwebEvents.filter((event) => event.type === RRWebEventType.Custom)
+                        const eventTypes: { type: number; timestamp: number }[] = []
+                        const customEvents: typeof rrwebEvents = []
+
+                        for (const event of rrwebEvents) {
+                            eventTypes.push({ type: event.type, timestamp: event.timestamp })
+                            if (event.type === RRWebEventType.Custom) {
+                                customEvents.push(event)
+                            }
+                        }
+
                         await captureIngestionWarning(
                             new KafkaProducerWrapper(this.producer),
                             event.team_id,
