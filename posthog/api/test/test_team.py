@@ -1228,7 +1228,6 @@ def team_api_test_factory():
         def test_access_control_toggle_capture(self, mock_capture):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-            mock_capture.reset_mock()
 
             response = self.client.get("/api/environments/@current/")
             assert response.status_code == status.HTTP_200_OK
