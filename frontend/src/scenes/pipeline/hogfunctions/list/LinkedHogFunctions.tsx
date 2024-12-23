@@ -7,6 +7,7 @@ import { HogFunctionList } from './HogFunctionsList'
 import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 
 export type LinkedHogFunctionsProps = {
+    logicKey?: string
     type: HogFunctionTypeType
     filters: HogFunctionFiltersType
     subTemplateId?: HogFunctionSubTemplateIdType
@@ -14,6 +15,7 @@ export type LinkedHogFunctionsProps = {
 }
 
 export function LinkedHogFunctions({
+    logicKey,
     type,
     filters,
     subTemplateId,
@@ -38,6 +40,7 @@ export function LinkedHogFunctions({
     ) : (
         <HogFunctionList
             forceFilters={{ filters }}
+            logicKey={logicKey}
             type={type}
             extraControls={
                 <>
