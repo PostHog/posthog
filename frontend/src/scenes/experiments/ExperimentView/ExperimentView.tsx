@@ -52,7 +52,11 @@ const ResultsTab = (): JSX.Element => {
                     )}
                 </>
             )}
-            <SecondaryMetricsTable experimentId={experiment.id} />
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
+                <MetricsView isSecondary={true} />
+            ) : (
+                <SecondaryMetricsTable experimentId={experiment.id} />
+            )}
         </div>
     )
 }
@@ -70,8 +74,15 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, metricResultsLoading, experimentId, metricResults, tabKey, featureFlags } =
-        useValues(experimentLogic)
+    const {
+        experimentLoading,
+        metricResultsLoading,
+        secondaryMetricResultsLoading,
+        experimentId,
+        metricResults,
+        tabKey,
+        featureFlags,
+    } = useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
     const result = metricResults?.[0]
@@ -86,7 +97,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        {metricResultsLoading ? (
+                        {metricResultsLoading || secondaryMetricResultsLoading ? (
                             <ExperimentLoadingAnimation />
                         ) : (
                             <>
