@@ -1004,15 +1004,11 @@ export const experimentLogic = kea<experimentLogicType>([
             (experimentId): Experiment['id'] => experimentId,
         ],
         getMetricType: [
-            (s) => [s.experiment, s.featureFlags],
-            (experiment, featureFlags) =>
+            (s) => [s.experiment],
+            (experiment) =>
                 (metricIdx: number = 0) => {
-                    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        const query = experiment?.metrics?.[metricIdx]
-                        return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
-                    }
-
-                    return experiment?.filters?.insight || InsightType.FUNNELS
+                    const query = experiment?.metrics?.[metricIdx]
+                    return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
                 },
         ],
         getSecondaryMetricType: [

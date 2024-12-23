@@ -133,73 +133,36 @@ export function ResultsQuery({
     targetResults: ExperimentResults['result'] | ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
     showTable: boolean
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-        const newQueryResults = targetResults as unknown as
-            | CachedExperimentTrendsQueryResponse
-            | CachedExperimentFunnelsQueryResponse
+    const newQueryResults = targetResults as unknown as
+        | CachedExperimentTrendsQueryResponse
+        | CachedExperimentFunnelsQueryResponse
 
-        const query =
-            newQueryResults.kind === NodeKind.ExperimentTrendsQuery
-                ? newQueryResults.count_query
-                : newQueryResults.funnels_query
-        const fakeInsightId = Math.random().toString(36).substring(2, 15)
-
-        return (
-            <Query
-                query={{
-                    kind: NodeKind.InsightVizNode,
-                    source: query,
-                    showTable,
-                    showLastComputation: true,
-                    showLastComputationRefresh: false,
-                }}
-                context={{
-                    insightProps: {
-                        dashboardItemId: fakeInsightId as InsightShortId,
-                        cachedInsight: {
-                            short_id: fakeInsightId as InsightShortId,
-                            query: {
-                                kind: NodeKind.InsightVizNode,
-                                source: query,
-                            } as InsightVizNode,
-                            result: newQueryResults?.insight,
-                            disable_baseline: true,
-                        },
-                        doNotLoad: true,
-                    },
-                }}
-                readOnly
-            />
-        )
-    }
-
-    const oldQueryResults = targetResults as ExperimentResults['result']
-
-    if (!oldQueryResults?.filters) {
-        return <></>
-    }
+    const query =
+        newQueryResults.kind === NodeKind.ExperimentTrendsQuery
+            ? newQueryResults.count_query
+            : newQueryResults.funnels_query
+    const fakeInsightId = Math.random().toString(36).substring(2, 15)
 
     return (
         <Query
             query={{
                 kind: NodeKind.InsightVizNode,
-                source: filtersToQueryNode(transformResultFilters(oldQueryResults?.filters ?? {})),
+                source: query,
                 showTable,
                 showLastComputation: true,
                 showLastComputationRefresh: false,
             }}
             context={{
                 insightProps: {
-                    dashboardItemId: oldQueryResults?.fakeInsightId as InsightShortId,
+                    dashboardItemId: fakeInsightId as InsightShortId,
                     cachedInsight: {
-                        short_id: oldQueryResults?.fakeInsightId as InsightShortId,
-                        query: oldQueryResults?.filters
-                            ? queryFromFilters(transformResultFilters(oldQueryResults.filters))
-                            : null,
-                        result: oldQueryResults?.insight,
+                        short_id: fakeInsightId as InsightShortId,
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: query,
+                        } as InsightVizNode,
+                        result: newQueryResults?.insight,
                         disable_baseline: true,
-                        last_refresh: oldQueryResults?.last_refresh,
                     },
                     doNotLoad: true,
                 },
