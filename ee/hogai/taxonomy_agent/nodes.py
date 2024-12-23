@@ -267,12 +267,18 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
             )
         if input.name == "ask_user_for_help":
             # The agent has requested help, so we interrupt the graph.
-            if not observation:
+            if not state.resumed:
                 raise NodeInterrupt(input.arguments)
 
             # Feedback was provided.
+            last_message = state.messages[-1]
+            response = ""
+            if isinstance(last_message, HumanMessage):
+                response = last_message.content
+
             return PartialAssistantState(
-                intermediate_steps=[*intermediate_steps[:-1], (action, observation)],
+                resumed=False,
+                intermediate_steps=[*intermediate_steps[:-1], (action, response)],
             )
 
         output = ""

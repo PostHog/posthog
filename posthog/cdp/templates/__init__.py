@@ -48,6 +48,8 @@ from ._siteapps.template_pineapple_mode import template as pineapple_mode
 from ._siteapps.template_debug_posthog import template as debug_posthog
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
 from ._internal.template_blank import blank_site_destination, blank_site_app
+from .snapchat_ads.template_snapchat_ads import template as snapchat_ads
+from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pixel
 from ._transformations.template_pass_through import template as pass_through_transformation
 
 
@@ -94,6 +96,8 @@ HOG_FUNCTION_TEMPLATES = [
     salesforce_create,
     salesforce_update,
     sendgrid,
+    snapchat_ads,
+    snapchat_pixel,
     zapier,
     zendesk,
     early_access_features,
