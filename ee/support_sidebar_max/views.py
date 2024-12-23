@@ -9,6 +9,7 @@ import threading
 import time
 import anthropic
 import json
+from datetime import datetime, UTC
 
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
@@ -20,12 +21,11 @@ from .max_search_tool import max_search_tool
 
 # Configure logging
 django_logger = logging.getLogger("django")
-django_logger.setLevel(logging.DEBUG)
+django_logger.setLevel(logging.INFO)
 
 # Don't add the auth header here, the Anthropic Python SDK handles it
 REQUIRED_HEADERS = {
     "anthropic-version": "2023-06-01",
-    "anthropic-beta": "prompt-caching-2024-07-31",
     "content-type": "application/json",
 }
 
@@ -259,15 +259,16 @@ class MaxChatViewSet(viewsets.ViewSet):
     def send_message(self, client: anthropic.Anthropic, tools, system_prompt, messages):
         """Send message to Anthropic API with proper error handling"""
         try:
-            django_logger.info("Preparing to send message to Anthropic API")
+            django_logger.info("✨🦔 Preparing to send message to Anthropic API")
             try:
-                headers = {"anthropic-beta": "prompt-caching-2024-07-31"}
-                django_logger.debug("API headers prepared successfully")
+                headers = {}
+                django_logger.debug("✨🦔 API headers prepared successfully")
             except Exception as e:
-                django_logger.error(f"Error preparing API headers: {str(e)}", exc_info=True)
+                django_logger.error(f"✨🦔 Error preparing API headers: {str(e)}", exc_info=True)
                 raise
 
-            response = client.messages.create(
+            # Use with_raw_response to get access to headers
+            raw_response = client.messages.with_raw_response.create(
                 model="claude-3-5-sonnet-20241022",
                 max_tokens=1024,
                 tools=tools,
@@ -276,24 +277,78 @@ class MaxChatViewSet(viewsets.ViewSet):
                 extra_headers=headers,
             )
 
-            django_logger.debug(f"Response from Anthropic API: {response}")
+            # Get the actual message response
+            message = raw_response.parse()
+            django_logger.debug(f"✨🦔 Response from Anthropic API: {message}")
+
+            # Log rate limit information if available
+            try:
+                # Log current capacity (for monitoring/debugging)
+                django_logger.info(
+                    f"✨🦔 API Capacity - "
+                    f"Requests: {raw_response.headers.get('anthropic-ratelimit-requests-remaining', '?')}/{raw_response.headers.get('anthropic-ratelimit-requests-limit', '?')}, "
+                    f"Input Tokens: {raw_response.headers.get('anthropic-ratelimit-input-tokens-remaining', '?')}/{raw_response.headers.get('anthropic-ratelimit-input-tokens-limit', '?')}, "
+                    f"Output Tokens: {raw_response.headers.get('anthropic-ratelimit-output-tokens-remaining', '?')}/{raw_response.headers.get('anthropic-ratelimit-output-tokens-limit', '?')}"
+                )
+            except Exception as e:
+                django_logger.warning(f"✨🦔 Unable to log capacity info: {str(e)}")
+
+            # Log token usage and cache metrics
+            if message.usage:
+                input_tokens = getattr(message.usage, "input_tokens", 0)
+                output_tokens = getattr(message.usage, "output_tokens", 0)
+                cache_created = getattr(message.usage, "cache_creation_input_tokens", 0)
+                cache_read = getattr(message.usage, "cache_read_input_tokens", 0)
+                fresh_input = getattr(message.usage, "input_tokens", 0)
+
+                django_logger.info(f"✨🦔 Request Usage - Input: {input_tokens}, Output: {output_tokens} tokens")
+                if cache_created or cache_read:
+                    django_logger.info(
+                        f"✨🦔 Cache Stats - Created: {cache_created}, Read: {cache_read}, Fresh: {fresh_input}"
+                    )
 
             # Extract the necessary fields from the Message object
             result = {
-                "content": [block.dict() for block in response.content]
-                if isinstance(response.content, list)
-                else response.content,
-                "stop_reason": response.stop_reason,
-                "usage": response.usage.dict() if response.usage else None,
+                "content": [block.dict() for block in message.content]
+                if isinstance(message.content, list)
+                else message.content,
+                "stop_reason": message.stop_reason,
+                "usage": message.usage.dict() if message.usage else None,
             }
 
-            django_logger.debug(f"Processed API response: {result}")
+            django_logger.debug(f"✨🦔 Processed API response: {result}")
             return result
 
         except anthropic.RateLimitError as e:
-            django_logger.warning(f"Rate limit exceeded: {str(e)}")
-            retry_after = getattr(e, "retry_after", 30)
-            return self._handle_rate_limit(retry_after)
+            try:
+                # Get reset time from headers if available
+                headers = e.response.headers if hasattr(e, "response") and hasattr(e.response, "headers") else {}
+
+                # Try to get retry-after header first
+                if "retry-after" in headers:
+                    retry_seconds = int(headers["retry-after"])
+                else:
+                    # Calculate from reset timestamp
+                    now = datetime.now(UTC)
+                    reset_times = []
+
+                    for header in headers:
+                        if header.endswith("-reset"):
+                            try:
+                                reset_time = datetime.fromisoformat(headers[header].rstrip("Zs")).replace(tzinfo=UTC)
+                                wait_seconds = max(0, int((reset_time - now).total_seconds()))
+                                reset_times.append(wait_seconds)
+                            except (ValueError, TypeError):
+                                continue
+
+                    retry_seconds = max(reset_times) if reset_times else 15
+
+                django_logger.warning(f"✨🦔 Rate limit hit - waiting {retry_seconds} seconds before retry")
+                return self._handle_rate_limit(retry_seconds)
+
+            except Exception as header_error:
+                django_logger.warning(f"✨🦔 Rate limit handling error: {str(header_error)}")
+                return self._handle_rate_limit(15)  # Default to 15 seconds
         except Exception as e:
-            django_logger.error(f"Request to Anthropic API failed: {str(e)}", exc_info=True)
+            django_logger.error(f"✨🦔 Request to Anthropic API failed: {str(e)}", exc_info=True)
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

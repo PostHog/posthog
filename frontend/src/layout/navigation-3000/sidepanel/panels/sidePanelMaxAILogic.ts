@@ -4,6 +4,18 @@ import { loaders } from 'kea-loaders'
 import type { sidePanelMaxAILogicType } from './sidePanelMaxAILogicType'
 import { sidePanelMaxAPI } from './sidePanelMaxAPI'
 
+interface RateLimit {
+    limit: number
+    remaining: number
+    reset: string
+}
+
+interface RateLimits {
+    requests: RateLimit
+    input_tokens: RateLimit
+    output_tokens: RateLimit
+}
+
 export interface ChatMessage {
     role: 'user' | 'assistant'
     content: string
@@ -14,7 +26,7 @@ export interface ChatMessage {
 
 interface MaxResponse {
     content: string | { text: string; type: string }
-    isRateLimited?: boolean
+    rate_limits?: RateLimits
     isError?: boolean
 }
 
@@ -94,20 +106,37 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
                         const response = (await sidePanelMaxAPI.sendMessage(message)) as MaxResponse
                         await breakpoint(100)
 
-                        const content = typeof response.content === 'string' ? response.content : response.content.text
+                        let messageContent =
+                            typeof response.content === 'string' ? response.content : response.content.text
 
-                        if (response.isRateLimited) {
-                            actions.setRateLimited(true)
-                        } else if (response.isError) {
+                        // Check rate limits
+                        const { rate_limits } = response
+                        if (rate_limits) {
+                            const isLimited = Object.values(rate_limits).some((limit) => limit.remaining === 0)
+                            if (isLimited) {
+                                actions.setRateLimited(true)
+                                // Find the shortest reset time
+                                const resetTimes = Object.values(rate_limits)
+                                    .map((limit) => new Date(limit.reset).getTime())
+                                    .filter((time) => !isNaN(time))
+                                if (resetTimes.length > 0) {
+                                    const earliestReset = Math.min(...resetTimes)
+                                    const waitSeconds = Math.max(0, Math.ceil((earliestReset - Date.now()) / 1000))
+                                    messageContent = `🫣 Rate limit hit! Please try again in ${waitSeconds} seconds. 🦔`
+                                }
+                            }
+                        }
+
+                        if (response.isError) {
                             actions.setServerError(true)
                         } else {
                             actions.setRateLimited(false)
                             actions.setServerError(false)
                         }
 
-                        actions.appendAssistantMessage(content)
+                        actions.appendAssistantMessage(messageContent)
                         setTimeout(() => actions.setSearchingThinking(false), 100)
-                        return content
+                        return messageContent
                     } catch (error: unknown) {
                         if (
                             error &&

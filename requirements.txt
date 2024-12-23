@@ -25,7 +25,7 @@ amqp==5.1.1
     # via kombu
 annotated-types==0.7.0
     # via pydantic
-anthropic==0.40.0
+anthropic==0.42.0
     # via -r requirements.in
 antlr4-python3-runtime==4.13.1
     # via -r requirements.in
