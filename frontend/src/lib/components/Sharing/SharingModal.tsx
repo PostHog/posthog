@@ -65,7 +65,7 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, togglePreview } = useActions(sharingLogic(logicProps))
+    const { setIsEnabled, togglePreview, captureWhitelabelToggled } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
@@ -174,9 +174,10 @@ export function SharingModalContent({
                                                         </div>
                                                     }
                                                     onChange={() =>
-                                                        guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
+                                                        guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () => {
                                                             onChange(!value)
-                                                        )
+                                                            captureWhitelabelToggled(!value)
+                                                        })
                                                     }
                                                     checked={!value}
                                                 />
