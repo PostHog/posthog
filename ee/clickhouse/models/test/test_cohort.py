@@ -70,9 +70,17 @@ def get_person_ids_by_cohort_id(
 
 def calculate_cohort_hogql_test_harness(cohort: Cohort, pending_version: int):
     version = pending_version * 2 + 2
-    cohort.calculate_people_ch(pending_version * 2 + 2)
+    cohort.calculate_people_ch(version)
+    query = f"""
+        SELECT count() FROM
+        (SELECT person_id FROM cohortpeople as cp WHERE cp.version = {version} and cp.cohort_id = {cohort.pk}) as cp1
+        FULL OUTER JOIN (SELECT person_id FROM cohortpeople as cp WHERE cp.version = {version-1} and cp.cohort_id = {cohort.pk}) as cp2
+        ON cp1.person_id = cp2.person_id
+        WHERE empty(cp1.person_id) or empty(cp2.person_id)
+    """
+    result = sync_execute(query)
+    assert 0 == result[0][0]
     return version
-    # sync_execute("SELECT person_id FROM cohortpeople WHERE ")
 
 
 class TestCohort(ClickhouseTestMixin, BaseTest):

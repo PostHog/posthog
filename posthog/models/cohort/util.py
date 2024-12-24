@@ -375,26 +375,31 @@ def _recalculate_cohortpeople_for_team(
 def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
 ):
+    cohort_params = {}
     # No need to do anything here, as we're only testing hogql
-    if cohort.is_static or not cohort.properties.values:
+    if cohort.is_static:
+        cohort_query, cohort_params = format_static_cohort_query(cohort, 0, prepend="")
+    elif not cohort.properties.values:
+        # Can't match anything, don't insert anything
         return
+    else:
+        from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+        from posthog.hogql.query import HogQLQueryExecutor
 
-    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-    from posthog.hogql.query import HogQLQueryExecutor
+        hogql_cohort_query = HogQLCohortQuery(cohort=cohort)
+        query = hogql_cohort_query.get_query()
 
-    hogql_cohort_query = HogQLCohortQuery(cohort=cohort)
-    query = hogql_cohort_query.get_query()
+        cohort_query, hogql_context = HogQLQueryExecutor(
+            query_type="HogQLCohortQuery",
+            query=query,
+            team=team,
+            limit_context=LimitContext.QUERY_ASYNC,
+        ).generate_clickhouse_sql()
+        cohort_params = hogql_context.values
 
-    cohort_query, hogql_context = HogQLQueryExecutor(
-        query_type="HogQLCohortQuery",
-        query=query,
-        team=team,
-        limit_context=LimitContext.QUERY_ASYNC,
-    ).generate_clickhouse_sql()
-
-    # Hacky: Clickhouse doesn't like there being a top level "SETTINGS" clause in a SelectSet statement when that SelectSet
-    # statement is used in a subquery. We remove it here.
-    cohort_query = cohort_query[: cohort_query.rfind("SETTINGS")]
+        # Hacky: Clickhouse doesn't like there being a top level "SETTINGS" clause in a SelectSet statement when that SelectSet
+        # statement is used in a subquery. We remove it here.
+        cohort_query = cohort_query[: cohort_query.rfind("SETTINGS")]
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID_HOGQL_TEST.format(cohort_filter=cohort_query)
 
@@ -405,8 +410,7 @@ def _recalculate_cohortpeople_for_team_hogql(
     sync_execute(
         recalculate_cohortpeople_sql,
         {
-            # **cohort_params,
-            **hogql_context.values,
+            **cohort_params,
             "cohort_id": cohort.pk,
             "team_id": team.id,
             "new_version": pending_version - 1,
