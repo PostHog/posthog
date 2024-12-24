@@ -1,0 +1,101 @@
+.SessionReplay__layout {
+    --session-recordings-tabs-height: 62px;
+    --session-recordings-panel-height: calc(
+        100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom) -
+            var(--session-recordings-tabs-height)
+    );
+    --panel-gap: 0.5rem;
+    --panel-playlist-min-width: 350px;
+    --panel-filters-min-width: 350px;
+    --panel-playback-min-width: 300px;
+    --panel-inspector-min-width: 200px;
+    --container-primary-min-width: max(var(--panel-playback-min-width), var(--panel-inspector-min-width));
+    --container-secondary-min-width: max(var(--panel-playlist-min-width), var(--panel-filters-min-width));
+    --container-secondary-max-width: 200px;
+
+    height: var(--session-recordings-panel-height);
+    container: replay-panel-layout / inline-size;
+
+    .PanelLayout__primary {
+        container: replay-primary-panels / inline-size;
+        flex: 1 1 0% !important;
+        min-width: var(--container-primary-min-width);
+    }
+
+    .PanelLayout__playlist {
+        flex: 1 1 0% !important;
+        min-width: var(--panel-playlist-min-width);
+    }
+
+    .PanelLayout__playback {
+        flex: 1 1 0% !important;
+        min-width: var(--panel-playback-min-width);
+        min-height: 300px;
+    }
+
+    .PanelLayout__inspector {
+        min-width: var(--panel-inspector-min-width);
+    }
+
+    .UniversalFilterButton {
+        height: 1.75rem;
+        font-size: smaller;
+    }
+
+    .PanelLayout__Panel {
+        &--collapsed {
+            width: 40px;
+            min-width: unset;
+            height: 40px;
+        }
+    }
+
+    // All primary panels horizontally stacked
+    // var(--panel-playback-min-width) + var(--panel-inspector-min-width) + var(--panel-gap) + var(--panel-gap)
+    @container replay-panel-layout (width >= 1040px) {
+        .PanelLayout__inspector {
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        .PanelLayout__primary {
+            flex-direction: column;
+        }
+    }
+
+    // Primary panels vertically stacked
+    // var(--panel-playback-min-width) + var(--panel-inspector-min-width) + var(--panel-gap) + var(--panel-gap)
+    @container replay-panel-layout (width < 1040px) {
+        .PanelLayout__inspector {
+            width: 100%;
+        }
+    }
+
+    // Layout vertically stacked
+    @container replay-panel-layout (width < 508px) {
+        // var(--container-primary-min-width) + var(--container-secondary-min-width) + var(--panel-gap)
+        .PanelLayout__secondary {
+            width: 100%;
+        }
+
+        .PanelLayout__playlist {
+            max-height: 150px;
+        }
+    }
+
+    @container replay-panel-layout (width > 508px) {
+        // var(--container-primary-min-width) + var(--container-secondary-min-width) + var(--panel-gap)
+        .PanelLayout__secondary {
+            min-width: var(--container-secondary-min-width);
+            max-width: var(--container-secondary-max-width);
+            height: 100%;
+        }
+    }
+
+    @container replay-panel-layout (508px < width < 1040px) {
+        .PanelLayout__primary {
+            height: 100%;
+            overflow-y: auto;
+        }
+    }
+}
