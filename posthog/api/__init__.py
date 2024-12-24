@@ -40,7 +40,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    kafka_inspector,
     notebook,
     organization,
     organization_domain,
@@ -378,7 +377,6 @@ router.register(r"instance_status", instance_status.InstanceStatusViewSet, "inst
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
-router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
 router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
 
 from posthog.api.action import ActionViewSet  # noqa: E402
