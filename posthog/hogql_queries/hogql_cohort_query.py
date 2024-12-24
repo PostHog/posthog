@@ -51,7 +51,7 @@ class TestWrapperCohortQuery(CohortQuery):
         cohort_query = CohortQuery(filter=filter, team=team)
         hogql_cohort_query = HogQLCohortQuery(cohort_query=cohort_query)
         # hogql_query = hogql_cohort_query.query_str("hogql")
-        self.result = execute_hogql_query(hogql_cohort_query.get_query(), team)
+        self.hogql_result = execute_hogql_query(hogql_cohort_query.get_query(), team)
         super().__init__(filter=filter, team=team)
 
 
@@ -85,20 +85,19 @@ class HogQLCohortQuery:
     def __init__(self, cohort_query: Optional[CohortQuery] = None, cohort: Optional[Cohort] = None):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
-            self.property_groups = self._filter.property_groups
             filter = Filter(
                 data={"properties": cohort.properties},
                 team=cohort.team,
                 hogql_context=self.hogql_context,
             )
             self.property_groups = filter.property_groups
+            self.team = cohort.team
         elif cohort_query is not None:
             self.hogql_context = HogQLContext(team_id=cohort_query._team_id, enable_select_queries=True)
-            self.property_groups = self.cohort_query._filter.property_groups
+            self.property_groups = cohort_query._filter.property_groups
+            self.team = cohort_query._team
         else:
             raise
-
-        self.team = self.cohort_query._team
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
         return self._get_conditions()
@@ -464,8 +463,6 @@ class HogQLCohortQuery:
             else:
                 return (self._get_condition_for_property(prop), prop.negation or False)
 
-        if self.property_groups is None:
-            return parse_select("SELECT NULL WHERE 0")
         conditions, _ = build_conditions(self.property_groups)
         assert conditions is not None
         return conditions
