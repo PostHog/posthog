@@ -1570,7 +1570,8 @@
          "posthog_experiment"."type",
          "posthog_experiment"."variants",
          "posthog_experiment"."metrics",
-         "posthog_experiment"."metrics_secondary"
+         "posthog_experiment"."metrics_secondary",
+         "posthog_experiment"."stats_config"
   FROM "posthog_experiment"
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
   '''
