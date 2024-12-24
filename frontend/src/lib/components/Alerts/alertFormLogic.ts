@@ -27,6 +27,15 @@ export type AlertFormType = Pick<
     insight?: QueryBasedInsightModel['id']
 }
 
+export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): boolean {
+    return (
+        (alert?.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
+            alert?.condition.type === AlertConditionType.RELATIVE_INCREASE) &&
+        alert?.threshold.configuration.bounds?.upper != null &&
+        !isNaN(alert?.threshold.configuration.bounds.upper)
+    )
+}
+
 export interface AlertFormLogicProps {
     alert: AlertType | null
     insightId: QueryBasedInsightModel['id']
@@ -85,11 +94,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     // can only check ongoing interval for absolute value/increase alerts with upper threshold
                     config: {
                         ...alert.config,
-                        check_ongoing_interval:
-                            (alert.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
-                                alert.condition.type === AlertConditionType.RELATIVE_INCREASE) &&
-                            alert.threshold.configuration.bounds?.upper != null &&
-                            alert.config.check_ongoing_interval,
+                        check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
                 }
 
