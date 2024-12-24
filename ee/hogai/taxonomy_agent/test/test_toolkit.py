@@ -271,3 +271,29 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(prop, "$geoip_city_name")
         self.assertEqual(type, "String")
         self.assertIsNotNone(description)
+
+    def test_retrieve_event_properties_handles_all_events(self):
+        self._create_taxonomy()
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            properties={
+                "$browser": "Firefox",
+            },
+            team=self.team,
+        )
+        toolkit = DummyToolkit(self.team)
+        self.assertIn("$browser", toolkit.retrieve_event_properties("All Events"))
+
+    def test_retrieve_event_property_values_handles_all_events(self):
+        self._create_taxonomy()
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            properties={
+                "$browser": "Firefox",
+            },
+            team=self.team,
+        )
+        toolkit = DummyToolkit(self.team)
+        self.assertIn('"Firefox"', toolkit.retrieve_event_property_values("All Events", "$browser"))
