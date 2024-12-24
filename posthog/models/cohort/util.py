@@ -334,7 +334,6 @@ def _recalculate_cohortpeople_for_team(
             size_before=before_count,
         )
 
-    # Want to store amount of time it takes
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
     tag_queries(kind="cohort_calculation", team_id=team.id, query_type="CohortsQuery")
