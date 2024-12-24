@@ -12,6 +12,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { stripHTTP } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
@@ -218,13 +219,15 @@ export function ActionsTable(): JSX.Element {
                                 <LemonDivider />
                                 <LemonButton
                                     status="danger"
-                                    onClick={() =>
-                                        void deleteWithUndo({
+                                    onClick={() => {
+                                        deleteWithUndo({
                                             endpoint: api.actions.determineDeleteEndpoint(),
                                             object: action,
                                             callback: loadActions,
+                                        }).catch((e: any) => {
+                                            lemonToast.error(`Error deleting action: ${e.detail}`)
                                         })
-                                    }
+                                    }}
                                     fullWidth
                                 >
                                     Delete action
