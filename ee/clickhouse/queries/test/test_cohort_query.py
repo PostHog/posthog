@@ -140,54 +140,54 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "key": "$pageview",
-                                    "event_type": "events",
-                                    "time_value": 1,
-                                    "time_interval": "day",
-                                    "value": "performed_event",
-                                    "type": "behavioral",
-                                },
-                                {
-                                    "key": "$pageview",
-                                    "event_type": "events",
-                                    "time_value": 2,
-                                    "time_interval": "week",
-                                    "value": "performed_event",
-                                    "type": "behavioral",
-                                },
-                            ],
-                        },
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": action1.pk,
-                                    "event_type": "actions",
-                                    "time_value": 2,
-                                    "time_interval": "week",
-                                    "value": "performed_event_first_time",
-                                    "type": "behavioral",
-                                },
-                                {
-                                    "key": "email",
-                                    "value": "test@posthog.com",
-                                    "type": "person",
-                                },
-                            ],
-                        },
-                    ],
-                }
+        data = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            },
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 2,
+                                "time_interval": "week",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            },
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": action1.pk,
+                                "event_type": "actions",
+                                "time_value": 2,
+                                "time_interval": "week",
+                                "value": "performed_event_first_time",
+                                "type": "behavioral",
+                            },
+                            {
+                                "key": "email",
+                                "value": "test@posthog.com",
+                                "type": "person",
+                            },
+                        ],
+                    },
+                ],
             }
-        )
+        }
+
+        filter = Filter(data=data)
 
         res, q, params = execute(filter, self.team)
 
@@ -195,6 +195,27 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         self.assertTrue("FULL OUTER JOIN" not in q)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
+
+        # This addition to the test returns the wrong result with current cohort queries
+        # Uncomment after porting
+        """
+        data["properties"]["values"][0]["values"].append(
+            {
+                "key": "email",
+                "value": "test@posthog.com",
+                "type": "person",
+            }
+        )
+
+        filter = Filter(data=data)
+
+        res, q, params = execute(filter, self.team)
+
+        # No push down because of the person property in an OR
+        self.assertTrue("FULL OUTER JOIN" in q)
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
+        """
 
     def test_performed_event(self):
         p1 = _create_person(

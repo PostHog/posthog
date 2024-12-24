@@ -39,7 +39,6 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
     PropertyGroupFilterValue,
-    PersonsOnEventsMode,
     EventPropertyFilter,
     HogQLPropertyFilter,
 )
@@ -86,86 +85,23 @@ class HogQLCohortQuery:
     def __init__(self, cohort_query: Optional[CohortQuery] = None, cohort: Optional[Cohort] = None):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
-            self.cohort_query = CohortQuery(
-                Filter(
-                    data={"properties": cohort.properties},
-                    team=cohort.team,
-                    hogql_context=self.hogql_context,
-                ),
-                cohort.team,
-                cohort_pk=cohort.pk,
+            self.property_groups = self._filter.property_groups
+            filter = Filter(
+                data={"properties": cohort.properties},
+                team=cohort.team,
+                hogql_context=self.hogql_context,
             )
+            self.property_groups = filter.property_groups
         elif cohort_query is not None:
             self.hogql_context = HogQLContext(team_id=cohort_query._team_id, enable_select_queries=True)
-            self.cohort_query = cohort_query
+            self.property_groups = self.cohort_query._filter.property_groups
         else:
             raise
 
-        # self.properties = clean_global_properties(self.cohort_query._filter._data["properties"])
-        self._inner_property_groups = self.cohort_query._inner_property_groups
-        self._outer_property_groups = self.cohort_query._outer_property_groups
         self.team = self.cohort_query._team
 
-    def _actors_query(self):
-        pgfv = None
-        if self._inner_property_groups:
-            pgfv = convert(self._inner_property_groups)
-        actors_query = ActorsQuery(properties=pgfv, select=["id"])
-        query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        return query_runner.to_query()
-
     def get_query(self) -> SelectQuery | SelectSetQuery:
-        if not self.cohort_query._outer_property_groups:
-            # everything is pushed down, no behavioral stuff to do
-            # thus, use personQuery directly
-            return self._actors_query()
-
-        select_query = self._get_conditions()
-
-        if self.cohort_query._should_join_persons and self.cohort_query._inner_property_groups:
-            actors_query = self._actors_query()
-            """
-            hogql_actors = print_ast(
-                actors_query,
-                HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True),
-                dialect="hogql",
-                pretty=True,
-            )
-            """
-            if self.cohort_query.should_pushdown_persons:
-                if (
-                    self.cohort_query._person_on_events_mode
-                    == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-                ):
-                    # when using person-on-events, instead of inner join, we filter inside
-                    # the event query itself
-                    pass
-                else:
-                    select_query = SelectSetQuery(
-                        initial_select_query=select_query,
-                        subsequent_select_queries=[SelectSetNode(select_query=actors_query, set_operator="INTERSECT")],
-                    )
-            else:
-                pass
-                # not sure what this is for
-                """
-                q = f"{q} {full_outer_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
-                    fields = if_condition(
-                        f"{prev_alias}.person_id = '00000000-0000-0000-0000-000000000000'",
-                        f"{subq_alias}.person_id",
-                        f"{fields}",
-                    )"""
-
-        """
-        hogql = print_ast(
-            select_query,
-            HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True),
-            dialect="hogql",
-            pretty=True,
-        )
-        """
-
-        return select_query
+        return self._get_conditions()
 
     def query_str(self, dialect: Literal["hogql", "clickhouse"]):
         return print_ast(self.get_query(), self.hogql_context, dialect, pretty=True)
@@ -528,8 +464,8 @@ class HogQLCohortQuery:
             else:
                 return (self._get_condition_for_property(prop), prop.negation or False)
 
-        if self._outer_property_groups is None:
+        if self.property_groups is None:
             return parse_select("SELECT NULL WHERE 0")
-        conditions, _ = build_conditions(self._outer_property_groups)
+        conditions, _ = build_conditions(self.property_groups)
         assert conditions is not None
         return conditions
