@@ -1,19 +1,23 @@
 import dataclasses
 import uuid
 from datetime import datetime
+from dateutil import parser
 from typing import Any
 
+from django.conf import settings
 from django.db import close_old_connections
 from django.db.models import Prefetch, F
 
 from temporalio import activity
 
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 from posthog.models.integration import Integration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.data_imports.pipelines.bigquery import delete_all_temp_destination_tables, delete_table
 
+from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline_sync import DataImportPipelineSync, PipelineInputs
-from posthog.temporal.data_imports.util import is_posthog_team
+from posthog.temporal.data_imports.util import is_posthog_team, is_enabled_for_team
 from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
@@ -22,6 +26,7 @@ from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from structlog.typing import FilteringBoundLogger
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
+from posthog.warehouse.types import IncrementalFieldType
 
 
 @dataclasses.dataclass
@@ -30,6 +35,20 @@ class ImportDataActivityInputs:
     schema_id: uuid.UUID
     source_id: uuid.UUID
     run_id: str
+
+
+def process_incremental_last_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
+    if value is None or field_type is None:
+        return None
+
+    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
+        return value
+
+    if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
+        return parser.parse(value)
+
+    if field_type == IncrementalFieldType.Date:
+        return parser.parse(value).date()
 
 
 @activity.defn
@@ -64,6 +83,27 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         endpoints = [schema.name]
 
+        if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
+            # Get the V2 last value, if it's not set yet (e.g. the first run), then fallback to the V1 value
+            processed_incremental_last_value = process_incremental_last_value(
+                schema.sync_type_config.get("incremental_field_last_value_v2"),
+                schema.sync_type_config.get("incremental_field_type"),
+            )
+
+            if processed_incremental_last_value is None:
+                processed_incremental_last_value = process_incremental_last_value(
+                    schema.sync_type_config.get("incremental_field_last_value"),
+                    schema.sync_type_config.get("incremental_field_type"),
+                )
+        else:
+            processed_incremental_last_value = process_incremental_last_value(
+                schema.sync_type_config.get("incremental_field_last_value"),
+                schema.sync_type_config.get("incremental_field_type"),
+            )
+
+        if schema.is_incremental:
+            logger.debug(f"Incremental last value being used is: {processed_incremental_last_value}")
+
         source = None
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
             from posthog.temporal.data_imports.pipelines.stripe import stripe_source
@@ -80,6 +120,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
                 is_incremental=schema.is_incremental,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
             )
 
             return _run(
@@ -123,7 +164,9 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
         ]:
-            if is_posthog_team(inputs.team_id):
+            if is_posthog_team(inputs.team_id) or (
+                settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2 and is_enabled_for_team(inputs.team_id)
+            ):
                 from posthog.temporal.data_imports.pipelines.sql_database_v2 import sql_source_for_type
             else:
                 from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
@@ -178,6 +221,9 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                         if schema.is_incremental
                         else None,
+                        db_incremental_field_last_value=processed_incremental_last_value
+                        if schema.is_incremental
+                        else None,
                         team_id=inputs.team_id,
                         using_ssl=using_ssl,
                     )
@@ -205,6 +251,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                 if schema.is_incremental
                 else None,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
                 team_id=inputs.team_id,
                 using_ssl=using_ssl,
             )
@@ -255,6 +302,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                 if schema.is_incremental
                 else None,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
             )
 
             return _run(
@@ -299,6 +347,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
                 is_incremental=schema.is_incremental,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
             )
 
             return _run(
@@ -321,6 +370,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
                 is_incremental=schema.is_incremental,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
             )
 
             return _run(
@@ -342,6 +392,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
                 is_incremental=schema.is_incremental,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
             )
 
             return _run(
@@ -398,6 +449,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                     if schema.is_incremental
                     else None,
+                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
                 )
 
                 _run(
@@ -433,6 +485,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
                 is_incremental=schema.is_incremental,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
             )
 
             return _run(
@@ -455,12 +508,18 @@ def _run(
     schema: ExternalDataSchema,
     reset_pipeline: bool,
 ):
-    table_row_counts = DataImportPipelineSync(job_inputs, source, logger, reset_pipeline, schema.is_incremental).run()
-    total_rows_synced = sum(table_row_counts.values())
+    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
+        PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental).run()
+    else:
+        table_row_counts = DataImportPipelineSync(
+            job_inputs, source, logger, reset_pipeline, schema.is_incremental
+        ).run()
+        total_rows_synced = sum(table_row_counts.values())
 
-    ExternalDataJob.objects.filter(id=inputs.run_id, team_id=inputs.team_id).update(
-        rows_synced=F("rows_synced") + total_rows_synced
-    )
+        ExternalDataJob.objects.filter(id=inputs.run_id, team_id=inputs.team_id).update(
+            rows_synced=F("rows_synced") + total_rows_synced
+        )
+
     source = ExternalDataSource.objects.get(id=inputs.source_id)
     source.job_inputs.pop("reset_pipeline", None)
     source.save()
