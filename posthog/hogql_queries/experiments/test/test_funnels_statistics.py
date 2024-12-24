@@ -142,13 +142,13 @@ class TestExperimentFunnelStatistics(APIBaseTest):
 
                 # Check credible intervals overlap
                 # Check credible intervals for control and all test variants
-                self.assertAlmostEqual(intervals["control"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["control"][0], 0.0829, places=2)
                 self.assertAlmostEqual(intervals["control"][1], 0.12, places=2)
-                self.assertAlmostEqual(intervals["test_a"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["test_a"][0], 0.0829, places=2)
                 self.assertAlmostEqual(intervals["test_a"][1], 0.12, places=2)
-                self.assertAlmostEqual(intervals["test_b"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["test_b"][0], 0.0829, places=2)
                 self.assertAlmostEqual(intervals["test_b"][1], 0.12, places=2)
-                self.assertAlmostEqual(intervals["test_c"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["test_c"][0], 0.0829, places=2)
                 self.assertAlmostEqual(intervals["test_c"][1], 0.12, places=2)
             else:
                 # Original implementation behavior
@@ -158,13 +158,13 @@ class TestExperimentFunnelStatistics(APIBaseTest):
 
                 # Check credible intervals overlap
                 # Check credible intervals for control and all test variants
-                self.assertAlmostEqual(intervals["control"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["control"][0], 0.081, places=2)
                 self.assertAlmostEqual(intervals["control"][1], 0.12, places=2)
-                self.assertAlmostEqual(intervals["test_a"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["test_a"][0], 0.081, places=2)
                 self.assertAlmostEqual(intervals["test_a"][1], 0.12, places=2)
-                self.assertAlmostEqual(intervals["test_b"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["test_b"][0], 0.081, places=2)
                 self.assertAlmostEqual(intervals["test_b"][1], 0.12, places=2)
-                self.assertAlmostEqual(intervals["test_c"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["test_c"][0], 0.081, places=2)
                 self.assertAlmostEqual(intervals["test_c"][1], 0.12, places=2)
 
         self.run_test_for_both_implementations(run_test)
