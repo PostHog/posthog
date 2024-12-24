@@ -18,6 +18,7 @@ from posthog.queries.foss_cohort_query import (
     validate_interval,
     parse_and_validate_positive_integer,
     INTERVAL_TO_SECONDS,
+    FOSSCohortQuery,
 )
 from posthog.schema import (
     ActorsQuery,
@@ -85,13 +86,16 @@ class HogQLCohortQuery:
     def __init__(self, cohort_query: Optional[CohortQuery] = None, cohort: Optional[Cohort] = None):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
-            filter = Filter(
-                data={"properties": cohort.properties},
-                team=cohort.team,
-                hogql_context=self.hogql_context,
+            self.team = cohort.team
+            filter = FOSSCohortQuery.unwrap_cohort(
+                Filter(
+                    data={"properties": cohort.properties},
+                    team=cohort.team,
+                    hogql_context=self.hogql_context,
+                ),
+                self.team.pk,
             )
             self.property_groups = filter.property_groups
-            self.team = cohort.team
         elif cohort_query is not None:
             self.hogql_context = HogQLContext(team_id=cohort_query._team_id, enable_select_queries=True)
             self.property_groups = cohort_query._filter.property_groups
