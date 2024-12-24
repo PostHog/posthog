@@ -475,6 +475,15 @@ class BatchExportWriter(abc.ABC):
         self.start_at_since_last_flush = None
         self.end_at_since_last_flush = None
 
+    async def hard_flush(self):
+        """Flush the underlying file by closing the temporary file and creating a new one.
+
+        This is useful is we want to write a whole file, rather than flushing a
+        part of it for example.
+        """
+        await self.close_temporary_file()
+        self._batch_export_file = await asyncio.to_thread(self.create_temporary_file)
+
 
 class WriterFormat(enum.StrEnum):
     JSONL = enum.auto()
