@@ -6530,7 +6530,6 @@ class ExperimentTrendsQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentTrendsQueryResponse] = None
-    stats_version: Optional[int] = None
 
 
 class FunnelPathsFilter(BaseModel):
@@ -6646,7 +6645,6 @@ class ExperimentFunnelsQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentFunnelsQueryResponse] = None
-    stats_version: Optional[int] = None
 
 
 class FunnelCorrelationQuery(BaseModel):

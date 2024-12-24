@@ -1,5 +1,5 @@
 import { IconWarning } from '@posthog/icons'
-import { Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -16,13 +16,15 @@ import { ExperimentDates } from './ExperimentDates'
 
 export function Info(): JSX.Element {
     const { experiment, featureFlags } = useValues(experimentLogic)
-    const { updateExperiment } = useActions(experimentLogic)
+    const { updateExperiment, setExperimentStatsVersion } = useActions(experimentLogic)
 
     const { created_by } = experiment
 
     if (!experiment.feature_flag) {
         return <></>
     }
+
+    const currentStatsVersion = experiment.stats_config?.version || 1
 
     return (
         <div>
@@ -70,6 +72,28 @@ export function Info(): JSX.Element {
                             >
                                 <IconOpenInNew fontSize="18" />
                             </Link>
+                        </div>
+                    )}
+                    {featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2] && (
+                        <div className="block">
+                            <div className="text-xs font-semibold uppercase tracking-wide">
+                                <span>Stats Version</span>
+                            </div>
+                            <div className="flex gap-1">
+                                {[1, 2].map((version) => (
+                                    <LemonButton
+                                        key={version}
+                                        size="xsmall"
+                                        type="tertiary"
+                                        active={currentStatsVersion === version}
+                                        onClick={() => {
+                                            setExperimentStatsVersion(version)
+                                        }}
+                                    >
+                                        v{version}
+                                    </LemonButton>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </div>

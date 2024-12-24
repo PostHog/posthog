@@ -46,8 +46,13 @@ class Experiment(models.Model):
         "ExperimentSavedMetric", blank=True, related_name="experiments", through="ExperimentToSavedMetric"
     )
 
+    stats_config = models.JSONField(default=dict, null=True, blank=True)
+
     def get_feature_flag_key(self):
         return self.feature_flag.key
+
+    def get_stats_config(self, key: str):
+        return self.stats_config.get(key) if self.stats_config else None
 
     @property
     def is_draft(self):
