@@ -172,6 +172,10 @@ class TrendsActorsQueryBuilder:
             select=[
                 ast.Field(chain=["actor_id"]),
                 ast.Alias(alias="event_count", expr=self._get_actor_value_expr()),
+                ast.Alias(
+                    alias="event_distinct_ids",
+                    expr=ast.Call(name="groupUniqArray", args=[ast.Field(chain=["distinct_id"])]),
+                ),
                 *self._get_matching_recordings_expr(),
             ],
             select_from=ast.JoinExpr(table=self._get_events_query()),
@@ -193,6 +197,10 @@ class TrendsActorsQueryBuilder:
             ),
         ]
         actor_col = ast.Alias(alias="actor_id", expr=self._actor_id_expr())
+        actor_distinct_id_expr = self._actor_distinct_id_expr()
+        actor_distinct_id_col = (
+            ast.Alias(alias="distinct_id", expr=actor_distinct_id_expr) if actor_distinct_id_expr else None
+        )
 
         if self.trends_aggregation_operations.is_first_time_ever_math():
             date_from, date_to = self._date_where_expr()
@@ -222,6 +230,9 @@ class TrendsActorsQueryBuilder:
                 where=self._events_where_expr(),
             )
 
+        if actor_distinct_id_col:
+            query.select = [*query.select, actor_distinct_id_col]
+
         return query
 
     def _get_actor_value_expr(self) -> ast.Expr:
@@ -236,9 +247,11 @@ class TrendsActorsQueryBuilder:
                 placeholders={
                     "timestamp": ast.Field(
                         chain=[
-                            "timestamp"
-                            if not self.trends_aggregation_operations.is_first_time_ever_math()
-                            else "min_timestamp"
+                            (
+                                "timestamp"
+                                if not self.trends_aggregation_operations.is_first_time_ever_math()
+                                else "min_timestamp"
+                            )
                         ]
                     )
                 },
@@ -249,6 +262,11 @@ class TrendsActorsQueryBuilder:
         if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
             return ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"])
         return ast.Field(chain=["e", "person_id"])
+
+    def _actor_distinct_id_expr(self) -> ast.Expr | None:
+        if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
+            return None
+        return ast.Field(chain=["e", "distinct_id"])
 
     def _events_where_expr(
         self,
