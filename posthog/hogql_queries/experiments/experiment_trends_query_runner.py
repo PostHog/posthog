@@ -65,7 +65,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
         self.breakdown_key = f"$feature/{self.feature_flag.key}"
 
-        self.stats_version = self.query.stats_version or 1
+        self.stats_version = self.query.stats_version or self.experiment.get_stats_config("version") or 1
 
         self.prepared_count_query = self._prepare_count_query()
         self.prepared_exposure_query = self._prepare_exposure_query()

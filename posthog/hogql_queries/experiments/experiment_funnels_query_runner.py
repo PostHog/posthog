@@ -50,7 +50,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.stats_version = self.query.stats_version or 1
+        self.stats_version = self.query.stats_version or self.experiment.get_stats_config("version") or 1
 
         self.prepared_funnels_query = self._prepare_funnel_query()
         self.funnels_query_runner = FunnelsQueryRunner(

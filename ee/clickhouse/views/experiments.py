@@ -194,6 +194,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "type",
             "metrics",
             "metrics_secondary",
+            "stats_config",
         ]
         read_only_fields = [
             "id",
@@ -378,6 +379,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "holdout",
             "metrics",
             "metrics_secondary",
+            "stats_config",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
