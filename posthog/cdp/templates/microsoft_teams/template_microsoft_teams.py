@@ -1,5 +1,6 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionSubTemplate, SUB_TEMPLATE_COMMON
 
+
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="free",
     type="destination",
@@ -66,20 +67,37 @@ if (res.status >= 400) {
     ],
     sub_templates=[
         HogFunctionSubTemplate(
-            id="early_access_feature_enrollment",
+            id="early-access-feature-enrollment",
             name="Post to Microsoft Teams on feature enrollment",
             description="Posts a message to Microsoft Teams when a user enrolls or un-enrolls in an early access feature",
-            filters=SUB_TEMPLATE_COMMON["early_access_feature_enrollment"].filters,
-            inputs={
-                "text": "**{person.name}** {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'"
+            filters=SUB_TEMPLATE_COMMON["early-access-feature-enrollment"].filters,
+            input_schema_overrides={
+                "text": {
+                    "default": "**{person.name}** {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'",
+                }
             },
         ),
         HogFunctionSubTemplate(
-            id="survey_response",
+            id="survey-response",
             name="Post to Microsoft Teams on survey response",
             description="Posts a message to Microsoft Teams when a user responds to a survey",
-            filters=SUB_TEMPLATE_COMMON["survey_response"].filters,
-            inputs={"text": "**{person.name}** responded to survey **{event.properties.$survey_name}**"},
+            filters=SUB_TEMPLATE_COMMON["survey-response"].filters,
+            input_schema_overrides={
+                "text": {
+                    "default": "**{person.name}** responded to survey **{event.properties.$survey_name}**",
+                }
+            },
+        ),
+        HogFunctionSubTemplate(
+            id="activity-log",
+            type="internal_destination",
+            name="Post to Microsoft Teams on team activity",
+            filters=SUB_TEMPLATE_COMMON["activity-log"].filters,
+            input_schema_overrides={
+                "text": {
+                    "default": "**{person.name}** {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
+                }
+            },
         ),
     ],
 )

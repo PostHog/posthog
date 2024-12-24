@@ -4669,6 +4669,7 @@ export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
 
 export type HogFunctionTypeType =
     | 'destination'
+    | 'internal_destination'
     | 'site_destination'
     | 'site_app'
     | 'transformation'
@@ -4701,7 +4702,7 @@ export type HogFunctionType = {
 }
 
 export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated' | 'client-side'
-export type HogFunctionSubTemplateIdType = 'early_access_feature_enrollment' | 'survey_response'
+export type HogFunctionSubTemplateIdType = 'early-access-feature-enrollment' | 'survey-response' | 'activity-log'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
