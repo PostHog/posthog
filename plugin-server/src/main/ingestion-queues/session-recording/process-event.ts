@@ -44,6 +44,7 @@ export interface SummarizedSessionRecordingEvent {
     event_count: number
     message_count: number
     snapshot_source: string | null
+    snapshot_library: string | null
 }
 
 // this is of course way more complicated than you'd expect
@@ -255,7 +256,8 @@ export const createSessionReplayEvent = (
     distinct_id: string,
     session_id: string,
     events: RRWebEvent[],
-    snapshot_source: string | null
+    snapshot_source: string | null,
+    snapshot_library: string | null
 ): { event: SummarizedSessionRecordingEvent } => {
     const timestamps = getTimestampsFrom(events)
 
@@ -332,6 +334,8 @@ export const createSessionReplayEvent = (
         event_count: Math.trunc(events.length),
         message_count: 1,
         snapshot_source: snapshot_source || 'web',
+        // we can't default this one, since we now have multiple libraries in production
+        snapshot_library: snapshot_library?.trim().length ? snapshot_library : null,
     }
 
     return { event: data }
