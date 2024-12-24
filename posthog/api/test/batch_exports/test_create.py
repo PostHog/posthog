@@ -1,3 +1,4 @@
+import dataclasses
 import datetime as dt
 import json
 from unittest import mock
@@ -13,7 +14,9 @@ from posthog.api.test.batch_exports.operations import create_batch_export
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.batch_exports.http import is_compatible_with_field
 from posthog.batch_exports.models import BatchExport
+from posthog.batch_exports.service import BigQueryBatchExportInputs
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.codec import EncryptionCodec
 
@@ -381,6 +384,92 @@ def test_create_batch_export_fails_with_invalid_query(client: HttpClient, invali
         "destination": destination_data,
         "interval": "hour",
         "hogql_query": invalid_query,
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+@pytest.mark.parametrize(
+    "input_class,field_name,value,expected",
+    [
+        (BigQueryBatchExportInputs, "team_id", 123, True),
+        (BigQueryBatchExportInputs, "team_id", "a", False),
+        (BigQueryBatchExportInputs, "project_id", "a_project", True),
+        (BigQueryBatchExportInputs, "project_id", 1, False),
+        (BigQueryBatchExportInputs, "exclude_events", ["one", "two"], True),
+        (BigQueryBatchExportInputs, "exclude_events", [], True),
+        (BigQueryBatchExportInputs, "exclude_events", None, True),
+        (BigQueryBatchExportInputs, "exclude_events", ["one", 1], False),
+        (BigQueryBatchExportInputs, "use_json_type", True, True),
+        (BigQueryBatchExportInputs, "use_json_type", False, True),
+    ],
+)
+def test_is_compatible_with_field_with_inputs(input_class, field_name, value, expected):
+    """Test compatibility of several input fields."""
+    field = next(field for field in dataclasses.fields(input_class) if field.name == field_name)
+    assert is_compatible_with_field(value, field) is expected
+
+
+@pytest.mark.parametrize(
+    "destination, invalid_config",
+    [
+        # Invalid exclude_events value
+        (
+            "S3",
+            {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+                "exclude_events": "invalid",
+            },
+        ),
+        # Invalid compression value
+        (
+            "S3",
+            {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+                "compression": "invalid",
+            },
+        ),
+        # Invalid file_format value
+        (
+            "S3",
+            {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+                "file_format": "invalid",
+            },
+        ),
+    ],
+)
+def test_create_batch_export_fails_with_invalid_config(client: HttpClient, destination, invalid_config):
+    """Test creating a BatchExport should fail with an invalid query."""
+    temporal = sync_connect()
+
+    destination_data = {
+        "type": destination,
+        "config": invalid_config,
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
     }
 
     organization = create_organization("Test Org")

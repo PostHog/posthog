@@ -1,4 +1,5 @@
 import datetime as dt
+import enum
 import typing
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
@@ -65,6 +66,11 @@ class BatchExportsInputsProtocol(typing.Protocol):
     team_id: int
     batch_export_model: BatchExportModel | None = None
     is_backfill: bool = False
+
+
+class S3FileFormat(enum.StrEnum):
+    PARQUET = "Parquet"
+    JSONLINES = "JSONLines"
 
 
 @dataclass

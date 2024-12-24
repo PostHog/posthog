@@ -1,4 +1,7 @@
+import dataclasses
 import datetime as dt
+import types
+import typing
 from typing import Any, TypedDict, cast
 
 import posthoganalytics
@@ -19,6 +22,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
 from posthog.batch_exports.service import (
+    DESTINATION_WORKFLOWS,
     BatchExportIdError,
     BatchExportSchema,
     BatchExportServiceError,
@@ -162,12 +166,130 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         return response.Response({"cancelled": True})
 
 
+class BatchExportDestinationConfigurationValidator:
+    """Validator for a batch export destination configuration."""
+
+    def __init__(self, type: str = "type", config: str = "config"):
+        self.type_field = type
+        self.config_field = config
+
+    def __call__(self, attrs: dict):
+        """Validate configuration values are compatible with destination inputs."""
+        type = attrs[self.type_field]
+
+        try:
+            destination_inputs = DESTINATION_WORKFLOWS[type]
+        except KeyError:
+            raise serializers.ValidationError(
+                f"Unsupported batch export destination: '{type}'", code="unsupported_destination"
+            )
+
+        config = attrs[self.config_field]
+
+        for field in dataclasses.fields(destination_inputs):
+            is_required = (
+                field.default == dataclasses.MISSING
+                and field.default_factory == dataclasses.MISSING
+                # These two are required metadata fields but they are added by us.
+                and field.name not in {"batch_export_id", "team_id"}
+            )
+
+            if is_required and field.name not in config:
+                raise serializers.ValidationError(
+                    f"The required configuration field '{field.name}' was not found", code="required_field"
+                )
+
+            provided_value = config.get(field.name, None)
+            is_compatible = is_compatible_with_field(provided_value, field)
+
+            if not is_compatible:
+                raise serializers.ValidationError(
+                    f"An unsupported value ('{provided_value}') was provided for the configuration field '{field.name}' of type '{field.type}'",
+                    code="unsupported_value",
+                )
+
+
+def is_compatible_with_field(value: typing.Any, field: dataclasses.Field) -> bool:
+    """Check if a value is compatible with a given dataclass field.
+
+    Compatibility is defined as the value being of the expected type by the
+    dataclass field.
+
+    Arguments:
+        value: The value to check
+        field: The dataclass field we are checking for compatibility
+
+    Returns:
+        True if compatible, False otherwise.
+    """
+    origin = typing.get_origin(field.type)
+    args = typing.get_args(field.type)
+
+    # Unpack a Optional[X] union field to check its underlying type.
+    if (origin is typing.Union or origin is types.UnionType) and len(args) == 2 and type(None) in args:
+        if value is None:
+            # Value not provided for an optional field is compatible
+            return True
+
+        non_none_type = next(t for t in args if t is not type(None))
+        new_field = dataclasses.field()
+        new_field.name = field.name
+        new_field.type = non_none_type
+        return is_compatible_with_field(value, new_field)
+
+    # Unpack collection types to check underlying type of each element.
+    if origin in {list, dict, set, tuple}:
+        if not isinstance(value, origin):  # type: ignore
+            return False
+
+        if args:
+            if origin is list or origin is set:
+                new_field = dataclasses.field()
+                new_field.name = field.name
+                new_field.type = args[0]
+
+                return all(is_compatible_with_field(v, new_field) for v in value)
+
+            elif origin is dict:
+                new_key_field = dataclasses.field()
+                new_key_field.name = field.name
+                new_key_field.type = args[0]
+
+                new_value_field = dataclasses.field()
+                new_value_field.name = field.name
+                new_value_field.type = args[1]
+
+                return all(
+                    is_compatible_with_field(k, new_key_field) and is_compatible_with_field(v, new_value_field)
+                    for k, v in value.items()
+                )
+
+            elif origin is tuple:
+                if not len(value) == len(args):
+                    return False
+
+                for t, v in zip(args, value):
+                    new_field = dataclasses.field()
+                    new_field.name = field.name
+                    new_field.type = t
+                    is_compatible = is_compatible_with_field(v, new_field)
+
+                    if not is_compatible:
+                        return False
+
+                return True
+
+    # Check primitive types.
+    return isinstance(value, field.type)  # type: ignore
+
+
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
     class Meta:
         model = BatchExportDestination
         fields = ["type", "config"]
+        validators = [BatchExportDestinationConfigurationValidator()]
 
     def create(self, validated_data: dict) -> BatchExportDestination:
         """Create a BatchExportDestination."""
