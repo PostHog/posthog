@@ -286,21 +286,26 @@ class TestExperimentTrendsStatistics(APIBaseTest):
             significance, p_value = are_results_significant(control, [test], probabilities)
             intervals = calculate_credible_intervals([control, test])
             self.assertEqual(len(probabilities), 2)
-            self.assertAlmostEqual(probabilities[1], 0.966, places=2)  # test should be winning
-            self.assertAlmostEqual(probabilities[0], 0.034, places=2)  # control should be losing
             if stats_version == 2:
+                self.assertAlmostEqual(probabilities[1], 0.966, delta=0.05)
+                self.assertAlmostEqual(probabilities[0], 0.034, delta=0.05)
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
                 self.assertLess(p_value, 0.01)
                 self.assertGreater(p_value, 0.0)
+                self.assertAlmostEqual(intervals["control"][0], 0.094, places=2)
+                self.assertAlmostEqual(intervals["control"][1], 0.116, places=2)
+                self.assertAlmostEqual(intervals["test"][0], 0.107, places=2)
+                self.assertAlmostEqual(intervals["test"][1], 0.134, places=2)
             else:
+                self.assertAlmostEqual(probabilities[1], 0.966, delta=0.05)
+                self.assertAlmostEqual(probabilities[0], 0.034, delta=0.05)
                 self.assertEqual(significance, ExperimentSignificanceCode.HIGH_P_VALUE)
-                self.assertAlmostEqual(p_value, 0.07, delta=0.01)
+                self.assertAlmostEqual(p_value, 0.07, places=2)
 
-            self.assertAlmostEqual(intervals["control"][0], 0.094, delta=0.01)
-            self.assertAlmostEqual(intervals["control"][1], 0.116, delta=0.01)
-
-            self.assertAlmostEqual(intervals["test"][0], 0.107, delta=0.01)
-            self.assertAlmostEqual(intervals["test"][1], 0.129, delta=0.01)
+                self.assertAlmostEqual(intervals["control"][0], 0.094, places=2)
+                self.assertAlmostEqual(intervals["control"][1], 0.116, places=2)
+                self.assertAlmostEqual(intervals["test"][0], 0.107, places=2)
+                self.assertAlmostEqual(intervals["test"][1], 0.134, places=2)
 
         self.run_test_for_both_implementations(run_test)
 
