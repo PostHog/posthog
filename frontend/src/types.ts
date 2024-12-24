@@ -4678,6 +4678,7 @@ export type HogFunctionTypeType =
     | 'activity'
     | 'alert'
     | 'broadcast'
+    | 'error_tracking_alert'
 
 export type HogFunctionType = {
     id: string
