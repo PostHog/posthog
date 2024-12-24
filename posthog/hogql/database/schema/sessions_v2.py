@@ -22,7 +22,7 @@ from posthog.hogql.database.schema.channel_type import (
     ChannelTypeExprs,
     DEFAULT_CHANNEL_TYPES,
 )
-from posthog.hogql.database.schema.sessions_v1 import null_if_empty
+from posthog.hogql.database.schema.sessions_v1 import null_if_empty, DEFAULT_BOUNCE_RATE_DURATION_SECONDS
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -36,6 +36,7 @@ from posthog.schema import BounceRatePageViewMode, CustomChannelRule
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
@@ -252,6 +253,11 @@ def select_from_sessions_table_v2(
         args=[aggregate_fields["$urls"]],
     )
 
+    bounce_rate_duration_seconds = (
+        context.modifiers.bounceRateDurationSeconds
+        if context.modifiers.bounceRateDurationSeconds is not None
+        else DEFAULT_BOUNCE_RATE_DURATION_SECONDS
+    )
     if context.modifiers.bounceRatePageViewMode == BounceRatePageViewMode.UNIQ_PAGE_SCREEN_AUTOCAPTURES:
         bounce_event_count = aggregate_fields["$page_screen_autocapture_count_up_to"]
         aggregate_fields["$is_bounce"] = ast.Call(
@@ -268,10 +274,13 @@ def select_from_sessions_table_v2(
                             args=[
                                 # if pageviews + autocaptures > 1, not a bounce
                                 ast.Call(name="greater", args=[bounce_event_count, ast.Constant(value=1)]),
-                                # if session duration >= 10 seconds, not a bounce
+                                # if session duration >= bounce_rate_duration_seconds, not a bounce
                                 ast.Call(
                                     name="greaterOrEquals",
-                                    args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
+                                    args=[
+                                        aggregate_fields["$session_duration"],
+                                        ast.Constant(value=bounce_rate_duration_seconds),
+                                    ],
                                 ),
                             ],
                         )
@@ -299,10 +308,13 @@ def select_from_sessions_table_v2(
                                 ast.Call(
                                     name="greater", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]
                                 ),
-                                # if session duration >= 10 seconds, not a bounce
+                                # if session duration >= bounce_rate_duration_seconds, not a bounce
                                 ast.Call(
                                     name="greaterOrEquals",
-                                    args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
+                                    args=[
+                                        aggregate_fields["$session_duration"],
+                                        ast.Constant(value=bounce_rate_duration_seconds),
+                                    ],
                                 ),
                             ],
                         )
