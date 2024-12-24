@@ -49,6 +49,7 @@ from posthog.temporal.batch_exports.spmc import (
 )
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
+    UnsupportedFileFormatError,
     WriterFormat,
 )
 from posthog.temporal.batch_exports.utils import set_status_to_running_task
@@ -71,6 +72,8 @@ NON_RETRYABLE_ERROR_TYPES = [
     "RecordBatchConsumerNonRetryableExceptionGroup",
     # Invalid S3 endpoint URL
     "InvalidS3EndpointError",
+    # Invalid file_format input
+    "UnsupportedFileFormatError",
 ]
 
 FILE_FORMAT_EXTENSIONS = {
@@ -107,7 +110,11 @@ def get_s3_key(inputs) -> str:
     """Return an S3 key given S3InsertInputs."""
     template_variables = get_allowed_template_variables(inputs)
     key_prefix = inputs.prefix.format(**template_variables)
-    file_extension = FILE_FORMAT_EXTENSIONS[inputs.file_format]
+
+    try:
+        file_extension = FILE_FORMAT_EXTENSIONS[inputs.file_format]
+    except KeyError:
+        raise UnsupportedFileFormatError(inputs.file_format, "S3")
 
     base_file_name = f"{inputs.data_interval_start}-{inputs.data_interval_end}"
     if inputs.compression is not None:
