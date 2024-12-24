@@ -58,16 +58,16 @@ class TestExperimentFunnelStatistics(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertAlmostEqual(probabilities[0], 0.15, delta=0.1)
-                self.assertAlmostEqual(probabilities[1], 0.85, delta=0.1)
+                self.assertAlmostEqual(probabilities[0], 0.149, delta=0.1)
+                self.assertAlmostEqual(probabilities[1], 0.850, delta=0.1)
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
                 # Check credible intervals
-                self.assertAlmostEqual(intervals["control"][0], 0.05, delta=0.05)
-                self.assertAlmostEqual(intervals["control"][1], 0.20, delta=0.05)
-                self.assertAlmostEqual(intervals["test"][0], 0.08, delta=0.05)
-                self.assertAlmostEqual(intervals["test"][1], 0.25, delta=0.05)
+                self.assertAlmostEqual(intervals["control"][0], 0.055, places=2)
+                self.assertAlmostEqual(intervals["control"][1], 0.174, places=2)
+                self.assertAlmostEqual(intervals["test"][0], 0.093, places=2)
+                self.assertAlmostEqual(intervals["test"][1], 0.233, places=2)
             else:
                 # Original implementation behavior
                 self.assertTrue(0.1 < probabilities[0] < 0.5)
@@ -76,10 +76,10 @@ class TestExperimentFunnelStatistics(APIBaseTest):
                 self.assertEqual(p_value, 1)
 
                 # Original implementation intervals
-                self.assertAlmostEqual(intervals["control"][0], 0.05, delta=0.05)
-                self.assertAlmostEqual(intervals["control"][1], 0.20, delta=0.05)
-                self.assertAlmostEqual(intervals["test"][0], 0.08, delta=0.05)
-                self.assertAlmostEqual(intervals["test"][1], 0.25, delta=0.05)
+                self.assertAlmostEqual(intervals["control"][0], 0.055, places=2)
+                self.assertAlmostEqual(intervals["control"][1], 0.174, places=2)
+                self.assertAlmostEqual(intervals["test"][0], 0.093, places=2)
+                self.assertAlmostEqual(intervals["test"][1], 0.233, places=2)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -102,10 +102,10 @@ class TestExperimentFunnelStatistics(APIBaseTest):
                 self.assertEqual(p_value, 0)
 
                 # Check credible intervals
-                self.assertAlmostEqual(intervals["control"][0], 0.095, delta=0.01)
-                self.assertAlmostEqual(intervals["control"][1], 0.105, delta=0.01)
-                self.assertAlmostEqual(intervals["test"][0], 0.145, delta=0.01)
-                self.assertAlmostEqual(intervals["test"][1], 0.155, delta=0.01)
+                self.assertAlmostEqual(intervals["control"][0], 0.095, places=2)
+                self.assertAlmostEqual(intervals["control"][1], 0.105, places=2)
+                self.assertAlmostEqual(intervals["test"][0], 0.145, places=2)
+                self.assertAlmostEqual(intervals["test"][1], 0.155, places=2)
             else:
                 # Original implementation behavior
                 self.assertTrue(probabilities[1] > 0.5)  # Test variant winning
@@ -114,10 +114,10 @@ class TestExperimentFunnelStatistics(APIBaseTest):
                 self.assertLess(p_value, 0.05)
 
                 # Original implementation intervals
-                self.assertAlmostEqual(intervals["control"][0], 0.095, delta=0.01)
-                self.assertAlmostEqual(intervals["control"][1], 0.105, delta=0.01)
-                self.assertAlmostEqual(intervals["test"][0], 0.145, delta=0.01)
-                self.assertAlmostEqual(intervals["test"][1], 0.155, delta=0.01)
+                self.assertAlmostEqual(intervals["control"][0], 0.095, places=2)
+                self.assertAlmostEqual(intervals["control"][1], 0.105, places=2)
+                self.assertAlmostEqual(intervals["test"][0], 0.145, places=2)
+                self.assertAlmostEqual(intervals["test"][1], 0.155, places=2)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -142,14 +142,14 @@ class TestExperimentFunnelStatistics(APIBaseTest):
 
                 # Check credible intervals overlap
                 # Check credible intervals for control and all test variants
-                self.assertAlmostEqual(intervals["control"][0], 0.09, delta=0.02)
-                self.assertAlmostEqual(intervals["control"][1], 0.12, delta=0.02)
-                self.assertAlmostEqual(intervals["test_a"][0], 0.09, delta=0.02)
-                self.assertAlmostEqual(intervals["test_a"][1], 0.12, delta=0.02)
-                self.assertAlmostEqual(intervals["test_b"][0], 0.09, delta=0.02)
-                self.assertAlmostEqual(intervals["test_b"][1], 0.12, delta=0.02)
-                self.assertAlmostEqual(intervals["test_c"][0], 0.09, delta=0.02)
-                self.assertAlmostEqual(intervals["test_c"][1], 0.12, delta=0.02)
+                self.assertAlmostEqual(intervals["control"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["control"][1], 0.12, places=2)
+                self.assertAlmostEqual(intervals["test_a"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["test_a"][1], 0.12, places=2)
+                self.assertAlmostEqual(intervals["test_b"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["test_b"][1], 0.12, places=2)
+                self.assertAlmostEqual(intervals["test_c"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["test_c"][1], 0.12, places=2)
             else:
                 # Original implementation behavior
                 self.assertTrue(all(0.1 < p < 0.9 for p in probabilities))
@@ -158,14 +158,14 @@ class TestExperimentFunnelStatistics(APIBaseTest):
 
                 # Check credible intervals overlap
                 # Check credible intervals for control and all test variants
-                self.assertAlmostEqual(intervals["control"][0], 0.09, delta=0.02)
-                self.assertAlmostEqual(intervals["control"][1], 0.12, delta=0.02)
-                self.assertAlmostEqual(intervals["test_a"][0], 0.09, delta=0.02)
-                self.assertAlmostEqual(intervals["test_a"][1], 0.12, delta=0.02)
-                self.assertAlmostEqual(intervals["test_b"][0], 0.09, delta=0.02)
-                self.assertAlmostEqual(intervals["test_b"][1], 0.12, delta=0.02)
-                self.assertAlmostEqual(intervals["test_c"][0], 0.09, delta=0.02)
-                self.assertAlmostEqual(intervals["test_c"][1], 0.12, delta=0.02)
+                self.assertAlmostEqual(intervals["control"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["control"][1], 0.12, places=2)
+                self.assertAlmostEqual(intervals["test_a"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["test_a"][1], 0.12, places=2)
+                self.assertAlmostEqual(intervals["test_b"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["test_b"][1], 0.12, places=2)
+                self.assertAlmostEqual(intervals["test_c"][0], 0.09, places=2)
+                self.assertAlmostEqual(intervals["test_c"][1], 0.12, places=2)
 
         self.run_test_for_both_implementations(run_test)
 
