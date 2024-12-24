@@ -189,8 +189,8 @@ def calculate_credible_intervals_v2(variants: list[ExperimentVariantFunnelsBaseS
     Calculate Bayesian credible intervals for conversion rates of each variant.
 
     This function computes the 95% credible intervals for the true conversion rate
-    of each variant using a Beta-Binomial model. The interval represents the range
-    where we believe the true conversion rate lies with 95% probability.
+    of each variant using a Beta model. The interval represents the range where we
+    believe the true conversion rate lies with 95% probability.
 
     Parameters:
     -----------
