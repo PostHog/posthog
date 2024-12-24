@@ -680,17 +680,8 @@ posthog/hogql/test/test_query.py:0: error: Module has no attribute "utc"  [attr-
 posthog/hogql/test/test_query.py:0: error: Module has no attribute "utc"  [attr-defined]
 posthog/hogql/test/test_query.py:0: error: Module has no attribute "utc"  [attr-defined]
 posthog/hogql/test/test_query.py:0: error: Module has no attribute "utc"  [attr-defined]
-posthog/hogql/test/test_query.py:0: error: Argument "placeholders" to "execute_hogql_query" has incompatible type "dict[str, Constant]"; expected "dict[str, Expr] | None"  [arg-type]
-posthog/hogql/test/test_query.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/test/test_query.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/test/test_query.py:0: error: Argument 1 to "pretty_print_in_tests" has incompatible type "str | None"; expected "str"  [arg-type]
-posthog/hogql/test/test_query.py:0: error: Argument "placeholders" to "execute_hogql_query" has incompatible type "dict[str, Constant]"; expected "dict[str, Expr] | None"  [arg-type]
-posthog/hogql/test/test_query.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/test/test_query.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/test/test_query.py:0: error: Argument 1 to "pretty_print_in_tests" has incompatible type "str | None"; expected "str"  [arg-type]
-posthog/hogql/test/test_query.py:0: error: Argument "placeholders" to "execute_hogql_query" has incompatible type "dict[str, Constant]"; expected "dict[str, Expr] | None"  [arg-type]
-posthog/hogql/test/test_query.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/test/test_query.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/test/test_parser_python.py:0: error: Unsupported dynamic base class "parser_test_factory"  [misc]
 posthog/hogql/test/test_parser_cpp.py:0: error: Unsupported dynamic base class "parser_test_factory"  [misc]
 posthog/hogql/test/test_parse_string_python.py:0: error: Unsupported dynamic base class "parse_string_test_factory"  [misc]
