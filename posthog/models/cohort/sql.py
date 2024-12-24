@@ -53,7 +53,7 @@ SETTINGS optimize_aggregation_in_order = 1, join_algorithm = 'auto'
 # optimize_aggregation_in_order = 1 is necessary to avoid oom'ing for our biggest clients
 RECALCULATE_COHORT_BY_ID_HOGQL_TEST = """
 INSERT INTO cohortpeople
-SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 0 AS sign, %(new_version)s AS version
+SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, -1 AS sign, %(new_version)s AS version
 FROM (
     {cohort_filter}
 ) as person
