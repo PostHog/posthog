@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
 import { getInsightId } from 'scenes/insights/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -57,6 +58,7 @@ export const sharingLogic = kea<sharingLogicType>([
 
     actions({
         togglePreview: true,
+        captureWhitelabelToggled: (enabled: boolean) => ({ enabled }),
     }),
     reducers({
         showPreview: [true, { togglePreview: (state) => !state }],
@@ -86,8 +88,10 @@ export const sharingLogic = kea<sharingLogicType>([
                 dashboardsModel.actions.loadDashboards()
             }
         },
+        captureWhitelabelToggled: ({ enabled }) => {
+            posthog.capture('sharing insight whitelabel toggled', { enabled })
+        },
     })),
-
     forms({
         embedConfig: {
             defaults: defaultEmbedConfig,
