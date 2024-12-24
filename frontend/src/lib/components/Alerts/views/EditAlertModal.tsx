@@ -173,14 +173,18 @@ export function EditAlertModal({
                                                 <LemonSelect
                                                     fullWidth
                                                     data-attr="alertForm-series-index"
-                                                    options={alertSeries?.map(({ event }, index) => ({
-                                                        label: isBreakdownValid
-                                                            ? 'any breakdown value'
-                                                            : formula
-                                                            ? `Formula (${formula})`
-                                                            : `${alphabet[index]} - ${event}`,
-                                                        value: isBreakdownValid || formula ? 0 : index,
-                                                    }))}
+                                                    options={alertSeries?.map(
+                                                        ({ custom_name, name, event }, index) => ({
+                                                            label: isBreakdownValid
+                                                                ? 'any breakdown value'
+                                                                : formula
+                                                                ? `Formula (${formula})`
+                                                                : `${alphabet[index]} - ${
+                                                                      custom_name ?? name ?? event
+                                                                  }`,
+                                                            value: isBreakdownValid || formula ? 0 : index,
+                                                        })
+                                                    )}
                                                     disabledReason={
                                                         (isBreakdownValid &&
                                                             `For trends with breakdown, the alert will fire if any of the breakdown
