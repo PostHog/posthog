@@ -433,6 +433,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Providers',
     },
+    [Scene.ClientAuthorization]: {
+        projectBased: false,
+        name: 'Authorize client',
+        hideProjectNotice: true,
+        layout: 'plain',
+    },
 }
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
@@ -622,6 +628,7 @@ export const routes: Record<string, Scene> = {
     [urls.settings(':section' as any)]: Scene.Settings,
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
     [urls.heatmaps()]: Scene.Heatmaps,
+    [urls.clientAuthorization()]: Scene.ClientAuthorization,
     [urls.sessionAttributionExplorer()]: Scene.SessionAttributionExplorer,
     [urls.messagingProviders()]: Scene.MessagingProviders,
     [urls.messagingProvider(':id')]: Scene.MessagingProviders,
