@@ -32,6 +32,7 @@ from posthog.models.cohort.sql import (
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
     STALE_COHORTPEOPLE,
+    RECALCULATE_COHORT_BY_ID_HOGQL_TEST,
 )
 from posthog.models.person.sql import (
     INSERT_PERSON_STATIC_COHORT,
@@ -301,7 +302,7 @@ def get_static_cohort_size(*, cohort_id: int, team_id: int) -> Optional[int]:
 
 
 def recalculate_cohortpeople(
-    cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int]
+    cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int], hogql: bool = False
 ) -> Optional[int]:
     """
     Recalculate cohort people for all environments of the project.
@@ -310,7 +311,7 @@ def recalculate_cohortpeople(
     relevant_teams = Team.objects.order_by("id").filter(project_id=cohort.team.project_id)
     count_by_team_id: dict[int, int] = {}
     for team in relevant_teams:
-        count_for_team = _recalculate_cohortpeople_for_team(
+        count_for_team = (_recalculate_cohortpeople_for_team_hogql if hogql else _recalculate_cohortpeople_for_team)(
             cohort, pending_version, team, initiating_user_id=initiating_user_id
         )
         count_by_team_id[team.id] = count_for_team or 0
@@ -325,7 +326,7 @@ def _recalculate_cohortpeople_for_team(
 
     before_count = get_cohort_size(cohort, team_id=team.id)
 
-    if before_count:
+    if before_count is not None:
         logger.warn(
             "Recalculating cohortpeople starting",
             team_id=team.id,
@@ -369,6 +370,59 @@ def _recalculate_cohortpeople_for_team(
         )
 
     return count
+
+
+def _recalculate_cohortpeople_for_team_hogql(
+    cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
+):
+    cohort_params = {}
+    # No need to do anything here, as we're only testing hogql
+    if cohort.is_static:
+        cohort_query, cohort_params = format_static_cohort_query(cohort, 0, prepend="")
+    elif not cohort.properties.values:
+        # Can't match anything, don't insert anything
+        return
+    else:
+        from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+        from posthog.hogql.query import HogQLQueryExecutor
+
+        hogql_cohort_query = HogQLCohortQuery(cohort=cohort)
+        query = hogql_cohort_query.get_query()
+
+        cohort_query, hogql_context = HogQLQueryExecutor(
+            query_type="HogQLCohortQuery",
+            query=query,
+            team=team,
+            limit_context=LimitContext.QUERY_ASYNC,
+        ).generate_clickhouse_sql()
+        cohort_params = hogql_context.values
+
+        # Hacky: Clickhouse doesn't like there being a top level "SETTINGS" clause in a SelectSet statement when that SelectSet
+        # statement is used in a subquery. We remove it here.
+        cohort_query = cohort_query[: cohort_query.rfind("SETTINGS")]
+
+    recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID_HOGQL_TEST.format(cohort_filter=cohort_query)
+
+    tag_queries(kind="cohort_calculation", team_id=team.id, query_type="CohortsQuery")
+    if initiating_user_id:
+        tag_queries(user_id=initiating_user_id)
+
+    sync_execute(
+        recalculate_cohortpeople_sql,
+        {
+            **cohort_params,
+            "cohort_id": cohort.pk,
+            "team_id": team.id,
+            "new_version": pending_version - 1,
+        },
+        settings={
+            "max_execution_time": 600,
+            "send_timeout": 600,
+            "receive_timeout": 600,
+            "optimize_on_insert": 0,
+        },
+        workload=Workload.OFFLINE,
+    )
 
 
 def clear_stale_cohortpeople(cohort: Cohort, before_version: int) -> None:

@@ -250,6 +250,26 @@ class Cohort(models.Model):
 
         clear_stale_cohort.delay(self.pk, before_version=pending_version)
 
+        # Try the hogql version. Don't run this on initial cohort create
+        if pending_version > 0:
+            # try:
+            start_time = time.monotonic()
+            recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id, hogql=True)
+            logger.warn(
+                "hogql_cohort_calculation_completed",
+                id=self.pk,
+                version=pending_version,
+                duration=(time.monotonic() - start_time),
+            )
+            # except Exception as e:
+            #    logger.exception(
+            #        "cohort_hogql_calculation_failed",
+            #        id=self.pk,
+            #        current_version=self.version,
+            #        new_version=pending_version,
+            #        exc_info=True,
+            #    )
+
     def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
         """
         Insert a list of users identified by their distinct ID into the cohort, for the given team.
@@ -377,7 +397,7 @@ class Cohort(models.Model):
 
 
 def get_and_update_pending_version(cohort: Cohort):
-    cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
+    cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 2)
     cohort.save(update_fields=["pending_version"])
     cohort.refresh_from_db()
     return cohort.pending_version

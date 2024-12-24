@@ -1550,7 +1550,7 @@ email@example.org,
 
         self.assertEqual(len(AsyncDeletion.objects.all()), 1)
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_3")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at, None)
 
@@ -1558,7 +1558,7 @@ email@example.org,
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_3")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at, None)
 
@@ -1576,7 +1576,7 @@ email@example.org,
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_3")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 
@@ -1737,14 +1737,14 @@ email@example.org,
         self.assertEqual(len(AsyncDeletion.objects.all()), 3)
         async_deletion_keys = {async_del.key for async_del in AsyncDeletion.objects.all()}
         async_deletion_type = {async_del.deletion_type for async_del in AsyncDeletion.objects.all()}
-        self.assertEqual(async_deletion_keys, {f"{cohort_id}_2", f"{cohort_id}_3", f"{cohort_id}_4"})
+        self.assertEqual(async_deletion_keys, {f"{cohort_id}_3", f"{cohort_id}_5", f"{cohort_id}_7"})
         self.assertEqual(async_deletion_type - {DeletionType.Cohort_stale}, set())
 
         # now let's run async deletions
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_3")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at, None)
 
@@ -1764,7 +1764,7 @@ email@example.org,
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_3")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 
