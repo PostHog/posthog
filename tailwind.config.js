@@ -82,6 +82,7 @@ const config = {
                 // All whole number values divisible by 20 up to 200 ensured above
                 248: '62rem',
                 300: '75rem',
+                'scene-padding': 'var(--scene-padding)',
             },
             rotate: {
                 270: '270deg',
