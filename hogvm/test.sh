@@ -8,8 +8,8 @@ SKIP_COMPILEDJS_FILES=("crypto.hog")
 cd "$(dirname "$0")"
 
 # Build the project
-cd typescript
-pnpm run build
+cd ../rust
+cargo build --release
 cd ..
 
 # Navigate to the project root (parent directory of 'hogvm')
