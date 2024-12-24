@@ -16,6 +16,7 @@ import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
+import { status } from '../../src/utils/status'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
@@ -23,7 +24,6 @@ import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
 jest.setTimeout(600000) // 600 sec timeout.
 
 export async function createPerson(
@@ -106,7 +106,11 @@ async function processEvent(
     const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
     await runner.runEventPipeline(pluginEvent)
 
-    await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
+    status.debug(`test.processEvent - ${++processEventCounter}`)
+
+    await delayUntilEventIngested(() => hub.db.fetchEvents(), {
+        minLength: ++processEventCounter,
+    })
 }
 
 // Simple client used to simulate sending events
@@ -165,7 +169,9 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
     }
     const runner = new EventPipelineRunner(hub, event, new EventsProcessor(hub))
     await runner.runEventPipeline(event)
-    await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
+    await delayUntilEventIngested(() => hub.db.fetchEvents(), {
+        minLength: ++mockClientEventCounter,
+    })
 }
 
 const identify = async (hub: Hub, distinctId: string) => {
@@ -187,14 +193,18 @@ const alias = async (hub: Hub, alias: string, distinctId: string) => {
 
 test('merge people', async () => {
     const p0 = await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })
-    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
+    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), {
+        minLength: 1,
+    })
 
     const [_person0, kafkaMessages0] = await hub.db.updatePersonDeprecated(p0, {
         created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
     })
 
     const p1 = await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })
-    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
+    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), {
+        minLength: 2,
+    })
     const [_person1, kafkaMessages1] = await hub.db.updatePersonDeprecated(p1, {
         created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
     })
@@ -219,7 +229,9 @@ test('merge people', async () => {
 
     expect((await hub.db.fetchPersons()).length).toEqual(2)
 
-    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
+    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), {
+        minLength: 2,
+    })
     const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
     expect(chPeople.length).toEqual(2)
 
@@ -317,8 +329,8 @@ test('capture new person', async () => {
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
-    await delayUntilEventIngested(() => hub.db.fetchEvents(), 1)
-    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
+    await delayUntilEventIngested(() => hub.db.fetchEvents())
+    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
     const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
     expect(chPeople.length).toEqual(1)
     expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
@@ -1851,7 +1863,7 @@ test('groupidentify', async () => {
     )
 
     expect((await hub.db.fetchEvents()).length).toBe(1)
-    await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
+    await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups())
 
     const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
     expect(clickhouseGroup).toEqual({
@@ -1931,7 +1943,7 @@ test('$groupidentify updating properties', async () => {
     )
 
     expect((await hub.db.fetchEvents()).length).toBe(1)
-    await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
+    await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups())
 
     const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
     expect(clickhouseGroup).toEqual({
