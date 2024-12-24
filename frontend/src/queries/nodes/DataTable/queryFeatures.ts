@@ -26,6 +26,7 @@ export enum QueryFeature {
     displayResponseError,
     hideLoadNextButton,
     testAccountFilters,
+    highlightExceptionEventRows,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
