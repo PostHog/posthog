@@ -115,6 +115,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "config",
             "calculation_interval",
             "snoozed_until",
+            "skip_weekend",
         ]
         read_only_fields = [
             "id",

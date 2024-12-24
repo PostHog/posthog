@@ -1,59 +1,63 @@
 import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ExperimentFunnelsQuery } from '~/queries/schema'
 import { Experiment, InsightType } from '~/types'
 
-import { experimentLogic, getDefaultFilters, getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
-import { PrimaryGoalFunnels } from '../Metrics/PrimaryGoalFunnels'
-import { PrimaryGoalTrends } from '../Metrics/PrimaryGoalTrends'
+import { experimentLogic, getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
+import { FunnelsMetricForm } from './FunnelsMetricForm'
+import { TrendsMetricForm } from './TrendsMetricForm'
 
-export function PrimaryMetricModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
+export function MetricModal({
+    experimentId,
+    isSecondary,
+}: {
+    experimentId: Experiment['id']
+    isSecondary?: boolean
+}): JSX.Element {
     const {
         experiment,
         experimentLoading,
         getMetricType,
-        featureFlags,
+        getSecondaryMetricType,
         isPrimaryMetricModalOpen,
+        isSecondaryMetricModalOpen,
         editingPrimaryMetricIndex,
+        editingSecondaryMetricIndex,
     } = useValues(experimentLogic({ experimentId }))
-    const { updateExperimentGoal, setExperiment, closePrimaryMetricModal } = useActions(
+    const { updateExperimentGoal, setExperiment, closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(
         experimentLogic({ experimentId })
     )
 
-    if (!editingPrimaryMetricIndex && editingPrimaryMetricIndex !== 0) {
+    const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
+    const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
+
+    if (!metricIdx && metricIdx !== 0) {
         return <></>
     }
 
-    const metricIdx = editingPrimaryMetricIndex
-    const metricType = getMetricType(metricIdx)
-
-    let funnelStepsLength = 0
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] && metricType === InsightType.FUNNELS) {
-        const metric = experiment.metrics[metricIdx] as ExperimentFunnelsQuery
-        funnelStepsLength = metric?.funnels_query?.series?.length || 0
-    } else {
-        funnelStepsLength = (experiment.filters?.events?.length || 0) + (experiment.filters?.actions?.length || 0)
-    }
+    const metricType = isSecondary ? getSecondaryMetricType(metricIdx) : getMetricType(metricIdx)
+    const metrics = experiment[metricsField]
+    const metric = metrics[metricIdx]
+    const funnelStepsLength = (metric as ExperimentFunnelsQuery)?.funnels_query?.series?.length || 0
 
     return (
         <LemonModal
-            isOpen={isPrimaryMetricModalOpen}
-            onClose={closePrimaryMetricModal}
+            isOpen={isSecondary ? isSecondaryMetricModalOpen : isPrimaryMetricModalOpen}
+            onClose={isSecondary ? closeSecondaryMetricModal : closePrimaryMetricModal}
             width={1000}
-            title="Change experiment goal"
+            title="Edit experiment metric"
             footer={
                 <div className="flex items-center w-full">
                     <LemonButton
                         type="secondary"
                         status="danger"
                         onClick={() => {
-                            const newMetrics = experiment.metrics.filter((_, idx) => idx !== metricIdx)
+                            const newMetrics = metrics.filter((_, idx) => idx !== metricIdx)
                             setExperiment({
-                                metrics: newMetrics,
+                                [metricsField]: newMetrics,
                             })
-                            updateExperimentGoal(experiment.filters)
+                            updateExperimentGoal()
                         }}
                     >
                         Delete
@@ -62,7 +66,7 @@ export function PrimaryMetricModal({ experimentId }: { experimentId: Experiment[
                         <LemonButton
                             form="edit-experiment-goal-form"
                             type="secondary"
-                            onClick={closePrimaryMetricModal}
+                            onClick={isSecondary ? closeSecondaryMetricModal : closePrimaryMetricModal}
                         >
                             Cancel
                         </LemonButton>
@@ -74,7 +78,7 @@ export function PrimaryMetricModal({ experimentId }: { experimentId: Experiment[
                             }
                             form="edit-experiment-goal-form"
                             onClick={() => {
-                                updateExperimentGoal(experiment.filters)
+                                updateExperimentGoal()
                             }}
                             type="primary"
                             loading={experimentLoading}
@@ -92,23 +96,16 @@ export function PrimaryMetricModal({ experimentId }: { experimentId: Experiment[
                     data-attr="metrics-selector"
                     value={metricType}
                     onChange={(newMetricType) => {
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setExperiment({
-                                ...experiment,
-                                metrics: [
-                                    ...experiment.metrics.slice(0, metricIdx),
-                                    newMetricType === InsightType.TRENDS
-                                        ? getDefaultTrendsMetric()
-                                        : getDefaultFunnelsMetric(),
-                                    ...experiment.metrics.slice(metricIdx + 1),
-                                ],
-                            })
-                        } else {
-                            setExperiment({
-                                ...experiment,
-                                filters: getDefaultFilters(newMetricType, undefined),
-                            })
-                        }
+                        setExperiment({
+                            ...experiment,
+                            [metricsField]: [
+                                ...metrics.slice(0, metricIdx),
+                                newMetricType === InsightType.TRENDS
+                                    ? getDefaultTrendsMetric()
+                                    : getDefaultFunnelsMetric(),
+                                ...metrics.slice(metricIdx + 1),
+                            ],
+                        })
                     }}
                     options={[
                         { value: InsightType.TRENDS, label: <b>Trends</b> },
@@ -116,7 +113,11 @@ export function PrimaryMetricModal({ experimentId }: { experimentId: Experiment[
                     ]}
                 />
             </div>
-            {metricType === InsightType.TRENDS ? <PrimaryGoalTrends /> : <PrimaryGoalFunnels />}
+            {metricType === InsightType.TRENDS ? (
+                <TrendsMetricForm isSecondary={isSecondary} />
+            ) : (
+                <FunnelsMetricForm isSecondary={isSecondary} />
+            )}
         </LemonModal>
     )
 }
