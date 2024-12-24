@@ -12599,6 +12599,9 @@
         "TrendsAlertConfig": {
             "additionalProperties": false,
             "properties": {
+                "check_ongoing_interval": {
+                    "type": "boolean"
+                },
                 "series_index": {
                     "type": "integer"
                 },

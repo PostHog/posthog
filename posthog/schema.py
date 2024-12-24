@@ -1571,6 +1571,7 @@ class TrendsAlertConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    check_ongoing_interval: Optional[bool] = None
     series_index: int
     type: Literal["TrendsAlertConfig"] = "TrendsAlertConfig"
 

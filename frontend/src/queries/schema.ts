@@ -2384,6 +2384,7 @@ export enum AlertCalculationInterval {
 export interface TrendsAlertConfig {
     type: 'TrendsAlertConfig'
     series_index: integer
+    check_ongoing_interval?: boolean
 }
 
 export interface HogCompileResponse {

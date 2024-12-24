@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { experimentLogic, getDefaultFunnelsMetric } from '../experimentLogic'
-import { MAX_PRIMARY_METRICS } from './const'
+import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from './const'
 import { DeltaChart } from './DeltaChart'
 
 // Helper function to find nice round numbers for ticks
@@ -42,61 +42,92 @@ export function getNiceTickValues(maxAbsValue: number): number[] {
     return ticks
 }
 
-function AddMetric({
-    metrics,
-    setExperiment,
-    openPrimaryMetricModal,
-}: {
-    metrics: any[]
-    setExperiment: (payload: { metrics: any[] }) => void
-    openPrimaryMetricModal: (index: number) => void
-}): JSX.Element {
+function AddPrimaryMetric(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { setExperiment, openPrimaryMetricModal } = useActions(experimentLogic)
+
     return (
         <LemonButton
             icon={<IconPlus />}
             type="secondary"
             size="xsmall"
             onClick={() => {
-                const newMetrics = [...metrics, getDefaultFunnelsMetric()]
+                const newMetrics = [...experiment.metrics, getDefaultFunnelsMetric()]
                 setExperiment({
                     metrics: newMetrics,
                 })
                 openPrimaryMetricModal(newMetrics.length - 1)
             }}
             disabledReason={
-                metrics.length >= MAX_PRIMARY_METRICS
+                experiment.metrics.length >= MAX_PRIMARY_METRICS
                     ? `You can only add up to ${MAX_PRIMARY_METRICS} primary metrics.`
                     : undefined
             }
         >
-            Add metric
+            Add primary metric
         </LemonButton>
     )
 }
 
-export function MetricsView(): JSX.Element {
-    const { experiment, getMetricType, metricResults, primaryMetricsResultErrors, credibleIntervalForVariant } =
-        useValues(experimentLogic)
-    const { setExperiment, openPrimaryMetricModal } = useActions(experimentLogic)
+export function AddSecondaryMetric(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { setExperiment, openSecondaryMetricModal } = useActions(experimentLogic)
+    return (
+        <LemonButton
+            icon={<IconPlus />}
+            type="secondary"
+            size="xsmall"
+            onClick={() => {
+                const newMetricsSecondary = [...experiment.metrics_secondary, getDefaultFunnelsMetric()]
+                setExperiment({
+                    metrics_secondary: newMetricsSecondary,
+                })
+                openSecondaryMetricModal(newMetricsSecondary.length - 1)
+            }}
+            disabledReason={
+                experiment.metrics_secondary.length >= MAX_SECONDARY_METRICS
+                    ? `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
+                    : undefined
+            }
+        >
+            Add secondary metric
+        </LemonButton>
+    )
+}
+
+export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
+    const {
+        experiment,
+        getMetricType,
+        getSecondaryMetricType,
+        metricResults,
+        secondaryMetricResults,
+        primaryMetricsResultErrors,
+        secondaryMetricsResultErrors,
+        credibleIntervalForVariant,
+    } = useValues(experimentLogic)
 
     const variants = experiment.parameters.feature_flag_variants
-    const metrics = experiment.metrics || []
+    const metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
+    const results = isSecondary ? secondaryMetricResults : metricResults
+    const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
 
     // Calculate the maximum absolute value across ALL metrics
     const maxAbsValue = Math.max(
         ...metrics.flatMap((_, metricIndex) => {
-            const result = metricResults?.[metricIndex]
+            const result = results?.[metricIndex]
             if (!result) {
                 return []
             }
             return variants.flatMap((variant) => {
-                const interval = credibleIntervalForVariant(result, variant.key, getMetricType(metricIndex))
+                const metricType = isSecondary ? getSecondaryMetricType(metricIndex) : getMetricType(metricIndex)
+                const interval = credibleIntervalForVariant(result, variant.key, metricType)
                 return interval ? [Math.abs(interval[0] / 100), Math.abs(interval[1] / 100)] : []
             })
         })
     )
 
-    const padding = Math.max(maxAbsValue * 0.05, 0.02)
+    const padding = Math.max(maxAbsValue * 0.05, 0.1)
     const chartBound = maxAbsValue + padding
 
     const commonTickValues = getNiceTickValues(chartBound)
@@ -106,7 +137,9 @@ export function MetricsView(): JSX.Element {
             <div className="flex">
                 <div className="w-1/2 pt-5">
                     <div className="inline-flex space-x-2 mb-0">
-                        <h2 className="mb-1 font-semibold text-lg">Primary metrics</h2>
+                        <h2 className="mb-1 font-semibold text-lg">
+                            {isSecondary ? 'Secondary metrics' : 'Primary metrics'}
+                        </h2>
                     </div>
                 </div>
 
@@ -114,11 +147,7 @@ export function MetricsView(): JSX.Element {
                     <div className="ml-auto">
                         {metrics.length > 0 && (
                             <div className="mb-2 mt-4 justify-end">
-                                <AddMetric
-                                    metrics={metrics}
-                                    setExperiment={setExperiment}
-                                    openPrimaryMetricModal={openPrimaryMetricModal}
-                                />
+                                {isSecondary ? <AddSecondaryMetric /> : <AddPrimaryMetric />}
                             </div>
                         )}
                     </div>
@@ -126,9 +155,9 @@ export function MetricsView(): JSX.Element {
             </div>
             {metrics.length > 0 ? (
                 <div className="w-full overflow-x-auto">
-                    <div className="min-w-[800px]">
+                    <div className="min-w-[1000px]">
                         {metrics.map((metric, metricIndex) => {
-                            const result = metricResults?.[metricIndex]
+                            const result = results?.[metricIndex]
                             const isFirstMetric = metricIndex === 0
 
                             return (
@@ -145,10 +174,15 @@ export function MetricsView(): JSX.Element {
                                     }`}
                                 >
                                     <DeltaChart
+                                        isSecondary={!!isSecondary}
                                         result={result}
-                                        error={primaryMetricsResultErrors?.[metricIndex]}
+                                        error={errors?.[metricIndex]}
                                         variants={variants}
-                                        metricType={getMetricType(metricIndex)}
+                                        metricType={
+                                            isSecondary
+                                                ? getSecondaryMetricType(metricIndex)
+                                                : getMetricType(metricIndex)
+                                        }
                                         metricIndex={metricIndex}
                                         isFirstMetric={isFirstMetric}
                                         metric={metric}
@@ -165,13 +199,9 @@ export function MetricsView(): JSX.Element {
                     <div className="flex flex-col items-center mx-auto space-y-3">
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance">
-                            Add up to {MAX_PRIMARY_METRICS} primary metrics.
+                            Add up to {MAX_PRIMARY_METRICS} {isSecondary ? 'secondary' : 'primary'} metrics.
                         </div>
-                        <AddMetric
-                            metrics={metrics}
-                            setExperiment={setExperiment}
-                            openPrimaryMetricModal={openPrimaryMetricModal}
-                        />
+                        {isSecondary ? <AddSecondaryMetric /> : <AddPrimaryMetric />}
                     </div>
                 </div>
             )}
