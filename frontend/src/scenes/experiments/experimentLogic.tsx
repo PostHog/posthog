@@ -634,8 +634,11 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ start_date: startDate })
             values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
         },
-        setExperimentStatsVersion: async ({ version }) => {
+        setExperimentStatsVersion: async ({ version }, breakpoint) => {
             actions.updateExperiment({ stats_config: { version } })
+            await breakpoint(100)
+            actions.loadMetricResults(true)
+            actions.loadSecondaryMetricResults(true)
         },
         endExperiment: async () => {
             const endDate = dayjs()
