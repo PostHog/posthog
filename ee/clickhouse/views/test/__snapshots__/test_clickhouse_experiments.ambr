@@ -1463,7 +1463,7 @@
   SELECT id,
          99999 as cohort_id,
          99999 as team_id,
-         0 AS sign,
+         -1 AS sign,
          0 AS version
   FROM
     (SELECT persons.id AS id
@@ -1563,7 +1563,7 @@
   SELECT id,
          99999 as cohort_id,
          99999 as team_id,
-         0 AS sign,
+         -1 AS sign,
          0 AS version
   FROM (
           (SELECT source.id AS id
