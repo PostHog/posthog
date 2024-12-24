@@ -58,7 +58,7 @@ INSTANCE_PREFERENCES = {
     "disable_paid_fs": disable_paid_fs,
 }
 
-SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
+SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
 INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 
 if DEBUG:

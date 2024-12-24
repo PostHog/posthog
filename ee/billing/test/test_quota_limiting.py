@@ -77,7 +77,7 @@ class TestQuotaLimiting(BaseTest):
             org_id,
             "quota limiting suspended",
             properties={"current_usage": 109},
-            groups={"instance": "http://localhost:8000", "organization": org_id},
+            groups={"instance": "http://localhost:8010", "organization": org_id},
         )
         # Feature flag is enabled so they won't be limited.
         assert quota_limited_orgs["events"] == {}
@@ -222,7 +222,7 @@ class TestQuotaLimiting(BaseTest):
                     "quota_limited_recordings": 1612137599,
                     "quota_limited_rows_synced": None,
                 },
-                groups={"instance": "http://localhost:8000", "organization": org_id},
+                groups={"instance": "http://localhost:8010", "organization": org_id},
             )
 
             assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [
