@@ -1,1 +1,1 @@
-0534_team_cookieless_server_hash_mode
+0536_alertconfiguration_skip_weekend
