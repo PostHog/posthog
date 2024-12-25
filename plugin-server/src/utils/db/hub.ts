@@ -12,13 +12,12 @@ import { EncryptedFields } from '../../cdp/encryption-utils'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../kafka/config'
+import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { createKafkaProducer } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
 import {
     EnqueuedPluginJob,
     Hub,
-    KafkaSaslMechanism,
     KafkaSecurityProtocol,
     PluginServerCapabilities,
     PluginsServerConfig,
@@ -55,9 +54,10 @@ pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
 )
 
 export async function createKafkaProducerWrapper(serverConfig: PluginsServerConfig): Promise<KafkaProducerWrapper> {
-    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
-    const producerConfig = createRdProducerConfigFromEnvVars(serverConfig)
-    const producer = await createKafkaProducer(kafkaConnectionConfig, producerConfig)
+    const producer = await createKafkaProducer(
+        createRdConnectionConfigFromEnvVars(serverConfig, 'producer'),
+        serverConfig
+    )
     return new KafkaProducerWrapper(producer)
 }
 

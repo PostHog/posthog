@@ -60,11 +60,3 @@ export const createRdConnectionConfigFromEnvVars = (
 
     return config
 }
-
-export const createRdProducerConfigFromEnvVars = (producerConfig: KafkaProducerConfig): KafkaProducerConfig => {
-    return {
-        KAFKA_PRODUCER_LINGER_MS: producerConfig.KAFKA_PRODUCER_LINGER_MS,
-        KAFKA_PRODUCER_BATCH_SIZE: producerConfig.KAFKA_PRODUCER_BATCH_SIZE,
-        KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: producerConfig.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES,
-    }
-}

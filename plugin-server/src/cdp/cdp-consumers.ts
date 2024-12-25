@@ -309,7 +309,7 @@ abstract class CdpConsumerBase {
     }): Promise<void> {
         this.batchConsumer = await startBatchConsumer({
             ...options,
-            connectionConfig: createRdConnectionConfigFromEnvVars(this.hub),
+            connectionConfig: createRdConnectionConfigFromEnvVars(this.hub, 'consumer'),
             autoCommit: true,
             sessionTimeout: this.hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.hub.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,

@@ -33,6 +33,7 @@ export const ingestEventKafkaProduceLatency = new Summary({
 // Kafka production related functions using node-rdkafka.
 export const createKafkaProducer = async (globalConfig: ProducerGlobalConfig, producerConfig: KafkaProducerConfig) => {
     const producer = new RdKafkaProducer({
+        ...globalConfig,
         // milliseconds to wait after the most recently added message before sending a batch. The
         // default is 0, which means that messages are sent as soon as possible. This does not mean
         // that there will only be one message per batch, as the producer will attempt to fill
@@ -53,7 +54,6 @@ export const createKafkaProducer = async (globalConfig: ProducerGlobalConfig, pr
         // when querying the table or client side.
         'enable.idempotence': true,
         dr_cb: true,
-        ...globalConfig,
     })
 
     producer.on('event.log', function (log) {

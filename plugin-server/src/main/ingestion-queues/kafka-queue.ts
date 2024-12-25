@@ -185,7 +185,7 @@ export class IngestionConsumer {
         this.consumer = await startBatchConsumer({
             batchingTimeoutMs: this.pluginsServer.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             consumerErrorBackoffMs: this.pluginsServer.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            connectionConfig: createRdConnectionConfigFromEnvVars(this.pluginsServer as KafkaConfig),
+            connectionConfig: createRdConnectionConfigFromEnvVars(this.pluginsServer, 'consumer'),
             topic: this.topic,
             groupId: this.consumerGroupId,
             autoCommit: true,
