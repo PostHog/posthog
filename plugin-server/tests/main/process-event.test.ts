@@ -106,10 +106,11 @@ async function processEvent(
     const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
     await runner.runEventPipeline(pluginEvent)
 
-    status.debug(`test.processEvent - ${++processEventCounter}`)
+    const expectedNumEvents = ++processEventCounter
+    status.debug(`test.processEvent - ${expectedNumEvents}`)
 
     await delayUntilEventIngested(() => hub.db.fetchEvents(), {
-        minLength: ++processEventCounter,
+        minLength: expectedNumEvents,
     })
 }
 
