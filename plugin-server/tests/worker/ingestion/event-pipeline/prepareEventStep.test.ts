@@ -94,7 +94,7 @@ describe('prepareEventStep()', () => {
             projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
-        expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
+        expect(hub.db.kafkaProducer!.queueMessages).not.toHaveBeenCalled()
     })
 
     it('scrubs IPs when team.anonymize_ips=true', async () => {
@@ -113,7 +113,7 @@ describe('prepareEventStep()', () => {
             projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
-        expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
+        expect(hub.db.kafkaProducer!.queueMessages).not.toHaveBeenCalled()
     })
 
     // Tests combo of prepareEvent + createEvent

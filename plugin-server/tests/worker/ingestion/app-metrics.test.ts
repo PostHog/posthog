@@ -26,7 +26,7 @@ describe('AppMetrics()', () => {
         kafkaProducer = {
             producer: jest.fn(),
             produce: jest.fn(),
-            queueMessages: jest.fn(),
+            queueMessages: jest.fn(() => Promise.resolve()),
             flush: jest.fn(),
             disconnect: jest.fn(),
         } as unknown as KafkaProducerWrapper

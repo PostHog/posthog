@@ -131,7 +131,7 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
             await eachBatchParallelIngestion(tokenBlockList, batch, queue, mode)
 
             expect(consume).toHaveBeenCalledWith('1:ingestion_capacity_overflow:id', 1)
-            expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
+            expect(queue.pluginsServer.kafkaProducer.queueMessages).not.toHaveBeenCalled()
 
             // Event is processed
             expect(runEventPipeline).toHaveBeenCalled()
@@ -152,7 +152,7 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
             const tokenBlockList = buildStringMatcher('mytoken,more_token', false)
             await eachBatchParallelIngestion(tokenBlockList, batch, queue, mode)
 
-            expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
+            expect(queue.pluginsServer.kafkaProducer.queueMessages).not.toHaveBeenCalled()
 
             // captureEndpointEvent2 is processed, captureEndpointEvent1 are dropped
             expect(runEventPipeline).toHaveBeenCalledTimes(1)
