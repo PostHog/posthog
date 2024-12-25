@@ -1099,7 +1099,7 @@ export class DB {
         return queryResult.data as PluginLogEntry[]
     }
 
-    public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
+    public queuePluginLogEntry(entry: LogEntryPayload): void {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
         const configuredLogLevel = pluginConfig.plugin?.log_level || this.pluginsDefaultLogLevel
 

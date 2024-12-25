@@ -25,7 +25,7 @@ export class MessageSizeTooLarge extends Error {
     readonly isRetriable = false
 }
 
-export async function processError(
+export function processError(
     server: Hub,
     pluginConfig: PluginConfig | null,
     error: Error | string,
@@ -35,7 +35,7 @@ export async function processError(
         captureException(new Error('Tried to process error for nonexistent plugin config!'), {
             tags: { team_id: event?.team_id },
         })
-        return
+        return Promise.resolve()
     }
 
     if (error instanceof DependencyUnavailableError) {
@@ -60,7 +60,7 @@ export async function processError(
                   event: event,
               }
 
-    await server.db.queuePluginLogEntry({
+    server.db.queuePluginLogEntry({
         pluginConfig,
         source: PluginLogEntrySource.Plugin,
         type: PluginLogEntryType.Error,
@@ -68,6 +68,8 @@ export async function processError(
         instanceId: server.instanceId,
         timestamp: pluginError.time,
     })
+
+    return Promise.resolve()
 }
 
 export function cleanErrorStackTrace(stack: string | undefined): string | undefined {

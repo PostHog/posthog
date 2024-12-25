@@ -14,7 +14,7 @@ export async function teardownPlugins(server: Hub, pluginConfig?: PluginConfig):
                     (async () => {
                         try {
                             await teardownPlugin()
-                            await server.db.queuePluginLogEntry({
+                            server.db.queuePluginLogEntry({
                                 pluginConfig,
                                 source: PluginLogEntrySource.System,
                                 type: PluginLogEntryType.Debug,
@@ -23,7 +23,7 @@ export async function teardownPlugins(server: Hub, pluginConfig?: PluginConfig):
                             })
                         } catch (error) {
                             await processError(server, pluginConfig, error)
-                            await server.db.queuePluginLogEntry({
+                            server.db.queuePluginLogEntry({
                                 pluginConfig,
                                 source: PluginLogEntrySource.System,
                                 type: PluginLogEntryType.Error,
@@ -34,7 +34,7 @@ export async function teardownPlugins(server: Hub, pluginConfig?: PluginConfig):
                     })()
                 )
             } else {
-                await server.db.queuePluginLogEntry({
+                server.db.queuePluginLogEntry({
                     pluginConfig,
                     source: PluginLogEntrySource.System,
                     type: PluginLogEntryType.Debug,
