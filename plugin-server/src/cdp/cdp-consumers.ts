@@ -157,8 +157,8 @@ abstract class CdpConsumerBase {
         const messages = [...this.messagesToProduce]
         this.messagesToProduce = []
 
-        await this.kafkaProducer!.queueMessages({
-            kafkaMessages: messages.map((x) => ({
+        await this.kafkaProducer!.queueMessages(
+            messages.map((x) => ({
                 topic: x.topic,
                 messages: [
                     {
@@ -166,8 +166,8 @@ abstract class CdpConsumerBase {
                         key: x.key,
                     },
                 ],
-            })),
-        }).catch((reason) => {
+            }))
+        ).catch((reason) => {
             status.error('⚠️', `failed to produce message: ${reason}`)
         })
     }

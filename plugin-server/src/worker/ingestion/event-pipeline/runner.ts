@@ -352,7 +352,7 @@ export class EventPipelineRunner {
                     teamId,
                     `plugin_server_ingest_event:${currentStepName}`
                 )
-                await this.hub.db.kafkaProducer!.queueMessages({ kafkaMessages: message })
+                await this.hub.db.kafkaProducer!.queueMessages(message)
             } catch (dlqError) {
                 status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
                 Sentry.captureException(dlqError, {

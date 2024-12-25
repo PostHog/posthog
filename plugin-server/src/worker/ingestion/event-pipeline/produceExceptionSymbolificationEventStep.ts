@@ -8,15 +8,13 @@ export function produceExceptionSymbolificationEventStep(
 ): Promise<any> {
     return runner.hub.kafkaProducer
         .queueMessages({
-            kafkaMessages: {
-                topic: runner.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
-                messages: [
-                    {
-                        key: String(event.team_id),
-                        value: Buffer.from(JSON.stringify(event)),
-                    },
-                ],
-            },
+            topic: runner.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
+            messages: [
+                {
+                    key: String(event.team_id),
+                    value: Buffer.from(JSON.stringify(event)),
+                },
+            ],
         })
         .catch((error) => {
             status.warn('⚠️', 'Failed to produce exception event for symbolification', {

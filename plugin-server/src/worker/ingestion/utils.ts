@@ -1,8 +1,7 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { PipelineEvent, TeamId, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { status } from '../../utils/status'
@@ -21,7 +20,7 @@ export function generateEventDeadLetterQueueMessage(
     error: unknown,
     teamId: number,
     errorLocation = 'plugin_server_ingest_event'
-): ProducerRecord {
+): TopicMessage {
     let errorMessage = 'Event ingestion failed. '
     if (error instanceof Error) {
         errorMessage += `Error: ${error.message}`
@@ -49,7 +48,7 @@ export function generateEventDeadLetterQueueMessage(
         team_id: event.team_id || teamId,
     }
 
-    const message = {
+    return {
         topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE,
         messages: [
             {
@@ -57,7 +56,6 @@ export function generateEventDeadLetterQueueMessage(
             },
         ],
     }
-    return message
 }
 
 // These get displayed under Data Management > Ingestion Warnings
@@ -82,20 +80,18 @@ export async function captureIngestionWarning(
     if (!!debounce?.alwaysSend || IngestionWarningLimiter.consume(limiter_key, 1)) {
         void kafkaProducer
             .queueMessages({
-                kafkaMessages: {
-                    topic: KAFKA_INGESTION_WARNINGS,
-                    messages: [
-                        {
-                            value: JSON.stringify({
-                                team_id: teamId,
-                                type: type,
-                                source: 'plugin-server',
-                                details: JSON.stringify(details),
-                                timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-                            }),
-                        },
-                    ],
-                },
+                topic: KAFKA_INGESTION_WARNINGS,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            team_id: teamId,
+                            type: type,
+                            source: 'plugin-server',
+                            details: JSON.stringify(details),
+                            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                        }),
+                    },
+                ],
             })
             .catch((error) => {
                 status.warn('⚠️', 'Failed to produce ingestion warning', {

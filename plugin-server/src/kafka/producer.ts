@@ -1,4 +1,4 @@
-import { Message, ProducerRecord } from 'kafkajs'
+import { Message } from 'kafkajs'
 import {
     ClientMetrics,
     HighLevelProducer,
@@ -29,11 +29,11 @@ import { createRdConnectionConfigFromEnvVars } from './config'
 
 export type MessageKey = Exclude<RdKafkaMessageKey, undefined>
 
-export type TopicMessages = {
+export type TopicMessage = {
     topic: string
     messages: {
-        value: string | Buffer
-        key: MessageKey
+        value: string | Buffer | null
+        key?: MessageKey
     }[]
 }
 
@@ -145,15 +145,11 @@ export class KafkaProducerWrapper {
         }
     }
 
-    async queueMessages({
-        kafkaMessages: kafkaMessage,
-    }: {
-        kafkaMessages: ProducerRecord | ProducerRecord[]
-    }): Promise<void> {
-        const records = Array.isArray(kafkaMessage) ? kafkaMessage : [kafkaMessage]
+    async queueMessages(topicMessages: TopicMessage | TopicMessage[]): Promise<void> {
+        topicMessages = Array.isArray(topicMessages) ? topicMessages : [topicMessages]
 
         await Promise.all(
-            records.map((record) => {
+            topicMessages.map((record) => {
                 return Promise.all(
                     record.messages.map((message) =>
                         this.produce({
@@ -167,6 +163,7 @@ export class KafkaProducerWrapper {
             })
         )
     }
+
     public async flush() {
         status.debug('📤', 'flushing_producer')
 

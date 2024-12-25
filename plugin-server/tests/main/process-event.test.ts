@@ -199,9 +199,7 @@ test('merge people', async () => {
         created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
     })
 
-    await hub.db.kafkaProducer.queueMessages({
-        kafkaMessages: [...kafkaMessages0, ...kafkaMessages1],
-    })
+    await hub.db.kafkaProducer.queueMessages([...kafkaMessages0, ...kafkaMessages1])
 
     await processEvent(
         'person_1',

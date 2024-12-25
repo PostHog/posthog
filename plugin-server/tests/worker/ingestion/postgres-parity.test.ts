@@ -46,7 +46,7 @@ describe('postgres parity', () => {
         await resetTestDatabaseClickhouse(extraServerConfig)
         console.log('[TEST] Starting plugins server')
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina, { ingestion: true })
-        hub = startResponse.hub
+        hub = startResponse.hub!
         stopServer = startResponse.stop
         teamId++
         console.log('[TEST] Setting up seed data')
@@ -181,9 +181,7 @@ describe('postgres parity', () => {
             is_identified: true,
         })
 
-        await hub.db.kafkaProducer.queueMessages({
-            kafkaMessages,
-        })
+        await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
         await delayUntilEventIngested(async () =>
             (await hub.db.fetchPersons(Database.ClickHouse)).filter((p) => p.is_identified)
@@ -211,9 +209,7 @@ describe('postgres parity', () => {
             is_identified: false,
         })
 
-        await hub.db.kafkaProducer.queueMessages({
-            kafkaMessages: kafkaMessages2,
-        })
+        await hub.db.kafkaProducer.queueMessages(kafkaMessages2)
 
         expect(updatedPerson.version).toEqual(2)
 
@@ -353,7 +349,7 @@ describe('postgres parity', () => {
         // move distinct ids from person to to anotherPerson
 
         const kafkaMessages = await hub.db.moveDistinctIds(person, anotherPerson)
-        await hub.db!.kafkaProducer!.queueMessages({ kafkaMessages })
+        await hub.db!.kafkaProducer!.queueMessages(kafkaMessages)
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse), 2)
 
         // it got added
@@ -409,9 +405,7 @@ describe('postgres parity', () => {
         // delete person
         await hub.db.postgres.transaction(PostgresUse.COMMON_WRITE, '', async (client) => {
             const deletePersonMessage = await hub.db.deletePerson(person, client)
-            await hub.db!.kafkaProducer!.queueMessages({
-                kafkaMessages: deletePersonMessage[0],
-            })
+            await hub.db!.kafkaProducer!.queueMessages(deletePersonMessage[0])
         })
 
         await delayUntilEventIngested(async () =>

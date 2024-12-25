@@ -149,15 +149,13 @@ export async function createHub(
         // chained, and if we do not manage to produce then the chain will be
         // broken.
         await kafkaProducer.queueMessages({
-            kafkaMessages: {
-                topic: KAFKA_JOBS,
-                messages: [
-                    {
-                        value: Buffer.from(JSON.stringify(job)),
-                        key: Buffer.from(job.pluginConfigTeam.toString()),
-                    },
-                ],
-            },
+            topic: KAFKA_JOBS,
+            messages: [
+                {
+                    value: Buffer.from(JSON.stringify(job)),
+                    key: Buffer.from(job.pluginConfigTeam.toString()),
+                },
+            ],
         })
     }
 

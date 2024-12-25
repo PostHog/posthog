@@ -156,13 +156,11 @@ export class ConsoleLogsIngester {
 
             return [
                 this.producer.queueMessages({
-                    kafkaMessages: {
-                        topic: KAFKA_LOG_ENTRIES,
-                        messages: consoleLogEvents.map((cle: ConsoleLogEntry) => ({
-                            value: JSON.stringify(cle),
-                            key: event.session_id,
-                        })),
-                    },
+                    topic: KAFKA_LOG_ENTRIES,
+                    messages: consoleLogEvents.map((cle: ConsoleLogEntry) => ({
+                        value: JSON.stringify(cle),
+                        key: event.session_id,
+                    })),
                 }),
             ]
         } catch (error) {

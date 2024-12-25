@@ -164,7 +164,7 @@ export class AppMetrics {
         this.queueSize = 0
         this.queuedData = {}
 
-        const kafkaMessages: Message[] = Object.values(queue).map((value) => ({
+        const messages: Message[] = Object.values(queue).map((value) => ({
             value: JSON.stringify({
                 timestamp: castTimestampOrNow(DateTime.fromMillis(value.lastTimestamp), TimestampFormat.ClickHouse),
                 team_id: value.metric.teamId,
@@ -183,10 +183,8 @@ export class AppMetrics {
         }))
 
         await this.kafkaProducer.queueMessages({
-            kafkaMessages: {
-                topic: KAFKA_APP_METRICS,
-                messages: kafkaMessages,
-            },
+            topic: KAFKA_APP_METRICS,
+            messages: messages,
         })
         status.debug('🚽', `Finished flushing app metrics, took ${Date.now() - startTime}ms`)
     }

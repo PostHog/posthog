@@ -171,15 +171,13 @@ export class ReplayEventsIngester {
 
             return [
                 this.producer.queueMessages({
-                    kafkaMessages: {
-                        topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-                        messages: [
-                            {
-                                value: JSON.stringify(replayRecord),
-                                key: event.session_id,
-                            },
-                        ],
-                    },
+                    topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+                    messages: [
+                        {
+                            value: JSON.stringify(replayRecord),
+                            key: event.session_id,
+                        },
+                    ],
                 }),
             ]
         } catch (error) {

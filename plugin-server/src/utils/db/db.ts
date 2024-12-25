@@ -3,12 +3,11 @@ import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
-import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
     Action,
     ClickHouseEvent,
@@ -697,7 +696,7 @@ export class DB {
             })
         }
 
-        await this.kafkaProducer.queueMessages({ kafkaMessages })
+        await this.kafkaProducer.queueMessages(kafkaMessages)
         return person
     }
 
@@ -706,7 +705,7 @@ export class DB {
         person: InternalPerson,
         update: Partial<InternalPerson>,
         tx?: TransactionClient
-    ): Promise<[InternalPerson, ProducerRecord[]]> {
+    ): Promise<[InternalPerson, TopicMessage[]]> {
         let versionString = 'COALESCE(version, 0)::numeric + 1'
         if (update.version) {
             versionString = update.version.toString()
@@ -758,7 +757,7 @@ export class DB {
         return [updatedPerson, [kafkaMessage]]
     }
 
-    public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<ProducerRecord[]> {
+    public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
         const { rows } = await this.postgres.query<{ version: string }>(
             tx ?? PostgresUse.COMMON_WRITE,
             'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
@@ -766,7 +765,7 @@ export class DB {
             'deletePerson'
         )
 
-        let kafkaMessages: ProducerRecord[] = []
+        let kafkaMessages: TopicMessage[] = []
 
         if (rows.length > 0) {
             const [row] = rows
@@ -881,7 +880,7 @@ export class DB {
     ): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version, tx)
         if (kafkaMessages.length) {
-            await this.kafkaProducer.queueMessages({ kafkaMessages })
+            await this.kafkaProducer.queueMessages(kafkaMessages)
         }
     }
 
@@ -890,7 +889,7 @@ export class DB {
         distinctId: string,
         version: number,
         tx?: TransactionClient
-    ): Promise<ProducerRecord[]> {
+    ): Promise<TopicMessage[]> {
         const insertResult = await this.postgres.query(
             tx ?? PostgresUse.COMMON_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
@@ -923,7 +922,7 @@ export class DB {
         source: InternalPerson,
         target: InternalPerson,
         tx?: TransactionClient
-    ): Promise<ProducerRecord[]> {
+    ): Promise<TopicMessage[]> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgres.query(
@@ -1133,10 +1132,8 @@ export class DB {
             // disk.
             void this.kafkaProducer
                 .queueMessages({
-                    kafkaMessages: {
-                        topic: KAFKA_PLUGIN_LOG_ENTRIES,
-                        messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
-                    },
+                    topic: KAFKA_PLUGIN_LOG_ENTRIES,
+                    messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
                 })
                 .catch((error) => {
                     status.warn('⚠️', 'Failed to produce plugin log entry', {
@@ -1424,21 +1421,19 @@ export class DB {
         version: number
     ): Promise<void> {
         await this.kafkaProducer.queueMessages({
-            kafkaMessages: {
-                topic: KAFKA_GROUPS,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            group_type_index: groupTypeIndex,
-                            group_key: groupKey,
-                            team_id: teamId,
-                            group_properties: JSON.stringify(properties),
-                            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                            version,
-                        }),
-                    },
-                ],
-            },
+            topic: KAFKA_GROUPS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        group_type_index: groupTypeIndex,
+                        group_key: groupKey,
+                        team_id: teamId,
+                        group_properties: JSON.stringify(properties),
+                        created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                        version,
+                    }),
+                },
+            ],
         })
     }
 

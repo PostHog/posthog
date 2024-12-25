@@ -36,13 +36,11 @@ export async function extractHeatmapDataStep(
 
             acks.push(
                 runner.hub.kafkaProducer.queueMessages({
-                    kafkaMessages: {
-                        topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                        messages: heatmapEvents.map((rawEvent) => ({
-                            key: eventUuid,
-                            value: JSON.stringify(rawEvent),
-                        })),
-                    },
+                    topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                    messages: heatmapEvents.map((rawEvent) => ({
+                        key: eventUuid,
+                        value: JSON.stringify(rawEvent),
+                    })),
                 })
             )
         }

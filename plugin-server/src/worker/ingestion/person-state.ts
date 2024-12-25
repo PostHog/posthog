@@ -1,11 +1,11 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { ProducerRecord } from 'kafkajs'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { ONE_HOUR } from '../../config/constants'
+import { TopicMessage } from '../../kafka/producer'
 import { InternalPerson, Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
@@ -301,7 +301,7 @@ export class PersonState {
 
         if (Object.keys(update).length > 0) {
             const [updatedPerson, kafkaMessages] = await this.db.updatePersonDeprecated(person, update)
-            const kafkaAck = this.db.kafkaProducer.queueMessages({ kafkaMessages })
+            const kafkaAck = this.db.kafkaProducer.queueMessages(kafkaMessages)
             return [updatedPerson, kafkaAck]
         }
 
@@ -682,14 +682,14 @@ export class PersonState {
         const properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
         this.applyEventPropertyUpdates(properties)
 
-        const [mergedPerson, kafkaMessages] = await this.handleMergeTransaction(
+        const [mergedPerson, kafkaAcks] = await this.handleMergeTransaction(
             mergeInto,
             otherPerson,
             olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
             properties
         )
 
-        return [mergedPerson, kafkaMessages]
+        return [mergedPerson, kafkaAcks]
     }
 
     private isMergeAllowed(mergeFrom: InternalPerson): boolean {
@@ -712,7 +712,7 @@ export class PersonState {
             })
             .inc()
 
-        const [mergedPerson, kafkaMessages]: [InternalPerson, ProducerRecord[]] = await this.db.postgres.transaction(
+        const [mergedPerson, kafkaMessages]: [InternalPerson, TopicMessage[]] = await this.db.postgres.transaction(
             PostgresUse.COMMON_WRITE,
             'mergePeople',
             async (tx) => {
@@ -768,7 +768,7 @@ export class PersonState {
             })
             .inc()
 
-        const kafkaAck = this.db.kafkaProducer.queueMessages({ kafkaMessages })
+        const kafkaAck = this.db.kafkaProducer.queueMessages(kafkaMessages)
 
         return [mergedPerson, kafkaAck]
     }
