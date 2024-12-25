@@ -1,6 +1,7 @@
 import { captureException } from '@sentry/node'
 import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
+import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
@@ -41,7 +42,7 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
 // am going to leave this duplication and then collapse it when/if we add a performance events ingester
 export class ConsoleLogsIngester {
     constructor(
-        private readonly producer: RdKafkaProducer,
+        private readonly producer: KafkaProducerWrapper,
         private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
     ) {}
 
@@ -60,7 +61,7 @@ export class ConsoleLogsIngester {
         // On each loop, we flush the producer to ensure that all messages
         // are sent to Kafka.
         try {
-            await flushProducer(this.producer!)
+            await this.producer.flush()
         } catch (error) {
             // Rather than handling errors from flush, we instead handle
             // errors per produce request, which gives us a little more
@@ -156,8 +157,7 @@ export class ConsoleLogsIngester {
             consoleLogEventsCounter.inc(consoleLogEvents.length)
 
             return consoleLogEvents.map((cle: ConsoleLogEntry) =>
-                produce({
-                    producer,
+                this.producer.produce({
                     topic: KAFKA_LOG_ENTRIES,
                     value: Buffer.from(JSON.stringify(cle)),
                     key: event.session_id,

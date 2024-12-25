@@ -476,14 +476,14 @@ export class SessionRecordingIngester {
 
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
             this.consoleLogsIngester = new ConsoleLogsIngester(
-                this.sharedClusterProducerWrapper.producer,
+                this.sharedClusterProducerWrapper,
                 this.persistentHighWaterMarker
             )
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
             this.replayEventsIngester = new ReplayEventsIngester(
-                this.sharedClusterProducerWrapper.producer,
+                this.sharedClusterProducerWrapper,
                 this.persistentHighWaterMarker
             )
         }

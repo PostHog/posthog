@@ -8,6 +8,8 @@ import { PluginsServerConfig } from '../../types'
 import { status } from '../../utils/status'
 import { DependencyUnavailableError, MessageSizeTooLarge } from './error'
 
+export type KafkaProducerAck = number | null | undefined
+
 /** This class is a wrapper around the rdkafka producer, and does very little.
  * It used to be a wrapper around KafkaJS, but we switched to rdkafka because of
  * increased performance.
@@ -87,7 +89,7 @@ export class KafkaProducerWrapper {
         topic: string
         headers?: MessageHeader[]
         waitForAck: boolean
-    }): Promise<void> {
+    }): Promise<KafkaProducerAck> {
         try {
             kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
             return await produce({
@@ -97,9 +99,9 @@ export class KafkaProducerWrapper {
                 value: value,
                 headers: headers,
                 waitForAck: waitForAck,
-            }).then((_) => {
+            }).then((result) => {
                 kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
-                return // Swallow the returned offsets, and return a void for easier typing
+                return result // Swallow the returned offsets, and return a void for easier typing
             })
         } catch (error) {
             kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()

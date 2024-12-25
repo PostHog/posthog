@@ -1,13 +1,12 @@
 import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
-import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka'
+import { NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
-import { flushProducer, produce } from '../../../../kafka/producer'
 import { KafkaProducerWrapper } from '../../../../utils/db/kafka-producer-wrapper'
 import { status } from '../../../../utils/status'
 import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
@@ -32,7 +31,7 @@ const dataIngestedCounter = new Counter({
 
 export class ReplayEventsIngester {
     constructor(
-        private readonly producer: RdKafkaProducer,
+        private readonly producer: KafkaProducerWrapper,
         private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
     ) {}
 
@@ -51,7 +50,7 @@ export class ReplayEventsIngester {
         // On each loop, we flush the producer to ensure that all messages
         // are sent to Kafka.
         try {
-            await flushProducer(this.producer!)
+            await this.producer.flush()
         } catch (error) {
             // Rather than handling errors from flush, we instead handle
             // errors per produce request, which gives us a little more
@@ -139,7 +138,7 @@ export class ReplayEventsIngester {
                     const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
                     if (!asDate.isValid || Math.abs(asDate.diffNow('day').days) >= 7) {
                         await captureIngestionWarning(
-                            new KafkaProducerWrapper(this.producer),
+                            this.producer,
                             event.team_id,
                             !asDate.isValid ? 'replay_timestamp_invalid' : 'replay_timestamp_too_far',
                             {
@@ -172,8 +171,7 @@ export class ReplayEventsIngester {
             dataIngestedCounter.inc({ snapshot_source: replayRecord.snapshot_source ?? undefined }, replayRecord.size)
 
             return [
-                produce({
-                    producer: this.producer,
+                this.producer.produce({
                     topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
                     value: Buffer.from(JSON.stringify(replayRecord)),
                     key: event.session_id,

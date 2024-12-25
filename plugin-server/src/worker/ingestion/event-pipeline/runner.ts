@@ -260,7 +260,7 @@ export class EventPipelineRunner {
         )
 
         if (event.event === '$exception' && !event.properties?.hasOwnProperty('$sentry_event_id')) {
-            const [exceptionAck] = await this.runStep(
+            const exceptionAck = await this.runStep(
                 produceExceptionSymbolificationEventStep,
                 [this, rawEvent],
                 event.team_id

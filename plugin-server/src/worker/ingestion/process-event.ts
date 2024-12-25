@@ -263,8 +263,8 @@ export class EventsProcessor {
         return rawEvent
     }
 
-    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
-        const ack = this.kafkaProducer
+    async emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
+        await this.kafkaProducer
             .produce({
                 topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 key: rawEvent.uuid,
@@ -283,8 +283,6 @@ export class EventsProcessor {
                     throw error
                 }
             })
-
-        return ack
     }
 
     private async upsertGroup(

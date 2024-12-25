@@ -5,8 +5,8 @@ import { EventPipelineRunner } from './runner'
 export function produceExceptionSymbolificationEventStep(
     runner: EventPipelineRunner,
     event: RawKafkaEvent
-): Promise<[Promise<void>]> {
-    const ack = runner.hub.kafkaProducer
+): Promise<any> {
+    return runner.hub.kafkaProducer
         .produce({
             topic: runner.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
             key: String(event.team_id),
@@ -21,6 +21,4 @@ export function produceExceptionSymbolificationEventStep(
             })
             throw error
         })
-
-    return Promise.resolve([ack])
 }
