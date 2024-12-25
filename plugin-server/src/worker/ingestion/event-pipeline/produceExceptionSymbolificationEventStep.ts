@@ -1,12 +1,12 @@
 import { RawKafkaEvent } from '../../../types'
 import { status } from '../../../utils/status'
-import { EventPipelineRunner } from './runner'
+import { EventPipelineRunner, StepResult } from './runner'
 
 export function produceExceptionSymbolificationEventStep(
     runner: EventPipelineRunner,
     event: RawKafkaEvent
-): Promise<any> {
-    return runner.hub.kafkaProducer
+): Promise<StepResult<null>> {
+    const promise = runner.hub.kafkaProducer
         .queueMessages({
             topic: runner.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
             messages: [
@@ -24,4 +24,9 @@ export function produceExceptionSymbolificationEventStep(
             })
             throw error
         })
+
+    return Promise.resolve({
+        result: null,
+        kafkaAcks: [promise],
+    })
 }

@@ -263,8 +263,8 @@ export class EventsProcessor {
         return rawEvent
     }
 
-    async emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
-        await this.kafkaProducer
+    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
+        return this.kafkaProducer
             .produce({
                 topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 key: rawEvent.uuid,

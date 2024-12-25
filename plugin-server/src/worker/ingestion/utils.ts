@@ -101,7 +101,6 @@ export async function captureIngestionWarning(
                     details,
                 })
             })
-    } else {
-        return Promise.resolve()
     }
+    return Promise.resolve()
 }
