@@ -1,14 +1,20 @@
 import { Message, ProducerRecord } from 'kafkajs'
-import { ClientMetrics, HighLevelProducer, LibrdKafkaError, MessageHeader, MessageValue } from 'node-rdkafka'
-import { Counter } from 'prom-client'
+import {
+    ClientMetrics,
+    HighLevelProducer,
+    LibrdKafkaError,
+    MessageHeader,
+    MessageKey as RdKafkaMessageKey,
+    MessageValue,
+    NumberNullUndefined,
+} from 'node-rdkafka'
+import { Counter, Summary } from 'prom-client'
+import { getSpan } from 'sentry'
 
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
-import { flushProducer, MessageKey, produce } from '../../kafka/producer'
 import { PluginsServerConfig } from '../../types'
 import { status } from '../../utils/status'
 import { DependencyUnavailableError, MessageSizeTooLarge } from './error'
-
-export type KafkaProducerAck = number | null | undefined
 
 /** This class is a wrapper around the rdkafka producer, and does very little.
  * It used to be a wrapper around KafkaJS, but we switched to rdkafka because of
@@ -20,6 +26,9 @@ export type KafkaProducerAck = number | null | undefined
  *
  * TODO: refactor Kafka producer usage to use rdkafka directly.
  */
+
+export type MessageKey = Exclude<RdKafkaMessageKey, undefined>
+
 export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     public producer: HighLevelProducer
@@ -89,19 +98,45 @@ export class KafkaProducerWrapper {
         topic: string
         headers?: MessageHeader[]
         waitForAck: boolean
-    }): Promise<KafkaProducerAck> {
+    }): Promise<NumberNullUndefined> {
         try {
             kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
-            return await produce({
-                producer: this.producer,
-                topic: topic,
-                key: key,
-                value: value,
-                headers: headers,
-                waitForAck: waitForAck,
-            }).then((result) => {
-                kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
-                return result // Swallow the returned offsets, and return a void for easier typing
+
+            status.debug('📤', 'Producing message', { topic: topic })
+            const produceSpan = getSpan()?.startChild({ op: 'kafka_produce' })
+            return await new Promise((resolve, reject) => {
+                const produceTimer = ingestEventKafkaProduceLatency
+                    .labels({ topic, waitForAck: waitForAck.toString() })
+                    .startTimer()
+
+                this.producer.produce(
+                    topic,
+                    null,
+                    value,
+                    key,
+                    Date.now(),
+                    headers ?? [],
+                    (error: any, offset: NumberNullUndefined) => {
+                        produceSpan?.finish()
+                        kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
+                        if (error) {
+                            status.error('⚠️', 'produce_error', { error: error, topic: topic })
+                        } else {
+                            status.debug('📤', 'Produced message', { topic: topic, offset: offset })
+                        }
+
+                        if (waitForAck) {
+                            produceTimer()
+                            return error ? reject(error) : resolve(offset)
+                        }
+                    }
+                )
+
+                // If we're not waiting for an ack, we can resolve immediately
+                if (!waitForAck) {
+                    resolve(undefined)
+                    produceTimer()
+                }
             })
         } catch (error) {
             kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
@@ -164,7 +199,18 @@ export class KafkaProducerWrapper {
     }
 
     public async flush() {
-        return await flushProducer(this.producer)
+        status.debug('📤', 'flushing_producer')
+
+        return await new Promise((resolve, reject) =>
+            this.producer.flush(10000, (error) => {
+                status.debug('📤', 'flushed_producer')
+                if (error) {
+                    reject(error)
+                } else {
+                    resolve(null)
+                }
+            })
+        )
     }
 
     public async disconnect(): Promise<void> {
@@ -222,4 +268,11 @@ export const kafkaProducerMessagesFailedCounter = new Counter({
     name: 'kafka_producer_messages_failed_total',
     help: 'Count of write failures by the Kafka producer, by destination topic.',
     labelNames: ['topic_name'],
+})
+
+export const ingestEventKafkaProduceLatency = new Summary({
+    name: 'ingest_event_kafka_produce_latency',
+    help: 'Wait time for individual Kafka produces',
+    labelNames: ['topic', 'waitForAck'],
+    percentiles: [0.5, 0.9, 0.95, 0.99],
 })
