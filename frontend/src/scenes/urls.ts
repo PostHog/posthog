@@ -213,7 +213,6 @@ export const urls = {
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
     instanceStaffUsers: (): string => '/instance/staff_users',
-    instanceKafkaInspector: (): string => '/instance/kafka_inspector',
     instanceSettings: (): string => '/instance/settings',
     instanceMetrics: (): string => `/instance/metrics`,
     asyncMigrations: (): string => '/instance/async_migrations',
