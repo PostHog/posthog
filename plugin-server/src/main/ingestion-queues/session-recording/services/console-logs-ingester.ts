@@ -1,11 +1,11 @@
 import { captureException } from '@sentry/node'
 import { NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
-import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
+import { KafkaProducerWrapper } from '../../../../kafka/producer'
 import { status } from '../../../../utils/status'
 import { eventDroppedCounter } from '../../metrics'
 import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-event'

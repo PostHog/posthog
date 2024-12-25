@@ -1,7 +1,7 @@
 import { KAFKA_SCHEDULED_TASKS } from '../../../src/config/kafka-topics'
 import { runScheduledTasks } from '../../../src/main/graphile-worker/schedule'
 import { Hub } from '../../../src/types'
-import { KafkaProducerWrapper } from '../../../src/utils/db/kafka-producer-wrapper'
+import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { UUID } from '../../../src/utils/utils'
 
 const mockHub: Hub = {

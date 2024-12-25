@@ -47,7 +47,7 @@ jest.mock('../../src/utils/fetch', () => {
     }
 })
 
-jest.mock('../../src/utils/db/kafka-producer-wrapper', () => {
+jest.mock('../../src/kafka/producer', () => {
     const mockKafkaProducer = {
         producer: {
             connect: jest.fn(),

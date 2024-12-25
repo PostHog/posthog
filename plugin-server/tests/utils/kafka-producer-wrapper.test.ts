@@ -1,4 +1,4 @@
-import { convertKafkaJSHeadersToRdKafkaHeaders } from '../../src/utils/db/kafka-producer-wrapper'
+import { convertKafkaJSHeadersToRdKafkaHeaders } from '../../src/kafka/producer'
 
 test('can convert from KafkaJS headers to rdkafka headers', () => {
     expect(convertKafkaJSHeadersToRdKafkaHeaders()).toEqual(undefined)

@@ -8,6 +8,7 @@ import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import {
     Action,
     ClickHouseEvent,
@@ -63,7 +64,6 @@ import {
     UUIDT,
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
-import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {

@@ -10,11 +10,11 @@ import {
 } from 'node-rdkafka'
 import { Counter, Summary } from 'prom-client'
 
-import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
-import { getSpan } from '../../sentry'
-import { PluginsServerConfig } from '../../types'
-import { status } from '../../utils/status'
-import { DependencyUnavailableError, MessageSizeTooLarge } from './error'
+import { getSpan } from '../sentry'
+import { PluginsServerConfig } from '../types'
+import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
+import { status } from '../utils/status'
+import { createRdConnectionConfigFromEnvVars } from './config'
 
 /** This class is a wrapper around the rdkafka producer, and does very little.
  * It used to be a wrapper around KafkaJS, but we switched to rdkafka because of

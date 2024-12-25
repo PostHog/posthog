@@ -8,7 +8,7 @@ import { pluginConfig39 } from '../../tests/helpers/plugins'
 
 jest.setTimeout(60000) // 60 sec timeout
 jest.mock('../../src/utils/status')
-jest.mock('../../src/utils/db/kafka-producer-wrapper')
+jest.mock('../../src/kafka/producer')
 
 describe('console extension', () => {
     let hub: Hub

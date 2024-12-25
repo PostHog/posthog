@@ -1,6 +1,6 @@
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { KafkaProducerWrapper } from '../../../src/utils/db/kafka-producer-wrapper'
+import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { UUIDT } from '../../../src/utils/utils'
 import { AppMetricIdentifier, AppMetrics } from '../../../src/worker/ingestion/app-metrics'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'

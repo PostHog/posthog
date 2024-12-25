@@ -1,9 +1,9 @@
 import { EachBatchHandler, Kafka } from 'kafkajs'
 import { Counter } from 'prom-client'
-import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_JOBS, KAFKA_JOBS_DLQ } from '../../config/kafka-topics'
 import { EnqueuedPluginJob, JobName, PluginsServerConfig } from '../../types'
+import { KafkaProducerWrapper } from '../../utils/kafka/producer'
 import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
 import { instrumentEachBatchKafkaJS, setupEventHandlers } from './kafka-queue'

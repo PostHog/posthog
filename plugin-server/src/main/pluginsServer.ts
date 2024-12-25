@@ -20,7 +20,7 @@ import {
 import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
 import { closeHub, createHub, createKafkaClient } from '../utils/db/hub'
-import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
+import { KafkaProducerWrapper } from '../kafka/producer'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisClient } from '../utils/db/redis'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'

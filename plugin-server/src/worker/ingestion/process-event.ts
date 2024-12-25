@@ -21,7 +21,7 @@ import {
 import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { MessageSizeTooLarge } from '../../utils/db/error'
-import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'

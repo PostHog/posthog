@@ -9,7 +9,7 @@ import {
     parseKafkaBatch,
     parseKafkaMessage,
 } from '../../../../src/main/ingestion-queues/session-recording/utils'
-import { KafkaProducerWrapper } from '../../../../src/utils/db/kafka-producer-wrapper'
+import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
 import { UUIDT } from '../../../../src/utils/utils'
 
 describe('session-recording utils', () => {

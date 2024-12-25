@@ -14,7 +14,7 @@ import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
-import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { createRedisPool } from '../../../utils/db/redis'
 import { status } from '../../../utils/status'

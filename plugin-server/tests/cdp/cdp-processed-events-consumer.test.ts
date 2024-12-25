@@ -44,7 +44,7 @@ jest.mock('../../src/utils/fetch', () => {
     }
 })
 
-jest.mock('../../src/utils/db/kafka-producer-wrapper', () => {
+jest.mock('../../src/kafka/producer', () => {
     const mockKafkaProducer = {
         producer: {
             connect: jest.fn(),
@@ -59,7 +59,7 @@ jest.mock('../../src/utils/db/kafka-producer-wrapper', () => {
 
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
-const mockProducer = require('../../src/utils/db/kafka-producer-wrapper').KafkaProducerWrapper()
+const mockProducer = require('../../src/kafka/producer').KafkaProducerWrapper()
 
 jest.setTimeout(1000)
 

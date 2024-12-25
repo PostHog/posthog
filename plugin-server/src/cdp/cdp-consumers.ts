@@ -24,7 +24,7 @@ import {
     TimestampFormat,
     ValueMatcher,
 } from '../types'
-import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
+import { KafkaProducerWrapper } from '../kafka/producer'
 import { safeClickhouseString } from '../utils/db/utils'
 import { status } from '../utils/status'
 import { castTimestampOrNow, UUIDT } from '../utils/utils'
