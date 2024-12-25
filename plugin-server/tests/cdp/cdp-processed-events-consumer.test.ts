@@ -46,20 +46,26 @@ jest.mock('../../src/utils/fetch', () => {
 
 jest.mock('../../src/kafka/producer', () => {
     const mockKafkaProducer = {
+        create: jest.fn(() => mockKafkaProducer),
         producer: {
             connect: jest.fn(),
         },
         disconnect: jest.fn(),
-        produce: jest.fn(() => Promise.resolve()),
+        produce: jest.fn(),
+        queueMessages: jest.fn(),
+    }
+
+    const MockKafkaProducer = {
+        create: jest.fn(() => Promise.resolve(mockKafkaProducer)),
     }
     return {
-        KafkaProducerWrapper: jest.fn(() => mockKafkaProducer),
+        KafkaProducerWrapper: MockKafkaProducer,
     }
 })
 
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
-const mockProducer = require('../../src/kafka/producer').KafkaProducerWrapper()
+const mockProducer = await require('../../src/kafka/producer').KafkaProducerWrapper.create()
 
 jest.setTimeout(1000)
 
