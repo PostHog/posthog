@@ -156,7 +156,6 @@ export class KafkaProducerWrapper {
                             topic: record.topic,
                             key: message.key ? Buffer.from(message.key) : null,
                             value: message.value ? Buffer.from(message.value) : null,
-                            headers: convertKafkaJSHeadersToRdKafkaHeaders(message.headers),
                         })
                     )
                 )
@@ -195,28 +194,6 @@ export class KafkaProducerWrapper {
         )
     }
 }
-
-export const convertKafkaJSHeadersToRdKafkaHeaders = (headers: Message['headers'] = undefined) =>
-    // We need to convert from KafkaJS headers to rdkafka
-    // headers format. The former has type
-    // { [key: string]: string | Buffer | (string |
-    // Buffer)[] | undefined }
-    // while the latter has type
-    // { [key: string]: Buffer }[]. The formers values that
-    // are arrays need to be converted into an array of
-    // objects with a single key-value pair, and the
-    // undefined values need to be filtered out.
-    headers
-        ? Object.entries(headers)
-              .flatMap(([key, value]) =>
-                  value === undefined
-                      ? []
-                      : Array.isArray(value)
-                      ? value.map((v) => ({ key, value: Buffer.from(v) }))
-                      : [{ key, value: Buffer.from(value) }]
-              )
-              .map(({ key, value }) => ({ [key]: value }))
-        : undefined
 
 export const kafkaProducerMessagesQueuedCounter = new Counter({
     name: 'kafka_producer_messages_queued_total',

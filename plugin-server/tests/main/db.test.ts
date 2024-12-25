@@ -526,7 +526,7 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
+                { prop: TIMESTAMP.toISO()! },
                 { prop: PropertyUpdateOperation.Set },
                 1
             )
