@@ -1,6 +1,8 @@
+import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
 import { ISOTimestamp, PreIngestionEvent } from '../../../../src/types'
 import { cloneObject } from '../../../../src/utils/utils'
 import { extractHeatmapDataStep } from '../../../../src/worker/ingestion/event-pipeline/extractHeatmapDataStep'
+import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 
 jest.mock('../../../../src/worker/plugins/run')
 
@@ -124,17 +126,18 @@ const preIngestionEvent: PreIngestionEvent = {
 }
 
 describe('extractHeatmapDataStep()', () => {
-    let runner: any
+    let runner: EventPipelineRunner
     let event: PreIngestionEvent
+
+    const mockProducer: jest.Mocked<KafkaProducerWrapper> = {
+        queueMessages: jest.fn(() => Promise.resolve()) as any,
+    }
 
     beforeEach(() => {
         event = cloneObject(preIngestionEvent)
         runner = {
             hub: {
-                kafkaProducer: {
-                    produce: jest.fn((e) => Promise.resolve(e)),
-                    queueMessage: jest.fn((e) => Promise.resolve(e)),
-                },
+                kafkaProducer: mockProducer,
                 teamManager: {
                     fetchTeam: jest.fn(() => Promise.resolve({ heatmaps_opt_in: true })),
                 },
@@ -143,15 +146,15 @@ describe('extractHeatmapDataStep()', () => {
     })
 
     it('parses and ingests correct $heatmap_data', async () => {
-        const response = await extractHeatmapDataStep(runner, event)
-        expect(response[0]).toEqual(event)
-        expect(response[0].properties.$heatmap_data).toBeUndefined()
-        expect(response[1]).toHaveLength(16)
-        expect(runner.hub.kafkaProducer.produce).toBeCalledTimes(16)
+        const { result, ackPromises } = await extractHeatmapDataStep(runner, event)
+        expect(result).toEqual(event)
+        expect(result.properties.$heatmap_data).toBeUndefined()
+        expect(ackPromises).toHaveLength(1)
+        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+        const messages = (mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages
+        expect(messages).toHaveLength(16)
 
-        const firstProduceCall = runner.hub.kafkaProducer.produce.mock.calls[0][0]
-
-        const parsed = JSON.parse(firstProduceCall.value.toString())
+        const parsed = JSON.parse(messages[0].value.toString())
 
         expect(parsed).toMatchInlineSnapshot(`
             Object {
@@ -171,7 +174,7 @@ describe('extractHeatmapDataStep()', () => {
         `)
 
         // The rest we can just compare the buffers
-        expect(runner.hub.kafkaProducer.produce.mock.calls).toMatchSnapshot()
+        expect(mockProducer.queueMessages.mock.calls).toMatchSnapshot()
     })
 
     it('additionally parses ', async () => {
@@ -183,16 +186,15 @@ describe('extractHeatmapDataStep()', () => {
             $prev_pageview_max_content: 1553,
         }
 
-        const response = await extractHeatmapDataStep(runner, event)
+        const { result, ackPromises } = await extractHeatmapDataStep(runner, event)
         // We do delete heatmap data
-        expect(response[0].properties.$heatmap_data).toBeUndefined()
+        expect(result.properties.$heatmap_data).toBeUndefined()
         // We don't delete scroll properties
-        expect(response[0].properties.$prev_pageview_max_scroll).toEqual(225)
+        expect(result.properties.$prev_pageview_max_scroll).toEqual(225)
+        expect(ackPromises).toHaveLength(1)
 
-        expect(response[1]).toHaveLength(17)
-
-        const allParsedMessages = runner.hub.kafkaProducer.produce.mock.calls.map((call) =>
-            JSON.parse(call[0].value.toString())
+        const allParsedMessages = mockProducer.queueMessages.mock.calls[0][0].messages.map((call) =>
+            JSON.parse(call.value.toString())
         )
 
         expect(allParsedMessages.find((x) => x.type === 'scrolldepth')).toMatchInlineSnapshot(`
@@ -216,39 +218,39 @@ describe('extractHeatmapDataStep()', () => {
     it('drops if the associated team has explicit opt out', async () => {
         runner.hub.teamManager.fetchTeam = jest.fn(() => Promise.resolve({ heatmaps_opt_in: false }))
         const response = await extractHeatmapDataStep(runner, event)
-        expect(response[0]).toEqual(event)
-        expect(response[0].properties.$heatmap_data).toBeUndefined()
-        expect(response[1]).toHaveLength(0)
-        expect(runner.hub.kafkaProducer.produce).toBeCalledTimes(0)
+        expect(response.result).toEqual(event)
+        expect(response.result.properties.$heatmap_data).toBeUndefined()
+        expect(response.ackPromises).toHaveLength(0)
+        expect(mockProducer.queueMessages).toBeCalledTimes(0)
     })
 
     describe('validation', () => {
         it('handles empty array $heatmap_data', async () => {
             event.properties.$heatmap_data = []
             const response = await extractHeatmapDataStep(runner, event)
-            expect(response).toEqual([event, []])
-            expect(response[0].properties.$heatmap_data).toBeUndefined()
+            expect(response).toEqual({ result: event, ackPromises: [expect.any(Promise)] })
+            expect(response.result.properties.$heatmap_data).toBeUndefined()
         })
 
         it('handles empty object $heatmap_data', async () => {
             event.properties.$heatmap_data = {}
             const response = await extractHeatmapDataStep(runner, event)
-            expect(response).toEqual([event, []])
-            expect(response[0].properties.$heatmap_data).toBeUndefined()
+            expect(response).toEqual({ result: event, ackPromises: [expect.any(Promise)] })
+            expect(response.result.properties.$heatmap_data).toBeUndefined()
         })
 
         it('ignores events without $heatmap_data', async () => {
             event.properties.$heatmap_data = null
             const response = await extractHeatmapDataStep(runner, event)
-            expect(response).toEqual([event, []])
-            expect(response[0].properties.$heatmap_data).toBeUndefined()
+            expect(response).toEqual({ result: event, ackPromises: [expect.any(Promise)] })
+            expect(response.result.properties.$heatmap_data).toBeUndefined()
         })
 
         it('ignores events with bad $heatmap_data', async () => {
             event.properties.$heatmap_data = 'wat'
             const response = await extractHeatmapDataStep(runner, event)
-            expect(response).toEqual([event, []])
-            expect(response[0].properties.$heatmap_data).toBeUndefined()
+            expect(response).toEqual({ result: event, ackPromises: [expect.any(Promise)] })
+            expect(response.result.properties.$heatmap_data).toBeUndefined()
         })
 
         it.each([
@@ -303,8 +305,8 @@ describe('extractHeatmapDataStep()', () => {
         ])('only includes valid heatmap data', async (invalidEvent) => {
             event.properties.$heatmap_data = invalidEvent
             const response = await extractHeatmapDataStep(runner, event)
-            expect(response).toEqual([event, []])
-            expect(response[0].properties.$heatmap_data).toBeUndefined()
+            expect(response.result).toEqual(event)
+            expect(response.result.properties.$heatmap_data).toBeUndefined()
         })
     })
 })

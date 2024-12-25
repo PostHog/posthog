@@ -39,9 +39,9 @@ describe('normalizeEventStep()', () => {
         }
 
         const processPerson = true
-        const [resEvent, timestamp] = await normalizeEventStep(copy(event), processPerson)
+        const { result } = await normalizeEventStep(copy(event), processPerson)
 
-        expect(resEvent).toEqual({
+        expect(result.event).toEqual({
             ...event,
             properties: {
                 $browser: 'Chrome',
@@ -56,7 +56,7 @@ describe('normalizeEventStep()', () => {
             },
         })
 
-        expect(timestamp).toEqual(DateTime.fromISO(event.timestamp!, { zone: 'utc' }))
+        expect(result.timestamp).toEqual(DateTime.fromISO(event.timestamp!, { zone: 'utc' }))
     })
 
     it('replaces null byte with unicode replacement character in distinct_id', async () => {
@@ -77,15 +77,15 @@ describe('normalizeEventStep()', () => {
         }
 
         const processPerson = true
-        const [resEvent, timestamp] = await normalizeEventStep(copy(event), processPerson)
+        const { result } = await normalizeEventStep(copy(event), processPerson)
 
-        expect(resEvent).toEqual({
+        expect(result.event).toEqual({
             ...event,
             distinct_id: '\uFFFDfoo',
             properties: {},
         })
 
-        expect(timestamp).toEqual(DateTime.fromISO(event.timestamp!, { zone: 'utc' }))
+        expect(result.timestamp).toEqual(DateTime.fromISO(event.timestamp!, { zone: 'utc' }))
     })
 
     it('normalizes $process_person_profile=false events by dropping $set and related', async () => {
@@ -122,13 +122,13 @@ describe('normalizeEventStep()', () => {
         }
 
         const processPerson = false
-        const [resEvent, timestamp] = await normalizeEventStep(copy(event), processPerson)
+        const { result } = await normalizeEventStep(copy(event), processPerson)
 
         // These should be gone in the comparison below.
         delete (event as any)['$set']
         delete (event as any)['$set_once']
 
-        expect(resEvent).toEqual({
+        expect(result.event).toEqual({
             ...event,
             properties: {
                 $browser: 'Chrome',
@@ -136,6 +136,6 @@ describe('normalizeEventStep()', () => {
             },
         })
 
-        expect(timestamp).toEqual(DateTime.fromISO(event.timestamp!, { zone: 'utc' }))
+        expect(result.timestamp).toEqual(DateTime.fromISO(event.timestamp!, { zone: 'utc' }))
     })
 })
