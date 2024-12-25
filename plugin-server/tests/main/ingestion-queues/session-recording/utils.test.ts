@@ -212,15 +212,13 @@ describe('session-recording utils', () => {
                 [
                     [
                         {
-                            kafkaMessage: {
-                                messages: [
-                                    expectedIngestionWarningMessage({
-                                        libVersion: '1.74.0',
-                                        parsedVersion: { major: 1, minor: 74 },
-                                    }),
-                                ],
-                                topic: 'clickhouse_ingestion_warnings_test',
-                            },
+                            messages: [
+                                expectedIngestionWarningMessage({
+                                    libVersion: '1.74.0',
+                                    parsedVersion: { major: 1, minor: 74 },
+                                }),
+                            ],
+                            topic: 'clickhouse_ingestion_warnings_test',
                         },
                     ],
                 ],
@@ -231,15 +229,13 @@ describe('session-recording utils', () => {
                 [
                     [
                         {
-                            kafkaMessage: {
-                                messages: [
-                                    expectedIngestionWarningMessage({
-                                        libVersion: '1.32.0',
-                                        parsedVersion: { major: 1, minor: 32 },
-                                    }),
-                                ],
-                                topic: 'clickhouse_ingestion_warnings_test',
-                            },
+                            messages: [
+                                expectedIngestionWarningMessage({
+                                    libVersion: '1.32.0',
+                                    parsedVersion: { major: 1, minor: 32 },
+                                }),
+                            ],
+                            topic: 'clickhouse_ingestion_warnings_test',
                         },
                     ],
                 ],

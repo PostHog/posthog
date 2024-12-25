@@ -1,6 +1,4 @@
-import { HighLevelProducer } from 'node-rdkafka'
-
-import { KafkaProducerWrapper, produce } from '../../../../../src/kafka/producer'
+import { KafkaProducerWrapper } from '../../../../../src/kafka/producer'
 import { ConsoleLogsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/console-logs-ingester'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
@@ -34,18 +32,17 @@ const makeIncomingMessage = (
 
 describe('console log ingester', () => {
     let consoleLogIngester: ConsoleLogsIngester
-    const mockProducer: jest.Mock = jest.fn()
+    const mockProducer: KafkaProducerWrapper = {
+        queueMessages: jest.fn(),
+        connect: jest.fn(),
+        isConnected: jest.fn(),
+    } as unknown as KafkaProducerWrapper
 
     beforeEach(() => {
-        mockProducer.mockClear()
-        mockProducer['connect'] = jest.fn()
-        mockProducer['isConnected'] = () => true
+        jest.mocked(mockProducer.queueMessages).mockClear()
 
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
-        consoleLogIngester = new ConsoleLogsIngester(
-            mockProducer as unknown as KafkaProducerWrapper,
-            mockedHighWaterMarker
-        )
+        consoleLogIngester = new ConsoleLogsIngester(mockProducer, mockedHighWaterMarker)
     })
     describe('when enabled on team', () => {
         test('it truncates large console logs', async () => {
@@ -61,23 +58,24 @@ describe('console log ingester', () => {
                 )
             )
             expect(jest.mocked(status.debug).mock.calls).toEqual([])
-            expect(jest.mocked(produce).mock.calls).toEqual([
+            expect(jest.mocked(mockProducer.queueMessages).mock.calls).toEqual([
                 [
                     {
-                        key: '',
-                        producer: mockProducer,
                         topic: 'log_entries_test',
-                        value: Buffer.from(
-                            JSON.stringify({
-                                team_id: 0,
-                                message: 'a'.repeat(2999),
-                                level: 'info',
-                                log_source: 'session_replay',
-                                log_source_id: '',
-                                instance_id: null,
-                                timestamp: '1970-01-01 00:00:00.000',
-                            })
-                        ),
+                        messages: [
+                            {
+                                key: '',
+                                value: JSON.stringify({
+                                    team_id: 0,
+                                    message: 'a'.repeat(2999),
+                                    level: 'info',
+                                    log_source: 'session_replay',
+                                    log_source_id: '',
+                                    instance_id: null,
+                                    timestamp: '1970-01-01 00:00:00.000',
+                                }),
+                            },
+                        ],
                     },
                 ],
             ])
@@ -104,42 +102,37 @@ describe('console log ingester', () => {
                 )
             )
             expect(jest.mocked(status.debug).mock.calls).toEqual([])
-            expect(jest.mocked(produce)).toHaveBeenCalledTimes(2)
-            expect(jest.mocked(produce).mock.calls).toEqual([
+            expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
+            expect(jest.mocked(mockProducer.queueMessages).mock.calls).toEqual([
                 [
                     {
-                        key: '',
-                        producer: mockProducer,
                         topic: 'log_entries_test',
-                        value: Buffer.from(
-                            JSON.stringify({
-                                team_id: 0,
-                                message: 'aaaaa',
-                                level: 'info',
-                                log_source: 'session_replay',
-                                log_source_id: '',
-                                instance_id: null,
-                                timestamp: '1970-01-01 00:00:00.000',
-                            })
-                        ),
-                    },
-                ],
-                [
-                    {
-                        key: '',
-                        producer: mockProducer,
-                        topic: 'log_entries_test',
-                        value: Buffer.from(
-                            JSON.stringify({
-                                team_id: 0,
-                                message: 'ccccc',
-                                level: 'info',
-                                log_source: 'session_replay',
-                                log_source_id: '',
-                                instance_id: null,
-                                timestamp: '1970-01-01 00:00:00.000',
-                            })
-                        ),
+                        messages: [
+                            {
+                                key: '',
+                                value: JSON.stringify({
+                                    team_id: 0,
+                                    message: 'aaaaa',
+                                    level: 'info',
+                                    log_source: 'session_replay',
+                                    log_source_id: '',
+                                    instance_id: null,
+                                    timestamp: '1970-01-01 00:00:00.000',
+                                }),
+                            },
+                            {
+                                key: '',
+                                value: JSON.stringify({
+                                    team_id: 0,
+                                    message: 'ccccc',
+                                    level: 'info',
+                                    log_source: 'session_replay',
+                                    log_source_id: '',
+                                    instance_id: null,
+                                    timestamp: '1970-01-01 00:00:00.000',
+                                }),
+                            },
+                        ],
                     },
                 ],
             ])
@@ -162,23 +155,24 @@ describe('console log ingester', () => {
                 )
             )
             expect(jest.mocked(status.debug).mock.calls).toEqual([])
-            expect(jest.mocked(produce).mock.calls).toEqual([
+            expect(jest.mocked(mockProducer.queueMessages).mock.calls).toEqual([
                 [
                     {
-                        key: '',
-                        producer: mockProducer,
                         topic: 'log_entries_test',
-                        value: Buffer.from(
-                            JSON.stringify({
-                                team_id: 0,
-                                message: 'aaaaa',
-                                level: 'info',
-                                log_source: 'session_replay',
-                                log_source_id: '',
-                                instance_id: null,
-                                timestamp: '1970-01-01 00:00:00.000',
-                            })
-                        ),
+                        messages: [
+                            {
+                                key: '',
+                                value: JSON.stringify({
+                                    team_id: 0,
+                                    message: 'aaaaa',
+                                    level: 'info',
+                                    log_source: 'session_replay',
+                                    log_source_id: '',
+                                    instance_id: null,
+                                    timestamp: '1970-01-01 00:00:00.000',
+                                }),
+                            },
+                        ],
                     },
                 ],
             ])
@@ -188,12 +182,12 @@ describe('console log ingester', () => {
     describe('when disabled on team', () => {
         test('it drops console logs', async () => {
             await consoleLogIngester.consume(makeIncomingMessage([{ plugin: 'rrweb/console@1' }], false))
-            expect(jest.mocked(produce)).not.toHaveBeenCalled()
+            expect(jest.mocked(mockProducer.queueMessages)).not.toHaveBeenCalled()
         })
         test('it does not drop events with no console logs', async () => {
             await consoleLogIngester.consume(makeIncomingMessage([{ plugin: 'some-other-plugin' }], false))
             expect(jest.mocked(status.debug).mock.calls).toEqual([])
-            expect(jest.mocked(produce)).not.toHaveBeenCalled()
+            expect(jest.mocked(mockProducer.queueMessages)).not.toHaveBeenCalled()
         })
     })
 })
