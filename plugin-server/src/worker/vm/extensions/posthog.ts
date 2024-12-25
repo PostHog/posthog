@@ -28,7 +28,7 @@ async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalDa
     partitionKeyHash.update(`${data.team_id}:${data.distinct_id}`)
     const partitionKey = partitionKeyHash.digest('hex')
 
-    await hub.kafkaProducer.queueMessage({
+    await hub.kafkaProducer.queueMessages({
         kafkaMessage: {
             topic: hub.KAFKA_CONSUMPTION_TOPIC!,
             messages: [

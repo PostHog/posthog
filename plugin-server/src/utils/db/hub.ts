@@ -148,7 +148,7 @@ export async function createHub(
         // an acknowledgement as for instance there are some jobs that are
         // chained, and if we do not manage to produce then the chain will be
         // broken.
-        await kafkaProducer.queueMessage({
+        await kafkaProducer.queueMessages({
             kafkaMessage: {
                 topic: KAFKA_JOBS,
                 messages: [

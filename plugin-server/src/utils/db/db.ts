@@ -1128,10 +1128,11 @@ export class DB {
         pluginLogEntryCounter.labels({ plugin_id: String(pluginConfig.plugin_id), source }).inc()
 
         try {
-            await this.kafkaProducer.queueSingleJsonMessage({
-                topic: KAFKA_PLUGIN_LOG_ENTRIES,
-                key: parsedEntry.id,
-                object: parsedEntry,
+            await this.kafkaProducer.queueMessages({
+                kafkaMessage: {
+                    topic: KAFKA_PLUGIN_LOG_ENTRIES,
+                    messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
+                },
                 // For logs, we relax our durability requirements a little and
                 // do not wait for acks that Kafka has persisted the message to
                 // disk.
@@ -1412,7 +1413,7 @@ export class DB {
         createdAt: DateTime,
         version: number
     ): Promise<void> {
-        await this.kafkaProducer.queueMessage({
+        await this.kafkaProducer.queueMessages({
             kafkaMessage: {
                 topic: KAFKA_GROUPS,
                 messages: [

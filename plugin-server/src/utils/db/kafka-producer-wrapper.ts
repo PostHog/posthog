@@ -154,50 +154,31 @@ export class KafkaProducerWrapper {
         }
     }
 
-    async queueMessage({ kafkaMessage, waitForAck }: { kafkaMessage: ProducerRecord; waitForAck: boolean }) {
+    async queueMessages({
+        kafkaMessage,
+        waitForAck,
+    }: {
+        kafkaMessage: ProducerRecord | ProducerRecord[]
+        waitForAck: boolean
+    }) {
+        const records = Array.isArray(kafkaMessage) ? kafkaMessage : [kafkaMessage]
+
         return await Promise.all(
-            kafkaMessage.messages.map((message) =>
-                this.produce({
-                    topic: kafkaMessage.topic,
-                    key: message.key ? Buffer.from(message.key) : null,
-                    value: message.value ? Buffer.from(message.value) : null,
-                    headers: convertKafkaJSHeadersToRdKafkaHeaders(message.headers),
-                    waitForAck: waitForAck,
-                })
-            )
+            records.map((record) => {
+                return Promise.all(
+                    record.messages.map((message) =>
+                        this.produce({
+                            topic: record.topic,
+                            key: message.key ? Buffer.from(message.key) : null,
+                            value: message.value ? Buffer.from(message.value) : null,
+                            headers: convertKafkaJSHeadersToRdKafkaHeaders(message.headers),
+                            waitForAck: waitForAck,
+                        })
+                    )
+                )
+            })
         )
     }
-
-    async queueMessages({
-        kafkaMessages,
-        waitForAck,
-    }: {
-        kafkaMessages: ProducerRecord[]
-        waitForAck: boolean
-    }): Promise<void> {
-        await Promise.all(kafkaMessages.map((kafkaMessage) => this.queueMessage({ kafkaMessage, waitForAck })))
-    }
-
-    async queueSingleJsonMessage({
-        topic,
-        key,
-        object,
-        waitForAck,
-    }: {
-        topic: string
-        key: Message['key']
-        object: Record<string, any>
-        waitForAck: boolean
-    }): Promise<void> {
-        await this.queueMessage({
-            kafkaMessage: {
-                topic,
-                messages: [{ key, value: JSON.stringify(object) }],
-            },
-            waitForAck,
-        })
-    }
-
     public async flush() {
         status.debug('📤', 'flushing_producer')
 
