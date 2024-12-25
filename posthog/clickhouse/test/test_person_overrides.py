@@ -54,9 +54,10 @@ def test_can_insert_person_overrides():
 
         future.get(timeout=5)  # Wait for an ack from Kafka
 
-        # Wait up to 5 tries for ClickHouse to consume the message
+        # Wait up to 60 seconds or so for ClickHouse to consume the message
         results = []
-        for _ in range(5):
+        for _ in range(60):
+            print("waiting for person override...", _)
             results = sync_execute(
                 """
                 SELECT
