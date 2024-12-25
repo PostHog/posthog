@@ -11,8 +11,7 @@ import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-
 import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
-import { processOnEventStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
-import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { EventPipelineRunner, StepResult } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep')
@@ -27,16 +26,29 @@ class TestEventPipelineRunner extends EventPipelineRunner {
     steps: Array<string> = []
     stepsWithArgs: Array<[string, any[]]> = []
 
-    protected runStep(step: any, [runner, ...args]: any[], teamId: number, sendtoDLQ: boolean) {
+    protected runStep<Step extends (...args: any[]) => Promise<StepResult<any>>>(
+        step: Step,
+        args: Parameters<Step>,
+        teamId: number,
+        sentToDql = true
+    ): ReturnType<Step> {
         this.steps.push(step.name)
 
         // We stringify+parse to clone the `args` object, since we do a lot of event mutation
         // and pass the same object around by reference. We want to see a "snapshot" of the args
         // sent to each step, rather than the final mutated object (which many steps actually share
         // in practice, for better or worse).
-        this.stepsWithArgs.push([step.name, JSON.parse(JSON.stringify(args))])
 
-        return super.runStep(step, [runner, ...args], teamId, sendtoDLQ)
+        const argsCopy = JSON.parse(JSON.stringify(args))
+
+        // If it looks like the this object, replace it with a placeholder
+        if (args[0] === this) {
+            argsCopy[0] = '__this__'
+        }
+
+        this.stepsWithArgs.push([step.name, argsCopy])
+
+        return super.runStep(step, args, teamId, sentToDql)
     }
 }
 
@@ -140,7 +152,6 @@ describe('EventPipelineRunner', () => {
         jest.mocked(prepareEventStep).mockResolvedValue({ result: preIngestionEvent })
         jest.mocked(createEventStep).mockResolvedValue({ result: createdEvent })
         jest.mocked(emitEventStep).mockResolvedValue({ result: null })
-        jest.mocked(processOnEventStep).mockResolvedValue(null)
     })
 
     describe('runEventPipeline()', () => {
@@ -264,23 +275,13 @@ describe('EventPipelineRunner', () => {
                 await runner.runEventPipeline(pipelineEvent)
 
                 expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-                expect(JSON.parse(mockProducer.queueMessages.mock.calls[0][0][0].value)).toMatchObject({
+                expect(JSON.parse(mockProducer.queueMessages.mock.calls[0][0].messages[0].value)).toMatchObject({
                     team_id: 2,
                     distinct_id: 'my_id',
                     error: 'Event ingestion failed. Error: testError',
                     error_location: 'plugin_server_ingest_event:prepareEventStep',
                 })
                 expect(pipelineStepDLQCounterSpy).toHaveBeenCalledWith('prepareEventStep')
-            })
-
-            it('does not emit to dead letter queue for runAsyncHandlersStep', async () => {
-                const pipelineStepDLQCounterSpy = jest.spyOn(metrics.pipelineStepDLQCounter, 'labels')
-                jest.mocked(processOnEventStep).mockRejectedValue(error)
-
-                await runner.runEventPipeline(pipelineEvent)
-
-                expect(mockProducer.queueMessages).not.toHaveBeenCalled()
-                expect(pipelineStepDLQCounterSpy).not.toHaveBeenCalled()
             })
         })
 
@@ -293,20 +294,12 @@ describe('EventPipelineRunner', () => {
                     team_id: 9,
                 }
 
-                const hub: any = {
-                    db: {
-                        kafkaProducer: { queueMessages: jest.fn(() => Promise.resolve()) },
-                    },
-                }
-                const runner = new TestEventPipelineRunner(hub, event, new EventsProcessor(hub))
                 jest.mocked(populateTeamDataStep).mockResolvedValue({ result: event })
 
                 await runner.runEventPipeline(event)
                 expect(runner.steps).toEqual(['populateTeamDataStep'])
                 expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-                expect(
-                    JSON.parse(mockProducer.queueMessage.mock.calls[0][0].kafkaMessage.messages[0].value)
-                ).toMatchObject({
+                expect(JSON.parse(mockProducer.queueMessages.mock.calls[0][0].messages[0].value)).toMatchObject({
                     team_id: 9,
                     type: 'client_ingestion_warning',
                     details: JSON.stringify({
@@ -338,7 +331,7 @@ describe('EventPipelineRunner', () => {
 
                 runner = new TestEventPipelineRunner(hub, heatmapEvent, new EventsProcessor(hub))
 
-                jest.mocked(populateTeamDataStep).mockResolvedValue(heatmapEvent as any)
+                jest.mocked(populateTeamDataStep).mockResolvedValue({ result: heatmapEvent as any })
 
                 const heatmapPreIngestionEvent = {
                     ...preIngestionEvent,
@@ -381,7 +374,7 @@ describe('EventPipelineRunner', () => {
 
                 runner = new TestEventPipelineRunner(hub, exceptionEvent, new EventsProcessor(hub))
 
-                jest.mocked(populateTeamDataStep).mockResolvedValue(exceptionEvent as any)
+                jest.mocked(populateTeamDataStep).mockResolvedValue({ result: exceptionEvent as any })
 
                 const result = {
                     ...preIngestionEvent,
@@ -411,8 +404,9 @@ describe('EventPipelineRunner', () => {
     })
 
     describe('EventPipelineRunner $process_person_profile=false', () => {
-        it('drops events that are not allowed when $process_person_profile=false', async () => {
-            for (const eventName of ['$identify', '$create_alias', '$merge_dangerously', '$groupidentify']) {
+        it.each(['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])(
+            'drops event %s that are not allowed when $process_person_profile=false',
+            async (eventName) => {
                 const event = {
                     ...pipelineEvent,
                     properties: { $process_person_profile: false },
@@ -430,6 +424,6 @@ describe('EventPipelineRunner', () => {
                     details: JSON.stringify({ eventUuid: 'uuid1', event: eventName, distinctId: 'my_id' }),
                 })
             }
-        })
+        )
     })
 })
