@@ -57,7 +57,7 @@ def test_can_insert_person_overrides():
         # Wait up to 60 seconds or so for ClickHouse to consume the message
         results = []
         for _ in range(60):
-            print("waiting for person override...", _)
+            print("waiting for person override...", _)  # noqa: T201
             results = sync_execute(
                 """
                 SELECT
