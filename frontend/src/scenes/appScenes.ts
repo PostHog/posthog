@@ -28,11 +28,8 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.Action]: () => import('./actions/Action'),
     [Scene.Experiments]: () => import('./experiments/Experiments'),
-<<<<<<< Updated upstream
-=======
     [Scene.ExperimentsSavedMetrics]: () => import('./experiments/SavedMetrics/SavedMetrics'),
     [Scene.ExperimentsSavedMetric]: () => import('./experiments/SavedMetrics/SavedMetric'),
->>>>>>> Stashed changes
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.FeatureManagement]: () => import('./feature-flags/FeatureManagement'),

@@ -23,10 +23,6 @@ import { Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types
 import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
 import { Holdouts } from './Holdouts'
-<<<<<<< Updated upstream
-=======
-import { SavedMetrics } from './SavedMetrics/SavedMetrics'
->>>>>>> Stashed changes
 
 export const scene: SceneExport = {
     component: Experiments,
