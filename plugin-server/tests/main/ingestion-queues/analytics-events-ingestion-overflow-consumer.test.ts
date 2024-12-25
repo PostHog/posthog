@@ -113,7 +113,6 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
                         },
                     ],
                 },
-                waitForAck: false,
             })
 
             // Event is processed

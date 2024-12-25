@@ -7,10 +7,16 @@ export function produceExceptionSymbolificationEventStep(
     event: RawKafkaEvent
 ): Promise<any> {
     return runner.hub.kafkaProducer
-        .produce({
-            topic: runner.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
-            key: String(event.team_id),
-            value: Buffer.from(JSON.stringify(event)),
+        .queueMessages({
+            kafkaMessages: {
+                topic: runner.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
+                messages: [
+                    {
+                        key: String(event.team_id),
+                        value: Buffer.from(JSON.stringify(event)),
+                    },
+                ],
+            },
             waitForAck: true,
         })
         .catch((error) => {

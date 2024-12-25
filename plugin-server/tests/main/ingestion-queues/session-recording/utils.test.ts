@@ -1,6 +1,7 @@
 import { Settings } from 'luxon'
 import { Message, MessageHeader } from 'node-rdkafka'
 
+import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
 import {
     allSettledWithConcurrency,
     getLagMultiplier,
@@ -9,7 +10,6 @@ import {
     parseKafkaBatch,
     parseKafkaMessage,
 } from '../../../../src/main/ingestion-queues/session-recording/utils'
-import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
 import { UUIDT } from '../../../../src/utils/utils'
 
 describe('session-recording utils', () => {
@@ -221,7 +221,6 @@ describe('session-recording utils', () => {
                                 ],
                                 topic: 'clickhouse_ingestion_warnings_test',
                             },
-                            waitForAck: false,
                         },
                     ],
                 ],
@@ -241,7 +240,6 @@ describe('session-recording utils', () => {
                                 ],
                                 topic: 'clickhouse_ingestion_warnings_test',
                             },
-                            waitForAck: false,
                         },
                     ],
                 ],
@@ -254,7 +252,7 @@ describe('session-recording utils', () => {
                 () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
                 fakeProducer
             )
-            expect(jest.mocked(fakeProducer.queueMessage).mock.calls).toEqual(expectedCalls)
+            expect(jest.mocked(fakeProducer.queueMessages).mock.calls).toEqual(expectedCalls)
         })
 
         describe('team token must be in header *not* body', () => {

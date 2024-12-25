@@ -13,6 +13,7 @@ import {
 } from '../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
+import { KafkaProducerWrapper } from '../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
 import {
@@ -24,7 +25,6 @@ import {
     TimestampFormat,
     ValueMatcher,
 } from '../types'
-import { KafkaProducerWrapper } from '../kafka/producer'
 import { safeClickhouseString } from '../utils/db/utils'
 import { status } from '../utils/status'
 import { castTimestampOrNow, UUIDT } from '../utils/utils'
@@ -156,18 +156,21 @@ abstract class CdpConsumerBase {
     protected async produceQueuedMessages() {
         const messages = [...this.messagesToProduce]
         this.messagesToProduce = []
-        await Promise.all(
-            messages.map((x) =>
-                this.kafkaProducer!.produce({
-                    topic: x.topic,
-                    value: Buffer.from(safeClickhouseString(JSON.stringify(x.value))),
-                    key: x.key,
-                    waitForAck: true,
-                }).catch((reason) => {
-                    status.error('⚠️', `failed to produce message: ${reason}`)
-                })
-            )
-        )
+
+        await this.kafkaProducer!.queueMessages({
+            kafkaMessages: messages.map((x) => ({
+                topic: x.topic,
+                messages: [
+                    {
+                        value: safeClickhouseString(JSON.stringify(x.value)),
+                        key: x.key,
+                    },
+                ],
+            })),
+            waitForAck: true,
+        }).catch((reason) => {
+            status.error('⚠️', `failed to produce message: ${reason}`)
+        })
     }
 
     protected produceAppMetric(

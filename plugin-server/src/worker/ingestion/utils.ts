@@ -5,6 +5,7 @@ import { DateTime } from 'luxon'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PipelineEvent, TeamId, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
+import { status } from '../../utils/status'
 import { IngestionWarningLimiter } from '../../utils/token-bucket'
 import { castTimestampOrNow, castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE, KAFKA_INGESTION_WARNINGS } from './../../config/kafka-topics'
@@ -79,23 +80,31 @@ export async function captureIngestionWarning(
 ) {
     const limiter_key = `${teamId}:${type}:${debounce?.key || ''}`
     if (!!debounce?.alwaysSend || IngestionWarningLimiter.consume(limiter_key, 1)) {
-        await kafkaProducer.queueMessages({
-            kafkaMessages: {
-                topic: KAFKA_INGESTION_WARNINGS,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            team_id: teamId,
-                            type: type,
-                            source: 'plugin-server',
-                            details: JSON.stringify(details),
-                            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-                        }),
-                    },
-                ],
-            },
-            waitForAck: false,
-        })
+        void kafkaProducer
+            .queueMessages({
+                kafkaMessages: {
+                    topic: KAFKA_INGESTION_WARNINGS,
+                    messages: [
+                        {
+                            value: JSON.stringify({
+                                team_id: teamId,
+                                type: type,
+                                source: 'plugin-server',
+                                details: JSON.stringify(details),
+                                timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                            }),
+                        },
+                    ],
+                },
+            })
+            .catch((error) => {
+                status.warn('⚠️', 'Failed to produce ingestion warning', {
+                    error,
+                    team_id: teamId,
+                    type,
+                    details,
+                })
+            })
     } else {
         return Promise.resolve()
     }

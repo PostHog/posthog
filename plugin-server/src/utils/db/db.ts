@@ -1128,16 +1128,22 @@ export class DB {
         pluginLogEntryCounter.labels({ plugin_id: String(pluginConfig.plugin_id), source }).inc()
 
         try {
-            await this.kafkaProducer.queueMessages({
-                kafkaMessages: {
-                    topic: KAFKA_PLUGIN_LOG_ENTRIES,
-                    messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
-                },
-                // For logs, we relax our durability requirements a little and
-                // do not wait for acks that Kafka has persisted the message to
-                // disk.
-                waitForAck: false,
-            })
+            // For logs, we relax our durability requirements a little and
+            // do not wait for acks that Kafka has persisted the message to
+            // disk.
+            void this.kafkaProducer
+                .queueMessages({
+                    kafkaMessages: {
+                        topic: KAFKA_PLUGIN_LOG_ENTRIES,
+                        messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
+                    },
+                })
+                .catch((error) => {
+                    status.warn('⚠️', 'Failed to produce plugin log entry', {
+                        error,
+                        entry: parsedEntry,
+                    })
+                })
         } catch (e) {
             captureException(e, { tags: { team_id: entry.pluginConfig.team_id } })
             console.error('Failed to produce message', e, parsedEntry)

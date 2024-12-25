@@ -35,13 +35,13 @@ describe('console extension', () => {
 
             testCases.forEach(([description, args, expectedFinalMessage]) => {
                 it(`leaves a well-formed ${description} entry in the database`, async () => {
-                    const queueSingleJsonMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueSingleJsonMessage')
+                    const queueMessagesSpy = jest.spyOn(hub.kafkaProducer, 'queueMessages')
                     const console = createConsole(hub, pluginConfig39)
 
                     await (console[typeMethod](...args) as unknown as Promise<void>)
 
-                    expect(queueSingleJsonMessageSpy).toHaveBeenCalledTimes(1)
-                    expect(queueSingleJsonMessageSpy).toHaveBeenCalledWith({
+                    expect(queueMessagesSpy).toHaveBeenCalledTimes(1)
+                    expect(queueMessagesSpy).toHaveBeenCalledWith({
                         topic: KAFKA_PLUGIN_LOG_ENTRIES,
                         key: expect.any(String),
                         object: {
@@ -55,7 +55,6 @@ describe('console extension', () => {
                             message: expectedFinalMessage,
                             instance_id: hub.instanceId.toString(),
                         },
-                        waitForAck: false,
                     })
                 })
             })

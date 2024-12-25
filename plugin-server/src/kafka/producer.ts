@@ -98,7 +98,7 @@ export class KafkaProducerWrapper {
         topic: string
         headers?: MessageHeader[]
         waitForAck: boolean
-    }): Promise<NumberNullUndefined> {
+    }): Promise<void> {
         try {
             kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
 
@@ -127,7 +127,8 @@ export class KafkaProducerWrapper {
 
                         if (waitForAck) {
                             produceTimer()
-                            return error ? reject(error) : resolve(offset)
+                            // TODO: Modify this to return the offset in a way that works across the codebase
+                            return error ? reject(error) : resolve()
                         }
                     }
                 )
@@ -160,10 +161,10 @@ export class KafkaProducerWrapper {
     }: {
         kafkaMessages: ProducerRecord | ProducerRecord[]
         waitForAck: boolean
-    }) {
+    }): Promise<void> {
         const records = Array.isArray(kafkaMessage) ? kafkaMessage : [kafkaMessage]
 
-        return await Promise.all(
+        await Promise.all(
             records.map((record) => {
                 return Promise.all(
                     record.messages.map((message) =>

@@ -271,6 +271,7 @@ export function computeKey(pluginEvent: PipelineEvent): string {
 async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[], overflowMode: IngestionOverflowMode) {
     ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
     const useRandomPartitioning = overflowMode === IngestionOverflowMode.RerouteRandomly
+
     await Promise.all(
         kafkaMessages.map((message) =>
             queue.pluginsServer.kafkaProducer.produce({

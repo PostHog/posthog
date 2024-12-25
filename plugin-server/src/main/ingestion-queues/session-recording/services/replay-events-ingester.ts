@@ -1,7 +1,6 @@
 import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
-import { NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
@@ -36,7 +35,7 @@ export class ReplayEventsIngester {
     ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
-        const pendingProduceRequests: Promise<NumberNullUndefined>[] = []
+        const pendingProduceRequests: Promise<void>[] = []
 
         for (const message of messages) {
             const results = await retryOnDependencyUnavailableError(() => this.consume(message))
@@ -96,7 +95,7 @@ export class ReplayEventsIngester {
         }
     }
 
-    public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
+    public async consume(event: IncomingRecordingMessage): Promise<Promise<void>[] | void> {
         const drop = (reason: string) => {
             eventDroppedCounter
                 .labels({
@@ -171,10 +170,16 @@ export class ReplayEventsIngester {
             dataIngestedCounter.inc({ snapshot_source: replayRecord.snapshot_source ?? undefined }, replayRecord.size)
 
             return [
-                this.producer.produce({
-                    topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-                    value: Buffer.from(JSON.stringify(replayRecord)),
-                    key: event.session_id,
+                this.producer.queueMessages({
+                    kafkaMessages: {
+                        topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+                        messages: [
+                            {
+                                value: JSON.stringify(replayRecord),
+                                key: event.session_id,
+                            },
+                        ],
+                    },
                     waitForAck: true,
                 }),
             ]

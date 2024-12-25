@@ -1,5 +1,4 @@
 import { captureException } from '@sentry/node'
-import { NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
@@ -46,7 +45,7 @@ export class ConsoleLogsIngester {
     ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
-        const pendingProduceRequests: Promise<NumberNullUndefined>[] = []
+        const pendingProduceRequests: Promise<void>[] = []
 
         for (const message of messages) {
             const results = await retryOnDependencyUnavailableError(() => this.consume(message))
@@ -105,7 +104,7 @@ export class ConsoleLogsIngester {
         }
     }
 
-    public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
+    public async consume(event: IncomingRecordingMessage): Promise<Promise<void>[] | void> {
         const drop = (reason: string) => {
             eventDroppedCounter
                 .labels({
@@ -155,14 +154,18 @@ export class ConsoleLogsIngester {
             )
             consoleLogEventsCounter.inc(consoleLogEvents.length)
 
-            return consoleLogEvents.map((cle: ConsoleLogEntry) =>
-                this.producer.produce({
-                    topic: KAFKA_LOG_ENTRIES,
-                    value: Buffer.from(JSON.stringify(cle)),
-                    key: event.session_id,
+            return [
+                this.producer.queueMessages({
+                    kafkaMessages: {
+                        topic: KAFKA_LOG_ENTRIES,
+                        messages: consoleLogEvents.map((cle: ConsoleLogEntry) => ({
+                            value: JSON.stringify(cle),
+                            key: event.session_id,
+                        })),
+                    },
                     waitForAck: true,
-                })
-            )
+                }),
+            ]
         } catch (error) {
             status.error('⚠️', '[console-log-events-ingester] processing_error', {
                 error: error,

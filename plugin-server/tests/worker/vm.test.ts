@@ -683,12 +683,12 @@ describe('vm tests', () => {
             ...defaultEvent,
             event: 'logged event',
         }
-        const queueSingleJsonMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueSingleJsonMessage')
+        const queueMessagesSpy = jest.spyOn(hub.kafkaProducer, 'queueMessages')
 
         await vm.methods.processEvent!(event)
 
-        expect(queueSingleJsonMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueSingleJsonMessageSpy).toHaveBeenCalledWith({
+        expect(queueMessagesSpy).toHaveBeenCalledTimes(1)
+        expect(queueMessagesSpy).toHaveBeenCalledWith({
             topic: KAFKA_PLUGIN_LOG_ENTRIES,
             key: expect.any(String),
             object: {
@@ -702,7 +702,6 @@ describe('vm tests', () => {
                 timestamp: expect.any(String),
                 type: PluginLogEntryType.Log,
             },
-            waitForAck: false,
         })
     })
 
