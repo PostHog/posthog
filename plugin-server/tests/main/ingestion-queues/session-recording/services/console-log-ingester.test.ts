@@ -1,6 +1,6 @@
 import { HighLevelProducer } from 'node-rdkafka'
 
-import { produce } from '../../../../../src/kafka/producer'
+import { KafkaProducerWrapper, produce } from '../../../../../src/kafka/producer'
 import { ConsoleLogsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/console-logs-ingester'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
@@ -43,7 +43,7 @@ describe('console log ingester', () => {
 
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
         consoleLogIngester = new ConsoleLogsIngester(
-            mockProducer as unknown as HighLevelProducer,
+            mockProducer as unknown as KafkaProducerWrapper,
             mockedHighWaterMarker
         )
     })

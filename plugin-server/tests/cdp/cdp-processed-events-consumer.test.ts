@@ -332,7 +332,7 @@ describe('CDP Processed Events Consumer', () => {
                 const invocations = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(0)
-                expect(mockProducer.produce).toHaveBeenCalledTimes(2)
+                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
 
                 expect(decodeAllKafkaMessages()).toMatchObject([
                     {
