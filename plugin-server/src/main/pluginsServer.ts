@@ -18,9 +18,9 @@ import {
     CdpProcessedEventsConsumer,
 } from '../cdp/cdp-consumers'
 import { defaultConfig } from '../config/config'
+import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
 import { closeHub, createHub, createKafkaClient } from '../utils/db/hub'
-import { KafkaProducerWrapper } from '../kafka/producer'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisClient } from '../utils/db/redis'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'

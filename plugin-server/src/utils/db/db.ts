@@ -1099,12 +1099,12 @@ export class DB {
         return queryResult.data as PluginLogEntry[]
     }
 
-    public queuePluginLogEntry(entry: LogEntryPayload): void {
+    public queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
         const configuredLogLevel = pluginConfig.plugin?.log_level || this.pluginsDefaultLogLevel
 
         if (!shouldStoreLog(configuredLogLevel, type)) {
-            return
+            return Promise.resolve()
         }
 
         const parsedEntry = {
@@ -1122,7 +1122,7 @@ export class DB {
         if (parsedEntry.message.length > 50_000) {
             const { message, ...rest } = parsedEntry
             status.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
-            return
+            return Promise.resolve()
         }
 
         pluginLogEntryCounter.labels({ plugin_id: String(pluginConfig.plugin_id), source }).inc()
@@ -1144,9 +1144,13 @@ export class DB {
                         entry: parsedEntry,
                     })
                 })
+
+            // TRICKY: We don't want to block the caller, so we return a promise that resolves immediately.
+            return Promise.resolve()
         } catch (e) {
             captureException(e, { tags: { team_id: entry.pluginConfig.team_id } })
             console.error('Failed to produce message', e, parsedEntry)
+            return Promise.resolve()
         }
     }
 

@@ -69,7 +69,6 @@ describe('dlq handling', () => {
             topic: 'scheduled_tasks',
             message: Buffer.from(JSON.stringify({ taskType: 'invalidTaskType', pluginConfigId: 1 })),
             key,
-    ,
         })
 
         await waitForExpect(() => {
@@ -85,7 +84,6 @@ describe('dlq handling', () => {
             topic: 'scheduled_tasks',
             message: Buffer.from(JSON.stringify({ taskType: 'runEveryMinute', pluginConfigId: 'asdf' })),
             key,
-    ,
         })
 
         await waitForExpect(() => {

@@ -25,7 +25,7 @@ export class MessageSizeTooLarge extends Error {
     readonly isRetriable = false
 }
 
-export function processError(
+export async function processError(
     server: Hub,
     pluginConfig: PluginConfig | null,
     error: Error | string,
@@ -60,7 +60,7 @@ export function processError(
                   event: event,
               }
 
-    server.db.queuePluginLogEntry({
+    await server.db.queuePluginLogEntry({
         pluginConfig,
         source: PluginLogEntrySource.Plugin,
         type: PluginLogEntryType.Error,
@@ -68,8 +68,6 @@ export function processError(
         instanceId: server.instanceId,
         timestamp: pluginError.time,
     })
-
-    return Promise.resolve()
 }
 
 export function cleanErrorStackTrace(stack: string | undefined): string | undefined {
