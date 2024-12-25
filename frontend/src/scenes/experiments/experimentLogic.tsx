@@ -1671,7 +1671,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (parsedId === 'new') {
                     actions.resetExperiment()
                 }
-                console.log(parsedId, values.experimentId)
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
                     actions.loadExperiment()
                 }

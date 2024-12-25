@@ -1,6 +1,6 @@
 import { LemonTagType } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
-import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, path, reducers, selectors, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
+import { router } from 'kea-router'
 
 import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
 
@@ -43,6 +44,8 @@ export const experimentsLogic = kea<experimentsLogicType>([
             ['user', 'hasAvailableFeature'],
             featureFlagLogic,
             ['featureFlags'],
+            router,
+            ['location'],
         ],
     }),
     actions({
@@ -67,10 +70,19 @@ export const experimentsLogic = kea<experimentsLogicType>([
         tab: [
             ExperimentsTabs.All as ExperimentsTabs,
             {
-                setExperimentsTab: (_, { tabKey }) => tabKey,
+                setExperimentsTab: (state, { tabKey }) => tabKey ?? state,
             },
         ],
     }),
+    listeners(({ actions }) => ({
+        setExperimentsTab: ({ tabKey }) => {
+            if (tabKey === ExperimentsTabs.SavedMetrics) {
+                router.actions.push('/experiments/saved-metrics')
+            } else {
+                router.actions.push('/experiments')
+            }
+        },
+    })),
     loaders(({ values }) => ({
         experiments: [
             [] as Experiment[],
@@ -148,9 +160,12 @@ export const experimentsLogic = kea<experimentsLogicType>([
             (featureFlags: FeatureFlagsSet) => featureFlags[FEATURE_FLAGS.WEB_EXPERIMENTS],
         ],
     })),
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
             actions.loadExperiments()
+            // if (values.location.pathname === '/experiments/saved-metrics') {
+            //     actions.setExperimentsTab(ExperimentsTabs.SavedMetrics)
+            // }
         },
     })),
 ])
