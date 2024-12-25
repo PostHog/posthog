@@ -110,12 +110,12 @@ describe('EventPipelineRunner', () => {
 
     beforeEach(() => {
         hub = {
-            kafkaProducer: { queueMessage: jest.fn() },
+            kafkaProducer: { queueMessages: jest.fn() },
             teamManager: {
                 fetchTeam: jest.fn(() => {}),
             },
             db: {
-                kafkaProducer: { queueMessage: jest.fn() },
+                kafkaProducer: { queueMessages: jest.fn() },
                 fetchPerson: jest.fn(),
             },
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
@@ -288,7 +288,7 @@ describe('EventPipelineRunner', () => {
 
                 const hub: any = {
                     db: {
-                        kafkaProducer: { queueMessage: jest.fn() },
+                        kafkaProducer: { queueMessages: jest.fn() },
                     },
                 }
                 const runner = new TestEventPipelineRunner(hub, event, new EventsProcessor(hub))
@@ -416,7 +416,7 @@ describe('EventPipelineRunner $process_person_profile=false', () => {
 
             const hub: any = {
                 db: {
-                    kafkaProducer: { queueMessage: jest.fn() },
+                    kafkaProducer: { queueMessages: jest.fn() },
                 },
             }
             const runner = new TestEventPipelineRunner(hub, event, new EventsProcessor(hub))

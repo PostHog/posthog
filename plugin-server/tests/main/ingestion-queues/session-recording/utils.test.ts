@@ -69,7 +69,7 @@ describe('session-recording utils', () => {
         let fakeProducer: KafkaProducerWrapper
         beforeEach(() => {
             Settings.now = () => new Date('2023-08-30T19:15:54.887316+00:00').getTime()
-            fakeProducer = { queueMessage: jest.fn() } as unknown as KafkaProducerWrapper
+            fakeProducer = { queueMessages: jest.fn() } as unknown as KafkaProducerWrapper
         })
 
         it('can parse a message correctly', async () => {
@@ -347,7 +347,7 @@ describe('session-recording utils', () => {
         let fakeProducer: KafkaProducerWrapper
         beforeEach(() => {
             Settings.now = () => new Date('2023-08-30T19:15:54.887316+00:00').getTime()
-            fakeProducer = { queueMessage: jest.fn() } as unknown as KafkaProducerWrapper
+            fakeProducer = { queueMessages: jest.fn() } as unknown as KafkaProducerWrapper
         })
 
         it('can parse and reduce a batch of messages', async () => {

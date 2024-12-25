@@ -27,7 +27,7 @@ describe('Graphile Worker schedule', () => {
                 runEveryDay: [7, 8, 9],
             },
             kafkaProducer: {
-                queueMessage: jest.fn(),
+                queueMessages: jest.fn(),
             } as unknown as KafkaProducerWrapper,
             USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         }

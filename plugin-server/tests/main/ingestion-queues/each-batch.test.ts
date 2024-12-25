@@ -138,7 +138,7 @@ describe('eachBatchX', () => {
                 TASKS_PER_WORKER: 10,
                 INGESTION_CONCURRENCY: 4,
                 kafkaProducer: {
-                    queueMessage: jest.fn(),
+                    queueMessages: jest.fn(),
                 },
                 pluginConfigsPerTeam: new Map(),
             },
