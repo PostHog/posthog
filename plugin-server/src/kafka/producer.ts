@@ -1,4 +1,3 @@
-import { Message } from 'kafkajs'
 import {
     ClientMetrics,
     HighLevelProducer,

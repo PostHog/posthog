@@ -2,7 +2,6 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import fetch from 'node-fetch'
 
-import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
 import { Hook, Hub } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { PostgresUse } from '../../../../src/utils/db/postgres'
