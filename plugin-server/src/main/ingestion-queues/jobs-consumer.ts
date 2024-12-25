@@ -55,7 +55,7 @@ export const startJobsConsumer = async ({
                 })
                 // TODO: handle resolving offsets asynchronously
                 await producer.queueMessages({
-                    kafkaMessage: {
+                    kafkaMessages: {
                         topic: KAFKA_JOBS_DLQ,
                         messages: [{ value: message.value, key: message.key }],
                     },
@@ -75,7 +75,7 @@ export const startJobsConsumer = async ({
                 })
                 // TODO: handle resolving offsets asynchronously
                 await producer.queueMessages({
-                    kafkaMessage: {
+                    kafkaMessages: {
                         topic: KAFKA_JOBS_DLQ,
                         messages: [{ value: message.value, key: message.key }],
                     },

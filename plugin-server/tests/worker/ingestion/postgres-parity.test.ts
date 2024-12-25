@@ -412,7 +412,7 @@ describe('postgres parity', () => {
         await hub.db.postgres.transaction(PostgresUse.COMMON_WRITE, '', async (client) => {
             const deletePersonMessage = await hub.db.deletePerson(person, client)
             await hub.db!.kafkaProducer!.queueMessages({
-                kafkaMessage: deletePersonMessage[0],
+                kafkaMessages: deletePersonMessage[0],
                 waitForAck: true,
             })
         })

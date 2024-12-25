@@ -29,7 +29,7 @@ async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalDa
     const partitionKey = partitionKeyHash.digest('hex')
 
     await hub.kafkaProducer.queueMessages({
-        kafkaMessage: {
+        kafkaMessages: {
             topic: hub.KAFKA_CONSUMPTION_TOPIC!,
             messages: [
                 {

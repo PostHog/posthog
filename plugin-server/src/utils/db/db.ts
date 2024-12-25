@@ -881,7 +881,7 @@ export class DB {
     ): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version, tx)
         if (kafkaMessages.length) {
-            await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+            await this.kafkaProducer.queueMessages({ kafkaMessages: kafkaMessages, waitForAck: true })
         }
     }
 
@@ -1129,7 +1129,7 @@ export class DB {
 
         try {
             await this.kafkaProducer.queueMessages({
-                kafkaMessage: {
+                kafkaMessages: {
                     topic: KAFKA_PLUGIN_LOG_ENTRIES,
                     messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
                 },
@@ -1414,7 +1414,7 @@ export class DB {
         version: number
     ): Promise<void> {
         await this.kafkaProducer.queueMessages({
-            kafkaMessage: {
+            kafkaMessages: {
                 topic: KAFKA_GROUPS,
                 messages: [
                     {

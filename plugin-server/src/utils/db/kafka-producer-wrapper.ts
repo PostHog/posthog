@@ -155,10 +155,10 @@ export class KafkaProducerWrapper {
     }
 
     async queueMessages({
-        kafkaMessage,
+        kafkaMessages: kafkaMessage,
         waitForAck,
     }: {
-        kafkaMessage: ProducerRecord | ProducerRecord[]
+        kafkaMessages: ProducerRecord | ProducerRecord[]
         waitForAck: boolean
     }) {
         const records = Array.isArray(kafkaMessage) ? kafkaMessage : [kafkaMessage]

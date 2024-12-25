@@ -183,7 +183,7 @@ export class AppMetrics {
         }))
 
         await this.kafkaProducer.queueMessages({
-            kafkaMessage: {
+            kafkaMessages: {
                 topic: KAFKA_APP_METRICS,
                 messages: kafkaMessages,
             },
