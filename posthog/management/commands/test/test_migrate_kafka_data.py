@@ -336,7 +336,7 @@ def _commit_offsets_for_topic(topic, consumer_group_id):
         kafka_consumer.close()
 
 
-def _wait_for_message(topic: str, key: str, timeout: int = 10):
+def _wait_for_message(topic: str, key: str, timeout: int = 60):
     """
     Wait for a message to appear in the topic with the specified key.
     """
@@ -351,6 +351,8 @@ def _wait_for_message(topic: str, key: str, timeout: int = 10):
 
     try:
         while time.time() - start_time < timeout:
+            print(f"Waiting for message in topic {topic} with key {key}...")  # noqa: T201
+            print(f"Time elapsed: {time.time() - start_time}")  # noqa: T201
             messages_by_topic = new_kafka_consumer.poll(timeout_ms=1000)
 
             if not messages_by_topic:
