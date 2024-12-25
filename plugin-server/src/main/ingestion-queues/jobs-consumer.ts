@@ -59,7 +59,6 @@ export const startJobsConsumer = async ({
                         topic: KAFKA_JOBS_DLQ,
                         messages: [{ value: message.value, key: message.key }],
                     },
-                    waitForAck: true,
                 })
                 resolveOffset(message.offset)
                 continue
@@ -79,7 +78,6 @@ export const startJobsConsumer = async ({
                         topic: KAFKA_JOBS_DLQ,
                         messages: [{ value: message.value, key: message.key }],
                     },
-                    waitForAck: true,
                 })
                 resolveOffset(message.offset)
                 continue

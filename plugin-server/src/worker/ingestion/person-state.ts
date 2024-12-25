@@ -301,7 +301,7 @@ export class PersonState {
 
         if (Object.keys(update).length > 0) {
             const [updatedPerson, kafkaMessages] = await this.db.updatePersonDeprecated(person, update)
-            const kafkaAck = this.db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+            const kafkaAck = this.db.kafkaProducer.queueMessages({ kafkaMessages })
             return [updatedPerson, kafkaAck]
         }
 
@@ -768,7 +768,7 @@ export class PersonState {
             })
             .inc()
 
-        const kafkaAck = this.db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+        const kafkaAck = this.db.kafkaProducer.queueMessages({ kafkaMessages })
 
         return [mergedPerson, kafkaAck]
     }

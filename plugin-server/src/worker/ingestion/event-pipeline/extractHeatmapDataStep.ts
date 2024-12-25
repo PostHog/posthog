@@ -43,7 +43,6 @@ export async function extractHeatmapDataStep(
                             value: JSON.stringify(rawEvent),
                         })),
                     },
-                    waitForAck: true,
                 })
             )
         }

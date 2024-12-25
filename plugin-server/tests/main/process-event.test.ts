@@ -201,7 +201,6 @@ test('merge people', async () => {
 
     await hub.db.kafkaProducer.queueMessages({
         kafkaMessages: [...kafkaMessages0, ...kafkaMessages1],
-        waitForAck: true,
     })
 
     await processEvent(

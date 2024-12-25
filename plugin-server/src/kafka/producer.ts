@@ -91,24 +91,19 @@ export class KafkaProducerWrapper {
         key,
         topic,
         headers,
-        waitForAck,
     }: {
         value: MessageValue
         key: MessageKey
         topic: string
         headers?: MessageHeader[]
-        waitForAck: boolean
     }): Promise<void> {
         try {
-            kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
-
-            status.debug('📤', 'Producing message', { topic: topic })
+            const produceTimer = ingestEventKafkaProduceLatency.labels({ topic }).startTimer()
             const produceSpan = getSpan()?.startChild({ op: 'kafka_produce' })
-            return await new Promise((resolve, reject) => {
-                const produceTimer = ingestEventKafkaProduceLatency
-                    .labels({ topic, waitForAck: waitForAck.toString() })
-                    .startTimer()
+            kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
+            status.debug('📤', 'Producing message', { topic: topic })
 
+            const result = await new Promise((resolve, reject) => {
                 this.producer.produce(
                     topic,
                     null,
@@ -117,28 +112,15 @@ export class KafkaProducerWrapper {
                     Date.now(),
                     headers ?? [],
                     (error: any, offset: NumberNullUndefined) => {
-                        produceSpan?.finish()
-                        kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
-                        if (error) {
-                            status.error('⚠️', 'produce_error', { error: error, topic: topic })
-                        } else {
-                            status.debug('📤', 'Produced message', { topic: topic, offset: offset })
-                        }
-
-                        if (waitForAck) {
-                            produceTimer()
-                            // TODO: Modify this to return the offset in a way that works across the codebase
-                            return error ? reject(error) : resolve()
-                        }
+                        return error ? reject(error) : resolve(offset)
                     }
                 )
-
-                // If we're not waiting for an ack, we can resolve immediately
-                if (!waitForAck) {
-                    resolve(undefined)
-                    produceTimer()
-                }
             })
+
+            produceSpan?.finish()
+            kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
+            status.debug('📤', 'Produced message', { topic: topic, offset: result })
+            produceTimer()
         } catch (error) {
             kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
             status.error('⚠️', 'kafka_produce_error', { error: error, topic: topic })
@@ -157,10 +139,8 @@ export class KafkaProducerWrapper {
 
     async queueMessages({
         kafkaMessages: kafkaMessage,
-        waitForAck,
     }: {
         kafkaMessages: ProducerRecord | ProducerRecord[]
-        waitForAck: boolean
     }): Promise<void> {
         const records = Array.isArray(kafkaMessage) ? kafkaMessage : [kafkaMessage]
 
@@ -173,7 +153,6 @@ export class KafkaProducerWrapper {
                             key: message.key ? Buffer.from(message.key) : null,
                             value: message.value ? Buffer.from(message.value) : null,
                             headers: convertKafkaJSHeadersToRdKafkaHeaders(message.headers),
-                            waitForAck: waitForAck,
                         })
                     )
                 )
@@ -255,6 +234,6 @@ export const kafkaProducerMessagesFailedCounter = new Counter({
 export const ingestEventKafkaProduceLatency = new Summary({
     name: 'ingest_event_kafka_produce_latency',
     help: 'Wait time for individual Kafka produces',
-    labelNames: ['topic', 'waitForAck'],
+    labelNames: ['topic'],
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })

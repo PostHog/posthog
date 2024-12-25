@@ -697,7 +697,7 @@ export class DB {
             })
         }
 
-        await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+        await this.kafkaProducer.queueMessages({ kafkaMessages })
         return person
     }
 
@@ -881,7 +881,7 @@ export class DB {
     ): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version, tx)
         if (kafkaMessages.length) {
-            await this.kafkaProducer.queueMessages({ kafkaMessages: kafkaMessages, waitForAck: true })
+            await this.kafkaProducer.queueMessages({ kafkaMessages })
         }
     }
 
@@ -1435,7 +1435,6 @@ export class DB {
                     },
                 ],
             },
-            waitForAck: true,
         })
     }
 

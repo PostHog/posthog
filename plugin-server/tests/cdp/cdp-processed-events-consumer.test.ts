@@ -253,7 +253,6 @@ describe('CDP Processed Events Consumer', () => {
                             state: expect.any(String),
                         },
                         key: expect.stringContaining(fnFetchNoFilters.id.toString()),
-                        waitForAck: true,
                     },
                 ])
             })

@@ -167,7 +167,6 @@ abstract class CdpConsumerBase {
                     },
                 ],
             })),
-            waitForAck: true,
         }).catch((reason) => {
             status.error('⚠️', `failed to produce message: ${reason}`)
         })

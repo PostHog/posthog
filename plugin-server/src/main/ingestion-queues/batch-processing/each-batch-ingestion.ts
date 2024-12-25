@@ -80,7 +80,6 @@ async function handleProcessingError(
                 value: message.value,
                 key: message.key ?? null, // avoid undefined, just to be safe
                 headers: headers,
-                waitForAck: true,
             })
         } catch (error) {
             // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
@@ -282,7 +281,6 @@ async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]
                 // instead as that behavior is safer.
                 key: useRandomPartitioning ? null : message.key ?? null,
                 headers: message.headers,
-                waitForAck: true,
             })
         )
     )

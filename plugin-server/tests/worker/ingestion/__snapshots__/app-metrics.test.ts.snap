@@ -12,7 +12,6 @@ Array [
         ],
         "topic": "clickhouse_app_metrics_test",
       },
-      "waitForAck": true,
     },
   ],
 ]

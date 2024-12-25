@@ -180,7 +180,6 @@ export class ReplayEventsIngester {
                             },
                         ],
                     },
-                    waitForAck: true,
                 }),
             ]
         } catch (error) {

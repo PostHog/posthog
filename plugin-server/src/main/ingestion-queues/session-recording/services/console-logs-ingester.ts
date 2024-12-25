@@ -163,7 +163,6 @@ export class ConsoleLogsIngester {
                             key: event.session_id,
                         })),
                     },
-                    waitForAck: true,
                 }),
             ]
         } catch (error) {

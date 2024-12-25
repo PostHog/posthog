@@ -366,7 +366,6 @@ describe('DB', () => {
             const [updatedPerson, kafkaMessages] = await db.updatePersonDeprecated(personProvided, update)
             await hub.db.kafkaProducer.queueMessages({
                 kafkaMessages,
-                waitForAck: true,
             })
 
             // verify we have the correct update in Postgres db
@@ -382,7 +381,6 @@ describe('DB', () => {
             // verify correct Kafka message was sent
             expect(db.kafkaProducer!.queueMessage).toHaveBeenLastCalledWith({
                 kafkaMessage: generateKafkaPersonUpdateMessage(updatedPerson),
-                waitForAck: true,
             })
         })
     })
@@ -430,13 +428,12 @@ describe('DB', () => {
                 })
                 await hub.db.kafkaProducer.queueMessages({
                     kafkaMessages: updatePersonKafkaMessages,
-                    waitForAck: true,
                 })
                 await db.kafkaProducer.flush()
                 await delayUntilEventIngested(fetchPersonsRows, 2)
 
                 const kafkaMessages = await db.deletePerson(person)
-                await db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+                await db.kafkaProducer.queueMessages({ kafkaMessages })
                 await db.kafkaProducer.flush()
 
                 const persons = await delayUntilEventIngested(fetchPersonsRows, 3)

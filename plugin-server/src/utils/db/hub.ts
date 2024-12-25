@@ -158,7 +158,6 @@ export async function createHub(
                     },
                 ],
             },
-            waitForAck: true,
         })
     }
 

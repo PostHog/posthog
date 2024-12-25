@@ -1,6 +1,6 @@
+import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { UUIDT } from '../../../src/utils/utils'
 import { AppMetricIdentifier, AppMetrics } from '../../../src/worker/ingestion/app-metrics'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
@@ -25,7 +25,6 @@ describe('AppMetrics()', () => {
     beforeEach(() => {
         kafkaProducer = {
             producer: jest.fn(),
-            waitForAck: jest.fn(),
             produce: jest.fn(),
             queueMessage: jest.fn(),
             flush: jest.fn(),

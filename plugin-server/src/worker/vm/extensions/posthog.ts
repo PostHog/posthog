@@ -47,7 +47,6 @@ async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalDa
                 },
             ],
         },
-        waitForAck: true,
     })
 }
 

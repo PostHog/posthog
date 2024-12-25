@@ -169,7 +169,6 @@ const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) =
                     topic: KAFKA_SCHEDULED_TASKS_DLQ,
                     messages: [{ value: message.value, key: message.key }],
                 },
-                waitForAck: true,
             })
             continue
         }
@@ -190,7 +189,6 @@ const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) =
                     topic: KAFKA_SCHEDULED_TASKS_DLQ,
                     messages: [{ value: message.value, key: message.key }],
                 },
-                waitForAck: true,
             })
             continue
         }
@@ -202,7 +200,6 @@ const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) =
                     topic: KAFKA_SCHEDULED_TASKS_DLQ,
                     messages: [{ value: message.value, key: message.key }],
                 },
-                waitForAck: true,
             })
             continue
         }

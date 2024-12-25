@@ -187,7 +187,6 @@ export class AppMetrics {
                 topic: KAFKA_APP_METRICS,
                 messages: kafkaMessages,
             },
-            waitForAck: true,
         })
         status.debug('🚽', `Finished flushing app metrics, took ${Date.now() - startTime}ms`)
     }

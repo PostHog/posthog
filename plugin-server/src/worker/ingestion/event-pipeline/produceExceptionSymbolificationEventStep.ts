@@ -17,7 +17,6 @@ export function produceExceptionSymbolificationEventStep(
                     },
                 ],
             },
-            waitForAck: true,
         })
         .catch((error) => {
             status.warn('⚠️', 'Failed to produce exception event for symbolification', {
