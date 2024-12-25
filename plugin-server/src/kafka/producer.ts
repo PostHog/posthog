@@ -29,6 +29,14 @@ import { createRdConnectionConfigFromEnvVars } from './config'
 
 export type MessageKey = Exclude<RdKafkaMessageKey, undefined>
 
+export type TopicMessages = {
+    topic: string
+    messages: {
+        value: string | Buffer
+        key: MessageKey
+    }[]
+}
+
 export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     public producer: HighLevelProducer

@@ -961,7 +961,7 @@ describe('vm tests', () => {
         await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
-        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
+        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessages')
 
         const response = await vm.tasks.schedule.runEveryMinute.exec()
 
@@ -990,7 +990,7 @@ describe('vm tests', () => {
         await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
-        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
+        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessages')
 
         const response = await vm.tasks.schedule.runEveryMinute.exec()
 
@@ -1016,7 +1016,7 @@ describe('vm tests', () => {
         await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
-        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
+        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessages')
 
         const response = await vm.tasks.schedule.runEveryMinute.exec()
 
