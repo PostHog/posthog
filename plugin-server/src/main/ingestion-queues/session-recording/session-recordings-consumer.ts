@@ -12,7 +12,6 @@ import {
 } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
-import { createKafkaProducer } from '../../../kafka/producer'
 import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
@@ -472,9 +471,7 @@ export class SessionRecordingIngester {
         await this.teamsRefresher.refresh()
 
         // NOTE: We use the standard config as we connect to the analytics kafka for producing
-        this.sharedClusterProducerWrapper = new KafkaProducerWrapper(
-            await createKafkaProducer(createRdConnectionConfigFromEnvVars(this.config, 'producer'), this.config)
-        )
+        this.sharedClusterProducerWrapper = await KafkaProducerWrapper.create(this.config)
         this.sharedClusterProducerWrapper.producer.connect()
 
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {

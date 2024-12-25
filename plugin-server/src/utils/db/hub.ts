@@ -12,8 +12,6 @@ import { EncryptedFields } from '../../cdp/encryption-utils'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
-import { createKafkaProducer } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
 import {
     EnqueuedPluginJob,
@@ -52,14 +50,6 @@ pgTypes.setTypeParser(1114 /* types.TypeId.TIMESTAMP */, (timeStr) =>
 pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
     timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
 )
-
-export async function createKafkaProducerWrapper(serverConfig: PluginsServerConfig): Promise<KafkaProducerWrapper> {
-    const producer = await createKafkaProducer(
-        createRdConnectionConfigFromEnvVars(serverConfig, 'producer'),
-        serverConfig
-    )
-    return new KafkaProducerWrapper(producer)
-}
 
 export function createEventsToDropByToken(eventsToDropByTokenStr?: string): Map<string, string[]> {
     const eventsToDropByToken: Map<string, string[]> = new Map()
@@ -113,7 +103,7 @@ export async function createHub(
     status.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
-    const kafkaProducer = await createKafkaProducerWrapper(serverConfig)
+    const kafkaProducer = await KafkaProducerWrapper.create(serverConfig)
     status.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)

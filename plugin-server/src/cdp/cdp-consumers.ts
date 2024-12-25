@@ -24,7 +24,6 @@ import {
     TimestampFormat,
     ValueMatcher,
 } from '../types'
-import { createKafkaProducerWrapper } from '../utils/db/hub'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString } from '../utils/db/utils'
 import { status } from '../utils/status'
@@ -364,7 +363,7 @@ abstract class CdpConsumerBase {
         // NOTE: This is only for starting shared services
         await Promise.all([
             this.hogFunctionManager.start(),
-            createKafkaProducerWrapper(this.hub).then((producer) => {
+            KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()
             }),

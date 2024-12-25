@@ -19,7 +19,8 @@ import {
 } from '../cdp/cdp-consumers'
 import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
-import { closeHub, createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
+import { closeHub, createHub, createKafkaClient } from '../utils/db/hub'
+import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisClient } from '../utils/db/redis'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
@@ -335,12 +336,12 @@ export async function startPluginsServer(
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
             const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
-            const KafkaProducerWrapper = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
+            const kafkaProducerWrapper = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(serverConfig))
             const rustyHook = hub?.rustyHook ?? new RustyHook(serverConfig)
             const appMetrics =
                 hub?.appMetrics ??
                 new AppMetrics(
-                    KafkaProducerWrapper,
+                    kafkaProducerWrapper,
                     serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
                     serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
                 )

@@ -1,8 +1,10 @@
 import { Message, ProducerRecord } from 'kafkajs'
-import { HighLevelProducer, LibrdKafkaError, MessageHeader, MessageValue } from 'node-rdkafka'
+import { ClientMetrics, HighLevelProducer, LibrdKafkaError, MessageHeader, MessageValue } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { disconnectProducer, flushProducer, MessageKey, produce } from '../../kafka/producer'
+import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
+import { flushProducer, MessageKey, produce } from '../../kafka/producer'
+import { PluginsServerConfig } from '../../types'
 import { status } from '../../utils/status'
 import { DependencyUnavailableError, MessageSizeTooLarge } from './error'
 
@@ -19,6 +21,55 @@ import { DependencyUnavailableError, MessageSizeTooLarge } from './error'
 export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     public producer: HighLevelProducer
+
+    static async create(config: PluginsServerConfig) {
+        const globalConfig = createRdConnectionConfigFromEnvVars(config, 'producer')
+        const producer = new HighLevelProducer({
+            ...globalConfig,
+            // milliseconds to wait after the most recently added message before sending a batch. The
+            // default is 0, which means that messages are sent as soon as possible. This does not mean
+            // that there will only be one message per batch, as the producer will attempt to fill
+            // batches up to the batch size while the number of Kafka inflight requests is saturated, by
+            // default 5 inflight requests.
+            'linger.ms': config.KAFKA_PRODUCER_LINGER_MS,
+            'batch.size': config.KAFKA_PRODUCER_BATCH_SIZE,
+            'queue.buffering.max.messages': config.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES,
+            'compression.codec': 'snappy',
+            // Ensure that librdkafka handled producer retries do not produce duplicates. Note this
+            // doesn't mean that if we manually retry a message that it will be idempotent. May reduce
+            // throughput. Note that at the time of writing the session recording events table in
+            // ClickHouse uses a `ReplicatedReplacingMergeTree` with a ver param of _timestamp i.e. when
+            // the event was added to the Kafka ingest topic. The sort key is `team_id,
+            // toHour(timestamp), session_id, timestamp, uuid` which means duplicate production of the
+            // same event _should_ be deduplicated when merges occur on the table. This isn't a
+            // guarantee on removing duplicates though and rather still requires deduplication either
+            // when querying the table or client side.
+            'enable.idempotence': true,
+            dr_cb: true,
+        })
+
+        producer.on('event.log', function (log) {
+            status.info('📝', 'librdkafka log', { log: log })
+        })
+
+        producer.on('event.error', function (err) {
+            status.error('📝', 'librdkafka error', { log: err })
+        })
+
+        await new Promise((resolve, reject) =>
+            producer.connect(undefined, (error, data) => {
+                if (error) {
+                    status.error('⚠️', 'connect_error', { error: error })
+                    reject(error)
+                } else {
+                    status.info('📝', 'librdkafka producer connected', { error, brokers: data?.brokers })
+                    resolve(data)
+                }
+            })
+        )
+
+        return new KafkaProducerWrapper(producer)
+    }
 
     constructor(producer: HighLevelProducer) {
         this.producer = producer
@@ -116,7 +167,18 @@ export class KafkaProducerWrapper {
 
     public async disconnect(): Promise<void> {
         await this.flush()
-        await disconnectProducer(this.producer)
+
+        status.info('🔌', 'Disconnecting producer')
+        await new Promise<ClientMetrics>((resolve, reject) =>
+            this.producer.disconnect((error: any, data: ClientMetrics) => {
+                status.info('🔌', 'Disconnected producer')
+                if (error) {
+                    reject(error)
+                } else {
+                    resolve(data)
+                }
+            })
+        )
     }
 }
 
