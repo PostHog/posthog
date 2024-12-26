@@ -1,28 +1,11 @@
-import { IconPencil, IconTrash } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDialog,
-    LemonDivider,
-    LemonInput,
-    LemonLabel,
-    LemonModal,
-    LemonTable,
-    LemonTableColumns,
-    Link,
-} from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
-import { useState } from 'react'
-
-import { Holdout, holdoutsLogic, NEW_HOLDOUT } from '../holdoutsLogic'
-import { SceneExport } from 'scenes/sceneTypes'
-import { experimentsLogic } from '../experimentsLogic'
-import { urls } from 'scenes/urls'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SavedMetricLogicProps, savedMetricsLogic } from './savedMetricsLogic'
-import { SavedMetric } from './savedMetricLogic'
+import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { SavedMetric } from './savedMetricLogic'
+import { savedMetricsLogic } from './savedMetricsLogic'
 
 export const scene: SceneExport = {
     component: SavedMetrics,

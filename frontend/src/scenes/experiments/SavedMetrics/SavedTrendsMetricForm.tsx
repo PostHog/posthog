@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -12,7 +11,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
 import { BaseMathType, ChartDisplayType, FilterType, PropertyMathType } from '~/types'
 
@@ -25,7 +23,13 @@ export function SavedTrendsMetricForm(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     const [activeTab, setActiveTab] = useState('main')
-    console.log('savedMetric', savedMetric)
+
+    if (!savedMetric?.query) {
+        return <></>
+    }
+
+    const savedMetricQuery = savedMetric.query as ExperimentTrendsQuery
+
     return (
         <>
             <LemonTabs
@@ -50,7 +54,7 @@ export function SavedTrendsMetricForm(): JSX.Element {
                                 </div>
                                 <ActionFilter
                                     bordered
-                                    filters={queryNodeToFilter(savedMetric.query.count_query)}
+                                    filters={queryNodeToFilter(savedMetricQuery.count_query)}
                                     setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
                                         const series = actionsAndEventsToSeries(
                                             { actions, events, data_warehouse } as any,
@@ -59,9 +63,9 @@ export function SavedTrendsMetricForm(): JSX.Element {
                                         )
                                         setSavedMetric({
                                             query: {
-                                                ...savedMetric.query,
+                                                ...savedMetricQuery,
                                                 count_query: {
-                                                    ...savedMetric.query.count_query,
+                                                    ...savedMetricQuery.count_query,
                                                     series,
                                                 },
                                             },
@@ -78,15 +82,15 @@ export function SavedTrendsMetricForm(): JSX.Element {
                                 <div className="mt-4 space-y-4">
                                     <TestAccountFilterSwitch
                                         checked={(() => {
-                                            const val = savedMetric.query.count_query?.filterTestAccounts
+                                            const val = savedMetricQuery.count_query?.filterTestAccounts
                                             return hasFilters ? !!val : false
                                         })()}
                                         onChange={(checked: boolean) => {
                                             setSavedMetric({
                                                 query: {
-                                                    ...savedMetric.query,
+                                                    ...savedMetricQuery,
                                                     count_query: {
-                                                        ...savedMetric.query.count_query,
+                                                        ...savedMetricQuery.count_query,
                                                         filterTestAccounts: checked,
                                                     },
                                                 },
@@ -124,19 +128,22 @@ export function SavedTrendsMetricForm(): JSX.Element {
                                 <div className="flex gap-4 mb-4">
                                     <div
                                         className={`flex-1 cursor-pointer p-4 rounded border ${
-                                            !savedMetric.exposure_query
+                                            !savedMetricQuery.exposure_query
                                                 ? 'border-primary bg-primary-highlight'
                                                 : 'border-border'
                                         }`}
                                         onClick={() => {
                                             setSavedMetric({
-                                                exposure_query: undefined,
+                                                query: {
+                                                    ...savedMetricQuery,
+                                                    exposure_query: undefined,
+                                                },
                                             })
                                         }}
                                     >
                                         <div className="font-semibold flex justify-between items-center">
                                             <span>Default</span>
-                                            {!savedMetric.exposure_query && (
+                                            {!savedMetricQuery.exposure_query && (
                                                 <IconCheckCircle fontSize={18} color="var(--primary)" />
                                             )}
                                         </div>
@@ -149,41 +156,44 @@ export function SavedTrendsMetricForm(): JSX.Element {
                                     </div>
                                     <div
                                         className={`flex-1 cursor-pointer p-4 rounded border ${
-                                            savedMetric.exposure_query
+                                            savedMetricQuery.exposure_query
                                                 ? 'border-primary bg-primary-highlight'
                                                 : 'border-border'
                                         }`}
                                         onClick={() => {
                                             setSavedMetric({
-                                                exposure_query: {
-                                                    kind: NodeKind.TrendsQuery,
-                                                    series: [
-                                                        {
-                                                            kind: NodeKind.EventsNode,
-                                                            name: '$feature_flag_called',
-                                                            event: '$feature_flag_called',
-                                                            math: BaseMathType.UniqueUsers,
+                                                query: {
+                                                    ...savedMetricQuery,
+                                                    exposure_query: {
+                                                        kind: NodeKind.TrendsQuery,
+                                                        series: [
+                                                            {
+                                                                kind: NodeKind.EventsNode,
+                                                                name: '$feature_flag_called',
+                                                                event: '$feature_flag_called',
+                                                                math: BaseMathType.UniqueUsers,
+                                                            },
+                                                        ],
+                                                        interval: 'day',
+                                                        dateRange: {
+                                                            date_from: dayjs()
+                                                                .subtract(EXPERIMENT_DEFAULT_DURATION, 'day')
+                                                                .format('YYYY-MM-DDTHH:mm'),
+                                                            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                                                            explicitDate: true,
                                                         },
-                                                    ],
-                                                    interval: 'day',
-                                                    dateRange: {
-                                                        date_from: dayjs()
-                                                            .subtract(EXPERIMENT_DEFAULT_DURATION, 'day')
-                                                            .format('YYYY-MM-DDTHH:mm'),
-                                                        date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                                                        explicitDate: true,
+                                                        trendsFilter: {
+                                                            display: ChartDisplayType.ActionsLineGraph,
+                                                        },
+                                                        filterTestAccounts: true,
                                                     },
-                                                    trendsFilter: {
-                                                        display: ChartDisplayType.ActionsLineGraph,
-                                                    },
-                                                    filterTestAccounts: true,
                                                 },
                                             })
                                         }}
                                     >
                                         <div className="font-semibold flex justify-between items-center">
                                             <span>Custom</span>
-                                            {savedMetric.exposure_query && (
+                                            {savedMetricQuery.exposure_query && (
                                                 <IconCheckCircle fontSize={18} color="var(--primary)" />
                                             )}
                                         </div>
@@ -194,11 +204,13 @@ export function SavedTrendsMetricForm(): JSX.Element {
                                         </div>
                                     </div>
                                 </div>
-                                {savedMetric.exposure_query && (
+                                {savedMetricQuery.exposure_query && (
                                     <>
                                         <ActionFilter
                                             bordered
-                                            filters={queryNodeToFilter(savedMetric.exposure_query as InsightQueryNode)}
+                                            filters={queryNodeToFilter(
+                                                savedMetricQuery.exposure_query as InsightQueryNode
+                                            )}
                                             setFilters={({
                                                 actions,
                                                 events,
@@ -210,9 +222,12 @@ export function SavedTrendsMetricForm(): JSX.Element {
                                                     MathAvailability.All
                                                 )
                                                 setSavedMetric({
-                                                    exposure_query: {
-                                                        ...savedMetric.exposure_query,
-                                                        series,
+                                                    query: {
+                                                        ...savedMetricQuery,
+                                                        exposure_query: {
+                                                            ...savedMetricQuery.exposure_query,
+                                                            series,
+                                                        },
                                                     },
                                                 })
                                             }}
@@ -226,14 +241,17 @@ export function SavedTrendsMetricForm(): JSX.Element {
                                         <div className="mt-4 space-y-4">
                                             <TestAccountFilterSwitch
                                                 checked={(() => {
-                                                    const val = savedMetric.exposure_query?.filterTestAccounts
+                                                    const val = savedMetricQuery.exposure_query?.filterTestAccounts
                                                     return hasFilters ? !!val : false
                                                 })()}
                                                 onChange={(checked: boolean) => {
                                                     setSavedMetric({
-                                                        exposure_query: {
-                                                            ...savedMetric.exposure_query,
-                                                            filterTestAccounts: checked,
+                                                        query: {
+                                                            ...savedMetricQuery,
+                                                            exposure_query: {
+                                                                ...savedMetricQuery.exposure_query,
+                                                                filterTestAccounts: checked,
+                                                            },
                                                         },
                                                     })
                                                 }}

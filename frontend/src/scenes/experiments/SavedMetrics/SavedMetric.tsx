@@ -1,12 +1,13 @@
 import { IconCheckCircle } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
+import { SavedFunnelsMetricForm } from './SavedFunnelsMetricForm'
 import { savedMetricLogic } from './savedMetricLogic'
 import { SavedTrendsMetricForm } from './SavedTrendsMetricForm'
-import { SavedFunnelsMetricForm } from './SavedFunnelsMetricForm'
-import { getDefaultTrendsMetric, getDefaultFunnelsMetric } from '../experimentLogic'
-import { LemonButton } from '@posthog/lemon-ui'
-import { SceneExport } from 'kea'
 
 type MetricType = 'trends' | 'funnels'
 

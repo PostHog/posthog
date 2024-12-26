@@ -702,6 +702,7 @@ export enum ExperimentsTabs {
     Yours = 'yours',
     Archived = 'archived',
     Holdouts = 'holdouts',
+    SavedMetrics = 'saved-metrics',
 }
 
 export enum ActivityTab {

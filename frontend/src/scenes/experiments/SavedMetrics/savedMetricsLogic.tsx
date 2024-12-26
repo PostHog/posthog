@@ -1,10 +1,9 @@
 import { actions, events, kea, listeners, path, reducers } from 'kea'
-import { router } from 'kea-router'
-import type { savedMetricsLogicType } from '../savedMetricsLogicType'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import api from 'lib/api'
-import { SavedMetric } from './savedMetricLogic'
 
+import { SavedMetric } from './savedMetricLogic'
 import type { savedMetricsLogicType } from './savedMetricsLogicType'
 
 export enum SavedMetricsTabs {
@@ -19,7 +18,7 @@ export const savedMetricsLogic = kea<savedMetricsLogicType>([
         setSavedMetricsTab: (tabKey: SavedMetricsTabs) => ({ tabKey }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(() => ({
         savedMetrics: {
             loadSavedMetrics: async () => {
                 const response = await api.get('api/projects/@current/experiment_saved_metrics')
@@ -35,8 +34,8 @@ export const savedMetricsLogic = kea<savedMetricsLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
-        setSavedMetricsTab: ({ tabKey }) => {
+    listeners(() => ({
+        setSavedMetricsTab: () => {
             router.actions.push('/experiments/saved-metrics')
         },
     })),

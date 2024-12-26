@@ -1,11 +1,11 @@
-import { actions, kea, key, path, props, reducers, selectors, listeners } from 'kea'
-import { loaders } from 'kea-loaders'
-import type { savedMetricLogicType } from './savedMetricLogicType'
-import { getDefaultTrendsMetric } from '../experimentLogic'
-import api from 'lib/api'
 import { lemonToast } from '@posthog/lemon-ui'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import { urls } from 'scenes/urls'
+import api from 'lib/api'
+
+import { getDefaultTrendsMetric } from '../experimentLogic'
+import type { savedMetricLogicType } from './savedMetricLogicType'
 
 export interface SavedMetricLogicProps {
     savedMetricId?: string | number
@@ -38,8 +38,8 @@ export const savedMetricLogic = kea<savedMetricLogicType>([
 
     actions({
         setSavedMetric: (metric: Partial<SavedMetric>) => ({ metric }),
-        createSavedMetric: (metric: Partial<SavedMetric>) => ({ metric }),
-        updateSavedMetric: (metric: Partial<SavedMetric>) => ({ metric }),
+        createSavedMetric: true,
+        updateSavedMetric: true,
         deleteSavedMetric: true,
     }),
 

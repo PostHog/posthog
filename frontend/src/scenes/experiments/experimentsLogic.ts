@@ -1,14 +1,14 @@
 import { LemonTagType } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
-import { actions, connect, events, kea, path, reducers, selectors, listeners } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
-import { router } from 'kea-router'
 
 import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
 
@@ -74,7 +74,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(() => ({
         setExperimentsTab: ({ tabKey }) => {
             if (tabKey === ExperimentsTabs.SavedMetrics) {
                 router.actions.push('/experiments/saved-metrics')
@@ -160,12 +160,9 @@ export const experimentsLogic = kea<experimentsLogicType>([
             (featureFlags: FeatureFlagsSet) => featureFlags[FEATURE_FLAGS.WEB_EXPERIMENTS],
         ],
     })),
-    events(({ actions, values }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadExperiments()
-            // if (values.location.pathname === '/experiments/saved-metrics') {
-            //     actions.setExperimentsTab(ExperimentsTabs.SavedMetrics)
-            // }
         },
     })),
 ])
