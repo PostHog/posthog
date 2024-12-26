@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 const MIN_BOUNCE_RATE_DURATION = 1
 const MAX_BOUNCE_RATE_DURATION = 120
+const DEFAULT_BOUNCE_RATE_DURATION = 10
 
 export function BounceRateDurationSetting(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -14,7 +15,7 @@ export function BounceRateDurationSetting(): JSX.Element {
 
     const savedDuration =
         currentTeam?.modifiers?.bounceRateDurationSeconds ?? currentTeam?.default_modifiers?.bounceRateDurationSeconds
-    const [bounceRateDuration, setBounceRateDuration] = useState<number | undefined>(savedDuration)
+    const [bounceRateDuration, setBounceRateDuration] = useState<number>(savedDuration ?? DEFAULT_BOUNCE_RATE_DURATION)
 
     const handleChange = (duration: number | undefined): void => {
         if (Number.isNaN(duration)) {
@@ -31,7 +32,8 @@ export function BounceRateDurationSetting(): JSX.Element {
         <>
             <p>
                 Choose how long a user can stay on a page, in seconds, before the session is not a bounce. Leave blank
-                to use the default of 10 seconds, or set a custom value between 1 second and 120 seconds inclusive.
+                to use the default of {DEFAULT_BOUNCE_RATE_DURATION} seconds, or set a custom value between{' '}
+                {MIN_BOUNCE_RATE_DURATION} second and {MAX_BOUNCE_RATE_DURATION} seconds inclusive.
             </p>
             <LemonInput
                 type="number"
@@ -40,7 +42,7 @@ export function BounceRateDurationSetting(): JSX.Element {
                 value={bounceRateDuration ?? null}
                 onChange={(x) => {
                     if (x == null || Number.isNaN(x)) {
-                        setBounceRateDuration(undefined)
+                        setBounceRateDuration(DEFAULT_BOUNCE_RATE_DURATION)
                     } else {
                         setBounceRateDuration(x)
                     }
@@ -54,7 +56,7 @@ export function BounceRateDurationSetting(): JSX.Element {
                         tooltip="Clear input"
                         onClick={(e) => {
                             e.stopPropagation()
-                            setBounceRateDuration(undefined)
+                            setBounceRateDuration(DEFAULT_BOUNCE_RATE_DURATION)
                             inputRef.current?.focus()
                         }}
                     />

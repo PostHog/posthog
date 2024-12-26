@@ -68,7 +68,7 @@ export interface LemonInputPropsNumber
     extends LemonInputPropsBase,
         Pick<React.InputHTMLAttributes<HTMLInputElement>, 'step' | 'min' | 'max'> {
     type: 'number'
-    value?: number | null
+    value?: number
     defaultValue?: number
     onChange?: (newValue: number | undefined) => void
 }
@@ -153,10 +153,6 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
     }
 
     const InputComponent = autoWidth ? RawInputAutosize : 'input'
-
-    if (value == null) {
-        value = ''
-    }
 
     return (
         <span
