@@ -49,6 +49,7 @@ from posthog.tasks.tasks import (
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
+    populate_error_tracking_issue_metrics,
     sync_all_organization_available_product_features,
     update_event_partitions,
     update_quota_limiting,
@@ -253,6 +254,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             clear_clickhouse_deleted_person.s(),
             name="clickhouse clear deleted person data",
         )
+
+    sender.add_periodic_task(
+        crontab(minute="*/10"),
+        populate_error_tracking_issue_metrics.s(),
+        name="populate error tracking issue metrics",
+    )
 
     sender.add_periodic_task(
         crontab(hour="*/12"),

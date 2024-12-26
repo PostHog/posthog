@@ -28,6 +28,8 @@ pub enum UnhandledError {
     ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
     #[error("Unhandled serde error: {0}")]
     SerdeError(#[from] serde_json::Error),
+    #[error("Redis error: {0}")]
+    RedisError(#[from] redis::RedisError),
 }
 
 // These are errors that occur during frame resolution. This excludes e.g. network errors,

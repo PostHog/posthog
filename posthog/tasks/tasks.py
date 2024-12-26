@@ -918,3 +918,10 @@ def calculate_external_data_rows_synced() -> None:
         pass
     else:
         capture_external_data_rows_synced()
+
+
+@shared_task(ignore_result=True)
+def populate_error_tracking_issue_metrics() -> None:
+    from posthog.tasks.error_tracking import sync_error_tracking_issue_metrics
+
+    sync_error_tracking_issue_metrics()
