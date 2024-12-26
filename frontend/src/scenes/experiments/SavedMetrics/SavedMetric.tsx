@@ -1,15 +1,14 @@
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
+
+import { NodeKind } from '~/queries/schema'
 
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
 import { SavedFunnelsMetricForm } from './SavedFunnelsMetricForm'
 import { savedMetricLogic } from './savedMetricLogic'
 import { SavedTrendsMetricForm } from './SavedTrendsMetricForm'
-
-type MetricType = 'trends' | 'funnels'
 
 export const scene: SceneExport = {
     component: SavedMetric,
@@ -20,23 +19,23 @@ export const scene: SceneExport = {
 }
 
 export function SavedMetric(): JSX.Element {
-    const { savedMetric } = useValues(savedMetricLogic)
-    const { setSavedMetric, createSavedMetric } = useActions(savedMetricLogic)
-    const [selectedType, setSelectedType] = useState<MetricType>('trends')
+    const { savedMetricId, savedMetric } = useValues(savedMetricLogic)
+    const { setSavedMetric, createSavedMetric, updateSavedMetric, deleteSavedMetric } = useActions(savedMetricLogic)
 
-    if (!savedMetric) {
+    if (!savedMetric || !savedMetric.query) {
         return <div>Loading...</div>
     }
 
     return (
-        <div>
+        <div className="max-w-[800px]">
             <div className="flex gap-4 mb-4">
                 <div
                     className={`flex-1 cursor-pointer p-4 rounded border ${
-                        selectedType === 'trends' ? 'border-primary bg-primary-highlight' : 'border-border'
+                        savedMetric.query.kind === NodeKind.ExperimentTrendsQuery
+                            ? 'border-primary bg-primary-highlight'
+                            : 'border-border'
                     }`}
                     onClick={() => {
-                        setSelectedType('trends')
                         setSavedMetric({
                             query: getDefaultTrendsMetric(),
                         })
@@ -44,19 +43,19 @@ export function SavedMetric(): JSX.Element {
                 >
                     <div className="font-semibold flex justify-between items-center">
                         <span>Trend</span>
-                        {selectedType === 'trends' && <IconCheckCircle fontSize={18} color="var(--primary)" />}
+                        {savedMetric.query.kind === NodeKind.ExperimentTrendsQuery && (
+                            <IconCheckCircle fontSize={18} color="var(--primary)" />
+                        )}
                     </div>
-                    <div className="text-muted text-sm leading-relaxed">
-                        Track metrics over time using events and actions. Perfect for measuring user behavior,
-                        engagement rates, and other time-based metrics.
-                    </div>
+                    <div className="text-muted text-sm leading-relaxed">Track a single event or action.</div>
                 </div>
                 <div
                     className={`flex-1 cursor-pointer p-4 rounded border ${
-                        selectedType === 'funnels' ? 'border-primary bg-primary-highlight' : 'border-border'
+                        savedMetric.query.kind === NodeKind.ExperimentFunnelsQuery
+                            ? 'border-primary bg-primary-highlight'
+                            : 'border-border'
                     }`}
                     onClick={() => {
-                        setSelectedType('funnels')
                         setSavedMetric({
                             query: getDefaultFunnelsMetric(),
                         })
@@ -64,25 +63,72 @@ export function SavedMetric(): JSX.Element {
                 >
                     <div className="font-semibold flex justify-between items-center">
                         <span>Funnel</span>
-                        {selectedType === 'funnels' && <IconCheckCircle fontSize={18} color="var(--primary)" />}
+                        {savedMetric.query.kind === NodeKind.ExperimentFunnelsQuery && (
+                            <IconCheckCircle fontSize={18} color="var(--primary)" />
+                        )}
                     </div>
                     <div className="text-muted text-sm leading-relaxed">
-                        Analyze conversion rates between sequential steps. Ideal for understanding user flows, drop-off
-                        points, and conversion optimization.
+                        Analyze conversion rates between sequential steps.
                     </div>
                 </div>
             </div>
-
-            {selectedType === 'trends' ? <SavedTrendsMetricForm /> : <SavedFunnelsMetricForm />}
-            <LemonButton
-                size="small"
-                type="primary"
-                onClick={() => {
-                    createSavedMetric()
-                }}
-            >
-                Save
-            </LemonButton>
+            <div className="border rounded bg-white p-4">
+                <div className="mb-4">
+                    <LemonLabel>Name</LemonLabel>
+                    <LemonInput
+                        value={savedMetric.name}
+                        onChange={(newName) => {
+                            setSavedMetric({
+                                name: newName,
+                            })
+                        }}
+                    />
+                </div>
+                {savedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
+                    <SavedTrendsMetricForm />
+                ) : (
+                    <SavedFunnelsMetricForm />
+                )}
+            </div>
+            <div className="flex justify-between mt-4">
+                <LemonButton
+                    size="medium"
+                    type="primary"
+                    status="danger"
+                    onClick={() => {
+                        LemonDialog.open({
+                            title: 'Delete this metric?',
+                            content: <div className="text-sm text-muted">This action cannot be undone.</div>,
+                            primaryButton: {
+                                children: 'Delete',
+                                type: 'primary',
+                                onClick: () => deleteSavedMetric(),
+                                size: 'small',
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                                type: 'tertiary',
+                                size: 'small',
+                            },
+                        })
+                    }}
+                >
+                    Delete
+                </LemonButton>
+                <LemonButton
+                    size="medium"
+                    type="primary"
+                    onClick={() => {
+                        if (savedMetricId === 'new') {
+                            createSavedMetric()
+                        } else {
+                            updateSavedMetric()
+                        }
+                    }}
+                >
+                    Save
+                </LemonButton>
+            </div>
         </div>
     )
 }

@@ -1,8 +1,8 @@
-import { LemonLabel } from '@posthog/lemon-ui'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { getHogQLValue } from 'scenes/insights/filters/AggregationSelect'
@@ -10,7 +10,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { ExperimentFunnelsQuery } from '~/queries/schema'
+import { Query } from '~/queries/Query/Query'
+import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema'
 import { BreakdownAttributionType, FilterType } from '~/types'
 
 import {
@@ -41,18 +42,6 @@ export function SavedFunnelsMetricForm(): JSX.Element {
 
     return (
         <>
-            <div className="mb-4">
-                <LemonLabel>Name (optional)</LemonLabel>
-                <LemonInput
-                    // TODO: use correct field!!!
-                    value={savedMetric.name}
-                    onChange={(newName) => {
-                        setSavedMetric({
-                            name: newName,
-                        })
-                    }}
-                />
-            </div>
             <ActionFilter
                 bordered
                 filters={queryNodeToFilter(savedMetricQuery.funnels_query)}
@@ -191,24 +180,24 @@ export function SavedFunnelsMetricForm(): JSX.Element {
                     fullWidth
                 />
             </div>
-            {/* {isExperimentRunning && (
-                <LemonBanner type="info" className="mt-3 mb-3">
-                    Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of data. This can cause a
-                    mismatch between the preview and the actual results.
-                </LemonBanner>
-            )} */}
-            {/* <div className="mt-4">
+
+            <LemonBanner type="info" className="mt-3 mb-3">
+                Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of data. This can cause a
+                mismatch between the preview and the actual results.
+            </LemonBanner>
+
+            <div className="mt-4">
                 <Query
                     query={{
                         kind: NodeKind.InsightVizNode,
-                        source: currentMetric.funnels_query,
+                        source: savedMetricQuery.funnels_query,
                         showTable: false,
                         showLastComputation: true,
                         showLastComputationRefresh: false,
                     }}
                     readOnly
                 />
-            </div> */}
+            </div>
         </>
     )
 }

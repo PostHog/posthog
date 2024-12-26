@@ -1,11 +1,12 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 
 import { getDefaultTrendsMetric } from '../experimentLogic'
 import type { savedMetricLogicType } from './savedMetricLogicType'
+import { savedMetricsLogic } from './savedMetricsLogic'
 
 export interface SavedMetricLogicProps {
     savedMetricId?: string | number
@@ -35,7 +36,9 @@ export const savedMetricLogic = kea<savedMetricLogicType>([
     props({} as SavedMetricLogicProps),
     path((key) => ['scenes', 'experiments', 'savedMetricLogic', key]),
     key((props) => props.savedMetricId || 'new'),
-
+    connect(() => ({
+        actions: [savedMetricsLogic, ['loadSavedMetrics']],
+    })),
     actions({
         setSavedMetric: (metric: Partial<SavedMetric>) => ({ metric }),
         createSavedMetric: true,
@@ -57,25 +60,32 @@ export const savedMetricLogic = kea<savedMetricLogicType>([
         },
     })),
 
-    listeners(({ values }) => ({
+    listeners(({ actions, values }) => ({
         createSavedMetric: async () => {
             const response = await api.create(`api/projects/@current/experiment_saved_metrics/`, values.savedMetric)
             if (response.id) {
+                lemonToast.success('Saved metric created successfully')
+                actions.loadSavedMetrics()
                 router.actions.push('/experiments/saved-metrics')
             }
-            lemonToast.success('Saved metric created successfully')
         },
         updateSavedMetric: async () => {
-            await api.update(
+            const response = await api.update(
                 `api/projects/@current/experiment_saved_metrics/${values.savedMetricId}`,
                 values.savedMetric
             )
-            lemonToast.success('Saved metric updated successfully')
+            if (response.id) {
+                lemonToast.success('Saved metric updated successfully')
+                actions.loadSavedMetrics()
+                router.actions.push('/experiments/saved-metrics')
+            }
         },
         deleteSavedMetric: async () => {
             try {
                 await api.delete(`api/projects/@current/experiment_saved_metrics/${values.savedMetricId}`)
                 lemonToast.success('Saved metric deleted successfully')
+                actions.loadSavedMetrics()
+                router.actions.push('/experiments/saved-metrics')
             } catch (error) {
                 lemonToast.error('Failed to delete saved metric')
                 console.error(error)

@@ -1,5 +1,5 @@
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonInput, LemonLabel, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
@@ -11,6 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
 import { BaseMathType, ChartDisplayType, FilterType, PropertyMathType } from '~/types'
 
@@ -41,17 +42,6 @@ export function SavedTrendsMetricForm(): JSX.Element {
                         label: 'Main metric',
                         content: (
                             <>
-                                <div className="mb-4">
-                                    <LemonLabel>Name (optional)</LemonLabel>
-                                    <LemonInput
-                                        value={savedMetric.name}
-                                        onChange={(newName) => {
-                                            setSavedMetric({
-                                                name: newName,
-                                            })
-                                        }}
-                                    />
-                                </div>
                                 <ActionFilter
                                     bordered
                                     filters={queryNodeToFilter(savedMetricQuery.count_query)}
@@ -99,24 +89,22 @@ export function SavedTrendsMetricForm(): JSX.Element {
                                         fullWidth
                                     />
                                 </div>
-                                {/* {isExperimentRunning && (
-                                    <LemonBanner type="info" className="mt-3 mb-3">
-                                        Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of
-                                        data. This can cause a mismatch between the preview and the actual results.
-                                    </LemonBanner>
-                                )}
+                                <LemonBanner type="info" className="mt-3 mb-3">
+                                    Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of data.
+                                    This can cause a mismatch between the preview and the actual results.
+                                </LemonBanner>
                                 <div className="mt-4">
                                     <Query
                                         query={{
                                             kind: NodeKind.InsightVizNode,
-                                            source: savedMetric.count_query,
+                                            source: savedMetricQuery.count_query,
                                             showTable: false,
                                             showLastComputation: true,
                                             showLastComputationRefresh: false,
                                         }}
                                         readOnly
                                     />
-                                </div> */}
+                                </div>
                             </>
                         ),
                     },
@@ -258,25 +246,23 @@ export function SavedTrendsMetricForm(): JSX.Element {
                                                 fullWidth
                                             />
                                         </div>
-                                        {/* {isExperimentRunning && (
-                                            <LemonBanner type="info" className="mt-3 mb-3">
-                                                Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION}{' '}
-                                                days of data. This can cause a mismatch between the preview and the
-                                                actual results.
-                                            </LemonBanner>
-                                        )}
+                                        <LemonBanner type="info" className="mt-3 mb-3">
+                                            Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days
+                                            of data. This can cause a mismatch between the preview and the actual
+                                            results.
+                                        </LemonBanner>
                                         <div className="mt-4">
                                             <Query
                                                 query={{
                                                     kind: NodeKind.InsightVizNode,
-                                                    source: savedMetric.exposure_query,
+                                                    source: savedMetricQuery.exposure_query,
                                                     showTable: false,
                                                     showLastComputation: true,
                                                     showLastComputationRefresh: false,
                                                 }}
                                                 readOnly
                                             />
-                                        </div> */}
+                                        </div>
                                     </>
                                 )}
                             </>

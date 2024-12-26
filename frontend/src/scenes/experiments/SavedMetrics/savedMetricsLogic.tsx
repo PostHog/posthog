@@ -18,14 +18,15 @@ export const savedMetricsLogic = kea<savedMetricsLogicType>([
         setSavedMetricsTab: (tabKey: SavedMetricsTabs) => ({ tabKey }),
     }),
 
-    loaders(() => ({
+    loaders({
         savedMetrics: {
             loadSavedMetrics: async () => {
                 const response = await api.get('api/projects/@current/experiment_saved_metrics')
                 return response.results as SavedMetric[]
             },
         },
-    })),
+    }),
+
     reducers({
         tab: [
             SavedMetricsTabs.All as SavedMetricsTabs,
