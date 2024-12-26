@@ -2264,6 +2264,7 @@ class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bounceRateDurationSeconds: Optional[float] = None
     bounceRatePageViewMode: Optional[BounceRatePageViewMode] = None
     customChannelTypeRules: Optional[list[CustomChannelRule]] = None
     dataWarehouseEventsModifiers: Optional[list[DataWarehouseEventsModifier]] = None
