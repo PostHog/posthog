@@ -17,6 +17,7 @@ function SvelteAppClientCodeSnippet(): JSX.Element {
         <CodeSnippet language={Language.JavaScript}>
             {`import posthog from 'posthog-js'
 import { browser } from '$app/environment';
+import { onMount } from 'svelte';
 
 onMount(() => {
   if (browser) {
