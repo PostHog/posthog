@@ -21,6 +21,14 @@ def populate_error_tracking_issue_metrics():
         last_seen = data.get(b"last_seen")
         occurrences = data.get(b"occurrences")
 
+        if not last_seen or not occurrences:
+            # there should be no case where one is missing
+            try:
+                client.delete(key)
+            except Exception as error:
+                capture_exception(error)
+            continue
+
         try:
             # update the issue and reset redis key
             ErrorTrackingIssue.objects.filter(team=team_id, id=issue_id).update(
