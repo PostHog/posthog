@@ -659,7 +659,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
 export function ActionBanner(): JSX.Element {
     const {
         experiment,
-        getMetricType,
+        _getMetricType,
         metricResults,
         experimentLoading,
         metricResultsLoading,
@@ -678,7 +678,7 @@ export function ActionBanner(): JSX.Element {
 
     const { aggregationLabel } = useValues(groupsModel)
 
-    const metricType = getMetricType(0)
+    const metricType = _getMetricType(experiment.metrics[0])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null

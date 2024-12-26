@@ -68,7 +68,12 @@ export function DeltaChart({
     } = useValues(experimentLogic)
 
     const { experiment } = useValues(experimentLogic)
-    const { openPrimaryMetricModal, openSecondaryMetricModal } = useActions(experimentLogic)
+    const {
+        openPrimaryMetricModal,
+        openSecondaryMetricModal,
+        openPrimarySharedMetricModal,
+        openSecondarySharedMetricModal,
+    } = useActions(experimentLogic)
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
@@ -186,11 +191,19 @@ export function DeltaChart({
                                     type="secondary"
                                     size="xsmall"
                                     icon={<IconPencil fontSize="12" />}
-                                    onClick={() =>
+                                    onClick={() => {
+                                        if (metric.isSavedMetric) {
+                                            if (isSecondary) {
+                                                openSecondarySharedMetricModal()
+                                            } else {
+                                                openPrimarySharedMetricModal()
+                                            }
+                                            return
+                                        }
                                         isSecondary
                                             ? openSecondaryMetricModal(metricIndex)
                                             : openPrimaryMetricModal(metricIndex)
-                                    }
+                                    }}
                                 />
                             </div>
                             <LemonTag type="muted" size="small">
@@ -740,7 +753,7 @@ export function DeltaChart({
                         <SignificanceText metricIndex={metricIndex} />
                     </div>
                 </LemonBanner>
-                <SummaryTable metricIndex={metricIndex} isSecondary={isSecondary} />
+                <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
                 <ResultsQuery targetResults={result} showTable={true} />
             </LemonModal>
         </div>
@@ -778,7 +791,7 @@ function SignificanceHighlight({
 
     return details ? (
         <Tooltip title={details}>
-            <div className="cursor-pointer">{inner}</div>
+            <div className="cursor-default">{inner}</div>
         </Tooltip>
     ) : (
         <div>{inner}</div>

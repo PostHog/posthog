@@ -5,7 +5,7 @@ import { ResultsHeader, ResultsQuery } from './components'
 import { SummaryTable } from './SummaryTable'
 
 export function Results(): JSX.Element {
-    const { metricResults } = useValues(experimentLogic)
+    const { experiment, metricResults } = useValues(experimentLogic)
     const result = metricResults?.[0]
     if (!result) {
         return <></>
@@ -14,7 +14,7 @@ export function Results(): JSX.Element {
     return (
         <div>
             <ResultsHeader />
-            <SummaryTable />
+            <SummaryTable metric={experiment.metrics[0]} />
             <ResultsQuery targetResults={result} showTable={true} />
         </div>
     )

@@ -18,8 +18,7 @@ export function MetricModal({
     const {
         experiment,
         experimentLoading,
-        getMetricType,
-        getSecondaryMetricType,
+        _getMetricType,
         isPrimaryMetricModalOpen,
         isSecondaryMetricModalOpen,
         editingPrimaryMetricIndex,
@@ -36,9 +35,9 @@ export function MetricModal({
         return <></>
     }
 
-    const metricType = isSecondary ? getSecondaryMetricType(metricIdx) : getMetricType(metricIdx)
     const metrics = experiment[metricsField]
     const metric = metrics[metricIdx]
+    const metricType = _getMetricType(metric)
     const funnelStepsLength = (metric as ExperimentFunnelsQuery)?.funnels_query?.series?.length || 0
 
     return (

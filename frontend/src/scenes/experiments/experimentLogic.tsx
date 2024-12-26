@@ -66,6 +66,8 @@ import { MetricInsightId } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
+import { SavedMetric } from './SavedMetrics/savedMetricLogic'
+import { savedMetricsLogic } from './SavedMetrics/savedMetricsLogic'
 import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
@@ -76,6 +78,8 @@ const NEW_EXPERIMENT: Experiment = {
     filters: {},
     metrics: [],
     metrics_secondary: [],
+    saved_metrics_ids: [],
+    saved_metrics: [],
     parameters: {
         feature_flag_variants: [
             { key: 'control', rollout_percentage: 50 },
@@ -148,6 +152,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['insightDataLoading as trendMetricInsightLoading'],
             insightDataLogic({ dashboardItemId: MetricInsightId.Funnels }),
             ['insightDataLoading as funnelMetricInsightLoading'],
+            savedMetricsLogic,
+            ['savedMetrics'],
         ],
         actions: [
             experimentsLogic,
@@ -273,6 +279,21 @@ export const experimentLogic = kea<experimentLogicType>([
         openSecondaryMetricModal: (index: number) => ({ index }),
         closeSecondaryMetricModal: true,
         setSecondaryMetricsResultErrors: (errors: any[]) => ({ errors }),
+        openPrimaryMetricSourceModal: true,
+        closePrimaryMetricSourceModal: true,
+        openSecondaryMetricSourceModal: true,
+        closeSecondaryMetricSourceModal: true,
+        openPrimarySharedMetricModal: true,
+        closePrimarySharedMetricModal: true,
+        openSecondarySharedMetricModal: true,
+        closeSecondarySharedMetricModal: true,
+        addSavedMetricToExperiment: (
+            savedMetricId: SavedMetric['id'],
+            metadata: { type: 'primary' | 'secondary' }
+        ) => ({
+            savedMetricId,
+            metadata,
+        }),
     }),
     reducers({
         experiment: [
@@ -522,6 +543,34 @@ export const experimentLogic = kea<experimentLogicType>([
                 loadExperiment: () => [],
             },
         ],
+        isPrimaryMetricSourceModalOpen: [
+            false,
+            {
+                openPrimaryMetricSourceModal: () => true,
+                closePrimaryMetricSourceModal: () => false,
+            },
+        ],
+        isSecondaryMetricSourceModalOpen: [
+            false,
+            {
+                openSecondaryMetricSourceModal: () => true,
+                closeSecondaryMetricSourceModal: () => false,
+            },
+        ],
+        isPrimarySharedMetricModalOpen: [
+            false,
+            {
+                openPrimarySharedMetricModal: () => true,
+                closePrimarySharedMetricModal: () => false,
+            },
+        ],
+        isSecondarySharedMetricModalOpen: [
+            false,
+            {
+                openSecondarySharedMetricModal: () => true,
+                closeSecondarySharedMetricModal: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
@@ -697,6 +746,12 @@ export const experimentLogic = kea<experimentLogicType>([
         closeSecondaryMetricModal: () => {
             actions.loadExperiment()
         },
+        closePrimarySharedMetricModal: () => {
+            actions.loadExperiment()
+        },
+        closeSecondarySharedMetricModal: () => {
+            actions.loadExperiment()
+        },
         resetRunningExperiment: async () => {
             actions.updateExperiment({ start_date: null, end_date: null, archived: false })
             values.experiment && actions.reportExperimentReset(values.experiment)
@@ -842,6 +897,36 @@ export const experimentLogic = kea<experimentLogicType>([
                 holdout_id: values.experiment.holdout_id,
             })
         },
+        addSavedMetricToExperiment: async ({ savedMetricId, metadata }) => {
+            const currentMetrics = values.experiment.saved_metrics_ids || []
+
+            // First update local state
+            actions.setExperiment({
+                saved_metrics_ids: [
+                    ...currentMetrics,
+                    {
+                        id: savedMetricId,
+                        metadata,
+                    },
+                ],
+            })
+
+            // Then persist to backend
+            await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                saved_metrics_ids: [
+                    ...currentMetrics,
+                    {
+                        id: savedMetricId,
+                        metadata,
+                    },
+                ],
+            })
+
+            // Close the modal after successful addition
+            actions.closePrimarySharedMetricModal()
+            actions.closeSecondarySharedMetricModal()
+            actions.loadExperiment()
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
@@ -876,8 +961,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 loadMetricResults: async (
                     refresh?: boolean
                 ): Promise<(CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]> => {
+                    let metrics = values.experiment?.metrics
+                    const savedMetrics = values.experiment?.saved_metrics
+                        .filter((savedMetric) => savedMetric.metadata.type === 'primary')
+                        .map((savedMetric) => savedMetric.query)
+                    if (savedMetrics) {
+                        metrics = [...metrics, ...savedMetrics]
+                    }
+
                     return (await Promise.all(
-                        values.experiment?.metrics.map(async (metric, index) => {
+                        metrics.map(async (metric, index) => {
                             try {
                                 const queryWithExperimentId = {
                                     ...metric,
@@ -913,8 +1006,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 loadSecondaryMetricResults: async (
                     refresh?: boolean
                 ): Promise<(CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]> => {
+                    let metrics = values.experiment?.metrics_secondary
+                    const savedMetrics = values.experiment?.saved_metrics
+                        .filter((savedMetric) => savedMetric.metadata.type === 'secondary')
+                        .map((savedMetric) => savedMetric.query)
+                    if (savedMetrics) {
+                        metrics = [...metrics, ...savedMetrics]
+                    }
+
                     return (await Promise.all(
-                        values.experiment?.metrics_secondary.map(async (metric, index) => {
+                        metrics.map(async (metric, index) => {
                             try {
                                 const queryWithExperimentId = {
                                     ...metric,
@@ -992,20 +1093,11 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
         ],
-        getMetricType: [
-            (s) => [s.experiment],
-            (experiment) =>
-                (metricIdx: number = 0) => {
-                    const query = experiment?.metrics?.[metricIdx]
-                    return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
-                },
-        ],
-        getSecondaryMetricType: [
-            (s) => [s.experiment],
-            (experiment) =>
-                (metricIdx: number = 0) => {
-                    const query = experiment?.metrics_secondary?.[metricIdx]
-                    return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
+        _getMetricType: [
+            () => [],
+            () =>
+                (metric: ExperimentTrendsQuery | ExperimentFunnelsQuery): InsightType => {
+                    return metric?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
                 },
         ],
         isExperimentRunning: [
@@ -1090,12 +1182,16 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         minimumDetectableEffect: [
-            (s) => [s.experiment, s.getMetricType, s.conversionMetrics, s.trendResults],
-            (newExperiment, getMetricType, conversionMetrics, trendResults): number => {
+            (s) => [s.experiment, s._getMetricType, s.conversionMetrics, s.trendResults],
+            (newExperiment, _getMetricType, conversionMetrics, trendResults): number => {
                 return (
                     newExperiment?.parameters?.minimum_detectable_effect ||
                     // :KLUDGE: extracted the method due to difficulties with logic tests
-                    getMinimumDetectableEffect(getMetricType(0), conversionMetrics, trendResults) ||
+                    getMinimumDetectableEffect(
+                        _getMetricType(newExperiment?.metrics[0]),
+                        conversionMetrics,
+                        trendResults
+                    ) ||
                     0
                 )
             },
@@ -1176,7 +1272,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [
                 s.experiment,
                 s.variants,
-                s.getMetricType,
+                s._getMetricType,
                 s.funnelResults,
                 s.conversionMetrics,
                 s.expectedRunningTime,
@@ -1187,7 +1283,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (
                 experiment,
                 variants,
-                getMetricType,
+                _getMetricType,
                 funnelResults,
                 conversionMetrics,
                 expectedRunningTime,
@@ -1195,7 +1291,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 minimumSampleSizePerVariant,
                 recommendedExposureForCountData
             ): number => {
-                if (getMetricType(0) === InsightType.FUNNELS) {
+                if (_getMetricType(experiment.metrics[0]) === InsightType.FUNNELS) {
                     const currentDuration = dayjs().diff(dayjs(experiment?.start_date), 'hour')
                     const funnelEntrants = funnelResults?.[0]?.count
 
@@ -1323,8 +1419,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         getIndexForVariant: [
-            (s) => [s.getMetricType],
-            (getMetricType) =>
+            (s) => [s.experiment, s._getMetricType],
+            (experiment, _getMetricType) =>
                 (
                     metricResult:
                         | Partial<ExperimentResults['result']>
@@ -1340,7 +1436,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
 
                     let index = -1
-                    if (getMetricType(0) === InsightType.FUNNELS) {
+                    if (_getMetricType(experiment.metrics[0]) === InsightType.FUNNELS) {
                         // Funnel Insight is displayed in order of decreasing count
                         index = (Array.isArray(metricResult.insight) ? [...metricResult.insight] : [])
                             .sort((a, b) => {
@@ -1362,7 +1458,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                     const result = index === -1 ? null : index
 
-                    if (result !== null && getMetricType(0) === InsightType.FUNNELS) {
+                    if (result !== null && _getMetricType(experiment.metrics[0]) === InsightType.FUNNELS) {
                         return result + 1
                     }
                     return result
@@ -1463,7 +1559,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         tabularExperimentResults: [
-            (s) => [s.experiment, s.metricResults, s.getMetricType],
+            (s) => [s.experiment, s.metricResults, s._getMetricType],
             (
                     experiment,
                     metricResults: (
@@ -1471,11 +1567,11 @@ export const experimentLogic = kea<experimentLogicType>([
                         | CachedExperimentTrendsQueryResponse
                         | null
                     )[],
-                    getMetricType
+                    _getMetricType
                 ) =>
                 (metricIndex: number = 0): any[] => {
                     const tabularResults = []
-                    const metricType = getMetricType(metricIndex)
+                    const metricType = _getMetricType(experiment.metrics[metricIndex])
                     const result = metricResults?.[metricIndex]
 
                     if (result) {
@@ -1571,19 +1667,20 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         funnelResultsPersonsTotal: [
-            (s) => [s.metricResults, s.getMetricType],
+            (s) => [s.experiment, s.metricResults, s._getMetricType],
             (
+                    experiment,
                     metricResults: (
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
                     )[],
-                    getMetricType
+                    _getMetricType
                 ) =>
                 (metricIndex: number = 0): number => {
                     const result = metricResults?.[metricIndex]
 
-                    if (getMetricType(metricIndex) !== InsightType.FUNNELS || !result?.insight) {
+                    if (_getMetricType(experiment.metrics[metricIndex]) !== InsightType.FUNNELS || !result?.insight) {
                         return 0
                     }
 
