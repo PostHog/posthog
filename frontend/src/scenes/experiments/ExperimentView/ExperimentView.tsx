@@ -8,7 +8,7 @@ import { ExperimentImplementationDetails } from '../ExperimentImplementationDeta
 import { experimentLogic } from '../experimentLogic'
 import { MetricModal } from '../Metrics/MetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
-import { SharedMetricModal } from '../Metrics/SharedMetricModal'
+import { SavedMetricModal } from '../Metrics/SavedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import {
     ExperimentLoadingAnimation,
@@ -149,8 +149,8 @@ export function ExperimentView(): JSX.Element {
                         <MetricModal experimentId={experimentId} isSecondary={true} />
                         <MetricModal experimentId={experimentId} isSecondary={false} />
 
-                        <SharedMetricModal experimentId={experimentId} isSecondary={true} />
-                        <SharedMetricModal experimentId={experimentId} isSecondary={false} />
+                        <SavedMetricModal experimentId={experimentId} isSecondary={true} />
+                        <SavedMetricModal experimentId={experimentId} isSecondary={false} />
 
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />

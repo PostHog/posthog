@@ -107,6 +107,8 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
         .filter((savedMetric) => savedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary'))
         .map((savedMetric) => ({
             ...savedMetric.query,
+            name: savedMetric.name,
+            savedMetricId: savedMetric.saved_metric,
             isSavedMetric: true,
         }))
 

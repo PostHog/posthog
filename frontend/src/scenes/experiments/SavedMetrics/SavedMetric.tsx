@@ -3,6 +3,7 @@ import { LemonButton, LemonDialog, LemonInput, LemonLabel, Spinner } from '@post
 import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { NodeKind } from '~/queries/schema'
 
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
@@ -21,6 +22,7 @@ export const scene: SceneExport = {
 export function SavedMetric(): JSX.Element {
     const { savedMetricId, savedMetric } = useValues(savedMetricLogic)
     const { setSavedMetric, createSavedMetric, updateSavedMetric, deleteSavedMetric } = useActions(savedMetricLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     if (!savedMetric || !savedMetric.query) {
         return (
@@ -78,7 +80,7 @@ export function SavedMetric(): JSX.Element {
                     </div>
                 </div>
             </div>
-            <div className="border rounded bg-white p-4">
+            <div className={`border rounded ${isDarkModeOn ? 'bg-light' : 'bg-white'} p-4`}>
                 <div className="mb-4">
                     <LemonLabel>Name</LemonLabel>
                     <LemonInput

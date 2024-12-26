@@ -283,10 +283,10 @@ export const experimentLogic = kea<experimentLogicType>([
         closePrimaryMetricSourceModal: true,
         openSecondaryMetricSourceModal: true,
         closeSecondaryMetricSourceModal: true,
-        openPrimarySharedMetricModal: true,
-        closePrimarySharedMetricModal: true,
-        openSecondarySharedMetricModal: true,
-        closeSecondarySharedMetricModal: true,
+        openPrimarySavedMetricModal: (savedMetricId: SavedMetric['id'] | null) => ({ savedMetricId }),
+        closePrimarySavedMetricModal: true,
+        openSecondarySavedMetricModal: (savedMetricId: SavedMetric['id'] | null) => ({ savedMetricId }),
+        closeSecondarySavedMetricModal: true,
         addSavedMetricToExperiment: (
             savedMetricId: SavedMetric['id'],
             metadata: { type: 'primary' | 'secondary' }
@@ -294,6 +294,7 @@ export const experimentLogic = kea<experimentLogicType>([
             savedMetricId,
             metadata,
         }),
+        removeSavedMetricFromExperiment: (savedMetricId: SavedMetric['id']) => ({ savedMetricId }),
     }),
     reducers({
         experiment: [
@@ -535,6 +536,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 updateExperimentGoal: () => null,
             },
         ],
+        editingSavedMetricId: [
+            null as SavedMetric['id'] | null,
+            {
+                openPrimarySavedMetricModal: (_, { savedMetricId }) => savedMetricId,
+                openSecondarySavedMetricModal: (_, { savedMetricId }) => savedMetricId,
+                closePrimarySavedMetricModal: () => null,
+                closeSecondarySavedMetricModal: () => null,
+                updateExperimentGoal: () => null,
+            },
+        ],
         secondaryMetricsResultErrors: [
             [] as any[],
             {
@@ -557,18 +568,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeSecondaryMetricSourceModal: () => false,
             },
         ],
-        isPrimarySharedMetricModalOpen: [
+        isPrimarySavedMetricModalOpen: [
             false,
             {
-                openPrimarySharedMetricModal: () => true,
-                closePrimarySharedMetricModal: () => false,
+                openPrimarySavedMetricModal: () => true,
+                closePrimarySavedMetricModal: () => false,
             },
         ],
-        isSecondarySharedMetricModalOpen: [
+        isSecondarySavedMetricModalOpen: [
             false,
             {
-                openSecondarySharedMetricModal: () => true,
-                closeSecondarySharedMetricModal: () => false,
+                openSecondarySavedMetricModal: () => true,
+                closeSecondarySavedMetricModal: () => false,
             },
         ],
     }),
@@ -746,10 +757,10 @@ export const experimentLogic = kea<experimentLogicType>([
         closeSecondaryMetricModal: () => {
             actions.loadExperiment()
         },
-        closePrimarySharedMetricModal: () => {
+        closePrimarySavedMetricModal: () => {
             actions.loadExperiment()
         },
-        closeSecondarySharedMetricModal: () => {
+        closeSecondarySavedMetricModal: () => {
             actions.loadExperiment()
         },
         resetRunningExperiment: async () => {
@@ -898,33 +909,33 @@ export const experimentLogic = kea<experimentLogicType>([
             })
         },
         addSavedMetricToExperiment: async ({ savedMetricId, metadata }) => {
-            const currentMetrics = values.experiment.saved_metrics_ids || []
+            const savedMetricsIds = values.experiment.saved_metrics.map((savedMetric) => ({
+                id: savedMetric.saved_metric,
+                metadata,
+            }))
+            savedMetricsIds.push({ id: savedMetricId, metadata })
 
-            // First update local state
-            actions.setExperiment({
-                saved_metrics_ids: [
-                    ...currentMetrics,
-                    {
-                        id: savedMetricId,
-                        metadata,
-                    },
-                ],
-            })
-
-            // Then persist to backend
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: [
-                    ...currentMetrics,
-                    {
-                        id: savedMetricId,
-                        metadata,
-                    },
-                ],
+                saved_metrics_ids: savedMetricsIds,
             })
 
-            // Close the modal after successful addition
-            actions.closePrimarySharedMetricModal()
-            actions.closeSecondarySharedMetricModal()
+            actions.closePrimarySavedMetricModal()
+            actions.closeSecondarySavedMetricModal()
+            actions.loadExperiment()
+        },
+        removeSavedMetricFromExperiment: async ({ savedMetricId }) => {
+            const savedMetricsIds = values.experiment.saved_metrics
+                .filter((savedMetric) => savedMetric.saved_metric !== savedMetricId)
+                .map((savedMetric) => ({
+                    id: savedMetric.saved_metric,
+                    metadata: savedMetric.metadata,
+                }))
+            await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                saved_metrics_ids: savedMetricsIds,
+            })
+
+            actions.closePrimarySavedMetricModal()
+            actions.closeSecondarySavedMetricModal()
             actions.loadExperiment()
         },
     })),

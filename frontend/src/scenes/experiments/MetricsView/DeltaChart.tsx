@@ -71,8 +71,8 @@ export function DeltaChart({
     const {
         openPrimaryMetricModal,
         openSecondaryMetricModal,
-        openPrimarySharedMetricModal,
-        openSecondarySharedMetricModal,
+        openPrimarySavedMetricModal,
+        openSecondarySavedMetricModal,
     } = useActions(experimentLogic)
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
@@ -194,9 +194,9 @@ export function DeltaChart({
                                     onClick={() => {
                                         if (metric.isSavedMetric) {
                                             if (isSecondary) {
-                                                openSecondarySharedMetricModal()
+                                                openSecondarySavedMetricModal(metric.savedMetricId)
                                             } else {
-                                                openPrimarySharedMetricModal()
+                                                openPrimarySavedMetricModal(metric.savedMetricId)
                                             }
                                             return
                                         }
@@ -206,9 +206,16 @@ export function DeltaChart({
                                     }}
                                 />
                             </div>
-                            <LemonTag type="muted" size="small">
-                                {metric.kind === 'ExperimentFunnelsQuery' ? 'Funnel' : 'Trend'}
-                            </LemonTag>
+                            <div className="space-x-1">
+                                <LemonTag type="muted" size="small">
+                                    {metric.kind === 'ExperimentFunnelsQuery' ? 'Funnel' : 'Trend'}
+                                </LemonTag>
+                                {metric.isSavedMetric && (
+                                    <LemonTag type="option" size="small">
+                                        Shared
+                                    </LemonTag>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>

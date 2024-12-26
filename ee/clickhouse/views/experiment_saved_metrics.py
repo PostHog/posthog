@@ -11,6 +11,7 @@ from posthog.schema import ExperimentFunnelsQuery, ExperimentTrendsQuery
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
     query = serializers.JSONField(source="saved_metric.query", read_only=True)
+    name = serializers.CharField(source="saved_metric.name", read_only=True)
 
     class Meta:
         model = ExperimentToSavedMetric
@@ -21,6 +22,7 @@ class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
             "metadata",
             "created_at",
             "query",
+            "name",
         ]
         read_only_fields = [
             "id",
