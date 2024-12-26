@@ -564,7 +564,8 @@ GROUP BY session_id, breakdown_value
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
             case WebStatsBreakdown.VIEWPORT:
                 return parse_expr(
-                    "tupleElement(breakdown_value, 1) IS NOT NULL AND tupleElement(breakdown_value, 2) IS NOT NULL"
+                    "tupleElement(breakdown_value, 1) IS NOT NULL AND tupleElement(breakdown_value, 2) IS NOT NULL AND "
+                    "tupleElement(breakdown_value, 1) != 0 AND tupleElement(breakdown_value, 2) != 0"
                 )
             case (
                 WebStatsBreakdown.INITIAL_UTM_SOURCE
