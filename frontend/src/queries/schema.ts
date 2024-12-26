@@ -1822,6 +1822,7 @@ export enum WebStatsBreakdown {
     InitialUTMSourceMediumCampaign = 'InitialUTMSourceMediumCampaign',
     Browser = 'Browser',
     OS = 'OS',
+    Viewport = 'Viewport',
     DeviceType = 'DeviceType',
     Country = 'Country',
     Region = 'Region',
