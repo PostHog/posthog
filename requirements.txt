@@ -6,7 +6,9 @@ aiobotocore==2.7.0
     # via
     #   aioboto3
     #   s3fs
-aiohttp==3.9.3
+aiohappyeyeballs==2.4.4
+    # via aiohttp
+aiohttp==3.11.10
     # via
     #   -r requirements.in
     #   aiobotocore
@@ -93,6 +95,8 @@ charset-normalizer==2.1.0
     # via
     #   requests
     #   snowflake-connector-python
+circular-dict==1.9
+    # via conditional-cache
 click==8.1.7
     # via
     #   celery
@@ -113,6 +117,8 @@ clickhouse-driver==0.2.7
     #   sentry-sdk
 clickhouse-pool==0.5.3
     # via -r requirements.in
+conditional-cache==1.2
+    # via -r requirements.in
 cryptography==39.0.2
     # via
     #   -r requirements.in
@@ -132,8 +138,8 @@ defusedxml==0.6.0
     # via
     #   python3-openid
     #   social-auth-core
-deltalake==0.19.1
-    # via dlt
+deltalake==0.22.3
+    # via -r requirements.in
 distro==1.9.0
     # via openai
 dj-database-url==0.5.0
@@ -151,7 +157,6 @@ django==4.2.15
     #   django-phonenumber-field
     #   django-picklefield
     #   django-redis
-    #   django-revproxy
     #   django-structlog
     #   django-two-factor-auth
     #   djangorestframework
@@ -185,8 +190,6 @@ django-picklefield==3.0.1
 django-prometheus==2.2.0
     # via -r requirements.in
 django-redis==5.2.0
-    # via -r requirements.in
-django-revproxy==0.12.0
     # via -r requirements.in
 django-statsd==2.5.2
     # via -r requirements.in
@@ -267,8 +270,6 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-greenlet==3.1.1
-    # via sqlalchemy
 grpcio==1.63.2
     # via
     #   -r requirements.in
@@ -292,6 +293,7 @@ httpcore==1.0.2
 httpx==0.26.0
     # via
     #   langfuse
+    #   langgraph-sdk
     #   langsmith
     #   openai
 humanize==4.9.0
@@ -344,28 +346,29 @@ kombu==5.3.2
     # via
     #   -r requirements.in
     #   celery
-langchain==0.3.3
+langchain==0.3.9
     # via -r requirements.in
-langchain-core==0.3.10
+langchain-core==0.3.21
     # via
     #   langchain
     #   langchain-openai
     #   langchain-text-splitters
     #   langgraph
     #   langgraph-checkpoint
-langchain-openai==0.2.2
+langchain-openai==0.2.11
     # via -r requirements.in
 langchain-text-splitters==0.3.0
     # via langchain
-langfuse==2.52.1
+langfuse==2.55.0
     # via -r requirements.in
-langgraph==0.2.34
+langgraph==0.2.56
     # via -r requirements.in
-langgraph-checkpoint==2.0.1
+langgraph-checkpoint==2.0.8
+    # via langgraph
+langgraph-sdk==0.1.43
     # via langgraph
 langsmith==0.1.132
     # via
-    #   -r requirements.in
     #   langchain
     #   langchain-core
 lxml==4.9.4
@@ -414,7 +417,7 @@ oauthlib==3.1.0
     # via
     #   requests-oauthlib
     #   social-auth-core
-openai==1.51.2
+openai==1.56.2
     # via
     #   -r requirements.in
     #   langchain-openai
@@ -425,6 +428,7 @@ orjson==3.10.7
     # via
     #   -r requirements.in
     #   dlt
+    #   langgraph-sdk
     #   langsmith
 outcome==1.3.0.post0
     # via trio
@@ -468,6 +472,10 @@ prometheus-client==0.14.1
     # via django-prometheus
 prompt-toolkit==3.0.39
     # via click-repl
+propcache==0.2.1
+    # via
+    #   aiohttp
+    #   yarl
 proto-plus==1.22.3
     # via google-cloud-bigquery-storage
 protobuf==4.22.1
@@ -492,7 +500,6 @@ pyarrow==17.0.0
     # via
     #   -r requirements.in
     #   deltalake
-    #   dlt
     #   sqlalchemy-bigquery
 pyasn1==0.5.0
     # via
@@ -592,6 +599,7 @@ requests==2.32.0
     #   google-cloud-bigquery
     #   infi-clickhouse-orm
     #   langchain
+    #   langfuse
     #   langsmith
     #   pdpyras
     #   posthoganalytics
@@ -768,7 +776,6 @@ uritemplate==4.1.1
 urllib3==1.26.18
     # via
     #   botocore
-    #   django-revproxy
     #   geoip2
     #   google-auth
     #   pdpyras
@@ -784,7 +791,7 @@ vine==5.0.0
     #   kombu
 wcwidth==0.2.6
     # via prompt-toolkit
-webdriver-manager==4.0.1
+webdriver-manager==4.0.2
     # via -r requirements.in
 wheel==0.42.0
     # via astunparse
@@ -800,7 +807,7 @@ xmlsec==1.3.13
     # via
     #   -r requirements.in
     #   python3-saml
-yarl==1.9.4
+yarl==1.18.3
     # via aiohttp
 zeep==4.2.1
     # via simple-salesforce

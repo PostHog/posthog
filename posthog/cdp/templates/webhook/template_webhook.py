@@ -78,6 +78,7 @@ if (inputs.debug) {
             "label": "Headers",
             "secret": False,
             "required": False,
+            "default": {"Content-Type": "application/json"},
         },
         {
             "key": "debug",

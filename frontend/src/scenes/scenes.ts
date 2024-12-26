@@ -506,6 +506,7 @@ export const redirects: Record<
     '/apps': urls.pipeline(PipelineTab.Overview),
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
     '/messaging': urls.messagingBroadcasts(),
+    '/settings/organization-rbac': urls.settings('organization-roles'),
 }
 
 export const routes: Record<string, Scene> = {
@@ -597,7 +598,6 @@ export const routes: Record<string, Scene> = {
     [urls.instanceStatus()]: Scene.SystemStatus,
     [urls.instanceSettings()]: Scene.SystemStatus,
     [urls.instanceStaffUsers()]: Scene.SystemStatus,
-    [urls.instanceKafkaInspector()]: Scene.SystemStatus,
     [urls.instanceMetrics()]: Scene.SystemStatus,
     [urls.asyncMigrations()]: Scene.AsyncMigrations,
     [urls.asyncMigrationsFuture()]: Scene.AsyncMigrations,

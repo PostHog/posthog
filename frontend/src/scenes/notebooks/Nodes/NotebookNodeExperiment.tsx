@@ -18,7 +18,7 @@ import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
-    const { experiment, experimentLoading, experimentMissing, isExperimentRunning, experimentResults } = useValues(
+    const { experiment, experimentLoading, experimentMissing, isExperimentRunning, metricResults } = useValues(
         experimentLogic({ experimentId: id })
     )
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
@@ -39,6 +39,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
 
     if (experimentMissing) {
         return <NotFound object="experiment" />
+    }
+
+    if (!metricResults) {
+        return <></>
     }
 
     return (
@@ -78,7 +82,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                                 <LemonDivider className="my-0" />
                                 <div className="p-2">
                                     <SummaryTable />
-                                    <ResultsQuery targetResults={experimentResults} showTable={true} />
+                                    <ResultsQuery targetResults={metricResults[0]} showTable={true} />
                                 </div>
                             </>
                         )}

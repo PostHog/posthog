@@ -1,10 +1,10 @@
 from typing import Optional, Any
 from unittest.mock import ANY, call, MagicMock, patch
-import dateutil
-
-
-import dateutil.relativedelta
 from freezegun import freeze_time
+
+import dateutil
+import dateutil.relativedelta
+import pytz
 
 from posthog.models.alert import AlertCheck
 from posthog.models.instance_setting import set_instance_setting
@@ -17,7 +17,7 @@ from posthog.schema import (
     TrendsQuery,
     TrendsFilter,
     IntervalType,
-    InsightDateRange,
+    DateRange,
     BaseMathType,
     AlertState,
     AlertCalculationInterval,
@@ -52,6 +52,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         threshold_type: InsightThresholdType,
         lower: Optional[float] = None,
         upper: Optional[float] = None,
+        check_ongoing_interval: bool = False,
     ) -> dict:
         alert = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
@@ -62,6 +63,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                 "config": {
                     "type": "TrendsAlertConfig",
                     "series_index": series_index,
+                    "check_ongoing_interval": check_ongoing_interval,
                 },
                 "condition": {"type": condition_type},
                 "calculation_interval": AlertCalculationInterval.DAILY,
@@ -72,7 +74,9 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         return alert
 
     def create_time_series_trend_insight(
-        self, interval: IntervalType, breakdown: Optional[BreakdownFilter] = None
+        self,
+        interval: IntervalType,
+        breakdown: Optional[BreakdownFilter] = None,
     ) -> dict[str, Any]:
         query_dict = TrendsQuery(
             series=[
@@ -89,7 +93,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             breakdownFilter=breakdown,
             trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
             interval=interval,
-            dateRange=InsightDateRange(date_from="-8w"),
+            dateRange=DateRange(date_from="-8w"),
         ).model_dump()
 
         insight = self.dashboard_api.create_insight(
@@ -123,7 +127,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.state == AlertState.FIRING
         assert updated_alert.last_checked_at == FROZEN_TIME
         assert updated_alert.last_notified_at == FROZEN_TIME
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 0
@@ -168,7 +176,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
 
@@ -199,7 +211,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             insight,
             series_index=0,
             condition_type=AlertConditionType.RELATIVE_INCREASE,
-            threshold_type=InsightThresholdType.ABSOLUTE,
+            threshold_type=InsightThresholdType.PERCENTAGE,
             upper=0.2,
         )
 
@@ -247,7 +259,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
 
@@ -259,7 +275,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
 
@@ -329,7 +349,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
 
@@ -346,7 +370,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
 
@@ -421,7 +449,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
 
@@ -433,7 +465,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
 
@@ -508,7 +544,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
 
@@ -524,7 +564,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
 
@@ -598,7 +642,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
 
@@ -614,7 +662,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
 
@@ -694,7 +746,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 2
@@ -705,7 +761,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 2
@@ -779,7 +839,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 2
@@ -790,7 +854,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
         assert alert_check.calculated_value == (2 / 3)
@@ -878,7 +946,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
 
@@ -890,7 +962,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
 
@@ -996,7 +1072,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
 
@@ -1008,7 +1088,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
 
@@ -1114,7 +1198,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
 
@@ -1126,7 +1214,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
 
@@ -1233,7 +1325,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
 
@@ -1245,7 +1341,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
 
@@ -1340,7 +1440,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
 
@@ -1352,7 +1456,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
 
@@ -1432,7 +1540,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
 
@@ -1444,7 +1556,11 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
 
@@ -1453,3 +1569,404 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_not_called()
+
+    def test_current_interval_relative_increase_upper_threshold_breached(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        insight = self.create_time_series_trend_insight(interval=IntervalType.WEEK)
+
+        # alert if sign ups increase by more than 1
+        absolute_alert = self.create_alert(
+            insight,
+            series_index=0,
+            condition_type=AlertConditionType.RELATIVE_INCREASE,
+            threshold_type=InsightThresholdType.ABSOLUTE,
+            upper=1,
+            check_ongoing_interval=True,
+        )
+
+        # alert if sign ups increase by more than 20%
+        percentage_alert = self.create_alert(
+            insight,
+            series_index=0,
+            condition_type=AlertConditionType.RELATIVE_INCREASE,
+            threshold_type=InsightThresholdType.PERCENTAGE,
+            upper=0.2,
+            check_ongoing_interval=True,
+        )
+
+        # FROZEN_TIME is on Tue, insight has weekly interval
+        # we aggregate our weekly insight numbers to display for Sun (19th May, 26th May, 2nd June)
+
+        # set current interval to have 3 events
+        with freeze_time(FROZEN_TIME):
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="2",
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="3",
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="4",
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+        # set previous interval (last week) to have 1 event
+        last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
+
+        with freeze_time(last_tue):
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="1",
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+        # set previous to previous interval (last to last week) to also have 1 event
+        # so event shouldn't fire for the previous week
+        last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
+
+        with freeze_time(last_to_last_tue):
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="1",
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+        # alert should fire as we had *increase* in events of (2 or 200%) week over week
+        check_alert(absolute_alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
+        assert updated_alert.state == AlertState.FIRING
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
+
+        assert alert_check.calculated_value == 2
+        assert alert_check.state == AlertState.FIRING
+        assert alert_check.error is None
+
+        mock_send_breaches.assert_called_once_with(
+            ANY, ["The insight value (signed_up) for current week (2) increased more than upper threshold (1.0)"]
+        )
+
+        check_alert(percentage_alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
+        assert updated_alert.state == AlertState.FIRING
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
+
+        assert alert_check.calculated_value == 2
+        assert alert_check.state == AlertState.FIRING
+        assert alert_check.error is None
+
+        mock_send_breaches.assert_called_with(
+            ANY,
+            ["The insight value (signed_up) for current week (200.00%) increased more than upper threshold (20.00%)"],
+        )
+
+    def test_current_interval_relative_increase_does_not_fallback_to_previous_interval(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        insight = self.create_time_series_trend_insight(interval=IntervalType.WEEK)
+
+        # alert if sign ups increase by more than 1
+        absolute_alert = self.create_alert(
+            insight,
+            series_index=0,
+            condition_type=AlertConditionType.RELATIVE_INCREASE,
+            threshold_type=InsightThresholdType.ABSOLUTE,
+            upper=1,
+            check_ongoing_interval=True,
+        )
+
+        # alert if sign ups increase by more than 20%
+        percentage_alert = self.create_alert(
+            insight,
+            series_index=0,
+            condition_type=AlertConditionType.RELATIVE_INCREASE,
+            threshold_type=InsightThresholdType.PERCENTAGE,
+            upper=0.2,
+            check_ongoing_interval=True,
+        )
+
+        # FROZEN_TIME is on Tue, insight has weekly interval
+        # we aggregate our weekly insight numbers to display for Sun (19th May, 26th May, 2nd June)
+
+        # set current interval to have 1 events
+        with freeze_time(FROZEN_TIME):
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="2",
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+        # set previous interval (last week) to have 3 events
+        last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
+
+        with freeze_time(last_tue):
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="1",
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="3",
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="4",
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+        # set previous to previous interval (last to last week) to also have 1 event
+        # so event shouldn't fire for the previous week
+        last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
+
+        with freeze_time(last_to_last_tue):
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="1",
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+        # alert should fire as we had *increase* in events of (2 or 200%) week over week
+        check_alert(absolute_alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
+        assert updated_alert.state == AlertState.NOT_FIRING
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
+
+        # decrease of 2 events compared to week before
+        # shouln't look a previous interval which had increase of 2
+        assert alert_check.calculated_value == -2
+        assert alert_check.state == AlertState.NOT_FIRING
+        assert alert_check.error is None
+
+        check_alert(percentage_alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
+        assert updated_alert.state == AlertState.NOT_FIRING
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
+
+        assert alert_check.calculated_value == -2 / 3
+        assert alert_check.state == AlertState.NOT_FIRING
+        assert alert_check.error is None
+
+    def test_relative_increase_when_previous_value_is_0(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        insight = self.create_time_series_trend_insight(interval=IntervalType.WEEK)
+
+        # alert if sign ups increase by more than 1
+        absolute_alert = self.create_alert(
+            insight,
+            series_index=0,
+            condition_type=AlertConditionType.RELATIVE_INCREASE,
+            threshold_type=InsightThresholdType.ABSOLUTE,
+            upper=1,
+        )
+
+        # alert if sign ups increase by more than 20%
+        percentage_alert = self.create_alert(
+            insight,
+            series_index=0,
+            condition_type=AlertConditionType.RELATIVE_INCREASE,
+            threshold_type=InsightThresholdType.PERCENTAGE,
+            upper=0.2,
+        )
+
+        # FROZEN_TIME is on Tue, insight has weekly interval
+        # we aggregate our weekly insight numbers to display for Sun (19th May, 26th May, 2nd June)
+
+        # set previous interval (last week) to have 2 events
+        last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
+
+        with freeze_time(last_tue):
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="1",
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="3",
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+        # set previous to previous interval (last to last week) to have 0 events
+
+        # alert should fire as we had *increase* in events of (infinity) week over week
+        check_alert(absolute_alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
+        assert updated_alert.state == AlertState.FIRING
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
+
+        assert alert_check.calculated_value == 2
+        assert alert_check.state == AlertState.FIRING
+        assert alert_check.error is None
+
+        # should be 'previous' week as we haven't breached for current week
+        # so logic fallback to previous week
+        mock_send_breaches.assert_called_once_with(
+            ANY, ["The insight value (signed_up) for previous week (2) increased more than upper threshold (1.0)"]
+        )
+
+        check_alert(percentage_alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
+        assert updated_alert.state == AlertState.FIRING
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
+
+        assert alert_check.calculated_value == float("inf")
+        assert alert_check.state == AlertState.FIRING
+        assert alert_check.error is None
+
+        mock_send_breaches.assert_called_with(
+            ANY,
+            ["The insight value (signed_up) for previous week (inf%) increased more than upper threshold (20.00%)"],
+        )
+
+    def test_relative_decrease_when_previous_value_is_0(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        insight = self.create_time_series_trend_insight(interval=IntervalType.WEEK)
+
+        # alert if sign ups decreases by more than 1
+        absolute_alert = self.create_alert(
+            insight,
+            series_index=0,
+            condition_type=AlertConditionType.RELATIVE_DECREASE,
+            threshold_type=InsightThresholdType.ABSOLUTE,
+            upper=1,
+        )
+
+        # alert if sign ups decreases by more than 20%
+        percentage_alert = self.create_alert(
+            insight,
+            series_index=0,
+            condition_type=AlertConditionType.RELATIVE_DECREASE,
+            threshold_type=InsightThresholdType.PERCENTAGE,
+            upper=0.2,
+        )
+
+        # FROZEN_TIME is on Tue, insight has weekly interval
+        # we aggregate our weekly insight numbers to display for Sun (19th May, 26th May, 2nd June)
+
+        # set previous interval (last week) to have 2 events
+        last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
+
+        with freeze_time(last_tue):
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="1",
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="3",
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+        # set previous to previous interval (last to last week) to have 0 events
+
+        # alert should fire as we had *decrease* in events of (infinity) week over week
+        check_alert(absolute_alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
+        assert updated_alert.state == AlertState.NOT_FIRING
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
+
+        assert alert_check.calculated_value == -2
+        assert alert_check.state == AlertState.NOT_FIRING
+        assert alert_check.error is None
+
+        check_alert(percentage_alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
+        assert updated_alert.state == AlertState.FIRING
+
+        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
+        assert updated_alert.next_check_at
+        assert updated_alert.next_check_at.hour == next_check.hour
+        assert updated_alert.next_check_at.date() == next_check.date()
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
+
+        assert alert_check.calculated_value == float("inf")
+        assert alert_check.state == AlertState.FIRING
+        assert alert_check.error is None
+
+        mock_send_breaches.assert_called_with(
+            ANY,
+            ["The insight value (signed_up) for previous week (inf%) decreased more than upper threshold (20.00%)"],
+        )

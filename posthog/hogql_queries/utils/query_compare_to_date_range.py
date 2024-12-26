@@ -3,7 +3,7 @@ from typing import Optional
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team import Team
-from posthog.schema import DateRange, IntervalType, InsightDateRange
+from posthog.schema import DateRange, IntervalType
 from posthog.utils import (
     relative_date_parse,
 )
@@ -13,14 +13,14 @@ class QueryCompareToDateRange(QueryDateRange):
     """Moves the start of a date range back by the compare_to interval and sets the end to have the same delta as the original"""
 
     _team: Team
-    _date_range: Optional[InsightDateRange | DateRange]
+    _date_range: Optional[DateRange]
     _interval: Optional[IntervalType]
     _now_without_timezone: datetime
     _compare_to: str
 
     def __init__(
         self,
-        date_range: Optional[InsightDateRange | DateRange],
+        date_range: Optional[DateRange],
         team: Team,
         interval: Optional[IntervalType],
         now: datetime,

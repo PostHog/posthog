@@ -69,7 +69,17 @@ NON_RETRYABLE_ERROR_TYPES = [
     # Raised when table_id isn't valid. Sadly, `ValueError` is rather generic, but we
     # don't anticipate a `ValueError` thrown from our own export code.
     "ValueError",
+    # Raised when attempting to run a batch export without required BigQuery permissions.
+    # Our own version of `Forbidden`.
+    "MissingRequiredPermissionsError",
 ]
+
+
+class MissingRequiredPermissionsError(Exception):
+    """Raised when missing required permissions in BigQuery."""
+
+    def __init__(self):
+        super().__init__("Missing required permissions to run this batch export")
 
 
 def get_bigquery_fields_from_record_schema(
@@ -237,7 +247,12 @@ class BigQueryClient(bigquery.Client):
             yield table
         finally:
             if delete is True:
-                await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
+                try:
+                    await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
+                except Forbidden:
+                    await logger.awarning(
+                        "Missing delete permissions to delete %s.%s.%s", project_id, dataset_id, table_id
+                    )
 
     async def amerge_tables(
         self,
@@ -274,6 +289,28 @@ class BigQueryClient(bigquery.Client):
                 final_table, stage_table, merge_key=merge_key, stage_fields_cast_to_json=stage_fields_cast_to_json
             )
 
+    async def acheck_for_query_permissions_on_table(
+        self,
+        table: bigquery.Table,
+    ):
+        """Attempt to SELECT from table to check for query permissions."""
+        job_config = bigquery.QueryJobConfig()
+        if "timestamp" in [field.name for field in table.schema]:
+            query = f"""
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` WHERE timestamp IS NOT NULL
+            """
+        else:
+            query = f"""
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}`
+            """
+
+        try:
+            query_job = self.query(query, job_config=job_config)
+            await asyncio.to_thread(query_job.result)
+        except Forbidden:
+            return False
+        return True
+
     async def ainsert_into_from_stage_table(
         self,
         into_table: bigquery.Table,
@@ -289,7 +326,9 @@ class BigQueryClient(bigquery.Client):
         else:
             fields_to_cast = set()
         stage_table_fields = ",".join(
-            f"PARSE_JSON(`{field.name}`)" if field.name in fields_to_cast else f"`{field.name}`"
+            f"PARSE_JSON(`{field.name}`, wide_number_mode=>'round')"
+            if field.name in fields_to_cast
+            else f"`{field.name}`"
             for field in into_table.schema
         )
 
@@ -339,7 +378,9 @@ class BigQueryClient(bigquery.Client):
                 field_names += ", "
 
             stage_field = (
-                f"PARSE_JSON(stage.`{field.name}`)" if field.name in fields_to_cast else f"stage.`{field.name}`"
+                f"PARSE_JSON(stage.`{field.name}`, wide_number_mode=>'round')"
+                if field.name in fields_to_cast
+                else f"stage.`{field.name}`"
             )
             update_clause += f"final.`{field.name}` = {stage_field}"
             field_names += f"`{field.name}`"
@@ -350,7 +391,17 @@ class BigQueryClient(bigquery.Client):
 
         merge_query = f"""
         MERGE `{final_table.full_table_id.replace(":", ".", 1)}` final
-        USING `{stage_table.full_table_id.replace(":", ".", 1)}` stage
+        USING (
+            SELECT * FROM
+            (
+              SELECT
+              *,
+              ROW_NUMBER() OVER (PARTITION BY {",".join(field.name for field in merge_key)}) row_num
+            FROM
+              `{stage_table.full_table_id.replace(":", ".", 1)}`
+            )
+            WHERE row_num = 1
+        ) stage
         {merge_condition}
 
         WHEN MATCHED AND (stage.`{person_version_key}` > final.`{person_version_key}` OR stage.`{person_distinct_id_version_key}` > final.`{person_distinct_id_version_key}`) THEN
@@ -468,11 +519,12 @@ class BigQueryConsumer(Consumer):
         heartbeater: Heartbeater,
         heartbeat_details: BigQueryHeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        writer_format: WriterFormat,
         bigquery_client: BigQueryClient,
         bigquery_table: bigquery.Table,
         table_schema: list[BatchExportField],
     ):
-        super().__init__(heartbeater, heartbeat_details, data_interval_start)
+        super().__init__(heartbeater, heartbeat_details, data_interval_start, writer_format)
         self.bigquery_client = bigquery_client
         self.bigquery_table = bigquery_table
         self.table_schema = table_schema
@@ -495,7 +547,10 @@ class BigQueryConsumer(Consumer):
             self.bigquery_table,
         )
 
-        await self.bigquery_client.load_parquet_file(batch_export_file, self.bigquery_table, self.table_schema)
+        if self.writer_format == WriterFormat.PARQUET:
+            await self.bigquery_client.load_parquet_file(batch_export_file, self.bigquery_table, self.table_schema)
+        else:
+            await self.bigquery_client.load_jsonl_file(batch_export_file, self.bigquery_table, self.table_schema)
 
         await self.logger.adebug("Loaded %s to BigQuery table '%s'", records_since_last_flush, self.bigquery_table)
         self.rows_exported_counter.add(records_since_last_flush)
@@ -620,53 +675,62 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}"
 
         with bigquery_client(inputs) as bq_client:
-            async with (
-                bq_client.managed_table(
-                    project_id=inputs.project_id,
-                    dataset_id=inputs.dataset_id,
-                    table_id=inputs.table_id,
-                    table_schema=schema,
-                    delete=False,
-                ) as bigquery_table,
-                bq_client.managed_table(
-                    project_id=inputs.project_id,
-                    dataset_id=inputs.dataset_id,
-                    table_id=stage_table_name,
-                    table_schema=stage_schema,
-                    create=True,
-                    delete=True,
-                ) as bigquery_stage_table,
-            ):
-                records_completed = await run_consumer_loop(
-                    queue=queue,
-                    consumer_cls=BigQueryConsumer,
-                    producer_task=producer_task,
-                    heartbeater=heartbeater,
-                    heartbeat_details=details,
-                    data_interval_end=data_interval_end,
-                    data_interval_start=data_interval_start,
-                    schema=record_batch_schema,
-                    writer_format=WriterFormat.PARQUET,
-                    max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                    non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
-                    json_columns=(),
-                    bigquery_client=bq_client,
-                    bigquery_table=bigquery_stage_table,
-                    table_schema=stage_schema,
-                    writer_file_kwargs={"compression": "zstd"},
-                )
+            async with bq_client.managed_table(
+                project_id=inputs.project_id,
+                dataset_id=inputs.dataset_id,
+                table_id=inputs.table_id,
+                table_schema=schema,
+                delete=False,
+            ) as bigquery_table:
+                can_perform_merge = await bq_client.acheck_for_query_permissions_on_table(bigquery_table)
 
-                merge_key = (
-                    bigquery.SchemaField("team_id", "INT64"),
-                    bigquery.SchemaField("distinct_id", "STRING"),
-                )
-                await bq_client.amerge_tables(
-                    final_table=bigquery_table,
-                    stage_table=bigquery_stage_table,
-                    mutable=True if model_name == "persons" else False,
-                    merge_key=merge_key,
-                    stage_fields_cast_to_json=json_columns,
-                )
+                if not can_perform_merge:
+                    if model_name == "persons":
+                        raise MissingRequiredPermissionsError()
+
+                    await logger.awarning(
+                        "Missing query permissions on BigQuery table required for merging, will attempt direct load into final table"
+                    )
+
+                async with bq_client.managed_table(
+                    project_id=inputs.project_id,
+                    dataset_id=inputs.dataset_id,
+                    table_id=stage_table_name if can_perform_merge else inputs.table_id,
+                    table_schema=stage_schema,
+                    create=can_perform_merge,
+                    delete=can_perform_merge,
+                ) as bigquery_stage_table:
+                    records_completed = await run_consumer_loop(
+                        queue=queue,
+                        consumer_cls=BigQueryConsumer,
+                        producer_task=producer_task,
+                        heartbeater=heartbeater,
+                        heartbeat_details=details,
+                        data_interval_end=data_interval_end,
+                        data_interval_start=data_interval_start,
+                        schema=record_batch_schema,
+                        writer_format=WriterFormat.PARQUET if can_perform_merge else WriterFormat.JSONL,
+                        max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                        json_columns=() if can_perform_merge else json_columns,
+                        bigquery_client=bq_client,
+                        bigquery_table=bigquery_stage_table if can_perform_merge else bigquery_table,
+                        table_schema=stage_schema if can_perform_merge else schema,
+                        writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
+                        multiple_files=True,
+                    )
+
+                    if can_perform_merge:
+                        merge_key = (
+                            bigquery.SchemaField("team_id", "INT64"),
+                            bigquery.SchemaField("distinct_id", "STRING"),
+                        )
+                        await bq_client.amerge_tables(
+                            final_table=bigquery_table,
+                            stage_table=bigquery_stage_table,
+                            mutable=True if model_name == "persons" else False,
+                            merge_key=merge_key,
+                            stage_fields_cast_to_json=json_columns,
+                        )
 
         return records_completed
 

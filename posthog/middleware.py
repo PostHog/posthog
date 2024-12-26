@@ -278,13 +278,10 @@ class AutoProjectMiddleware:
 
         # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
         #   However this should be a rare operation!
-        if not user_access_control.check_access_level_for_object(new_team, "member"):
-            # Do something to indicate that they don't have access to the team...
-            return False
-
-        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
-        #   However this should be a rare operation!
-        if user_permissions.team(new_team).effective_membership_level is None:
+        if (
+            not user_access_control.check_access_level_for_object(new_team, "member")
+            and user_permissions.team(new_team).effective_membership_level is None
+        ):
             if user.is_staff:
                 # Staff users get a popup with suggested users to log in as, facilating support
                 request.suggested_users_with_access = UserBasicSerializer(  # type: ignore
@@ -677,7 +674,19 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
 
     init_time = get_or_set_session_cookie_created_at(request=request)
 
-    return datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
+    last_activity_time = request.session.get(settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY, init_time)
+
+    # If the last activity time is less than the idle timeout, we extend the session
+    if time.time() - last_activity_time < settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS:
+        last_activity_time = request.session[settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY] = time.time()
+        request.session.modified = True
+
+    idle_expiry_time = datetime.fromtimestamp(last_activity_time) + timedelta(
+        seconds=settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
+    )
+    total_expiry_time = datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
+
+    return min(idle_expiry_time, total_expiry_time)
 
 
 class AutoLogoutImpersonateMiddleware:

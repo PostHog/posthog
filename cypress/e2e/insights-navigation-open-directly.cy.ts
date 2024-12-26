@@ -30,12 +30,6 @@ describe('Insights', () => {
                 cy.get('.funnels-empty-state__title').should('exist')
             })
 
-            it.skip('can open a new retention insight', () => {
-                insight.newInsight('RETENTION')
-                cy.get('.RetentionContainer canvas').should('exist')
-                cy.get('.RetentionTable__Tab').should('have.length', 66)
-            })
-
             it('can open a new paths insight', () => {
                 insight.newInsight('PATHS')
                 cy.get('.Paths g').should('have.length.gte', 5) // not a fixed value unfortunately

@@ -23,9 +23,11 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
+    ActivityScope,
     AvailableFeature,
     Breadcrumb,
     CohortType,
@@ -33,6 +35,7 @@ import {
     EarlyAccessFeatureType,
     FeatureFlagGroupType,
     FeatureFlagRollbackConditions,
+    FeatureFlagStatusResponse,
     FeatureFlagType,
     FilterLogicalOperator,
     FilterType,
@@ -151,7 +154,7 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
     }
 }
 
-const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> => {
+export const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> => {
     if (flag.filters?.multivariate) {
         const newPayloads: Record<string, JsonType> = {}
         flag.filters.multivariate.variants.forEach(({ key }, index) => {
@@ -755,6 +758,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
+        flagStatus: [
+            null as FeatureFlagStatusResponse | null,
+            {
+                loadFeatureFlagStatus: () => {
+                    const { currentTeamId } = values
+                    if (currentTeamId && props.id && props.id !== 'new' && props.id !== 'link') {
+                        return api.featureFlags.getStatus(currentTeamId, props.id)
+                    }
+                    return null
+                },
+            },
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
@@ -960,6 +975,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
         ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.featureFlag],
+            (featureFlag): SidePanelSceneContext | null => {
+                return featureFlag?.id
+                    ? {
+                          activity_scope: ActivityScope.FEATURE_FLAG,
+                          activity_item_id: `${featureFlag.id}`,
+                          access_control_resource: 'feature_flag',
+                          access_control_resource_id: `${featureFlag.id}`,
+                      }
+                    : null
+            },
+        ],
         filteredDashboards: [
             (s) => [s.dashboards, s.featureFlag],
             (dashboards, featureFlag) => {
@@ -1040,8 +1068,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.setFeatureFlag(formatPayloadsWithFlag)
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
+            actions.loadFeatureFlagStatus()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
+            actions.loadFeatureFlagStatus()
         }
     }),
 ])

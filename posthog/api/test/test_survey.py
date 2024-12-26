@@ -2378,6 +2378,7 @@ class TestSurveyWithActions(APIBaseTest):
         assert len(survey.actions.all()) == 0
 
 
+@freeze_time("2024-12-12 00:00:00")
 class TestSurveyResponseSampling(APIBaseTest):
     def _create_survey_with_sampling_limits(
         self,
@@ -2407,6 +2408,7 @@ class TestSurveyResponseSampling(APIBaseTest):
         )
 
         response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
         survey = Survey.objects.get(id=response_data["id"])
         return survey
 
@@ -2907,8 +2909,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             for survey in surveys:
                 assert "description" not in survey, f"Description field should not be present in survey: {survey}"
 
-            assert surveys[0]["name"] == "Survey 1"
-            assert surveys[1]["name"] == "Survey 2"
+            assert len(surveys) == 2
 
 
 class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):

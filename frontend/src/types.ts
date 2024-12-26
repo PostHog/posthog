@@ -196,6 +196,7 @@ export enum ProductKey {
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     TEAMS = 'teams',
     WEB_ANALYTICS = 'web_analytics',
+    ERROR_TRACKING = 'error_tracking',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -542,6 +543,7 @@ export interface TeamType extends TeamBasicType {
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
+    cookieless_server_hash_mode?: CookielessServerHashMode
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
@@ -2994,6 +2996,19 @@ export interface FeatureFlagRollbackConditions {
     operator?: string
 }
 
+export enum FeatureFlagStatus {
+    ACTIVE = 'active',
+    INACTIVE = 'inactive',
+    STALE = 'stale',
+    DELETED = 'deleted',
+    UNKNOWN = 'unknown',
+}
+
+export interface FeatureFlagStatusResponse {
+    status: FeatureFlagStatus
+    reason: string
+}
+
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string
@@ -3613,6 +3628,7 @@ export enum BaseMathType {
     MonthlyActiveUsers = 'monthly_active',
     UniqueSessions = 'unique_session',
     FirstTimeForUser = 'first_time_for_user',
+    FirstMatchingEventForUser = 'first_matching_event_for_user',
 }
 
 export enum PropertyMathType {
@@ -3743,6 +3759,7 @@ export type IntegrationKind =
     | 'google-pubsub'
     | 'google-cloud-storage'
     | 'google-ads'
+    | 'snapchat'
 
 export interface IntegrationType {
     id: number
@@ -4473,7 +4490,7 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
-    // AccessControl = 'access-control',
+    AccessControl = 'access-control',
 }
 
 export interface SourceFieldOauthConfig {
@@ -4590,6 +4607,7 @@ export type HogFunctionInputSchemaType = {
     integration?: string
     integration_key?: string
     integration_field?: 'slack_channel'
+    requiredScopes?: string
 }
 
 export type HogFunctionInputType = {
@@ -4639,10 +4657,21 @@ export interface HogFunctionFiltersType {
     bytecode_error?: string
 }
 
+export interface HogFunctionMappingType {
+    inputs_schema?: HogFunctionInputSchemaType[]
+    inputs?: Record<string, HogFunctionInputType> | null
+    filters?: HogFunctionFiltersType | null
+}
+export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
+    name: string
+    include_by_default?: boolean
+}
+
 export type HogFunctionTypeType =
     | 'destination'
     | 'site_destination'
     | 'site_app'
+    | 'transformation'
     | 'email'
     | 'sms'
     | 'push'
@@ -4664,6 +4693,7 @@ export type HogFunctionType = {
 
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
+    mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
     filters?: HogFunctionFiltersType | null
     template?: HogFunctionTemplateType
@@ -4681,7 +4711,7 @@ export type HogFunctionConfigurationType = Omit<
     sub_template_id?: HogFunctionSubTemplateIdType
 }
 
-export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking'> & {
+export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking' | 'mappings'> & {
     id: HogFunctionSubTemplateIdType
     name: string
     description: string | null
@@ -4689,10 +4719,11 @@ export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inpu
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
+    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     sub_templates?: HogFunctionSubTemplateType[]
+    mapping_templates?: HogFunctionMappingTemplateType[]
 }
 
 export type HogFunctionIconResponse = {
@@ -4798,4 +4829,17 @@ export type ReplayTemplateVariableType = {
     description?: string
     filterGroup?: UniversalFiltersGroupValue
     noTouch?: boolean
+}
+
+export enum CookielessServerHashMode {
+    Disabled = 0,
+    Stateless = 1,
+    Stateful = 2,
+}
+
+/**
+ * Assistant Conversation
+ */
+export interface Conversation {
+    id: string
 }
