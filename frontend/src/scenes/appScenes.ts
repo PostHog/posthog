@@ -61,7 +61,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Signup]: () => import('./authentication/signup/SignupContainer'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
     [Scene.Billing]: () => import('./billing/Billing'),
-    [Scene.BillingUsage]: () => import('./billing/BillingUsage'),
+    [Scene.BillingSection]: () => import('./billing/BillingSection'),
     [Scene.BillingAuthorizationStatus]: () => import('./billing/AuthorizationStatus'),
     [Scene.Login]: () => import('./authentication/Login'),
     [Scene.Login2FA]: () => import('./authentication/Login2FA'),

@@ -1,10 +1,10 @@
-.BillingUsage {
+.BillingSection {
     display: flex;
     gap: 2rem;
     align-items: start;
     margin-top: 0;
 
-    .BillingUsage__sections {
+    .BillingSection__sections {
         position: sticky;
         top: 4rem;
         flex-shrink: 0;
@@ -21,15 +21,11 @@
         flex-direction: column;
         gap: 0;
 
-        .BillingUsage__sections {
+        .BillingSection__sections {
             position: relative;
             width: 100%;
             min-width: 100%;
             max-width: 100%;
         }
-    }
-
-    .LemonModal & {
-        margin-top: 0;
     }
 }

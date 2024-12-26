@@ -209,7 +209,8 @@ export const urls = {
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
-    organizationBillingUsage: (): string => `/organization/billing_usage`,
+    organizationBillingOverview: (): string => `/organization/billing/overview`,
+    organizationBillingUsage: (): string => `/organization/billing/usage`,
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
