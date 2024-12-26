@@ -112,7 +112,9 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
                     const validTab = Object.values(ReplayTabs).includes(tab as ReplayTabs)
                         ? (tab as ReplayTabs)
                         : ReplayTabs.Home
-                    actions.setTab(validTab)
+                    if (validTab !== values.tab) {
+                        actions.setTab(validTab)
+                    }
                 }
             },
         }
