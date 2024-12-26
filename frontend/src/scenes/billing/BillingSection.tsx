@@ -36,7 +36,7 @@ export function BillingSection(): JSX.Element {
                     <li>
                         <LemonButton
                             onClick={() => push(urls.organizationBillingOverview())}
-                            status={activeSection === 'overview' ? 'alt' : 'default'}
+                            active={activeSection === 'overview'}
                             size="small"
                             fullWidth
                         >
@@ -46,7 +46,7 @@ export function BillingSection(): JSX.Element {
                     <li>
                         <LemonButton
                             onClick={() => push(urls.organizationBillingUsage())}
-                            status={activeSection === 'usage' ? 'alt' : 'default'}
+                            active={activeSection === 'usage'}
                             size="small"
                             fullWidth
                         >
