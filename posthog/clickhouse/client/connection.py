@@ -43,7 +43,7 @@ def get_pool(workload: Workload, team_id=None, readonly=False):
     return make_ch_pool()
 
 
-def default_client():
+def default_client(**overrides):
     """
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
     DO NOT USE THIS FOR QUERYING DATA
@@ -62,6 +62,7 @@ def default_client():
         password=settings.CLICKHOUSE_PASSWORD,
         ca_certs=settings.CLICKHOUSE_CA,
         verify=settings.CLICKHOUSE_VERIFY,
+        **overrides,
     )
 
 
