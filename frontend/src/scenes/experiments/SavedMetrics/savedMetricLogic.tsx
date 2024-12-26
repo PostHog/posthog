@@ -4,6 +4,8 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 
+import { UserBasicType } from '~/types'
+
 import { getDefaultTrendsMetric } from '../experimentLogic'
 import type { savedMetricLogicType } from './savedMetricLogicType'
 import { savedMetricsLogic } from './savedMetricsLogic'
@@ -17,13 +19,9 @@ export interface SavedMetric {
     name: string
     description?: string
     query: Record<string, any>
-    created_by: {
-        id: number
-        first_name: string
-        email: string
-    }
-    created_at: string
-    updated_at: string
+    created_by: UserBasicType | null
+    created_at: string | null
+    updated_at: string | null
 }
 
 export const NEW_SAVED_METRIC: Partial<SavedMetric> = {

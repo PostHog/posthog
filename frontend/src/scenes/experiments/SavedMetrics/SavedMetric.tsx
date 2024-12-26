@@ -1,5 +1,5 @@
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonLabel, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -23,7 +23,11 @@ export function SavedMetric(): JSX.Element {
     const { setSavedMetric, createSavedMetric, updateSavedMetric, deleteSavedMetric } = useActions(savedMetricLogic)
 
     if (!savedMetric || !savedMetric.query) {
-        return <div>Loading...</div>
+        return (
+            <div className="fixed inset-0 flex justify-center items-center">
+                <Spinner className="text-5xl" />
+            </div>
+        )
     }
 
     return (
@@ -47,7 +51,9 @@ export function SavedMetric(): JSX.Element {
                             <IconCheckCircle fontSize={18} color="var(--primary)" />
                         )}
                     </div>
-                    <div className="text-muted text-sm leading-relaxed">Track a single event or action.</div>
+                    <div className="text-muted text-sm leading-relaxed">
+                        Track a single event, action or a property value.
+                    </div>
                 </div>
                 <div
                     className={`flex-1 cursor-pointer p-4 rounded border ${
@@ -84,6 +90,17 @@ export function SavedMetric(): JSX.Element {
                         }}
                     />
                 </div>
+                <div className="mb-4">
+                    <LemonLabel>Description (optional)</LemonLabel>
+                    <LemonInput
+                        value={savedMetric.description}
+                        onChange={(newDescription) => {
+                            setSavedMetric({
+                                description: newDescription,
+                            })
+                        }}
+                    />
+                </div>
                 {savedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
                     <SavedTrendsMetricForm />
                 ) : (
@@ -116,6 +133,7 @@ export function SavedMetric(): JSX.Element {
                     Delete
                 </LemonButton>
                 <LemonButton
+                    disabledReason={savedMetric.name ? undefined : 'You must give your metric a name'}
                     size="medium"
                     type="primary"
                     onClick={() => {
