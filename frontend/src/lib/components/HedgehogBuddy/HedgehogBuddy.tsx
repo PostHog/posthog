@@ -835,11 +835,10 @@ export class HedgehogActor {
 
                         {this.accessories().map((accessory, index) => (
                             <div
-                                className="rendering-pixelated"
+                                className="absolute rendering-pixelated"
                                 key={index}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
-                                    position: 'absolute',
                                     top: 0,
                                     left: 0,
                                     // NOTE: Don't use tailwind here as it can't pre-compute these values
@@ -855,10 +854,11 @@ export class HedgehogActor {
                         ))}
                         {this.overlayAnimation ? (
                             <div
-                                className="absolute top-0 left-0 rendering-pixelated"
+                                className="absolute rendering-pixelated"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
-                                    t
+                                    top: 0,
+                                    left: 0,
                                     width: SPRITE_SIZE,
                                     height: SPRITE_SIZE,
                                     backgroundImage: `url(${spriteOverlayUrl(this.overlayAnimation.spriteInfo.img)})`,
