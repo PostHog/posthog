@@ -14,6 +14,8 @@ let body := {
         {
             'event_name': inputs.eventName,
             'event_time': inputs.eventTime,
+            'event_source_url': inputs.eventSourceUrl,
+            'event_id': inputs.eventId,
             'action_source': inputs.actionSource,
             'user_data': {},
             'custom_data': {}
@@ -63,10 +65,28 @@ if (res.status >= 400) {
             "required": True,
         },
         {
+            "key": "eventId",
+            "type": "string",
+            "label": "Event ID",
+            "description": "This field represents a unique identifier chosen to represent an event.",
+            "default": "{event.uuid}",
+            "secret": False,
+            "required": True,
+        },
+        {
             "key": "eventName",
             "type": "string",
             "label": "Event name",
             "description": "A standard event or custom event name.",
+            "default": "{event.event}",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "eventSourceUrl",
+            "type": "string",
+            "label": "Event source URL",
+            "description": "The URL of the web page where the event took place.",
             "default": "{event.event}",
             "secret": False,
             "required": True,
