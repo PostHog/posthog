@@ -1,11 +1,9 @@
-import { IconPlus, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { IconPlus, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonCollapse, LemonCollapsePanel, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { getDefaultEventName } from 'lib/utils/getAppContext'
-import { useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -30,12 +28,6 @@ export function HogFunctionMapping({
     return (
         <>
             <div className="p-3 space-y-2">
-                <div className="flex items-center justify-between w-full gap-2">
-                    <LemonLabel info="When an event matches these filters, the function is run with the appended inputs.">
-                        NAME TODO
-                    </LemonLabel>
-                    <LemonButton key="delete" icon={<IconTrash />} noPadding onClick={() => onChange(null)} />
-                </div>
                 <ActionFilter
                     bordered
                     filters={mapping.filters ?? {}}
@@ -101,7 +93,6 @@ export function HogFunctionMapping({
 
 export function HogFunctionMappings(): JSX.Element | null {
     const { useMapping, mappingTemplates } = useValues(hogFunctionConfigurationLogic)
-    const [selectedMappingTemplate, setSelectedMappingTemplate] = useState<string | null>(null)
 
     if (!useMapping) {
         return null
@@ -110,103 +101,97 @@ export function HogFunctionMappings(): JSX.Element | null {
     return (
         <LemonField name="mappings">
             {({ value, onChange }) => {
+                const addMapping = (template: string) => {
+                    const mappingTemplate = mappingTemplates.find((t) => t.name === template)
+                    if (mappingTemplate) {
+                        const { name, ...mapping } = mappingTemplate
+
+                        const inputs = mapping.inputs_schema
+                            ? Object.fromEntries(
+                                  mapping.inputs_schema
+                                      .filter((m) => m.default !== undefined)
+                                      .map((m) => [m.key, { value: structuredClone(m.default) }])
+                              )
+                            : {}
+                        onChange([...mappings, { ...mapping, name, inputs }])
+                    }
+                    return
+                }
+
+                const addMappingButton = mappingTemplates.length ? (
+                    <LemonSelect
+                        placeholder="Add mapping"
+                        onChange={(template) => {
+                            addMapping(template)
+                        }}
+                        options={mappingTemplates.map((t) => ({
+                            label: t.name,
+                            value: t.name,
+                        }))}
+                    />
+                ) : null
+
                 const mappings = (value ?? []) as HogFunctionMappingType[]
                 return (
-                    <>
-                        <LemonCollapse
-                            multiple
-                            panels={mappings.map((mapping, index) => {
-                                return {
-                                    key: index,
-                                    header: mapping.name,
-                                    className: 'p-0',
-                                    content: (
-                                        <HogFunctionMapping
-                                            key={index}
-                                            index={index}
-                                            mapping={mapping}
-                                            onChange={(mapping) => {
-                                                if (!mapping) {
-                                                    onChange(mappings.filter((_, i) => i !== index))
-                                                } else {
-                                                    onChange(mappings.map((m, i) => (i === index ? mapping : m)))
-                                                }
-                                            }}
-                                        />
-                                    ),
-                                }
-                            })}
-                        />
-                        <div className="p-3 space-y-2 border rounded bg-bg-light">
-                            <LemonLabel>New Mapping</LemonLabel>
-                            <div className="flex gap-2">
-                                {mappingTemplates.length ? (
-                                    <LemonSelect
-                                        placeholder="Select a template"
-                                        value={selectedMappingTemplate}
-                                        onChange={setSelectedMappingTemplate}
-                                        options={mappingTemplates.map((t) => ({
-                                            label: t.name,
-                                            value: t.name,
-                                        }))}
-                                    />
-                                ) : null}
-                                <LemonButton
-                                    type="secondary"
-                                    data-attr="add-action-event-button"
-                                    icon={<IconPlusSmall />}
-                                    disabledReason={
-                                        mappingTemplates.length && !selectedMappingTemplate
-                                            ? 'Select a mapping template'
-                                            : undefined
-                                    }
-                                    onClick={() => {
-                                        if (selectedMappingTemplate) {
-                                            const mappingTemplate = mappingTemplates.find(
-                                                (t) => t.name === selectedMappingTemplate
-                                            )
-                                            if (mappingTemplate) {
-                                                const { name, ...mapping } = mappingTemplate
-                                                const inputs = mapping.inputs_schema
-                                                    ? Object.fromEntries(
-                                                          mapping.inputs_schema
-                                                              .filter((m) => m.default !== undefined)
-                                                              .map((m) => [
-                                                                  m.key,
-                                                                  { value: structuredClone(m.default) },
-                                                              ])
-                                                      )
-                                                    : {}
-                                                onChange([...mappings, { ...mapping, inputs }])
-                                            }
-                                            setSelectedMappingTemplate(null)
-                                            return
-                                        }
-
-                                        const newMapping = {
-                                            inputs_schema: [],
-                                            inputs: {},
-                                            filters: {
-                                                events: [
-                                                    {
-                                                        id: getDefaultEventName(),
-                                                        name: getDefaultEventName(),
-                                                        type: EntityTypes.EVENTS,
-                                                        order: 0,
-                                                        properties: [],
-                                                    },
-                                                ],
-                                                actions: [],
-                                            },
-                                        }
-                                        onChange([...mappings, newMapping])
-                                    }}
-                                >
-                                    Add mapping
-                                </LemonButton>
+                    <div className="p-3 border rounded bg-bg-light">
+                        <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                                <LemonLabel>Mappings</LemonLabel>
+                                <p className="text-sm text-muted-alt">
+                                    Configure which events should act as triggers including filters and custom
+                                    transformations
+                                </p>
                             </div>
+                            {addMappingButton}
                         </div>
-                    </>
+
+                        <div className="space-y-2">
+                            {mappings.length ? (
+                                <div className="-mx-3 border-t border-b">
+                                    <LemonCollapse
+                                        multiple
+                                        embedded
+                                        panels={mappings.map(
+                                            (mapping, index): LemonCollapsePanel<number> => ({
+                                                key: index,
+                                                header: {
+                                                    children: mapping.name,
+                                                    sideAction: {
+                                                        icon: <IconX />,
+                                                        onClick: () => {
+                                                            onChange(mappings.filter((_, i) => i !== index))
+                                                        },
+                                                    },
+                                                },
+                                                className: 'p-0 bg-accent-light',
+                                                content: (
+                                                    <HogFunctionMapping
+                                                        key={index}
+                                                        index={index}
+                                                        mapping={mapping}
+                                                        onChange={(mapping) => {
+                                                            if (!mapping) {
+                                                                onChange(mappings.filter((_, i) => i !== index))
+                                                            } else {
+                                                                onChange(
+                                                                    mappings.map((m, i) => (i === index ? mapping : m))
+                                                                )
+                                                            }
+                                                        }}
+                                                    />
+                                                ),
+                                            })
+                                        )}
+                                    />
+                                </div>
+                            ) : (
+                                <LemonBanner type="warning" className="p-2">
+                                    You have no mappings configured which effectively means the function is disabled as
+                                    there is nothing to trigger it.
+                                </LemonBanner>
+                            )}
+                        </div>
+                    </div>
                 )
             }}
         </LemonField>
