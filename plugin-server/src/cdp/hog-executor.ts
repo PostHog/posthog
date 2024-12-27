@@ -7,18 +7,22 @@ import RE2 from 're2'
 import { buildIntegerMatcher } from '../config/config'
 import { Hub, ValueMatcher } from '../types'
 import { status } from '../utils/status'
+import { UUIDT } from '../utils/utils'
 import { HogFunctionManager } from './hog-function-manager'
 import {
     CyclotronFetchFailureInfo,
+    HogFunctionAppMetric,
+    HogFunctionFilterGlobals,
     HogFunctionInputType,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionInvocationLogEntry,
     HogFunctionInvocationResult,
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from './types'
-import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal } from './utils'
+import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from './utils'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -121,31 +125,28 @@ export class HogExecutor {
         this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
-    findMatchingFunctions(globals: HogFunctionInvocationGlobals): {
-        matchingFunctions: HogFunctionType[]
-        nonMatchingFunctions: HogFunctionType[]
-        erroredFunctions: [HogFunctionType, string][]
-    } {
-        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(globals.project.id)
-        const filtersGlobals = convertToHogFunctionFilterGlobal(globals)
+    buildHogFunctionInvocations(triggerGlobals: HogFunctionInvocationGlobals) {
+        // Build and generate invocations for all the possible mappings
+        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(triggerGlobals.project.id)
+        const metrics: HogFunctionAppMetric[] = []
+        const logs: HogFunctionInvocationLogEntry[] = []
+        const invocations: HogFunctionInvocation[] = []
 
-        const nonMatchingFunctions: HogFunctionType[] = []
-        const matchingFunctions: HogFunctionType[] = []
-        const erroredFunctions: [HogFunctionType, string][] = []
+        // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
+        const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
 
-        // Filter all functions based on the invocation
-        allFunctionsForTeam.forEach((hogFunction) => {
-            if (hogFunction.filters?.bytecode) {
+        const filterHogFunction = (
+            hogFunction: HogFunctionType,
+            filters: HogFunctionType['filters'],
+            filterGlobals: HogFunctionInvocationGlobals | HogFunctionFilterGlobals
+        ) => {
+            if (filters?.bytecode) {
                 const start = performance.now()
                 try {
-                    const filterResult = execHog(hogFunction.filters.bytecode, {
-                        globals: filtersGlobals,
+                    const filterResult = execHog(filters.bytecode, {
+                        globals: filterGlobals,
                         telemetry: this.telemetryMatcher(hogFunction.team_id),
                     })
-                    if (typeof filterResult.result === 'boolean' && filterResult.result) {
-                        matchingFunctions.push(hogFunction)
-                        return
-                    }
                     if (filterResult.error) {
                         status.error('🦔', `[HogExecutor] Error filtering function`, {
                             hogFunctionId: hogFunction.id,
@@ -154,12 +155,23 @@ export class HogExecutor {
                             error: filterResult.error.message,
                             result: filterResult,
                         })
-                        erroredFunctions.push([
-                            hogFunction,
-                            `Error filtering event ${globals.event.uuid}: ${filterResult.error.message}`,
-                        ])
-                        return
+
+                        throw new Error(`${filterResult.error.message}`)
                     }
+
+                    const result = typeof filterResult.result === 'boolean' && filterResult.result
+
+                    if (!result) {
+                        metrics.push({
+                            team_id: hogFunction.team_id,
+                            app_source_id: hogFunction.id,
+                            metric_kind: 'other',
+                            metric_name: 'filtered',
+                            count: 1,
+                        })
+                    }
+
+                    return result
                 } catch (error) {
                     status.error('🦔', `[HogExecutor] Error filtering function`, {
                         hogFunctionId: hogFunction.id,
@@ -167,11 +179,25 @@ export class HogExecutor {
                         teamId: hogFunction.team_id,
                         error: error.message,
                     })
-                    erroredFunctions.push([
-                        hogFunction,
-                        `Error filtering event ${globals.event.uuid}: ${error.message}`,
-                    ])
-                    return
+
+                    metrics.push({
+                        team_id: hogFunction.team_id,
+                        app_source_id: hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'filtering_failed',
+                        count: 1,
+                    })
+
+                    logs.push({
+                        team_id: hogFunction.team_id,
+                        log_source: 'hog_function',
+                        log_source_id: hogFunction.id,
+                        instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
+                        timestamp: DateTime.now(),
+                        level: 'error',
+                        message: `Error filtering event ${triggerGlobals.event.uuid}: ${error.message}`,
+                    })
+                    return false
                 } finally {
                     const duration = performance.now() - start
                     hogFunctionFilterDuration.observe(performance.now() - start)
@@ -182,28 +208,128 @@ export class HogExecutor {
                             hogFunctionName: hogFunction.name,
                             teamId: hogFunction.team_id,
                             duration,
-                            eventId: globals.event.uuid,
+                            eventId: triggerGlobals.event.uuid,
                         })
                     }
                 }
             }
+        }
 
-            nonMatchingFunctions.push(hogFunction)
+        allFunctionsForTeam.forEach((hogFunction) => {
+            // Check for non-mapping functions first
+
+            if (!hogFunction.mappings) {
+                if (filterHogFunction(hogFunction, hogFunction.filters, filterGlobals)) {
+                    invocations.push(createInvocation(triggerGlobals, hogFunction))
+                }
+                return
+            }
+
+            hogFunction.mappings.forEach((mapping) => {
+                // For mappings we want to match against both the mapping filters and the global filters
+                console.log('FILTERING MAPPING', mapping)
+                if (
+                    filterHogFunction(hogFunction, hogFunction.filters, filterGlobals) &&
+                    filterHogFunction(hogFunction, mapping.filters, filterGlobals)
+                ) {
+                    // TODO: Also do the input mapping here
+                    invocations.push(createInvocation(triggerGlobals, hogFunction))
+                }
+            })
         })
 
-        status.debug(
-            '🦔',
-            `[HogExecutor] Found ${Object.keys(matchingFunctions).length} matching functions out of ${
-                Object.keys(allFunctionsForTeam).length
-            } for team`
-        )
-
         return {
-            nonMatchingFunctions,
-            matchingFunctions,
-            erroredFunctions,
+            invocations,
+            metrics,
+            logs,
         }
     }
+
+    // findMatchingFunctions(globals: HogFunctionInvocationGlobals): {
+    //     matchingFunctions: HogFunctionType[]
+    //     nonMatchingFunctions: HogFunctionType[]
+    //     erroredFunctions: [HogFunctionType, string][]
+    // } {
+    //     const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(globals.project.id)
+    //     const filtersGlobals = convertToHogFunctionFilterGlobal(globals)
+
+    //     // TODO: Instead of just checking the filters and globals, we instead will want to check the mappings, overriding the filters and inputs
+
+    //     const nonMatchingFunctions: HogFunctionType[] = []
+    //     const matchingFunctions: HogFunctionType[] = []
+    //     const erroredFunctions: [HogFunctionType, string][] = []
+
+    //     // Filter all functions based on the invocation
+    //     allFunctionsForTeam.forEach((hogFunction) => {
+    //         if (hogFunction.filters?.bytecode) {
+    //             const start = performance.now()
+    //             try {
+    //                 const filterResult = execHog(hogFunction.filters.bytecode, {
+    //                     globals: filtersGlobals,
+    //                     telemetry: this.telemetryMatcher(hogFunction.team_id),
+    //                 })
+    //                 if (typeof filterResult.result === 'boolean' && filterResult.result) {
+    //                     matchingFunctions.push(hogFunction)
+    //                     return
+    //                 }
+    //                 if (filterResult.error) {
+    //                     status.error('🦔', `[HogExecutor] Error filtering function`, {
+    //                         hogFunctionId: hogFunction.id,
+    //                         hogFunctionName: hogFunction.name,
+    //                         teamId: hogFunction.team_id,
+    //                         error: filterResult.error.message,
+    //                         result: filterResult,
+    //                     })
+    //                     erroredFunctions.push([
+    //                         hogFunction,
+    //                         `Error filtering event ${globals.event.uuid}: ${filterResult.error.message}`,
+    //                     ])
+    //                     return
+    //                 }
+    //             } catch (error) {
+    //                 status.error('🦔', `[HogExecutor] Error filtering function`, {
+    //                     hogFunctionId: hogFunction.id,
+    //                     hogFunctionName: hogFunction.name,
+    //                     teamId: hogFunction.team_id,
+    //                     error: error.message,
+    //                 })
+    //                 erroredFunctions.push([
+    //                     hogFunction,
+    //                     `Error filtering event ${globals.event.uuid}: ${error.message}`,
+    //                 ])
+    //                 return
+    //             } finally {
+    //                 const duration = performance.now() - start
+    //                 hogFunctionFilterDuration.observe(performance.now() - start)
+
+    //                 if (duration > DEFAULT_TIMEOUT_MS) {
+    //                     status.error('🦔', `[HogExecutor] Filter took longer than expected`, {
+    //                         hogFunctionId: hogFunction.id,
+    //                         hogFunctionName: hogFunction.name,
+    //                         teamId: hogFunction.team_id,
+    //                         duration,
+    //                         eventId: globals.event.uuid,
+    //                     })
+    //                 }
+    //             }
+    //         }
+
+    //         nonMatchingFunctions.push(hogFunction)
+    //     })
+
+    //     status.debug(
+    //         '🦔',
+    //         `[HogExecutor] Found ${Object.keys(matchingFunctions).length} matching functions out of ${
+    //             Object.keys(allFunctionsForTeam).length
+    //         } for team`
+    //     )
+
+    //     return {
+    //         nonMatchingFunctions,
+    //         matchingFunctions,
+    //         erroredFunctions,
+    //     }
+    // }
 
     execute(invocation: HogFunctionInvocation): HogFunctionInvocationResult {
         const loggingContext = {

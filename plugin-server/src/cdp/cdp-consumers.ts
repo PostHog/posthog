@@ -40,6 +40,7 @@ import { HogWatcher, HogWatcherState } from './hog-watcher'
 import { CdpRedis, createCdpRedisPool } from './redis'
 import { CdpInternalEventSchema } from './schema'
 import {
+    HogFunctionAppMetric,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
@@ -182,9 +183,7 @@ abstract class CdpConsumerBase {
         )
     }
 
-    protected produceAppMetric(
-        metric: Pick<AppMetric2Type, 'team_id' | 'app_source_id' | 'metric_kind' | 'metric_name' | 'count'>
-    ) {
+    protected produceAppMetric(metric: HogFunctionAppMetric) {
         const appMetric: AppMetric2Type = {
             app_source: 'hog_function',
             ...metric,
