@@ -105,8 +105,14 @@ export function HogFunctionMappings(): JSX.Element | null {
 
     return (
         <LemonField name="mappings">
-            {({ value, onChange }) => {
-                const addMapping = (template: string) => {
+            {({
+                value,
+                onChange,
+            }: {
+                value: HogFunctionMappingType[]
+                onChange: (mappings: HogFunctionMappingType[]) => void
+            }) => {
+                const addMapping = (template: string): void => {
                     const mappingTemplate = mappingTemplates.find((t) => t.name === template)
                     if (mappingTemplate) {
                         const { name, ...mapping } = mappingTemplate
@@ -118,9 +124,8 @@ export function HogFunctionMappings(): JSX.Element | null {
                                       .map((m) => [m.key, { value: structuredClone(m.default) }])
                               )
                             : {}
-                        onChange([...mappings, { ...mapping, name, inputs }])
-
-                        setActiveKeys([...activeKeys, mappings.length])
+                        onChange([...value, { ...mapping, name, inputs }])
+                        setActiveKeys([...activeKeys, value.length])
                     }
                     return
                 }
@@ -138,7 +143,6 @@ export function HogFunctionMappings(): JSX.Element | null {
                     />
                 ) : null
 
-                const mappings = (value ?? []) as HogFunctionMappingType[]
                 return (
                     <div className="p-3 border rounded bg-bg-light">
                         <div className="flex items-start justify-between">
@@ -153,14 +157,14 @@ export function HogFunctionMappings(): JSX.Element | null {
                         </div>
 
                         <div className="space-y-2">
-                            {mappings.length ? (
+                            {value.length ? (
                                 <div className="-mx-3 border-t border-b">
                                     <LemonCollapse
                                         multiple
                                         embedded
                                         activeKeys={activeKeys}
                                         onChange={(activeKeys) => setActiveKeys(activeKeys)}
-                                        panels={mappings.map(
+                                        panels={value.map(
                                             (mapping, index): LemonCollapsePanel<number> => ({
                                                 key: index,
                                                 header: {
@@ -168,7 +172,7 @@ export function HogFunctionMappings(): JSX.Element | null {
                                                     sideAction: {
                                                         icon: <IconX />,
                                                         onClick: () => {
-                                                            onChange(mappings.filter((_, i) => i !== index))
+                                                            onChange(value.filter((_, i) => i !== index))
                                                         },
                                                     },
                                                 },
@@ -180,10 +184,10 @@ export function HogFunctionMappings(): JSX.Element | null {
                                                         mapping={mapping}
                                                         onChange={(mapping) => {
                                                             if (!mapping) {
-                                                                onChange(mappings.filter((_, i) => i !== index))
+                                                                onChange(value.filter((_, i) => i !== index))
                                                             } else {
                                                                 onChange(
-                                                                    mappings.map((m, i) => (i === index ? mapping : m))
+                                                                    value.map((m, i) => (i === index ? mapping : m))
                                                                 )
                                                             }
                                                         }}
