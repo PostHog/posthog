@@ -7,28 +7,33 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 
 
 def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
+    initiator_host = None
+    failed_to_find_initiator_host = False
     try:
-        [(initiator_host,)] = sync_execute(
+        result = sync_execute(
             f"""
             SELECT hostname()
             FROM clusterAllReplicas(posthog, system.query_log)
-            WHERE query_id LIKE %(client_query_id)s
+            WHERE query_id LIKE %(client_query_id)s AND (event_time > (now() - toIntervalDay(1)))
             GROUP BY hostname()
-            HAVING (count() = 1) AND (event_time > (now() - toIntervalDay(1)))
+            HAVING (count() = 1)
             SETTINGS max_execution_time = 5
             """,
             {"client_query_id": f"{team_id}_{client_query_id}%"},
         )
+        initiator_host = result[0][0] if result else None
     except Exception as e:
+        failed_to_find_initiator_host = True
         logger.info("Failed to find initiator host for query %s: %s", client_query_id, e)
 
-    if initiator_host:
-        logger.debug("Found initiator host for query %s, cancelling query on host", initiator_host, client_query_id)
-        with default_client(host=initiator_host) as client:
-            result = client.execute(
-                f"KILL QUERY WHERE query_id LIKE %(client_query_id)s",
-                {"client_query_id": f"{team_id}_{client_query_id}%"},
-            )
+    if not failed_to_find_initiator_host:
+        if initiator_host:
+            logger.debug("Found initiator host for query %s, cancelling query on host", initiator_host, client_query_id)
+            with default_client(host=initiator_host) as client:
+                result = client.execute(
+                    f"KILL QUERY WHERE query_id LIKE %(client_query_id)s",
+                    {"client_query_id": f"{team_id}_{client_query_id}%"},
+                )
     else:
         logger.debug("No initiator host found for query %s, cancelling query on cluster", client_query_id)
         result = sync_execute(
