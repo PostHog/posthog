@@ -1,9 +1,9 @@
-import { IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconInfo, IconPlus } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
-import { experimentLogic, getDefaultFunnelsMetric } from '../experimentLogic'
+import { experimentLogic } from '../experimentLogic'
 import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from './const'
 import { DeltaChart } from './DeltaChart'
 
@@ -44,7 +44,7 @@ export function getNiceTickValues(maxAbsValue: number): number[] {
 
 function AddPrimaryMetric(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
-    const { setExperiment, openPrimaryMetricModal } = useActions(experimentLogic)
+    const { openPrimaryMetricSourceModal } = useActions(experimentLogic)
 
     return (
         <LemonButton
@@ -52,11 +52,7 @@ function AddPrimaryMetric(): JSX.Element {
             type="secondary"
             size="xsmall"
             onClick={() => {
-                const newMetrics = [...experiment.metrics, getDefaultFunnelsMetric()]
-                setExperiment({
-                    metrics: newMetrics,
-                })
-                openPrimaryMetricModal(newMetrics.length - 1)
+                openPrimaryMetricSourceModal()
             }}
             disabledReason={
                 experiment.metrics.length >= MAX_PRIMARY_METRICS
@@ -71,18 +67,14 @@ function AddPrimaryMetric(): JSX.Element {
 
 export function AddSecondaryMetric(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
-    const { setExperiment, openSecondaryMetricModal } = useActions(experimentLogic)
+    const { openSecondaryMetricSourceModal } = useActions(experimentLogic)
     return (
         <LemonButton
             icon={<IconPlus />}
             type="secondary"
             size="xsmall"
             onClick={() => {
-                const newMetricsSecondary = [...experiment.metrics_secondary, getDefaultFunnelsMetric()]
-                setExperiment({
-                    metrics_secondary: newMetricsSecondary,
-                })
-                openSecondaryMetricModal(newMetricsSecondary.length - 1)
+                openSecondaryMetricSourceModal()
             }}
             disabledReason={
                 experiment.metrics_secondary.length >= MAX_SECONDARY_METRICS
@@ -98,8 +90,7 @@ export function AddSecondaryMetric(): JSX.Element {
 export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
         experiment,
-        getMetricType,
-        getSecondaryMetricType,
+        _getMetricType,
         metricResults,
         secondaryMetricResults,
         primaryMetricsResultErrors,
@@ -108,19 +99,32 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
     } = useValues(experimentLogic)
 
     const variants = experiment.parameters.feature_flag_variants
-    const metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
     const results = isSecondary ? secondaryMetricResults : metricResults
     const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
 
+    let metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
+    const savedMetrics = experiment.saved_metrics
+        .filter((savedMetric) => savedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary'))
+        .map((savedMetric) => ({
+            ...savedMetric.query,
+            name: savedMetric.name,
+            savedMetricId: savedMetric.saved_metric,
+            isSavedMetric: true,
+        }))
+
+    if (savedMetrics) {
+        metrics = [...metrics, ...savedMetrics]
+    }
+
     // Calculate the maximum absolute value across ALL metrics
     const maxAbsValue = Math.max(
-        ...metrics.flatMap((_, metricIndex) => {
+        ...metrics.flatMap((metric, metricIndex) => {
             const result = results?.[metricIndex]
             if (!result) {
                 return []
             }
             return variants.flatMap((variant) => {
-                const metricType = isSecondary ? getSecondaryMetricType(metricIndex) : getMetricType(metricIndex)
+                const metricType = _getMetricType(metric)
                 const interval = credibleIntervalForVariant(result, variant.key, metricType)
                 return interval ? [Math.abs(interval[0] / 100), Math.abs(interval[1] / 100)] : []
             })
@@ -136,10 +140,21 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
         <div className="mb-4 -mt-2">
             <div className="flex">
                 <div className="w-1/2 pt-5">
-                    <div className="inline-flex space-x-2 mb-0">
-                        <h2 className="mb-1 font-semibold text-lg">
+                    <div className="inline-flex items-center space-x-2 mb-0">
+                        <h2 className="mb-0 font-semibold text-lg leading-6">
                             {isSecondary ? 'Secondary metrics' : 'Primary metrics'}
                         </h2>
+                        {metrics.length > 0 && (
+                            <Tooltip
+                                title={
+                                    isSecondary
+                                        ? 'Secondary metrics capture additional outcomes or behaviors affected by your experiment. They help you understand broader impacts and potential side effects beyond the primary goal.'
+                                        : 'Primary metrics represent the main goal of your experiment. They directly measure whether your hypothesis was successful and are the key factor in deciding if the test achieved its primary objective.'
+                                }
+                            >
+                                <IconInfo className="text-muted-alt text-lg" />
+                            </Tooltip>
+                        )}
                     </div>
                 </div>
 
@@ -178,11 +193,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                                         result={result}
                                         error={errors?.[metricIndex]}
                                         variants={variants}
-                                        metricType={
-                                            isSecondary
-                                                ? getSecondaryMetricType(metricIndex)
-                                                : getMetricType(metricIndex)
-                                        }
+                                        metricType={_getMetricType(metric)}
                                         metricIndex={metricIndex}
                                         isFirstMetric={isFirstMetric}
                                         metric={metric}
