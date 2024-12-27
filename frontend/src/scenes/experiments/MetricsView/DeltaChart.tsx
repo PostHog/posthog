@@ -274,34 +274,40 @@ export function DeltaChart({
                 {isFirstMetric && <div className="w-full border-t border-border" />}
                 {/* eslint-disable-next-line react/forbid-dom-props */}
                 <div style={{ height: `${chartSvgHeight}px` }}>
-                    {variants.map((variant) => (
-                        <div
-                            key={variant.key}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                height: `${100 / variants.length}%`,
-                                display: 'flex',
-                                alignItems: 'center',
-                                paddingLeft: '10px',
-                                position: 'relative',
-                                minWidth: 0,
-                                overflow: 'hidden',
-                            }}
-                        >
+                    {result &&
+                        variants.map((variant) => (
                             <div
-                                className="absolute inset-0"
+                                key={variant.key}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
-                                    backgroundColor: 'var(--bg-light)',
-                                    opacity: 0.4,
-                                    pointerEvents: 'none',
+                                    height: `${100 / variants.length}%`,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    paddingLeft: '10px',
+                                    position: 'relative',
+                                    minWidth: 0,
+                                    overflow: 'hidden',
                                 }}
-                            />
-                            <div className="w-full overflow-hidden whitespace-nowrap">
-                                <VariantTag experimentId={experimentId} variantKey={variant.key} fontSize={11} muted />
+                            >
+                                <div
+                                    className="absolute inset-0"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        backgroundColor: 'var(--bg-light)',
+                                        opacity: 0.4,
+                                        pointerEvents: 'none',
+                                    }}
+                                />
+                                <div className="w-full overflow-hidden whitespace-nowrap">
+                                    <VariantTag
+                                        experimentId={experimentId}
+                                        variantKey={variant.key}
+                                        fontSize={11}
+                                        muted
+                                    />
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        ))}
                 </div>
             </div>
             {/* SVGs container */}
@@ -537,7 +543,7 @@ export function DeltaChart({
                             </foreignObject>
                         ) : (
                             <foreignObject
-                                x={VIEW_BOX_WIDTH / 2 - 100}
+                                x={VIEW_BOX_WIDTH / 2 - 100 - (result ? 0 : 200)}
                                 y={chartHeight / 2 - 10}
                                 width="250"
                                 height="20"

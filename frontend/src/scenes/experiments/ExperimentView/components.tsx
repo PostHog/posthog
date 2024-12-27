@@ -580,12 +580,17 @@ export function PageHeaderCustom(): JSX.Element {
 }
 
 export function ShipVariantModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, sortedWinProbabilities, isShipVariantModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { experiment, isShipVariantModalOpen } = useValues(experimentLogic({ experimentId }))
     const { closeShipVariantModal, shipVariant } = useActions(experimentLogic({ experimentId }))
     const { aggregationLabel } = useValues(groupsModel)
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
-    useEffect(() => setSelectedVariantKey(sortedWinProbabilities(0)[0]?.key), [sortedWinProbabilities(0)])
+    useEffect(() => {
+        if (experiment.parameters?.feature_flag_variants?.length > 0) {
+            // First test variant selected by default
+            setSelectedVariantKey(experiment.parameters.feature_flag_variants[1].key)
+        }
+    }, [experiment])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
@@ -625,20 +630,19 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
                             className="w-full"
                             data-attr="metrics-selector"
                             value={selectedVariantKey}
-                            onChange={(variantKey) => setSelectedVariantKey(variantKey)}
-                            options={sortedWinProbabilities(0).map(({ key }) => ({
-                                value: key,
-                                label: (
-                                    <div className="space-x-2 inline-flex">
-                                        <VariantTag experimentId={experimentId} variantKey={key} />
-                                        {key === sortedWinProbabilities(0)[0]?.key && (
-                                            <LemonTag type="success">
-                                                <b className="uppercase">Winning</b>
-                                            </LemonTag>
-                                        )}
-                                    </div>
-                                ),
-                            }))}
+                            onChange={(variantKey) => {
+                                setSelectedVariantKey(variantKey)
+                            }}
+                            options={
+                                experiment.parameters?.feature_flag_variants?.map(({ key }) => ({
+                                    value: key,
+                                    label: (
+                                        <div className="space-x-2 inline-flex">
+                                            <VariantTag experimentId={experimentId} variantKey={key} />
+                                        </div>
+                                    ),
+                                })) || []
+                            }
                         />
                     </div>
                 </div>

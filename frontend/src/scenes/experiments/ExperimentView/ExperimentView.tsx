@@ -27,16 +27,34 @@ import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditi
 import { Results } from './Results'
 import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
-const ResultsTab = (): JSX.Element => {
-    const { experiment, metricResults, featureFlags } = useValues(experimentLogic)
-    const result = metricResults?.[0]
-    const hasResultsInsight = result && result.insight
+const NewResultsTab = (): JSX.Element => {
+    const { experiment, metricResults } = useValues(experimentLogic)
+    const hasSomeResults = metricResults?.some((result) => result?.insight)
 
     return (
-        <div className="space-y-8">
-            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
-                <MetricsView />
-            ) : hasResultsInsight ? (
+        <>
+            {!hasSomeResults && (
+                <>
+                    {experiment.type === 'web' ? (
+                        <WebExperimentImplementationDetails experiment={experiment} />
+                    ) : (
+                        <ExperimentImplementationDetails experiment={experiment} />
+                    )}
+                </>
+            )}
+            <MetricsView />
+            <MetricsView isSecondary={true} />
+        </>
+    )
+}
+
+const OldResultsTab = (): JSX.Element => {
+    const { experiment, metricResults } = useValues(experimentLogic)
+    const hasSomeResults = metricResults?.some((result) => result?.insight)
+
+    return (
+        <>
+            {hasSomeResults ? (
                 <Results />
             ) : (
                 <>
@@ -54,13 +72,14 @@ const ResultsTab = (): JSX.Element => {
                     )}
                 </>
             )}
-            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
-                <MetricsView isSecondary={true} />
-            ) : (
-                <SecondaryMetricsTable experimentId={experiment.id} />
-            )}
-        </div>
+            <SecondaryMetricsTable experimentId={experiment.id} />
+        </>
     )
+}
+
+const ResultsTab = (): JSX.Element => {
+    const { featureFlags } = useValues(experimentLogic)
+    return <>{featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? <NewResultsTab /> : <OldResultsTab />}</>
 }
 
 const VariantsTab = (): JSX.Element => {
@@ -87,8 +106,8 @@ export function ExperimentView(): JSX.Element {
     } = useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
-    const result = metricResults?.[0]
-    const hasResultsInsight = result && result.insight
+    // Instead, check if any result in the array has an insight
+    const hasSomeResults = metricResults?.some((result) => result?.insight)
 
     return (
         <>
@@ -103,7 +122,7 @@ export function ExperimentView(): JSX.Element {
                             <ExperimentLoadingAnimation />
                         ) : (
                             <>
-                                {hasResultsInsight && !featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
+                                {hasSomeResults && !featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
                                     <div>
                                         <Overview />
                                         <LemonDivider className="mt-4" />
