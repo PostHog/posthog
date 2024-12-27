@@ -1,6 +1,7 @@
 import { IconActivity, IconGraph, IconMinus, IconPencil, IconTrending } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
@@ -220,7 +221,47 @@ export function DeltaChart({
                     </div>
                 </div>
             </div>
-
+            {/* Detailed results panel */}
+            <div
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    display: 'inline-block',
+                    width: detailedResultsPanelWidth,
+                    verticalAlign: 'top',
+                }}
+            >
+                {isFirstMetric && (
+                    <svg
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ height: `${ticksSvgHeight}px`, width: '100%' }}
+                    />
+                )}
+                {isFirstMetric && <div className="w-full border-t border-border" />}
+                {result && (
+                    <div
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            height: `${chartSvgHeight}px`,
+                            borderRight: result ? `1px solid ${COLORS.BOUNDARY_LINES}` : 'none',
+                            display: 'flex',
+                            flexDirection: 'column',
+                        }}
+                    >
+                        <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
+                        <div className="flex justify-center">
+                            <LemonButton
+                                className="mt-1"
+                                type="secondary"
+                                size="xsmall"
+                                icon={<IconGraph />}
+                                onClick={() => setIsModalOpen(true)}
+                            >
+                                Detailed results
+                            </LemonButton>
+                        </div>
+                    </div>
+                )}
+            </div>
             {/* Variants panel */}
             {/* eslint-disable-next-line react/forbid-dom-props */}
             <div style={{ display: 'inline-block', width: variantsPanelWidth, verticalAlign: 'top' }}>
@@ -242,9 +283,23 @@ export function DeltaChart({
                                 display: 'flex',
                                 alignItems: 'center',
                                 paddingLeft: '10px',
+                                position: 'relative',
+                                minWidth: 0,
+                                overflow: 'hidden',
                             }}
                         >
-                            <VariantTag experimentId={experimentId} variantKey={variant.key} fontSize={11} muted />
+                            <div
+                                className="absolute inset-0"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    backgroundColor: 'var(--bg-light)',
+                                    opacity: 0.4,
+                                    pointerEvents: 'none',
+                                }}
+                            />
+                            <div className="w-full overflow-hidden whitespace-nowrap">
+                                <VariantTag experimentId={experimentId} variantKey={variant.key} fontSize={11} muted />
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -550,6 +605,22 @@ export function DeltaChart({
                     >
                         <div className="flex flex-col gap-1">
                             <VariantTag experimentId={experimentId} variantKey={tooltipData.variant} />
+                            <div className="inline-flex">
+                                <span className="text-muted font-semibold mb-1">Win probability:</span>
+                                {result?.probability?.[tooltipData.variant] !== undefined ? (
+                                    <span className="flex items-center justify-between flex-1 pl-6">
+                                        <LemonProgress
+                                            className="w-3/4 mr-4"
+                                            percent={result.probability[tooltipData.variant] * 100}
+                                        />
+                                        <span className="font-semibold">
+                                            {(result.probability[tooltipData.variant] * 100).toFixed(2)}%
+                                        </span>
+                                    </span>
+                                ) : (
+                                    '—'
+                                )}
+                            </div>
                             {metricType === InsightType.TRENDS ? (
                                 <>
                                     <div className="flex justify-between items-center">
@@ -692,46 +763,6 @@ export function DeltaChart({
                         }}
                     >
                         <NoResultEmptyState error={error} />
-                    </div>
-                )}
-            </div>
-            {/* Detailed results panel */}
-            <div
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    display: 'inline-block',
-                    width: detailedResultsPanelWidth,
-                    verticalAlign: 'top',
-                }}
-            >
-                {isFirstMetric && (
-                    <svg
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: `${ticksSvgHeight}px`, width: '100%' }}
-                    />
-                )}
-                {isFirstMetric && <div className="w-full border-t border-border" />}
-                {result && (
-                    <div
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            height: `${chartSvgHeight}px`,
-                            borderLeft: result ? `1px solid ${COLORS.BOUNDARY_LINES}` : 'none',
-                            display: 'flex',
-                            flexDirection: 'column',
-                        }}
-                    >
-                        <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
-                        <div className="flex-1 flex items-center justify-center">
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                icon={<IconGraph />}
-                                onClick={() => setIsModalOpen(true)}
-                            >
-                                Detailed results
-                            </LemonButton>
-                        </div>
                     </div>
                 )}
             </div>

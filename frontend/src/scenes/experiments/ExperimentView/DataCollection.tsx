@@ -80,7 +80,7 @@ export function DataCollection(): JSX.Element {
                     <LemonProgress
                         className="w-full border"
                         bgColor="var(--bg-table)"
-                        size="large"
+                        size="medium"
                         percent={experimentProgressPercent}
                     />
                     {metricType === InsightType.TRENDS && (

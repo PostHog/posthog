@@ -1,4 +1,4 @@
-import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { ExperimentFunnelsQuery } from '~/queries/schema'
@@ -52,11 +52,27 @@ export function MetricModal({
                         type="secondary"
                         status="danger"
                         onClick={() => {
-                            const newMetrics = metrics.filter((_, idx) => idx !== metricIdx)
-                            setExperiment({
-                                [metricsField]: newMetrics,
+                            LemonDialog.open({
+                                title: 'Delete this metric?',
+                                content: <div className="text-sm text-muted">This action cannot be undone.</div>,
+                                primaryButton: {
+                                    children: 'Delete',
+                                    type: 'primary',
+                                    onClick: () => {
+                                        const newMetrics = metrics.filter((_, idx) => idx !== metricIdx)
+                                        setExperiment({
+                                            [metricsField]: newMetrics,
+                                        })
+                                        updateExperimentGoal()
+                                    },
+                                    size: 'small',
+                                },
+                                secondaryButton: {
+                                    children: 'Cancel',
+                                    type: 'tertiary',
+                                    size: 'small',
+                                },
                             })
-                            updateExperimentGoal()
                         }}
                     >
                         Delete

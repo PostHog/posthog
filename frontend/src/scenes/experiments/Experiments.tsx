@@ -221,7 +221,9 @@ export function Experiments(): JSX.Element {
                     { key: ExperimentsTabs.Yours, label: 'Your experiments' },
                     { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                     { key: ExperimentsTabs.Holdouts, label: 'Holdout groups' },
-                    { key: ExperimentsTabs.SavedMetrics, label: 'Saved metrics' },
+                    ...(featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS]
+                        ? [{ key: ExperimentsTabs.SavedMetrics, label: 'Shared metrics' }]
+                        : []),
                 ]}
             />
 

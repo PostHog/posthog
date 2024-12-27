@@ -1,5 +1,5 @@
-import { IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconInfo, IconPlus } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
@@ -140,10 +140,21 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
         <div className="mb-4 -mt-2">
             <div className="flex">
                 <div className="w-1/2 pt-5">
-                    <div className="inline-flex space-x-2 mb-0">
-                        <h2 className="mb-1 font-semibold text-lg">
+                    <div className="inline-flex items-center space-x-2 mb-0">
+                        <h2 className="mb-0 font-semibold text-lg leading-6">
                             {isSecondary ? 'Secondary metrics' : 'Primary metrics'}
                         </h2>
+                        {metrics.length > 0 && (
+                            <Tooltip
+                                title={
+                                    isSecondary
+                                        ? 'Secondary metrics capture additional outcomes or behaviors affected by your experiment. They help you understand broader impacts and potential side effects beyond the primary goal.'
+                                        : 'Primary metrics represent the main goal of your experiment. They directly measure whether your hypothesis was successful and are the key factor in deciding if the test achieved its primary objective.'
+                                }
+                            >
+                                <IconInfo className="text-muted-alt text-lg" />
+                            </Tooltip>
+                        )}
                     </div>
                 </div>
 
