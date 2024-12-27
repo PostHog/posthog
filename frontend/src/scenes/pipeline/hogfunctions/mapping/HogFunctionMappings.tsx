@@ -1,10 +1,18 @@
-import { IconPlus, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCollapse, LemonCollapsePanel, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { IconArrowRight, IconFilter, IconPlus, IconX } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCollapse,
+    LemonCollapsePanel,
+    LemonLabel,
+    LemonSelect,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -13,6 +21,50 @@ import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } fro
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 import { HogFunctionInputs } from '../HogFunctionInputs'
+
+const humanize = (value: string): string => {
+    // Simple replacement from something like MY_STRING-here to My string here
+    return value
+        .toLowerCase()
+        .replace(/_/g, ' ')
+        .replace(/-/g, ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+const MappingSummary = memo(function MappingSummary({
+    mapping,
+}: {
+    mapping: HogFunctionMappingType
+}): JSX.Element | null {
+    const events = mapping.filters?.events?.map((event) => event.name ?? event.id) ?? []
+    const actions = mapping.filters?.actions?.map((action) => action.name ?? action.id) ?? []
+
+    const propertyFiltersCount =
+        (mapping.filters?.events?.filter((event) => event.properties?.length ?? 0) ?? []).length +
+        (mapping.filters?.actions?.filter((action) => action.properties?.length ?? 0) ?? []).length
+
+    const eventSummary = [...events, ...actions].join(', ')
+
+    const firstInput = mapping.inputs_schema?.[0]
+    const firstInputValue = (firstInput?.key ? mapping.inputs?.[firstInput.key]?.value : null) ?? '(custom value)'
+
+    return (
+        <span className="flex items-center gap-4">
+            <span>
+                {eventSummary ? humanize(eventSummary) : <span className="text-muted-alt">No trigger</span>}{' '}
+                {propertyFiltersCount ? (
+                    <span className="text-muted-alt">
+                        <Tooltip title={`Events have ${propertyFiltersCount} additional filters`}>
+                            <IconFilter />
+                        </Tooltip>
+                    </span>
+                ) : null}
+            </span>
+            <IconArrowRight className="text-muted-alt" />
+            <span>{humanize(firstInputValue)}</span>
+        </span>
+    )
+})
 
 export function HogFunctionMapping({
     index,
@@ -168,7 +220,7 @@ export function HogFunctionMappings(): JSX.Element | null {
                                             (mapping, index): LemonCollapsePanel<number> => ({
                                                 key: index,
                                                 header: {
-                                                    children: mapping.name,
+                                                    children: <MappingSummary mapping={mapping} />,
                                                     sideAction: {
                                                         icon: <IconX />,
                                                         onClick: () => {
