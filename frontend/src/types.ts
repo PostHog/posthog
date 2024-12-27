@@ -4658,6 +4658,7 @@ export interface HogFunctionFiltersType {
 }
 
 export interface HogFunctionMappingType {
+    name: string
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
     filters?: HogFunctionFiltersType | null
