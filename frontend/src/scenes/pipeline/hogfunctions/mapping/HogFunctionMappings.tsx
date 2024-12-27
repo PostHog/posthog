@@ -1,4 +1,4 @@
-import { IconArrowRight, IconFilter, IconPlus, IconX } from '@posthog/icons'
+import { IconArrowRight, IconEllipsis, IconFilter, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -6,6 +6,7 @@ import {
     LemonCollapsePanel,
     LemonLabel,
     LemonSelect,
+    LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
@@ -49,7 +50,7 @@ const MappingSummary = memo(function MappingSummary({
     const firstInputValue = (firstInput?.key ? mapping.inputs?.[firstInput.key]?.value : null) ?? '(custom value)'
 
     return (
-        <span className="flex items-center gap-4">
+        <span className="flex items-center flex-1 gap-4">
             <span>
                 {eventSummary ? humanize(eventSummary) : <span className="text-muted-alt">All events</span>}{' '}
                 {propertyFiltersCount ? (
@@ -62,6 +63,8 @@ const MappingSummary = memo(function MappingSummary({
             </span>
             <IconArrowRight className="text-muted-alt" />
             <span>{humanize(firstInputValue)}</span>
+            <span className="flex-1" />
+            {mapping.disabled ? <LemonTag type="danger">Disabled</LemonTag> : null}
         </span>
     )
 })
@@ -80,7 +83,19 @@ export function HogFunctionMapping({
 
     return (
         <>
-            <div className="p-3 space-y-2">
+            <div className="p-3 pl-6 space-y-2">
+                {mapping.disabled ? (
+                    <LemonBanner
+                        type="warning"
+                        className="p-2"
+                        action={{
+                            children: 'Enable',
+                            onClick: () => onChange({ ...mapping, disabled: false }),
+                        }}
+                    >
+                        This mapping is disabled. It will not trigger the function.
+                    </LemonBanner>
+                ) : null}
                 <LemonLabel>Match events and actions</LemonLabel>
                 <ActionFilter
                     filters={mapping.filters ?? ({} as any)}
@@ -182,6 +197,31 @@ export function HogFunctionMappings(): JSX.Element | null {
                     return
                 }
 
+                const duplicateMapping = (mapping: HogFunctionMappingType): void => {
+                    const index = value.findIndex((m) => m === mapping)
+                    if (index !== -1) {
+                        const newMappings = [...value]
+                        newMappings.splice(index + 1, 0, mapping)
+                        onChange(newMappings)
+                        setActiveKeys([index + 1])
+                    }
+                }
+
+                const removeMapping = (mapping: HogFunctionMappingType): void => {
+                    const index = value.findIndex((m) => m === mapping)
+                    if (index !== -1) {
+                        onChange(value.filter((_, i) => i !== index))
+                        setActiveKeys(activeKeys.filter((i) => i !== index))
+                    }
+                }
+
+                const toggleDisabled = (mapping: HogFunctionMappingType): void => {
+                    const index = value.findIndex((m) => m === mapping)
+                    if (index !== -1) {
+                        onChange(value.map((m, i) => (i === index ? { ...m, disabled: !m.disabled } : m)))
+                    }
+                }
+
                 const addMappingButton = mappingTemplates.length ? (
                     <LemonSelect
                         placeholder="Add mapping"
@@ -222,9 +262,28 @@ export function HogFunctionMappings(): JSX.Element | null {
                                                 header: {
                                                     children: <MappingSummary mapping={mapping} />,
                                                     sideAction: {
-                                                        icon: <IconX />,
-                                                        onClick: () => {
-                                                            onChange(value.filter((_, i) => i !== index))
+                                                        icon: <IconEllipsis />,
+                                                        dropdown: {
+                                                            overlay: (
+                                                                <div className="space-y-px">
+                                                                    <LemonButton
+                                                                        onClick={() => toggleDisabled(mapping)}
+                                                                    >
+                                                                        {mapping.disabled ? 'Enable' : 'Disable'}
+                                                                    </LemonButton>
+                                                                    <LemonButton
+                                                                        onClick={() => duplicateMapping(mapping)}
+                                                                    >
+                                                                        Duplicate
+                                                                    </LemonButton>
+                                                                    <LemonButton
+                                                                        status="danger"
+                                                                        onClick={() => removeMapping(mapping)}
+                                                                    >
+                                                                        Remove
+                                                                    </LemonButton>
+                                                                </div>
+                                                            ),
                                                         },
                                                     },
                                                 },
