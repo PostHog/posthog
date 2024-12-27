@@ -33,3 +33,6 @@ Single.args = { defaultActiveKey: '1' }
 
 export const Multiple: Story = Template.bind({})
 Multiple.args = { defaultActiveKeys: ['1', '2'], multiple: true }
+
+export const Small: Story = Template.bind({})
+Small.args = { size: 'small', multiple: true }
