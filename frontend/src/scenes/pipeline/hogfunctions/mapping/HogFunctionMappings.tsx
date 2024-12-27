@@ -31,8 +31,8 @@ export function HogFunctionMapping({
             <div className="p-3 space-y-2">
                 <LemonLabel>Match events and actions</LemonLabel>
                 <ActionFilter
-                    filters={mapping.filters ?? {}}
-                    setFilters={(f) => onChange({ ...mapping, filters: f })}
+                    filters={mapping.filters ?? ({} as any)}
+                    setFilters={(f: any) => onChange({ ...mapping, filters: f })}
                     typeKey="match-group"
                     mathAvailability={MathAvailability.None}
                     hideRename
