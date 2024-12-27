@@ -119,6 +119,7 @@ export function HogFunctionMappings(): JSX.Element | null {
                                 return {
                                     key: index,
                                     header: mapping.name,
+                                    className: 'p-0',
                                     content: (
                                         <HogFunctionMapping
                                             key={index}
