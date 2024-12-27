@@ -1,3 +1,7 @@
+import { useValues } from 'kea'
+
+import { accessControlLogic } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlLogic'
+
 import { WithAccessControl } from '../../types'
 
 interface AccessControlActionProps {
@@ -13,8 +17,9 @@ export const AccessControlAction = ({
     requiredLevels,
     resourceType = 'resource',
 }: AccessControlActionProps): JSX.Element => {
-    // Fallback to true if userAccessLevel is not set
-    const hasAccess = userAccessLevel ? requiredLevels.includes(userAccessLevel) : true
+    const { hasResourceAccess } = useValues(accessControlLogic)
+
+    const hasAccess = hasResourceAccess({ userAccessLevel, requiredLevels })
     const disabledReason = !hasAccess
         ? `You don't have sufficient permissions for this ${resourceType}. Your access level (${userAccessLevel}) doesn't meet the required level (${requiredLevels.join(
               ' or '
