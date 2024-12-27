@@ -17,8 +17,8 @@ import {
     HogFunctionFilterGlobals,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationLogEntry,
     HogFunctionInvocationQueueParameters,
-    HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
     HogFunctionLogEntrySerialized,
     HogFunctionType,
@@ -278,13 +278,8 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
     return JSON.parse(res.toString())
 }
 
-export const prepareLogEntriesForClickhouse = (
-    result: HogFunctionInvocationResult
-): HogFunctionLogEntrySerialized[] => {
+export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogFunctionLogEntrySerialized[] => {
     const preparedLogs: HogFunctionLogEntrySerialized[] = []
-    const logs = result.logs
-    result.logs = [] // Clear it to ensure it isn't passed on anywhere else
-
     const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
 
     if (sortedLogs.length === 0) {
@@ -305,10 +300,6 @@ export const prepareLogEntriesForClickhouse = (
 
         const sanitized: HogFunctionLogEntrySerialized = {
             ...logEntry,
-            team_id: result.invocation.teamId,
-            log_source: 'hog_function',
-            log_source_id: result.invocation.hogFunction.id,
-            instance_id: result.invocation.id,
             timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
         }
         preparedLogs.push(sanitized)
