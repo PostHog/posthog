@@ -29,7 +29,7 @@ export function HogFunctionMapping({
 
     return (
         <>
-            <div className="p-3 space-y-2 border rounded bg-bg-light">
+            <div className="p-3 space-y-2">
                 <div className="flex items-center justify-between w-full gap-2">
                     <LemonLabel info="When an event matches these filters, the function is run with the appended inputs.">
                         NAME TODO
