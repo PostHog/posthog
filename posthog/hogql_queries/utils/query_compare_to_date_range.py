@@ -33,7 +33,12 @@ class QueryCompareToDateRange(QueryDateRange):
         current_period_date_from = super().date_from()
         current_period_date_to = super().date_to()
 
-        start_date = relative_date_parse(self.compare_to, self._team.timezone_info, now=current_period_date_from)
+        start_date = relative_date_parse(
+            self.compare_to,
+            self._team.timezone_info,
+            now=current_period_date_from,
+            human_friendly_comparison_periods=self._team.human_friendly_comparison_periods,
+        )
 
         return (
             start_date,
