@@ -1,7 +1,9 @@
+// eslint-disable-next-line simple-import-sort/imports
+import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer.mock'
+
 import { CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
 import { HogWatcherState } from '../../src/cdp/hog-watcher'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
-import { KafkaProducerWrapper, MessageKey, TopicMessage } from '../../src/kafka/producer'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
@@ -45,61 +47,32 @@ jest.mock('../../src/utils/fetch', () => {
     }
 })
 
-jest.mock('../../src/kafka/producer', () => {
-    const mockKafkaProducer = {
-        create: jest.fn(() => mockKafkaProducer),
-        producer: {
-            connect: jest.fn(),
-        },
-        disconnect: jest.fn(),
-        produce: jest.fn(),
-        queueMessages: jest.fn(() => Promise.resolve()),
-    }
-
-    const MockKafkaProducer = {
-        create: jest.fn(() => Promise.resolve(mockKafkaProducer)),
-    }
-    return {
-        KafkaProducerWrapper: MockKafkaProducer,
-        _producer: mockKafkaProducer,
-    }
-})
-
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
-
-const mockProducer = require('../../src/kafka/producer')._producer as KafkaProducerWrapper
 
 jest.setTimeout(1000)
 
 type DecodedKafkaMessage = {
     topic: string
-    key?: MessageKey
+    key?: any
     value: Record<string, unknown>
 }
 
-const decodeKafkaMessage = (topicMessages: TopicMessage | TopicMessage[]): DecodedKafkaMessage[] => {
-    topicMessages = Array.isArray(topicMessages) ? topicMessages : [topicMessages]
+const decodeAllKafkaMessages = (): DecodedKafkaMessage[] => {
+    const queuedMessages = getParsedQueuedMessages()
 
     const result: DecodedKafkaMessage[] = []
 
-    for (const topicMessage of topicMessages) {
+    for (const topicMessage of queuedMessages) {
         for (const message of topicMessage.messages) {
             result.push({
                 topic: topicMessage.topic,
                 key: message.key,
-                value: message.value ? JSON.parse(message.value.toString()) : null,
+                value: message.value ?? {},
             })
         }
     }
 
     return result
-}
-
-const decodeAllKafkaMessages = (): DecodedKafkaMessage[] => {
-    return jest
-        .mocked(mockProducer.queueMessages)
-        .mock.calls.map((x) => decodeKafkaMessage(x[0]))
-        .reduce((acc, x) => acc.concat(x), [])
 }
 
 describe('CDP Processed Events Consumer', () => {
@@ -117,6 +90,8 @@ describe('CDP Processed Events Consumer', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
+        hub.kafkaProducer = mockProducer
+
         team = await getFirstTeam(hub)
 
         processor = new CdpProcessedEventsConsumer(hub)

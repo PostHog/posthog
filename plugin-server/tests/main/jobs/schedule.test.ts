@@ -37,46 +37,40 @@ describe('Graphile Worker schedule', () => {
         } as any)
 
         expect(mockHubWithPluginSchedule.kafkaProducer.queueMessages).toHaveBeenNthCalledWith(1, {
-            kafkaMessage: {
-                topic: KAFKA_SCHEDULED_TASKS,
-                messages: [
-                    {
-                        key: '1',
-                        value: JSON.stringify({
-                            taskType: 'runEveryMinute',
-                            pluginConfigId: 1,
-                        }),
-                    },
-                ],
-            },
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    key: '1',
+                    value: JSON.stringify({
+                        taskType: 'runEveryMinute',
+                        pluginConfigId: 1,
+                    }),
+                },
+            ],
         })
         expect(mockHubWithPluginSchedule.kafkaProducer.queueMessages).toHaveBeenNthCalledWith(2, {
-            kafkaMessage: {
-                topic: KAFKA_SCHEDULED_TASKS,
-                messages: [
-                    {
-                        key: '2',
-                        value: JSON.stringify({
-                            taskType: 'runEveryMinute',
-                            pluginConfigId: 2,
-                        }),
-                    },
-                ],
-            },
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    key: '2',
+                    value: JSON.stringify({
+                        taskType: 'runEveryMinute',
+                        pluginConfigId: 2,
+                    }),
+                },
+            ],
         })
         expect(mockHubWithPluginSchedule.kafkaProducer.queueMessages).toHaveBeenNthCalledWith(3, {
-            kafkaMessage: {
-                topic: KAFKA_SCHEDULED_TASKS,
-                messages: [
-                    {
-                        key: '3',
-                        value: JSON.stringify({
-                            taskType: 'runEveryMinute',
-                            pluginConfigId: 3,
-                        }),
-                    },
-                ],
-            },
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    key: '3',
+                    value: JSON.stringify({
+                        taskType: 'runEveryMinute',
+                        pluginConfigId: 3,
+                    }),
+                },
+            ],
         })
 
         await runScheduledTasks(mockHubWithPluginSchedule, mockPiscina as any, 'runEveryHour', {

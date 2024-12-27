@@ -1,11 +1,11 @@
-import { KafkaProducerWrapper } from '../../../../../src/kafka/producer'
 import { ConsoleLogsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/console-logs-ingester'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
 import { status } from '../../../../../src/utils/status'
 
 jest.mock('../../../../../src/utils/status')
-jest.mock('../../../../../src/kafka/producer')
+
+import { getParsedQueuedMessages, mockProducer } from '../../../../helpers/mocks/producer.mock'
 
 const makeIncomingMessage = (
     data: Record<string, unknown>[],
@@ -32,14 +32,9 @@ const makeIncomingMessage = (
 
 describe('console log ingester', () => {
     let consoleLogIngester: ConsoleLogsIngester
-    const mockProducer: KafkaProducerWrapper = {
-        queueMessages: jest.fn(),
-        connect: jest.fn(),
-        isConnected: jest.fn(),
-    } as unknown as KafkaProducerWrapper
 
     beforeEach(() => {
-        jest.mocked(mockProducer.queueMessages).mockClear()
+        // jest.mocked(mockProducer.queueMessages).mockClear()
 
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
         consoleLogIngester = new ConsoleLogsIngester(mockProducer, mockedHighWaterMarker)
@@ -58,26 +53,25 @@ describe('console log ingester', () => {
                 )
             )
             expect(jest.mocked(status.debug).mock.calls).toEqual([])
-            expect(jest.mocked(mockProducer.queueMessages).mock.calls).toEqual([
-                [
-                    {
-                        topic: 'log_entries_test',
-                        messages: [
-                            {
-                                key: '',
-                                value: JSON.stringify({
-                                    team_id: 0,
-                                    message: 'a'.repeat(2999),
-                                    level: 'info',
-                                    log_source: 'session_replay',
-                                    log_source_id: '',
-                                    instance_id: null,
-                                    timestamp: '1970-01-01 00:00:00.000',
-                                }),
+
+            expect(getParsedQueuedMessages()).toEqual([
+                {
+                    topic: 'log_entries_test',
+                    messages: [
+                        {
+                            key: '',
+                            value: {
+                                team_id: 0,
+                                message: 'a'.repeat(2999),
+                                level: 'info',
+                                log_source: 'session_replay',
+                                log_source_id: '',
+                                instance_id: null,
+                                timestamp: '1970-01-01 00:00:00.000',
                             },
-                        ],
-                    },
-                ],
+                        },
+                    ],
+                },
             ])
         })
 
@@ -103,38 +97,36 @@ describe('console log ingester', () => {
             )
             expect(jest.mocked(status.debug).mock.calls).toEqual([])
             expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
-            expect(jest.mocked(mockProducer.queueMessages).mock.calls).toEqual([
-                [
-                    {
-                        topic: 'log_entries_test',
-                        messages: [
-                            {
-                                key: '',
-                                value: JSON.stringify({
-                                    team_id: 0,
-                                    message: 'aaaaa',
-                                    level: 'info',
-                                    log_source: 'session_replay',
-                                    log_source_id: '',
-                                    instance_id: null,
-                                    timestamp: '1970-01-01 00:00:00.000',
-                                }),
+            expect(getParsedQueuedMessages()).toEqual([
+                {
+                    topic: 'log_entries_test',
+                    messages: [
+                        {
+                            key: '',
+                            value: {
+                                team_id: 0,
+                                message: 'aaaaa',
+                                level: 'info',
+                                log_source: 'session_replay',
+                                log_source_id: '',
+                                instance_id: null,
+                                timestamp: '1970-01-01 00:00:00.000',
                             },
-                            {
-                                key: '',
-                                value: JSON.stringify({
-                                    team_id: 0,
-                                    message: 'ccccc',
-                                    level: 'info',
-                                    log_source: 'session_replay',
-                                    log_source_id: '',
-                                    instance_id: null,
-                                    timestamp: '1970-01-01 00:00:00.000',
-                                }),
+                        },
+                        {
+                            key: '',
+                            value: {
+                                team_id: 0,
+                                message: 'ccccc',
+                                level: 'info',
+                                log_source: 'session_replay',
+                                log_source_id: '',
+                                instance_id: null,
+                                timestamp: '1970-01-01 00:00:00.000',
                             },
-                        ],
-                    },
-                ],
+                        },
+                    ],
+                },
             ])
         })
 
@@ -155,26 +147,24 @@ describe('console log ingester', () => {
                 )
             )
             expect(jest.mocked(status.debug).mock.calls).toEqual([])
-            expect(jest.mocked(mockProducer.queueMessages).mock.calls).toEqual([
-                [
-                    {
-                        topic: 'log_entries_test',
-                        messages: [
-                            {
-                                key: '',
-                                value: JSON.stringify({
-                                    team_id: 0,
-                                    message: 'aaaaa',
-                                    level: 'info',
-                                    log_source: 'session_replay',
-                                    log_source_id: '',
-                                    instance_id: null,
-                                    timestamp: '1970-01-01 00:00:00.000',
-                                }),
+            expect(getParsedQueuedMessages()).toEqual([
+                {
+                    topic: 'log_entries_test',
+                    messages: [
+                        {
+                            key: '',
+                            value: {
+                                team_id: 0,
+                                message: 'aaaaa',
+                                level: 'info',
+                                log_source: 'session_replay',
+                                log_source_id: '',
+                                instance_id: null,
+                                timestamp: '1970-01-01 00:00:00.000',
                             },
-                        ],
-                    },
-                ],
+                        },
+                    ],
+                },
             ])
         })
     })

@@ -1,3 +1,6 @@
+// eslint-disable-next-line simple-import-sort/imports
+import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer.mock'
+
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import fetch from 'node-fetch'
 
@@ -12,7 +15,6 @@ import { plugin60 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
-jest.mock('../../src/kafka/producer')
 jest.mock('../../src/main/graphile-worker/graphile-worker')
 
 jest.setTimeout(100000)
@@ -683,25 +685,28 @@ describe('vm tests', () => {
             ...defaultEvent,
             event: 'logged event',
         }
-        const queueMessagesSpy = jest.spyOn(hub.kafkaProducer, 'queueMessages')
 
         await vm.methods.processEvent!(event)
 
-        expect(queueMessagesSpy).toHaveBeenCalledTimes(1)
-        expect(queueMessagesSpy).toHaveBeenCalledWith({
+        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+        expect(getParsedQueuedMessages()[0]).toEqual({
             topic: KAFKA_PLUGIN_LOG_ENTRIES,
-            key: expect.any(String),
-            object: {
-                id: expect.any(String),
-                instance_id: hub.instanceId.toString(),
-                message: 'logged event',
-                plugin_config_id: pluginConfig39.id,
-                plugin_id: pluginConfig39.plugin_id,
-                source: PluginLogEntrySource.Console,
-                team_id: pluginConfig39.team_id,
-                timestamp: expect.any(String),
-                type: PluginLogEntryType.Log,
-            },
+            messages: [
+                {
+                    key: expect.any(String),
+                    value: {
+                        id: expect.any(String),
+                        instance_id: hub.instanceId.toString(),
+                        message: 'logged event',
+                        plugin_config_id: pluginConfig39.id,
+                        plugin_id: pluginConfig39.plugin_id,
+                        source: PluginLogEntrySource.Console,
+                        team_id: pluginConfig39.team_id,
+                        timestamp: expect.any(String),
+                        type: PluginLogEntryType.Log,
+                    },
+                },
+            ],
         })
     })
 
@@ -960,16 +965,14 @@ describe('vm tests', () => {
         `
         await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-
-        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessages')
-
         const response = await vm.tasks.schedule.runEveryMinute.exec()
 
         expect(response).toBe('haha')
-        expect(queueMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueMessageSpy.mock.calls[0][0].kafkaMessage.topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].kafkaMessage.messages[0].value!.toString())
-        expect(JSON.parse(parsedMessage.data)).toMatchObject({
+        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+        const queuedMessages = getParsedQueuedMessages()
+        expect(queuedMessages[0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
+        const parsedMessage = JSON.parse(queuedMessages[0].messages[0].value!.data)
+        expect(parsedMessage).toMatchObject({
             distinct_id: 'plugin-id-60',
             event: 'my-new-event',
             properties: expect.objectContaining({
@@ -990,15 +993,14 @@ describe('vm tests', () => {
         await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
-        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessages')
-
         const response = await vm.tasks.schedule.runEveryMinute.exec()
 
         expect(response).toBe('haha')
-        expect(queueMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueMessageSpy.mock.calls[0][0].kafkaMessage.topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].kafkaMessage.messages[0].value!.toString())
-        expect(JSON.parse(parsedMessage.data)).toMatchObject({
+        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+        const queuedMessages = getParsedQueuedMessages()
+        expect(queuedMessages[0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
+        const parsedMessage = JSON.parse(queuedMessages[0].messages[0].value!.data)
+        expect(parsedMessage).toMatchObject({
             timestamp: '2020-02-23T02:15:00Z', // taken out of the properties
             distinct_id: 'plugin-id-60',
             event: 'my-new-event',
@@ -1015,17 +1017,17 @@ describe('vm tests', () => {
         `
         await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-
-        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessages')
-
         const response = await vm.tasks.schedule.runEveryMinute.exec()
 
         expect(response).toBe('haha')
-        expect(response).toBe('haha')
-        expect(queueMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueMessageSpy.mock.calls[0][0].kafkaMessage.topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].kafkaMessage.messages[0].value!.toString())
-        expect(JSON.parse(parsedMessage.data)).toMatchObject({
+        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+        const queuedMessages = getParsedQueuedMessages()
+
+        expect(queuedMessages[0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
+
+        const parsedData = JSON.parse(queuedMessages[0].messages[0].value!.data)
+
+        expect(parsedData).toMatchObject({
             distinct_id: 'custom id',
             event: 'my-new-event',
             properties: expect.objectContaining({
