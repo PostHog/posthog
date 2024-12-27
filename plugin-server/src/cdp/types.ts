@@ -208,7 +208,7 @@ export type HogFunctionInvocationQueueParameters =
 
 export type HogFunctionInvocation = {
     id: string
-    globals: HogFunctionInvocationGlobals
+    globals: HogFunctionInvocationGlobalsWithInputs
     teamId: Team['id']
     hogFunction: HogFunctionType
     priority: number

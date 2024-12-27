@@ -108,10 +108,9 @@ const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => 
     return message
 }
 
-const orderInputsByDependency = (hogFunction: HogFunctionType): [string, HogFunctionInputType][] => {
+const orderInputsByDependency = (hogFunctionInputs: HogFunctionType['inputs']): [string, HogFunctionInputType][] => {
     const allInputs: HogFunctionType['inputs'] = {
-        ...hogFunction.inputs,
-        ...hogFunction.encrypted_inputs,
+        ...hogFunctionInputs,
     }
     return Object.entries(allInputs).sort(([_, input1], [__, input2]) => {
         return (input1.order ?? -1) - (input2.order ?? -1)
@@ -125,7 +124,11 @@ export class HogExecutor {
         this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
-    buildHogFunctionInvocations(triggerGlobals: HogFunctionInvocationGlobals) {
+    buildHogFunctionInvocations(triggerGlobals: HogFunctionInvocationGlobals): {
+        invocations: HogFunctionInvocation[]
+        metrics: HogFunctionAppMetric[]
+        logs: HogFunctionInvocationLogEntry[]
+    } {
         // Build and generate invocations for all the possible mappings
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(triggerGlobals.project.id)
         const metrics: HogFunctionAppMetric[] = []
@@ -215,26 +218,65 @@ export class HogExecutor {
             }
         }
 
+        const buildGlobalsWithInputs = (
+            hogFunction: HogFunctionType,
+            inputs: HogFunctionType['inputs']
+        ): HogFunctionInvocationGlobalsWithInputs | null => {
+            try {
+                return this.buildGlobalsWithInputs(triggerGlobals, inputs)
+            } catch (error) {
+                logs.push({
+                    team_id: hogFunction.team_id,
+                    log_source: 'hog_function',
+                    log_source_id: hogFunction.id,
+                    instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
+                    timestamp: DateTime.now(),
+                    level: 'error',
+                    message: `Error filtering event ${triggerGlobals.event.uuid}: ${error.message}`,
+                })
+
+                return null
+            }
+        }
+
         allFunctionsForTeam.forEach((hogFunction) => {
             // Check for non-mapping functions first
-
             if (!hogFunction.mappings) {
-                if (filterHogFunction(hogFunction, hogFunction.filters, filterGlobals)) {
-                    invocations.push(createInvocation(triggerGlobals, hogFunction))
+                if (!filterHogFunction(hogFunction, hogFunction.filters, filterGlobals)) {
+                    return
                 }
+                const globals = buildGlobalsWithInputs(hogFunction, {
+                    ...(hogFunction.inputs ?? {}),
+                    ...(hogFunction.encrypted_inputs ?? {}),
+                })
+                if (!globals) {
+                    return
+                }
+
+                invocations.push(createInvocation(globals, hogFunction))
                 return
             }
 
             hogFunction.mappings.forEach((mapping) => {
                 // For mappings we want to match against both the mapping filters and the global filters
-                console.log('FILTERING MAPPING', mapping)
                 if (
-                    filterHogFunction(hogFunction, hogFunction.filters, filterGlobals) &&
-                    filterHogFunction(hogFunction, mapping.filters, filterGlobals)
+                    !filterHogFunction(hogFunction, hogFunction.filters, filterGlobals) ||
+                    !filterHogFunction(hogFunction, mapping.filters, filterGlobals)
                 ) {
-                    // TODO: Also do the input mapping here
-                    invocations.push(createInvocation(triggerGlobals, hogFunction))
+                    return
                 }
+
+                const globals = buildGlobalsWithInputs(hogFunction, {
+                    ...(hogFunction.inputs ?? {}),
+                    ...(hogFunction.encrypted_inputs ?? {}),
+                    ...(mapping.inputs ?? {}),
+                })
+                if (!globals) {
+                    return
+                }
+
+                // TODO: Also do the input mapping here
+                invocations.push(createInvocation(globals, hogFunction))
             })
         })
 
@@ -244,92 +286,6 @@ export class HogExecutor {
             logs,
         }
     }
-
-    // findMatchingFunctions(globals: HogFunctionInvocationGlobals): {
-    //     matchingFunctions: HogFunctionType[]
-    //     nonMatchingFunctions: HogFunctionType[]
-    //     erroredFunctions: [HogFunctionType, string][]
-    // } {
-    //     const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(globals.project.id)
-    //     const filtersGlobals = convertToHogFunctionFilterGlobal(globals)
-
-    //     // TODO: Instead of just checking the filters and globals, we instead will want to check the mappings, overriding the filters and inputs
-
-    //     const nonMatchingFunctions: HogFunctionType[] = []
-    //     const matchingFunctions: HogFunctionType[] = []
-    //     const erroredFunctions: [HogFunctionType, string][] = []
-
-    //     // Filter all functions based on the invocation
-    //     allFunctionsForTeam.forEach((hogFunction) => {
-    //         if (hogFunction.filters?.bytecode) {
-    //             const start = performance.now()
-    //             try {
-    //                 const filterResult = execHog(hogFunction.filters.bytecode, {
-    //                     globals: filtersGlobals,
-    //                     telemetry: this.telemetryMatcher(hogFunction.team_id),
-    //                 })
-    //                 if (typeof filterResult.result === 'boolean' && filterResult.result) {
-    //                     matchingFunctions.push(hogFunction)
-    //                     return
-    //                 }
-    //                 if (filterResult.error) {
-    //                     status.error('🦔', `[HogExecutor] Error filtering function`, {
-    //                         hogFunctionId: hogFunction.id,
-    //                         hogFunctionName: hogFunction.name,
-    //                         teamId: hogFunction.team_id,
-    //                         error: filterResult.error.message,
-    //                         result: filterResult,
-    //                     })
-    //                     erroredFunctions.push([
-    //                         hogFunction,
-    //                         `Error filtering event ${globals.event.uuid}: ${filterResult.error.message}`,
-    //                     ])
-    //                     return
-    //                 }
-    //             } catch (error) {
-    //                 status.error('🦔', `[HogExecutor] Error filtering function`, {
-    //                     hogFunctionId: hogFunction.id,
-    //                     hogFunctionName: hogFunction.name,
-    //                     teamId: hogFunction.team_id,
-    //                     error: error.message,
-    //                 })
-    //                 erroredFunctions.push([
-    //                     hogFunction,
-    //                     `Error filtering event ${globals.event.uuid}: ${error.message}`,
-    //                 ])
-    //                 return
-    //             } finally {
-    //                 const duration = performance.now() - start
-    //                 hogFunctionFilterDuration.observe(performance.now() - start)
-
-    //                 if (duration > DEFAULT_TIMEOUT_MS) {
-    //                     status.error('🦔', `[HogExecutor] Filter took longer than expected`, {
-    //                         hogFunctionId: hogFunction.id,
-    //                         hogFunctionName: hogFunction.name,
-    //                         teamId: hogFunction.team_id,
-    //                         duration,
-    //                         eventId: globals.event.uuid,
-    //                     })
-    //                 }
-    //             }
-    //         }
-
-    //         nonMatchingFunctions.push(hogFunction)
-    //     })
-
-    //     status.debug(
-    //         '🦔',
-    //         `[HogExecutor] Found ${Object.keys(matchingFunctions).length} matching functions out of ${
-    //             Object.keys(allFunctionsForTeam).length
-    //         } for team`
-    //     )
-
-    //     return {
-    //         nonMatchingFunctions,
-    //         matchingFunctions,
-    //         erroredFunctions,
-    //     }
-    // }
 
     execute(invocation: HogFunctionInvocation): HogFunctionInvocationResult {
         const loggingContext = {
@@ -425,7 +381,11 @@ export class HogExecutor {
             let execRes: ExecResult | undefined = undefined
 
             try {
-                globals = this.buildHogFunctionGlobals(invocation)
+                const inputs: HogFunctionType['inputs'] = {
+                    ...(invocation.hogFunction.inputs ?? {}),
+                    ...(invocation.hogFunction.encrypted_inputs ?? {}),
+                }
+                globals = this.buildGlobalsWithInputs(invocation.globals, inputs)
             } catch (e) {
                 result.logs.push({
                     level: 'error',
@@ -665,13 +625,18 @@ export class HogExecutor {
         return result
     }
 
-    buildHogFunctionGlobals(invocation: HogFunctionInvocation): HogFunctionInvocationGlobalsWithInputs {
+    buildGlobalsWithInputs(
+        globals: HogFunctionInvocationGlobals,
+        inputs: HogFunctionType['inputs']
+    ): HogFunctionInvocationGlobalsWithInputs {
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
-            ...invocation.globals,
+            ...globals,
             inputs: {},
         }
 
-        const orderedInputs = orderInputsByDependency(invocation.hogFunction)
+        const orderedInputs = Object.entries(inputs ?? {}).sort(([_, input1], [__, input2]) => {
+            return (input1.order ?? -1) - (input2.order ?? -1)
+        })
 
         for (const [key, input] of orderedInputs) {
             newGlobals.inputs[key] = input.value

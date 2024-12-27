@@ -17,6 +17,7 @@ import {
     HogFunctionFilterGlobals,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationLogEntry,
     HogFunctionInvocationQueueParameters,
     HogFunctionInvocationSerialized,
@@ -309,12 +310,12 @@ export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogF
 }
 
 export function createInvocation(
-    globals: HogFunctionInvocationGlobals,
+    globals: HogFunctionInvocationGlobalsWithInputs,
     hogFunction: HogFunctionType,
     functionToExecute?: [string, any[]]
 ): HogFunctionInvocation {
     // Add the source of the trigger to the globals
-    const modifiedGlobals: HogFunctionInvocationGlobals = {
+    const modifiedGlobals: HogFunctionInvocationGlobalsWithInputs = {
         ...globals,
         source: {
             name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
