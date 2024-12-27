@@ -106,8 +106,8 @@ export function DeltaChart({
         TICK_TEXT_COLOR: 'var(--text-secondary-3000)',
         BOUNDARY_LINES: 'var(--border-3000)',
         ZERO_LINE: 'var(--border-bold)',
-        BAR_NEGATIVE: isDarkModeOn ? 'rgb(206 66 54)' : '#F44435',
-        BAR_BEST: isDarkModeOn ? 'rgb(49 145 51)' : '#4DAF4F',
+        BAR_NEGATIVE: isDarkModeOn ? '#c32f45' : '#f84257',
+        BAR_POSITIVE: isDarkModeOn ? '#12a461' : '#36cd6f',
         BAR_DEFAULT: isDarkModeOn ? 'rgb(121 121 121)' : 'rgb(217 217 217)',
         BAR_CONTROL: isDarkModeOn ? 'rgba(217, 217, 217, 0.2)' : 'rgba(217, 217, 217, 0.4)',
         BAR_MIDDLE_POINT: 'black',
@@ -460,7 +460,7 @@ export function DeltaChart({
                                                             H ${valueToX(0)}
                                                             V ${y}
                                                         `}
-                                                        fill={COLORS.BAR_BEST}
+                                                        fill={COLORS.BAR_POSITIVE}
                                                     />
                                                 </>
                                             ) : (
@@ -470,7 +470,7 @@ export function DeltaChart({
                                                     y={y}
                                                     width={x2 - x1}
                                                     height={BAR_HEIGHT}
-                                                    fill={upper <= 0 ? COLORS.BAR_NEGATIVE : COLORS.BAR_BEST}
+                                                    fill={upper <= 0 ? COLORS.BAR_NEGATIVE : COLORS.BAR_POSITIVE}
                                                     rx={4}
                                                     ry={4}
                                                 />
