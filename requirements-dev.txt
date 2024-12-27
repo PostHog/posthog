@@ -499,7 +499,7 @@ regex==2023.12.25
     # via
     #   -c requirements.txt
     #   tiktoken
-requests==2.32.0
+requests==2.32.3
     # via
     #   -c requirements.txt
     #   datasets
