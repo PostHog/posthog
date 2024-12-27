@@ -77,92 +77,80 @@ describe('Graphile Worker schedule', () => {
             job: { run_at: new Date() },
         } as any)
         expect(mockHubWithPluginSchedule.kafkaProducer.queueMessages).toHaveBeenNthCalledWith(4, {
-            kafkaMessage: {
-                topic: KAFKA_SCHEDULED_TASKS,
-                messages: [
-                    {
-                        key: '4',
-                        value: JSON.stringify({
-                            taskType: 'runEveryHour',
-                            pluginConfigId: 4,
-                        }),
-                    },
-                ],
-            },
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    key: '4',
+                    value: JSON.stringify({
+                        taskType: 'runEveryHour',
+                        pluginConfigId: 4,
+                    }),
+                },
+            ],
         })
         expect(mockHubWithPluginSchedule.kafkaProducer.queueMessages).toHaveBeenNthCalledWith(5, {
-            kafkaMessage: {
-                topic: KAFKA_SCHEDULED_TASKS,
-                messages: [
-                    {
-                        key: '5',
-                        value: JSON.stringify({
-                            taskType: 'runEveryHour',
-                            pluginConfigId: 5,
-                        }),
-                    },
-                ],
-            },
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    key: '5',
+                    value: JSON.stringify({
+                        taskType: 'runEveryHour',
+                        pluginConfigId: 5,
+                    }),
+                },
+            ],
         })
         expect(mockHubWithPluginSchedule.kafkaProducer.queueMessages).toHaveBeenNthCalledWith(6, {
-            kafkaMessage: {
-                topic: KAFKA_SCHEDULED_TASKS,
-                messages: [
-                    {
-                        key: '6',
-                        value: JSON.stringify({
-                            taskType: 'runEveryHour',
-                            pluginConfigId: 6,
-                        }),
-                    },
-                ],
-            },
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    key: '6',
+                    value: JSON.stringify({
+                        taskType: 'runEveryHour',
+                        pluginConfigId: 6,
+                    }),
+                },
+            ],
         })
 
         await runScheduledTasks(mockHubWithPluginSchedule, mockPiscina as any, 'runEveryDay', {
             job: { run_at: new Date() },
         } as any)
         expect(mockHubWithPluginSchedule.kafkaProducer.queueMessages).toHaveBeenNthCalledWith(7, {
-            kafkaMessage: {
-                topic: KAFKA_SCHEDULED_TASKS,
-                messages: [
-                    {
-                        key: '7',
-                        value: JSON.stringify({
-                            taskType: 'runEveryDay',
-                            pluginConfigId: 7,
-                        }),
-                    },
-                ],
-            },
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    key: '7',
+                    value: JSON.stringify({
+                        taskType: 'runEveryDay',
+                        pluginConfigId: 7,
+                    }),
+                },
+            ],
         })
         expect(mockHubWithPluginSchedule.kafkaProducer.queueMessages).toHaveBeenNthCalledWith(8, {
-            kafkaMessage: {
-                topic: KAFKA_SCHEDULED_TASKS,
-                messages: [
-                    {
-                        key: '8',
-                        value: JSON.stringify({
-                            taskType: 'runEveryDay',
-                            pluginConfigId: 8,
-                        }),
-                    },
-                ],
-            },
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    key: '8',
+                    value: JSON.stringify({
+                        taskType: 'runEveryDay',
+                        pluginConfigId: 8,
+                    }),
+                },
+            ],
         })
         expect(mockHubWithPluginSchedule.kafkaProducer.queueMessages).toHaveBeenNthCalledWith(9, {
-            kafkaMessage: {
-                topic: KAFKA_SCHEDULED_TASKS,
-                messages: [
-                    {
-                        key: '9',
-                        value: JSON.stringify({
-                            taskType: 'runEveryDay',
-                            pluginConfigId: 9,
-                        }),
-                    },
-                ],
-            },
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    key: '9',
+                    value: JSON.stringify({
+                        taskType: 'runEveryDay',
+                        pluginConfigId: 9,
+                    }),
+                },
+            ],
         })
     })
 })
