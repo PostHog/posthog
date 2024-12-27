@@ -83,7 +83,7 @@ export function HogFunctionMapping({
 
     return (
         <>
-            <div className="p-3 pl-6 space-y-2">
+            <div className="p-3 pl-10 space-y-2">
                 {mapping.disabled ? (
                     <LemonBanner
                         type="warning"
