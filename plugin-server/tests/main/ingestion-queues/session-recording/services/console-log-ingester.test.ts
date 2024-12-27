@@ -34,8 +34,6 @@ describe('console log ingester', () => {
     let consoleLogIngester: ConsoleLogsIngester
 
     beforeEach(() => {
-        // jest.mocked(mockProducer.queueMessages).mockClear()
-
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
         consoleLogIngester = new ConsoleLogsIngester(mockProducer, mockedHighWaterMarker)
     })
