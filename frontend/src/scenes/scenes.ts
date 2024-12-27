@@ -601,7 +601,6 @@ export const routes: Record<string, Scene> = {
     [urls.instanceStatus()]: Scene.SystemStatus,
     [urls.instanceSettings()]: Scene.SystemStatus,
     [urls.instanceStaffUsers()]: Scene.SystemStatus,
-    [urls.instanceKafkaInspector()]: Scene.SystemStatus,
     [urls.instanceMetrics()]: Scene.SystemStatus,
     [urls.asyncMigrations()]: Scene.AsyncMigrations,
     [urls.asyncMigrationsFuture()]: Scene.AsyncMigrations,
