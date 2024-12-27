@@ -702,6 +702,7 @@ export enum ExperimentsTabs {
     Yours = 'yours',
     Archived = 'archived',
     Holdouts = 'holdouts',
+    SavedMetrics = 'saved-metrics',
 }
 
 export enum ActivityTab {
@@ -3310,6 +3311,8 @@ export interface Experiment {
     filters: TrendsFilterType | FunnelsFilterType
     metrics: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metrics_secondary: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
+    saved_metrics: any[]
     parameters: {
         minimum_detectable_effect?: number
         recommended_running_time?: number

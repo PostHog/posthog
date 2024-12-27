@@ -17,7 +17,7 @@ export function DataCollection(): JSX.Element {
     const {
         experimentId,
         experiment,
-        getMetricType,
+        _getMetricType,
         funnelResultsPersonsTotal,
         actualRunningTime,
         minimumDetectableEffect,
@@ -25,7 +25,7 @@ export function DataCollection(): JSX.Element {
 
     const { openExperimentCollectionGoalModal } = useActions(experimentLogic)
 
-    const metricType = getMetricType(0)
+    const metricType = _getMetricType(experiment.metrics[0])
 
     const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
     const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
@@ -80,7 +80,7 @@ export function DataCollection(): JSX.Element {
                     <LemonProgress
                         className="w-full border"
                         bgColor="var(--bg-table)"
-                        size="large"
+                        size="medium"
                         percent={experimentProgressPercent}
                     />
                     {metricType === InsightType.TRENDS && (
@@ -172,7 +172,8 @@ export function DataCollection(): JSX.Element {
 export function DataCollectionGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
     const {
         isExperimentCollectionGoalModalOpen,
-        getMetricType,
+        experiment,
+        _getMetricType,
         trendMetricInsightLoading,
         funnelMetricInsightLoading,
     } = useValues(experimentLogic({ experimentId }))
@@ -181,7 +182,9 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
     )
 
     const isInsightLoading =
-        getMetricType(0) === InsightType.TRENDS ? trendMetricInsightLoading : funnelMetricInsightLoading
+        _getMetricType(experiment.metrics[0]) === InsightType.TRENDS
+            ? trendMetricInsightLoading
+            : funnelMetricInsightLoading
 
     return (
         <LemonModal

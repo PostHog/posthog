@@ -69,30 +69,32 @@ export function VariantTag({
 
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
         return (
-            <span className="flex items-center space-x-2">
+            <span className="flex items-center min-w-0">
                 <div
-                    className="w-2 h-2 rounded-full mr-0.5"
+                    className="w-2 h-2 rounded-full shrink-0"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         backgroundColor: getExperimentInsightColour(getIndexForVariant(metricResults[0], variantKey)),
                     }}
                 />
-                <LemonTag type="option">{experiment.holdout.name}</LemonTag>
+                <LemonTag type="option" className="ml-2">
+                    {experiment.holdout.name}
+                </LemonTag>
             </span>
         )
     }
 
     return (
-        <span className="flex items-center space-x-2">
+        <span className="flex items-center min-w-0">
             <div
-                className="w-2 h-2 rounded-full mr-0.5"
+                className="w-2 h-2 rounded-full shrink-0"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     backgroundColor: getExperimentInsightColour(getIndexForVariant(metricResults[0], variantKey)),
                 }}
             />
             <span
-                className={`font-semibold ${muted ? 'text-[var(--text-secondary-3000)]' : ''}`}
+                className={`ml-2 font-semibold truncate ${muted ? 'text-[var(--text-secondary-3000)]' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
             >
@@ -232,10 +234,11 @@ export function ExploreButton({
     return (
         <LemonButton
             className="ml-auto -translate-y-2"
-            size="xsmall"
+            size="small"
             type="primary"
             icon={<IconAreaChart />}
             to={urls.insightNew(undefined, undefined, query)}
+            targetBlank
         >
             Explore as Insight
         </LemonButton>
@@ -659,7 +662,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
 export function ActionBanner(): JSX.Element {
     const {
         experiment,
-        getMetricType,
+        _getMetricType,
         metricResults,
         experimentLoading,
         metricResultsLoading,
@@ -678,7 +681,7 @@ export function ActionBanner(): JSX.Element {
 
     const { aggregationLabel } = useValues(groupsModel)
 
-    const metricType = getMetricType(0)
+    const metricType = _getMetricType(experiment.metrics[0])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
