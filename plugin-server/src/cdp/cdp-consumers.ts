@@ -7,6 +7,7 @@ import { buildIntegerMatcher } from '../config/config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_FUNCTION_CALLBACKS,
+    KAFKA_CDP_INTERNAL_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_LOG_ENTRIES,
@@ -36,6 +37,7 @@ import { HogFunctionManager } from './hog-function-manager'
 import { HogMasker } from './hog-masker'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
 import { CdpRedis, createCdpRedisPool } from './redis'
+import { CdpInternalEventSchema } from './schema'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
@@ -45,9 +47,11 @@ import {
     HogFunctionLogEntrySerialized,
     HogFunctionMessageToProduce,
     HogFunctionType,
+    HogFunctionTypeType,
     HogHooksFetchResponse,
 } from './types'
 import {
+    convertInternalEventToHogFunctionInvocationGlobals,
     convertToCaptureEvent,
     convertToHogFunctionInvocationGlobals,
     createInvocation,
@@ -80,6 +84,12 @@ const counterFunctionInvocation = new Counter({
     labelNames: ['outcome'], // One of 'failed', 'succeeded', 'overflowed', 'disabled', 'filtered'
 })
 
+const counterParseError = new Counter({
+    name: 'cdp_function_parse_error',
+    help: 'A function invocation was parsed with an error',
+    labelNames: ['error'],
+})
+
 const gaugeBatchUtilization = new Gauge({
     name: 'cdp_cyclotron_batch_utilization',
     help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
@@ -109,6 +119,7 @@ abstract class CdpConsumerBase {
     messagesToProduce: HogFunctionMessageToProduce[] = []
     redis: CdpRedis
 
+    protected hogTypes: HogFunctionTypeType[] = []
     protected kafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
 
@@ -364,7 +375,7 @@ abstract class CdpConsumerBase {
     public async start(): Promise<void> {
         // NOTE: This is only for starting shared services
         await Promise.all([
-            this.hogFunctionManager.start(),
+            this.hogFunctionManager.start(this.hogTypes),
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()
@@ -398,6 +409,10 @@ abstract class CdpConsumerBase {
  */
 export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpProcessedEventsConsumer'
+    protected topic = KAFKA_EVENTS_JSON
+    protected groupId = 'cdp-processed-events-consumer'
+    protected hogTypes: HogFunctionTypeType[] = ['destination']
+
     private cyclotronMatcher: ValueMatcher<number>
     private cyclotronManager?: CyclotronManager
 
@@ -560,8 +575,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     }
 
     // This consumer always parses from kafka
-    public async _handleKafkaBatch(messages: Message[]): Promise<void> {
-        const invocationGlobals = await this.runWithHeartbeat(() =>
+    public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        return await this.runWithHeartbeat(() =>
             runInstrumentedFunction({
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: async () => {
@@ -597,16 +612,17 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 },
             })
         )
-
-        await this.processBatch(invocationGlobals)
     }
 
     public async start(): Promise<void> {
         await super.start()
         await this.startKafkaConsumer({
-            topic: KAFKA_EVENTS_JSON,
-            groupId: 'cdp-processed-events-consumer',
-            handleBatch: (messages) => this._handleKafkaBatch(messages),
+            topic: this.topic,
+            groupId: this.groupId,
+            handleBatch: async (messages) => {
+                const invocationGlobals = await this._parseKafkaBatch(messages)
+                await this.processBatch(invocationGlobals)
+            },
         })
 
         const shardDepthLimit = this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000
@@ -620,10 +636,65 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 }
 
 /**
+ * This consumer handles incoming events from the main clickhouse topic
+ * Currently it produces to both kafka and Cyclotron based on the team
+ */
+export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
+    protected name = 'CdpInternalEventsConsumer'
+    protected topic = KAFKA_CDP_INTERNAL_EVENTS
+    protected groupId = 'cdp-internal-events-consumer'
+    protected hogTypes: HogFunctionTypeType[] = ['internal_destination']
+
+    // This consumer always parses from kafka
+    public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        return await this.runWithHeartbeat(() =>
+            runInstrumentedFunction({
+                statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
+                func: async () => {
+                    const events: HogFunctionInvocationGlobals[] = []
+                    await Promise.all(
+                        messages.map(async (message) => {
+                            try {
+                                const kafkaEvent = JSON.parse(message.value!.toString()) as unknown
+                                // This is the input stream from elsewhere so we want to do some proper validation
+                                const event = CdpInternalEventSchema.parse(kafkaEvent)
+
+                                if (!this.hogFunctionManager.teamHasHogDestinations(event.team_id)) {
+                                    // No need to continue if the team doesn't have any functions
+                                    return
+                                }
+
+                                const team = await this.hub.teamManager.fetchTeam(event.team_id)
+                                if (!team) {
+                                    return
+                                }
+                                events.push(
+                                    convertInternalEventToHogFunctionInvocationGlobals(
+                                        event,
+                                        team,
+                                        this.hub.SITE_URL ?? 'http://localhost:8000'
+                                    )
+                                )
+                            } catch (e) {
+                                status.error('Error parsing message', e)
+                                counterParseError.labels({ error: e.message }).inc()
+                            }
+                        })
+                    )
+
+                    return events
+                },
+            })
+        )
+    }
+}
+
+/**
  * This consumer only deals with kafka messages and will eventually be replaced by the Cyclotron worker
  */
 export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
     protected name = 'CdpFunctionCallbackConsumer'
+    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
 
     public async processBatch(invocations: HogFunctionInvocation[]): Promise<void> {
         if (!invocations.length) {
@@ -659,8 +730,8 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
         await this.produceQueuedMessages()
     }
 
-    public async _handleKafkaBatch(messages: Message[]): Promise<void> {
-        const events = await this.runWithHeartbeat(() =>
+    public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocation[]> {
+        return await this.runWithHeartbeat(() =>
             runInstrumentedFunction({
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: async () => {
@@ -728,8 +799,6 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                 },
             })
         )
-
-        await this.processBatch(events)
     }
 
     public async start(): Promise<void> {
@@ -737,7 +806,10 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
         await this.startKafkaConsumer({
             topic: KAFKA_CDP_FUNCTION_CALLBACKS,
             groupId: 'cdp-function-callback-consumer',
-            handleBatch: (messages) => this._handleKafkaBatch(messages),
+            handleBatch: async (messages) => {
+                const invocations = await this._parseKafkaBatch(messages)
+                await this.processBatch(invocations)
+            },
         })
     }
 }
@@ -750,6 +822,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     private cyclotronWorker?: CyclotronWorker
     private runningWorker: Promise<void> | undefined
     protected queue: 'hog' | 'fetch' = 'hog'
+    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
 
     public async processBatch(invocations: HogFunctionInvocation[]): Promise<void> {
         if (!invocations.length) {

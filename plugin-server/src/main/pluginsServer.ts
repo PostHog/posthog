@@ -15,6 +15,7 @@ import {
     CdpCyclotronWorker,
     CdpCyclotronWorkerFetch,
     CdpFunctionCallbackConsumer,
+    CdpInternalEventsConsumer,
     CdpProcessedEventsConsumer,
 } from '../cdp/cdp-consumers'
 import { defaultConfig } from '../config/config'
@@ -448,6 +449,13 @@ export async function startPluginsServer(
         if (capabilities.cdpProcessedEvents) {
             const hub = await setupHub()
             const consumer = new CdpProcessedEventsConsumer(hub)
+            await consumer.start()
+            services.push(consumer.service)
+        }
+
+        if (capabilities.cdpInternalEvents) {
+            const hub = await setupHub()
+            const consumer = new CdpInternalEventsConsumer(hub)
             await consumer.start()
             services.push(consumer.service)
         }
