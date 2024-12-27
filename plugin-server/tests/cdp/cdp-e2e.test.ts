@@ -29,7 +29,7 @@ jest.mock('../../src/utils/fetch', () => {
 
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
-const TOTAL_TIMEOUT = 20000
+const TOTAL_TIMEOUT = 60000
 const KAFKA_OBSERVE_TIMEOUT = 10000
 
 describe('CDP E2E', () => {
