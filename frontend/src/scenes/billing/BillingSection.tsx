@@ -1,5 +1,4 @@
 import './Billing.scss'
-import './BillingSection.scss'
 
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -25,17 +24,17 @@ export function BillingSection(): JSX.Element {
 
     useEffect(() => {
         if (location.pathname === '/organization/billing') {
-            push(urls.organizationBillingOverview())
+            push(urls.organizationBillingSection('overview'))
         }
     }, [location.pathname])
 
     return (
-        <div className="BillingSection flex">
-            <div className="BillingSection__sections">
+        <div className="flex gap-8 items-start mt-0">
+            <div className="sticky top-16 flex-shrink-0 w-1/5 min-w-56 max-w-80 [.SidePanel3000_&]:top-0">
                 <ul className="space-y-px">
                     <li>
                         <LemonButton
-                            onClick={() => push(urls.organizationBillingOverview())}
+                            onClick={() => push(urls.organizationBillingSection('overview'))}
                             active={activeSection === 'overview'}
                             size="small"
                             fullWidth
@@ -45,7 +44,7 @@ export function BillingSection(): JSX.Element {
                     </li>
                     <li>
                         <LemonButton
-                            onClick={() => push(urls.organizationBillingUsage())}
+                            onClick={() => push(urls.organizationBillingSection('usage'))}
                             active={activeSection === 'usage'}
                             size="small"
                             fullWidth

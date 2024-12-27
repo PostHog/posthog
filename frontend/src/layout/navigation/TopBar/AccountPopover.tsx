@@ -228,7 +228,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                         onClick={closeAccountPopover}
                         to={
                             featureFlags[FEATURE_FLAGS.BILLING_USAGE_DASHBOARD]
-                                ? urls.organizationBillingOverview()
+                                ? urls.organizationBillingSection('overview')
                                 : urls.organizationBilling()
                         }
                         icon={<IconReceipt />}

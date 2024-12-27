@@ -19,6 +19,7 @@ import {
     ReplayTabs,
 } from '~/types'
 
+import { BillingSectionId } from './billing/types'
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
 export const preloadedScenes: Record<string, LoadedScene> = {
@@ -604,8 +605,7 @@ export const routes: Record<string, Scene> = {
     [urls.max()]: Scene.Max,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationBilling()]: Scene.Billing,
-    [urls.organizationBillingOverview()]: Scene.BillingSection,
-    [urls.organizationBillingUsage()]: Scene.BillingSection,
+    [urls.organizationBillingSection(':section' as BillingSectionId)]: Scene.BillingSection,
     [urls.billingAuthorizationStatus()]: Scene.BillingAuthorizationStatus,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
