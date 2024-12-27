@@ -1160,7 +1160,7 @@ When set, the specified dashboard's filters and date range override will be appl
     # /projects/:id/insights/:short_id/viewed
     # Creates or updates an InsightViewed object for the user/insight combo
     # ******************************************
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         InsightViewed.objects.update_or_create(
             team=self.team,
