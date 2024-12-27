@@ -28,8 +28,8 @@ export function HogFunctionMapping({
     return (
         <>
             <div className="p-3 space-y-2">
+                <LemonLabel>Match events and actions</LemonLabel>
                 <ActionFilter
-                    bordered
                     filters={mapping.filters ?? {}}
                     setFilters={(f) => onChange({ ...mapping, filters: f })}
                     typeKey="match-group"
@@ -51,6 +51,9 @@ export function HogFunctionMapping({
                         id: '$pageview',
                         name: '$pageview',
                         type: EntityTypes.EVENTS,
+                    }}
+                    buttonProps={{
+                        type: 'secondary',
                     }}
                     buttonCopy="Add event matcher"
                 />
