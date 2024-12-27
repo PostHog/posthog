@@ -6,7 +6,7 @@
         {
             "sub_templates": [
                 {
-                    "id": "early_access_feature_enrollment",
+                    "id": "early-access-feature-enrollment",
                     "name": "Post to Slack on feature enrollment",
                     "description": "Posts a message to Slack when a user enrolls or un-enrolls in an early access feature",
                     "filters": { "events": [{ "id": "$feature_enrollment_update", "type": "events" }] },
@@ -35,7 +35,7 @@
                     }
                 },
                 {
-                    "id": "survey_response",
+                    "id": "survey-response",
                     "name": "Post to Slack on survey response",
                     "description": "Posts a message to Slack when a user responds to a survey",
                     "filters": {
@@ -171,7 +171,7 @@
         {
             "sub_templates": [
                 {
-                    "id": "early_access_feature_enrollment",
+                    "id": "early-access-feature-enrollment",
                     "name": "HTTP Webhook on feature enrollment",
                     "description": null,
                     "filters": { "events": [{ "id": "$feature_enrollment_update", "type": "events" }] },
@@ -179,7 +179,7 @@
                     "inputs": null
                 },
                 {
-                    "id": "survey_response",
+                    "id": "survey-response",
                     "name": "HTTP Webhook on survey response",
                     "description": null,
                     "filters": {
