@@ -15,7 +15,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
             SELECT hostname()
             FROM clusterAllReplicas(posthog, system.query_log)
             WHERE query_id LIKE %(client_query_id)s AND (event_time > (now() - toIntervalDay(1)))
-            GROUP BY hostname()
+            GROUP BY hostname(), query_id -- There can be multiple queries with the same client_query_id
             HAVING (count() = 1)
             SETTINGS max_execution_time = 5
             """,
