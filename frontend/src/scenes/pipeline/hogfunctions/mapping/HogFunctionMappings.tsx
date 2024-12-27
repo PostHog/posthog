@@ -51,7 +51,7 @@ const MappingSummary = memo(function MappingSummary({
     return (
         <span className="flex items-center gap-4">
             <span>
-                {eventSummary ? humanize(eventSummary) : <span className="text-muted-alt">No trigger</span>}{' '}
+                {eventSummary ? humanize(eventSummary) : <span className="text-muted-alt">All events</span>}{' '}
                 {propertyFiltersCount ? (
                     <span className="text-muted-alt">
                         <Tooltip title={`Events have ${propertyFiltersCount} additional filters`}>
