@@ -73,10 +73,14 @@ export function ElapsedTime({ showTimings }: { showTimings?: boolean }): JSX.Ele
     }
 
     if (!isShowingCachedResults && loadingStart && !elapsedTime) {
-        time = performance.now() - loadingStart
-        window.requestAnimationFrame(() => {
-            setTick((tick) => tick + 1)
-        })
+        if (!responseError) {
+            time = performance.now() - loadingStart
+            window.requestAnimationFrame(() => {
+                setTick((tick) => tick + 1)
+            })
+        } else {
+            time = performance.now() - loadingStart
+        }
     }
 
     if (!time) {
