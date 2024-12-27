@@ -1,4 +1,4 @@
-import { HogFunctionFilterEvent, HogFunctionType } from '../../src/cdp/types'
+import { HogFunctionType } from '../../src/cdp/types'
 import { PropertyOperator } from '../../src/types'
 
 /**

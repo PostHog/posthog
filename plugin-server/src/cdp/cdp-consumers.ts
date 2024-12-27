@@ -505,7 +505,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
                 const possibleInvocations = (
                     await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
-                        const { invocations, metrics, logs } = this.hogExecutor.buildHogFunctionInvocations(globals)
+                        const { invocations, metrics, logs } = this.hogExecutor.findHogFunctionInvocations(globals)
 
                         metrics.forEach((metric) => {
                             this.produceAppMetric(metric)

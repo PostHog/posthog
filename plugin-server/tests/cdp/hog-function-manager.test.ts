@@ -147,6 +147,7 @@ describe('HogFunctionManager', () => {
                 },
                 encrypted_inputs: null,
                 masking: null,
+                mappings: null,
                 depends_on_integration_ids: new Set([integrations[0].id]),
             },
         ])

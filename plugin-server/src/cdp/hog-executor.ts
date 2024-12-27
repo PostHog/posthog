@@ -139,13 +139,21 @@ export class HogExecutor {
         this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
-    buildHogFunctionInvocations(triggerGlobals: HogFunctionInvocationGlobals): {
+    findHogFunctionInvocations(triggerGlobals: HogFunctionInvocationGlobals) {
+        // Build and generate invocations for all the possible mappings
+        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(triggerGlobals.project.id)
+
+        return this.buildHogFunctionInvocations(allFunctionsForTeam, triggerGlobals)
+    }
+
+    buildHogFunctionInvocations(
+        hogFunctions: HogFunctionType[],
+        triggerGlobals: HogFunctionInvocationGlobals
+    ): {
         invocations: HogFunctionInvocation[]
         metrics: HogFunctionAppMetric[]
         logs: HogFunctionInvocationLogEntry[]
     } {
-        // Build and generate invocations for all the possible mappings
-        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(triggerGlobals.project.id)
         const metrics: HogFunctionAppMetric[] = []
         const logs: HogFunctionInvocationLogEntry[] = []
         const invocations: HogFunctionInvocation[] = []
@@ -153,7 +161,7 @@ export class HogExecutor {
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
         const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
 
-        const filterHogFunction = (
+        const _filterHogFunction = (
             hogFunction: HogFunctionType,
             filters: HogFunctionType['filters'],
             filterGlobals: HogFunctionInvocationGlobals | HogFunctionFilterGlobals
@@ -254,10 +262,10 @@ export class HogExecutor {
             }
         }
 
-        allFunctionsForTeam.forEach((hogFunction) => {
+        hogFunctions.forEach((hogFunction) => {
             // Check for non-mapping functions first
             if (!hogFunction.mappings) {
-                if (!filterHogFunction(hogFunction, hogFunction.filters, filterGlobals)) {
+                if (!_filterHogFunction(hogFunction, hogFunction.filters, filterGlobals)) {
                     return
                 }
                 const globals = _buildGlobalsWithInputs(hogFunction, {
@@ -275,8 +283,8 @@ export class HogExecutor {
             hogFunction.mappings.forEach((mapping) => {
                 // For mappings we want to match against both the mapping filters and the global filters
                 if (
-                    !filterHogFunction(hogFunction, hogFunction.filters, filterGlobals) ||
-                    !filterHogFunction(hogFunction, mapping.filters, filterGlobals)
+                    !_filterHogFunction(hogFunction, hogFunction.filters, filterGlobals) ||
+                    !_filterHogFunction(hogFunction, mapping.filters, filterGlobals)
                 ) {
                     return
                 }
@@ -290,7 +298,6 @@ export class HogExecutor {
                     return
                 }
 
-                // TODO: Also do the input mapping here
                 invocations.push(createInvocation(globals, hogFunction))
             })
         })
