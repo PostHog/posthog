@@ -1,4 +1,4 @@
-import { IconInfo, IconOpenSidebar } from '@posthog/icons'
+import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -7,6 +7,7 @@ import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
+import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
@@ -41,10 +42,14 @@ export function PayGateMini({
     isGrandfathered,
     docsLink,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, gateVariant } = useValues(payGateMiniLogic({ feature, currentUsage }))
+    const { productWithFeature, featureInfo, gateVariant, bypassPaywall } = useValues(
+        payGateMiniLogic({ feature, currentUsage })
+    )
+    const { setBypassPaywall } = useActions(payGateMiniLogic({ feature, currentUsage }))
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { billingLoading } = useValues(billingLogic)
     const { hideUpgradeModal } = useActions(upgradeModalLogic)
+    const { user } = useValues(userLogic)
 
     useEffect(() => {
         if (gateVariant) {
@@ -73,7 +78,7 @@ export function PayGateMini({
         return null // Don't show anything if paid features are explicitly disabled
     }
 
-    if (gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate) {
+    if (gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate && !bypassPaywall) {
         return (
             <PayGateContent
                 feature={feature}
@@ -94,6 +99,17 @@ export function PayGateMini({
                             data-attr={`${feature}-learn-more`}
                         >
                             Learn more <IconOpenSidebar className="ml-2" />
+                        </LemonButton>
+                    )}
+
+                    {user?.is_impersonated && (
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconUnlock />}
+                            tooltip="Bypass this paywall - (UI only)"
+                            onClick={() => setBypassPaywall(true)}
+                        >
+                            Bypass paywall
                         </LemonButton>
                     )}
                 </div>
@@ -142,7 +158,7 @@ function PayGateContent({
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
-            <div className="flex text-4xl text-warning mb-2">
+            <div className="flex mb-2 text-4xl text-warning">
                 {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
             </div>
             <h2>{featureInfo.name}</h2>
@@ -184,7 +200,7 @@ const renderUsageLimitMessage = (
                     </Tooltip>
                     .
                 </p>
-                <p className="border border-border bg-bg-3000 rounded p-4">
+                <p className="p-4 border rounded border-border bg-bg-3000">
                     <b>Your current plan limit:</b>{' '}
                     <span>
                         {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
@@ -198,7 +214,7 @@ const renderUsageLimitMessage = (
                                 <b>{featureInfoOnNextPlan?.limit} projects</b>.
                             </p>
                         )}
-                        <p className="italic text-xs text-muted mb-4">
+                        <p className="mb-4 text-xs italic text-muted">
                             Need unlimited projects? Check out the{' '}
                             <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
                                 Teams addon
@@ -244,9 +260,9 @@ const renderGateVariantMessage = (
 
 const GrandfatheredMessage = (): JSX.Element => {
     return (
-        <div className="flex gap-x-2 bg-bg-3000 rounded text-left mb-4">
-            <IconInfo className="text-muted text-2xl" />
-            <p className="text-muted mb-0">
+        <div className="flex mb-4 text-left rounded gap-x-2 bg-bg-3000">
+            <IconInfo className="text-2xl text-muted" />
+            <p className="mb-0 text-muted">
                 Your plan does not include this feature, but previously set settings may remain. Please upgrade your
                 plan to regain access.
             </p>
