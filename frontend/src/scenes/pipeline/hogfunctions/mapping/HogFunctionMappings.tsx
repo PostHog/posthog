@@ -4,6 +4,7 @@ import { useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -96,6 +97,7 @@ export function HogFunctionMapping({
 
 export function HogFunctionMappings(): JSX.Element | null {
     const { useMapping, mappingTemplates } = useValues(hogFunctionConfigurationLogic)
+    const [activeKeys, setActiveKeys] = useState<number[]>([])
 
     if (!useMapping) {
         return null
@@ -117,6 +119,8 @@ export function HogFunctionMappings(): JSX.Element | null {
                               )
                             : {}
                         onChange([...mappings, { ...mapping, name, inputs }])
+
+                        setActiveKeys([...activeKeys, mappings.length])
                     }
                     return
                 }
@@ -154,6 +158,8 @@ export function HogFunctionMappings(): JSX.Element | null {
                                     <LemonCollapse
                                         multiple
                                         embedded
+                                        activeKeys={activeKeys}
+                                        onChange={(activeKeys) => setActiveKeys(activeKeys)}
                                         panels={mappings.map(
                                             (mapping, index): LemonCollapsePanel<number> => ({
                                                 key: index,
