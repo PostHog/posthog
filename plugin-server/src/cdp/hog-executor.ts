@@ -13,7 +13,6 @@ import {
     CyclotronFetchFailureInfo,
     HogFunctionAppMetric,
     HogFunctionFilterGlobals,
-    HogFunctionInputType,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
@@ -108,13 +107,29 @@ const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => 
     return message
 }
 
-const orderInputsByDependency = (hogFunctionInputs: HogFunctionType['inputs']): [string, HogFunctionInputType][] => {
-    const allInputs: HogFunctionType['inputs'] = {
-        ...hogFunctionInputs,
+const buildGlobalsWithInputs = (
+    globals: HogFunctionInvocationGlobals,
+    inputs: HogFunctionType['inputs']
+): HogFunctionInvocationGlobalsWithInputs => {
+    const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
+        ...globals,
+        inputs: {},
     }
-    return Object.entries(allInputs).sort(([_, input1], [__, input2]) => {
+
+    const orderedInputs = Object.entries(inputs ?? {}).sort(([_, input1], [__, input2]) => {
         return (input1.order ?? -1) - (input2.order ?? -1)
     })
+
+    for (const [key, input] of orderedInputs) {
+        newGlobals.inputs[key] = input.value
+
+        if (input.bytecode) {
+            // Use the bytecode to compile the field
+            newGlobals.inputs[key] = formatInput(input.bytecode, newGlobals, key)
+        }
+    }
+
+    return newGlobals
 }
 
 export class HogExecutor {
@@ -218,12 +233,12 @@ export class HogExecutor {
             }
         }
 
-        const buildGlobalsWithInputs = (
+        const _buildGlobalsWithInputs = (
             hogFunction: HogFunctionType,
             inputs: HogFunctionType['inputs']
         ): HogFunctionInvocationGlobalsWithInputs | null => {
             try {
-                return this.buildGlobalsWithInputs(triggerGlobals, inputs)
+                return buildGlobalsWithInputs(triggerGlobals, inputs)
             } catch (error) {
                 logs.push({
                     team_id: hogFunction.team_id,
@@ -245,7 +260,7 @@ export class HogExecutor {
                 if (!filterHogFunction(hogFunction, hogFunction.filters, filterGlobals)) {
                     return
                 }
-                const globals = buildGlobalsWithInputs(hogFunction, {
+                const globals = _buildGlobalsWithInputs(hogFunction, {
                     ...(hogFunction.inputs ?? {}),
                     ...(hogFunction.encrypted_inputs ?? {}),
                 })
@@ -266,7 +281,7 @@ export class HogExecutor {
                     return
                 }
 
-                const globals = buildGlobalsWithInputs(hogFunction, {
+                const globals = _buildGlobalsWithInputs(hogFunction, {
                     ...(hogFunction.inputs ?? {}),
                     ...(hogFunction.encrypted_inputs ?? {}),
                     ...(mapping.inputs ?? {}),
@@ -381,11 +396,17 @@ export class HogExecutor {
             let execRes: ExecResult | undefined = undefined
 
             try {
-                const inputs: HogFunctionType['inputs'] = {
-                    ...(invocation.hogFunction.inputs ?? {}),
-                    ...(invocation.hogFunction.encrypted_inputs ?? {}),
+                // NOTE: As of the mappings work, we added input generation to the caller, reducing the amount of data passed into the function
+                // This is just a fallback to support the old format - once fully migrated we can remove the building and just use the globals
+                if (invocation.globals.inputs) {
+                    globals = invocation.globals
+                } else {
+                    const inputs: HogFunctionType['inputs'] = {
+                        ...(invocation.hogFunction.inputs ?? {}),
+                        ...(invocation.hogFunction.encrypted_inputs ?? {}),
+                    }
+                    globals = buildGlobalsWithInputs(invocation.globals, inputs)
                 }
-                globals = this.buildGlobalsWithInputs(invocation.globals, inputs)
             } catch (e) {
                 result.logs.push({
                     level: 'error',
@@ -623,31 +644,6 @@ export class HogExecutor {
         }
 
         return result
-    }
-
-    buildGlobalsWithInputs(
-        globals: HogFunctionInvocationGlobals,
-        inputs: HogFunctionType['inputs']
-    ): HogFunctionInvocationGlobalsWithInputs {
-        const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
-            ...globals,
-            inputs: {},
-        }
-
-        const orderedInputs = Object.entries(inputs ?? {}).sort(([_, input1], [__, input2]) => {
-            return (input1.order ?? -1) - (input2.order ?? -1)
-        })
-
-        for (const [key, input] of orderedInputs) {
-            newGlobals.inputs[key] = input.value
-
-            if (input.bytecode) {
-                // Use the bytecode to compile the field
-                newGlobals.inputs[key] = formatInput(input.bytecode, newGlobals, key)
-            }
-        }
-
-        return newGlobals
     }
 
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {
