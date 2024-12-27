@@ -544,6 +544,27 @@ describe('Hog Executor', () => {
                     {
                         // Filters for pageview or autocapture
                         ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                        inputs: {
+                            url: {
+                                order: 0,
+                                value: 'https://example.com?q={event.event}',
+                                bytecode: [
+                                    '_H',
+                                    1,
+                                    32,
+                                    'https://example.com?q=',
+                                    32,
+                                    'event',
+                                    32,
+                                    'event',
+                                    1,
+                                    2,
+                                    2,
+                                    'concat',
+                                    2,
+                                ],
+                            },
+                        },
                     },
                     {
                         // No filters so should match all events
@@ -590,6 +611,31 @@ describe('Hog Executor', () => {
 
             expect(results2.metrics[0].metric_name).toBe('filtered')
             expect(results2.metrics[1].metric_name).toBe('filtering_failed')
+        })
+
+        it('generates the correct inputs', () => {
+            const pageviewGlobals = createHogExecutionGlobals({
+                event: {
+                    event: '$pageview',
+                    properties: {
+                        $current_url: 'https://posthog.com',
+                    },
+                } as any,
+            })
+
+            const result = executor.buildHogFunctionInvocations(pageviewGlobals)
+            // First mapping has input overrides that should be applied
+            expect(result.invocations[0].globals.inputs.headers).toEqual({
+                version: 'v=',
+            })
+            expect(result.invocations[0].globals.inputs.url).toMatchInlineSnapshot(`"https://example.com?q=$pageview"`)
+            // Second mapping has no input overrides
+            expect(result.invocations[1].globals.inputs.headers).toEqual({
+                version: 'v=',
+            })
+            expect(result.invocations[1].globals.inputs.url).toMatchInlineSnapshot(
+                `"https://example.com/posthog-webhook"`
+            )
         })
     })
 
