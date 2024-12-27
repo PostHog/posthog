@@ -236,6 +236,7 @@ export interface HogQLQueryModifiers {
     s3TableUseInvalidColumns?: boolean
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
+    bounceRateDurationSeconds?: number
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
@@ -1822,6 +1823,7 @@ export enum WebStatsBreakdown {
     InitialUTMSourceMediumCampaign = 'InitialUTMSourceMediumCampaign',
     Browser = 'Browser',
     OS = 'OS',
+    Viewport = 'Viewport',
     DeviceType = 'DeviceType',
     Country = 'Country',
     Region = 'Region',
@@ -2003,6 +2005,7 @@ export interface ExperimentFunnelsQueryResponse {
     significance_code: ExperimentSignificanceCode
     expected_loss: number
     credible_intervals: Record<string, [number, number]>
+    stats_version?: integer
 }
 
 export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<ExperimentFunnelsQueryResponse>
@@ -2012,6 +2015,7 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
     name?: string
     experiment_id?: integer
     funnels_query: FunnelsQuery
+    stats_version?: integer
 }
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
@@ -2377,6 +2381,7 @@ export enum AlertCalculationInterval {
 export interface TrendsAlertConfig {
     type: 'TrendsAlertConfig'
     series_index: integer
+    check_ongoing_interval?: boolean
 }
 
 export interface HogCompileResponse {

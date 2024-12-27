@@ -55,6 +55,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     "limit": 100,
                     "sortBy": "updatedAt",
+                    "status": "activeOrChurned",
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
@@ -323,6 +324,7 @@ def vitally_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    db_incremental_field_last_value: Optional[Any],
     is_incremental: bool = False,
 ):
     config: RESTAPIConfig = {
@@ -347,7 +349,7 @@ def vitally_source(
         "resources": [get_resource(endpoint, is_incremental)],
     }
 
-    yield from rest_api_resources(config, team_id, job_id)
+    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
 
 
 def validate_credentials(secret_token: str, region: str, subdomain: Optional[str]) -> bool:
