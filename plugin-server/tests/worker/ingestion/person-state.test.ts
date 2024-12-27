@@ -179,7 +179,7 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining([]))
         })
 
-        it.only('overrides are created only when distinct_id is in posthog_personlessdistinctid', async () => {
+        it('overrides are created only when distinct_id is in posthog_personlessdistinctid', async () => {
             const start = performance.now()
             // oldUserDistinctId exists, and 'old2' will merge into it, but not create an override
             await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
