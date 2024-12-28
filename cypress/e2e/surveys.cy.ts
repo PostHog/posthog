@@ -92,7 +92,7 @@ describe('Surveys', () => {
         cy.get('.LemonCollapsePanel').contains('Display conditions').click()
         cy.contains('All users').click()
         cy.get('.Popover__content').contains('Users who match').click()
-        cy.contains('Add user targeting').click()
+        cy.contains('Add property targeting').click()
 
         // select the first property
         cy.get('[data-attr="property-select-toggle-0"]').click()
@@ -144,7 +144,7 @@ describe('Surveys', () => {
 
         // remove user targeting properties
         cy.get('.LemonCollapsePanel').contains('Display conditions').click()
-        cy.contains('Remove all user properties').click()
+        cy.contains('Remove all property targeting').click()
 
         // save
         cy.get('[data-attr="save-survey"]').eq(0).click()
@@ -197,7 +197,7 @@ describe('Surveys', () => {
         cy.get('.LemonCollapsePanel').contains('Display conditions').click()
         cy.contains('All users').click()
         cy.get('.Popover__content').contains('Users who match').click()
-        cy.contains('Add user targeting').click()
+        cy.contains('Add property targeting').click()
         cy.get('[data-attr="property-select-toggle-0"]').click()
         cy.get('[data-attr="prop-filter-person_properties-0"]').click()
         cy.get('[data-attr=prop-val]').click({ force: true })
