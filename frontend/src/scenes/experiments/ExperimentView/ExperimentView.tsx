@@ -12,10 +12,12 @@ import { SavedMetricModal } from '../Metrics/SavedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import {
     ExperimentLoadingAnimation,
+    ExploreButton,
     LoadingState,
     NoResultsEmptyState,
     PageHeaderCustom,
     ResultsHeader,
+    ResultsQuery,
 } from './components'
 import { CumulativeExposuresChart } from './CumulativeExposuresChart'
 import { DataCollection } from './DataCollection'
@@ -26,10 +28,13 @@ import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { Results } from './Results'
 import { SecondaryMetricsTable } from './SecondaryMetricsTable'
+import { SummaryTable } from './SummaryTable'
 
 const NewResultsTab = (): JSX.Element => {
     const { experiment, metricResults } = useValues(experimentLogic)
     const hasSomeResults = metricResults?.some((result) => result?.insight)
+
+    const hasSinglePrimaryMetric = experiment.metrics.length === 1
 
     return (
         <>
@@ -42,7 +47,27 @@ const NewResultsTab = (): JSX.Element => {
                     )}
                 </>
             )}
-            <MetricsView />
+            {/* Show overview if there's only a single primary metric */}
+            {hasSinglePrimaryMetric && (
+                <div className="mb-4">
+                    <Overview />
+                </div>
+            )}
+            <MetricsView isSecondary={false} />
+            {/* Show detailed results if there's only a single primary metric */}
+            {hasSomeResults && hasSinglePrimaryMetric && (
+                <div>
+                    <div className="pb-4">
+                        <SummaryTable metric={experiment.metrics[0]} metricIndex={0} isSecondary={false} />
+                    </div>
+                    <div className="flex justify-end">
+                        <ExploreButton result={metricResults?.[0] || null} size="xsmall" />
+                    </div>
+                    <div className="pb-4">
+                        <ResultsQuery result={metricResults?.[0] || null} showTable={true} />
+                    </div>
+                </div>
+            )}
             <MetricsView isSecondary={true} />
         </>
     )
@@ -124,6 +149,7 @@ export function ExperimentView(): JSX.Element {
                             <>
                                 {hasSomeResults && !featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
                                     <div>
+                                        <h2 className="font-semibold text-lg">Summary</h2>
                                         <Overview />
                                         <LemonDivider className="mt-4" />
                                     </div>
