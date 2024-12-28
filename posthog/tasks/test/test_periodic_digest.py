@@ -32,6 +32,12 @@ class TestPeriodicDigestReport(APIBaseTest):
                 name="Test Dashboard",
             )
 
+            #  create a dashboard that is generated for a feature flag, should be excluded from the digest
+            Dashboard.objects.create(
+                team=self.team,
+                name="Generated Dashboard: test-flag Usage",
+            )
+
             # Create an event definition
             event_definition = EventDefinition.objects.create(
                 team=self.team,

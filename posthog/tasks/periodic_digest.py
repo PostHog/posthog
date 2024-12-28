@@ -54,7 +54,11 @@ def get_teams_for_digest() -> list[Team]:
 
 
 def get_teams_with_new_dashboards(end: datetime, begin: datetime) -> QuerySet:
-    return Dashboard.objects.filter(created_at__gt=begin, created_at__lte=end).values("team_id", "name", "id")
+    return (
+        Dashboard.objects.filter(created_at__gt=begin, created_at__lte=end)
+        .exclude(name__contains="Generated Dashboard")
+        .values("team_id", "name", "id")
+    )
 
 
 def get_teams_with_new_event_definitions(end: datetime, begin: datetime) -> QuerySet:
