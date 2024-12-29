@@ -10,10 +10,10 @@ import { BaseMathType, ChartDisplayType, InsightType, PropertyFilterType, Proper
 import { experimentLogic } from '../experimentLogic'
 
 export function CumulativeExposuresChart(): JSX.Element {
-    const { experiment, metricResults, getMetricType } = useValues(experimentLogic)
+    const { experiment, metricResults, _getMetricType } = useValues(experimentLogic)
 
     const metricIdx = 0
-    const metricType = getMetricType(metricIdx)
+    const metricType = _getMetricType(experiment.metrics[metricIdx])
     const result = metricResults?.[metricIdx]
     const variants = experiment.parameters?.feature_flag_variants?.map((variant) => variant.key) || []
     if (experiment.holdout) {
