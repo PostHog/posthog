@@ -1237,6 +1237,7 @@ def team_api_test_factory():
             new_setting = not current_access_control
             response = self.client.patch(f"/api/environments/@current/", {"access_control": new_setting})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+            print("response", response.json())  # noqa: T201
 
             mock_capture.assert_called_with(
                 str(self.user.distinct_id),

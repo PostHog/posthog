@@ -375,7 +375,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         before_update = instance.__dict__.copy()
 
+        print("access_control check", validated_data)  # noqa: T201
         if "access_control" in validated_data and validated_data["access_control"] != instance.access_control:
+            print("in access control toggle")  # noqa: T201
             user = cast(User, self.context["request"].user)
             posthoganalytics.capture(
                 str(user.distinct_id),
@@ -390,6 +392,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 },
                 groups=groups(instance.organization),
             )
+        print("after access control toggle")  # noqa: T201
 
         if "survey_config" in validated_data:
             if instance.survey_config is not None and validated_data.get("survey_config") is not None:
