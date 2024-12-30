@@ -1,4 +1,4 @@
-import { connect, kea, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { Scene } from 'scenes/sceneTypes'
@@ -8,7 +8,7 @@ import { Breadcrumb, Feature } from '~/types'
 
 import type { featureManagementNewLogicType } from './featureManagementNewLogicType'
 
-const NEW_FEATURE: Omit<Feature, 'primary_early_access_feature_id' | 'documentation_url' | 'issue_url'> = {
+const NEW_FEATURE: Omit<Feature, 'primary_early_access_feature_id'> = {
     id: null,
     key: '',
     name: '',
@@ -23,6 +23,9 @@ export const featureManagementNewLogic = kea<featureManagementNewLogicType>([
     props({}),
     path(['scenes', 'features', 'featureManagementNewLogic']),
     connect({}),
+    actions({
+        setFeature: (feature: Partial<Feature>) => ({ feature }),
+    }),
     forms(({ actions }) => ({
         feature: {
             defaults: { ...NEW_FEATURE },
@@ -31,7 +34,16 @@ export const featureManagementNewLogic = kea<featureManagementNewLogicType>([
             },
         },
     })),
-    reducers({}),
+    reducers({
+        feature: [
+            NEW_FEATURE,
+            {
+                setFeature: (state, { feature }) => {
+                    return { ...state, feature }
+                },
+            },
+        ],
+    }),
     loaders(() => ({
         feature: {
             loadFeature: () => {

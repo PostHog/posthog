@@ -57,6 +57,18 @@ function FeatureManagementNew(): JSX.Element {
                         />
                     </LemonField>
 
+                    <LemonField name="key" label="Key">
+                        <LemonInput
+                            data-attr="feature-key"
+                            className="ph-ignore-input"
+                            autoComplete="off"
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            disabled
+                        />
+                    </LemonField>
+
                     <LemonField name="description" label="Description">
                         <LemonTextArea className="ph-ignore-input" data-attr="feature-description" />
                     </LemonField>
