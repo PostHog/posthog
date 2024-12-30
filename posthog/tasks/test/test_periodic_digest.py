@@ -116,8 +116,8 @@ class TestPeriodicDigestReport(APIBaseTest):
             completed_experiment = Experiment.objects.create(
                 team=self.team,
                 name="Completed Experiment",
-                start_date=now() + timedelta(days=1),
-                end_date=now() + timedelta(days=6),
+                start_date=now() + timedelta(days=6),
+                end_date=now() + timedelta(days=7),
                 feature_flag=flag_for_completed_experiment,
             )
 
