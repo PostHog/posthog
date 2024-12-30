@@ -15,7 +15,7 @@ export function Results(): JSX.Element {
         <div>
             <ResultsHeader />
             <SummaryTable metric={experiment.metrics[0]} />
-            <ResultsQuery targetResults={result} showTable={true} />
+            <ResultsQuery result={result} showTable={true} />
         </div>
     )
 }
