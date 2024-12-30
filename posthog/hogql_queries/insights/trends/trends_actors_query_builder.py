@@ -256,7 +256,7 @@ class TrendsActorsQueryBuilder:
         ]
 
     def _get_event_distinct_ids_expr(self) -> list[ast.Expr]:
-        if self.entity.math == "unique_group" and self.entity.math_group_type_index is None:
+        if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
             return []
 
         return [
