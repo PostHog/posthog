@@ -275,7 +275,16 @@ export type HogFunctionInputSchemaType = {
     requiredScopes?: string
 }
 
-export type HogFunctionTypeType = 'destination' | 'email' | 'sms' | 'push' | 'activity' | 'alert' | 'broadcast'
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'transformation'
+    | 'internal_destination'
+    | 'email'
+    | 'sms'
+    | 'push'
+    | 'activity'
+    | 'alert'
+    | 'broadcast'
 
 export type HogFunctionType = {
     id: string
