@@ -264,7 +264,7 @@ def sync_org_quota_limits(organization: Organization):
             remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY)
 
 
-def get_team_attribute_by_quota_resource(organization: Organization):
+def get_team_attribute_by_quota_resource(organization: Organization) -> list[str]:
     team_tokens: list[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
 
     if not team_tokens:
