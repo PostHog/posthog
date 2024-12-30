@@ -269,7 +269,6 @@ def get_team_attribute_by_quota_resource(organization: Organization):
 
     if not team_tokens:
         capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
-        return
 
     return team_tokens
 
