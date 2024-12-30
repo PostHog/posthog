@@ -1,10 +1,8 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { DatabaseSchemaViewTable } from '~/queries/schema'
@@ -103,15 +101,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             },
         ],
     }),
-    events(({ actions, cache }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadDataWarehouseSavedQueries()
-            if (router.values.location.pathname.includes(urls.sqlEditor()) && !cache.pollingInterval) {
-                cache.pollingInterval = setInterval(actions.loadDataWarehouseSavedQueries, 5000)
-            }
-        },
-        beforeUnmount: () => {
-            clearInterval(cache.pollingInterval)
         },
     })),
 ])

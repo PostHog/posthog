@@ -1,4 +1,5 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { Node } from 'scenes/data-model/types'
@@ -31,7 +32,12 @@ export const lineageTabLogic = kea<lineageTabLogicType>([
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueryMap'],
         ],
-        actions: [multitabEditorLogic({ key: props.codeEditorKey }), ['runQuery']],
+        actions: [
+            multitabEditorLogic({ key: props.codeEditorKey }),
+            ['runQuery'],
+            dataWarehouseViewsLogic,
+            ['loadDataWarehouseSavedQueries'],
+        ],
     })),
     reducers({
         nodeMap: [
@@ -42,13 +48,14 @@ export const lineageTabLogic = kea<lineageTabLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        runQuery: () => {
-            actions.loadNodes()
-        },
         loadNodes: async () => {
             const nodes: Record<string, Node> = {}
 
             const traverseAncestors = async (viewId: DataWarehouseSavedQuery['id'], level: number): Promise<void> => {
+                if (!nodes[viewId]?.savedQueryId) {
+                    return
+                }
+
                 const result = await api.dataWarehouseSavedQueries.ancestors(viewId, level)
                 for (const ancestor of result.ancestors) {
                     nodes[ancestor] = {
@@ -91,6 +98,11 @@ export const lineageTabLogic = kea<lineageTabLogicType>([
             actions.setNodes(nodes)
         },
     })),
+    subscriptions(({ actions }) => ({
+        metadata: () => {
+            actions.loadNodes()
+        },
+    })),
     selectors({
         views: [
             (s) => [s.metadata, s.dataWarehouseSavedQueryMap],
@@ -130,4 +142,14 @@ export const lineageTabLogic = kea<lineageTabLogicType>([
         ],
         allNodes: [(s) => [s.nodeMap], (nodeMap) => [...Object.values(nodeMap)]],
     }),
+    events(({ cache, actions }) => ({
+        afterMount: () => {
+            if (!cache.pollingInterval) {
+                cache.pollingInterval = setInterval(actions.loadDataWarehouseSavedQueries, 5000)
+            }
+        },
+        beforeUnmount: () => {
+            clearInterval(cache.pollingInterval)
+        },
+    })),
 ])
