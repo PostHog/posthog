@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0535_alter_hogfunction_type"),
+        ("posthog", "0536_alertconfiguration_skip_weekend"),
     ]
 
     operations = [
