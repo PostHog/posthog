@@ -1,1 +1,1 @@
-0536_feature_mgmt_tables
+0536_alertconfiguration_skip_weekend

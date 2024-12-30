@@ -165,9 +165,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         queryset=ExperimentHoldout.objects.all(), source="holdout", required=False, allow_null=True
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
-    saved_metrics_ids = serializers.ListField(
-        child=serializers.JSONField(), write_only=True, required=False, allow_null=True
-    )
+    saved_metrics_ids = serializers.ListField(child=serializers.JSONField(), required=False, allow_null=True)
 
     class Meta:
         model = Experiment

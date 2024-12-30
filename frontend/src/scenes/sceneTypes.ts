@@ -36,6 +36,8 @@ export enum Scene {
     Group = 'Group',
     Action = 'Action',
     Experiments = 'Experiments',
+    ExperimentsSavedMetrics = 'ExperimentsSavedMetrics',
+    ExperimentsSavedMetric = 'ExperimentsSavedMetric',
     Experiment = 'Experiment',
     FeatureManagement = 'FeatureManagement',
     FeatureManagementNew = 'FeatureManagementNew',

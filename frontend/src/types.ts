@@ -702,6 +702,7 @@ export enum ExperimentsTabs {
     Yours = 'yours',
     Archived = 'archived',
     Holdouts = 'holdouts',
+    SavedMetrics = 'saved-metrics',
 }
 
 export enum ActivityTab {
@@ -3317,6 +3318,8 @@ export interface Experiment {
     filters: TrendsFilterType | FunnelsFilterType
     metrics: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metrics_secondary: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
+    saved_metrics: any[]
     parameters: {
         minimum_detectable_effect?: number
         recommended_running_time?: number
@@ -3766,6 +3769,7 @@ export type IntegrationKind =
     | 'google-pubsub'
     | 'google-cloud-storage'
     | 'google-ads'
+    | 'snapchat'
 
 export interface IntegrationType {
     id: number
@@ -4676,6 +4680,7 @@ export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
 
 export type HogFunctionTypeType =
     | 'destination'
+    | 'internal_destination'
     | 'site_destination'
     | 'site_app'
     | 'transformation'
@@ -4708,7 +4713,7 @@ export type HogFunctionType = {
 }
 
 export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated' | 'client-side'
-export type HogFunctionSubTemplateIdType = 'early_access_feature_enrollment' | 'survey_response'
+export type HogFunctionSubTemplateIdType = 'early-access-feature-enrollment' | 'survey-response' | 'activity-log'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

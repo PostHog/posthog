@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { Message } from 'node-rdkafka'
 
+import { CdpInternalEvent } from '../../src/cdp/schema'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
@@ -60,7 +61,7 @@ export const createIncomingEvent = (teamId: number, data: Partial<RawClickHouseE
     }
 }
 
-export const createMessage = (event: RawClickHouseEvent, overrides: Partial<Message> = {}): Message => {
+export const createKafkaMessage = (event: any, overrides: Partial<Message> = {}): Message => {
     return {
         partition: 1,
         topic: 'test',
@@ -69,6 +70,20 @@ export const createMessage = (event: RawClickHouseEvent, overrides: Partial<Mess
         size: 1,
         ...overrides,
         value: Buffer.from(JSON.stringify(event)),
+    }
+}
+
+export const createInternalEvent = (teamId: number, data: Partial<CdpInternalEvent>): CdpInternalEvent => {
+    return {
+        team_id: teamId,
+        event: {
+            timestamp: new Date().toISOString(),
+            properties: {},
+            uuid: randomUUID(),
+            event: '$pageview',
+            distinct_id: 'distinct_id',
+        },
+        ...data,
     }
 }
 
