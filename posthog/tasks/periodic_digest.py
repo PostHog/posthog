@@ -75,8 +75,16 @@ def get_teams_with_new_playlists(end: datetime, begin: datetime) -> QuerySet:
 
 
 def get_teams_with_new_experiments_launched(end: datetime, begin: datetime) -> QuerySet:
-    return Experiment.objects.filter(start_date__gt=begin, start_date__lte=end, end_date__isnull=True).values(
-        "team_id", "name", "id", "start_date"
+    return (
+        Experiment.objects.filter(
+            start_date__gt=begin,
+            start_date__lte=end,
+        )
+        .exclude(
+            end_date__gt=begin,
+            end_date__lte=end,
+        )
+        .values("team_id", "name", "id", "start_date")
     )
 
 
