@@ -7,6 +7,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMemo } from 'react'
 import DataGrid from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -47,6 +49,7 @@ export function OutputPane(): JSX.Element {
     const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { visualizationType, queryCancelled } = useValues(dataVisualizationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
@@ -93,14 +96,18 @@ export function OutputPane(): JSX.Element {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
                         },
-                        {
-                            key: OutputTab.Info,
-                            label: 'Info',
-                        },
-                        {
-                            key: OutputTab.Lineage,
-                            label: 'Lineage',
-                        },
+                        ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
+                            ? [
+                                  {
+                                      key: OutputTab.Info,
+                                      label: 'Info',
+                                  },
+                                  {
+                                      key: OutputTab.Lineage,
+                                      label: 'Lineage',
+                                  },
+                              ]
+                            : []),
                     ]}
                 />
                 <div className="flex gap-4">

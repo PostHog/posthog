@@ -698,7 +698,16 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                filters.append(property_to_expr(property, self.team))
+                if is_data_warehouse_series:
+                    if property["type"] in ("event", "person"):
+                        if property["type"] == "event":
+                            property["key"] = f"events.properties.{property['key']}"
+                        elif property["type"] == "person":
+                            property["key"] = f"events.person.properties.{property['key']}"
+                        property["type"] = "data_warehouse"
+                    filters.append(property_to_expr(property, self.team))
+                else:
+                    filters.append(property_to_expr(property, self.team))
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:

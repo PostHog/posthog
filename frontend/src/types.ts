@@ -543,6 +543,7 @@ export interface TeamType extends TeamBasicType {
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
+    cookieless_server_hash_mode?: CookielessServerHashMode
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
@@ -701,6 +702,7 @@ export enum ExperimentsTabs {
     Yours = 'yours',
     Archived = 'archived',
     Holdouts = 'holdouts',
+    SavedMetrics = 'saved-metrics',
 }
 
 export enum ActivityTab {
@@ -3309,6 +3311,8 @@ export interface Experiment {
     filters: TrendsFilterType | FunnelsFilterType
     metrics: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metrics_secondary: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
+    saved_metrics: any[]
     parameters: {
         minimum_detectable_effect?: number
         recommended_running_time?: number
@@ -3758,6 +3762,7 @@ export type IntegrationKind =
     | 'google-pubsub'
     | 'google-cloud-storage'
     | 'google-ads'
+    | 'snapchat'
 
 export interface IntegrationType {
     id: number
@@ -4488,7 +4493,7 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
-    // AccessControl = 'access-control',
+    AccessControl = 'access-control',
 }
 
 export interface SourceFieldOauthConfig {
@@ -4667,6 +4672,7 @@ export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
 
 export type HogFunctionTypeType =
     | 'destination'
+    | 'internal_destination'
     | 'site_destination'
     | 'site_app'
     | 'transformation'
@@ -4699,7 +4705,7 @@ export type HogFunctionType = {
 }
 
 export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated' | 'client-side'
-export type HogFunctionSubTemplateIdType = 'early_access_feature_enrollment' | 'survey_response'
+export type HogFunctionSubTemplateIdType = 'early-access-feature-enrollment' | 'survey-response' | 'activity-log'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
@@ -4827,6 +4833,12 @@ export type ReplayTemplateVariableType = {
     description?: string
     filterGroup?: UniversalFiltersGroupValue
     noTouch?: boolean
+}
+
+export enum CookielessServerHashMode {
+    Disabled = 0,
+    Stateless = 1,
+    Stateful = 2,
 }
 
 /**

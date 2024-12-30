@@ -174,6 +174,7 @@ export enum DeviceTab {
     BROWSER = 'BROWSER',
     OS = 'OS',
     DEVICE_TYPE = 'DEVICE_TYPE',
+    VIEWPORT = 'VIEWPORT',
 }
 
 export enum PathTab {
@@ -1120,6 +1121,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 WebStatsBreakdown.Browser
                             ),
                             createTableTab(TileId.DEVICES, DeviceTab.OS, 'OS', 'OS', WebStatsBreakdown.OS),
+                            createTableTab(
+                                TileId.DEVICES,
+                                DeviceTab.VIEWPORT,
+                                'Viewports',
+                                'Viewport',
+                                WebStatsBreakdown.Viewport
+                            ),
                         ],
                     },
                     shouldShowGeographyTile
