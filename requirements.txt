@@ -374,7 +374,7 @@ langsmith==0.1.132
     # via
     #   langchain
     #   langchain-core
-lxml==4.9.4
+lxml==5.2.2
     # via
     #   -r requirements.in
     #   python3-saml
@@ -807,7 +807,7 @@ wrapt==1.15.0
     #   langfuse
 wsproto==1.2.0
     # via trio-websocket
-xmlsec==1.3.13
+xmlsec==1.3.14
     # via
     #   -r requirements.in
     #   python3-saml
