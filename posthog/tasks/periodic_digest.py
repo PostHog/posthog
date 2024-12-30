@@ -66,10 +66,21 @@ def get_teams_with_new_event_definitions(end: datetime, begin: datetime) -> Quer
 
 
 def get_teams_with_new_playlists(end: datetime, begin: datetime) -> QuerySet:
-    return SessionRecordingPlaylist.objects.filter(
-        created_at__gt=begin,
-        created_at__lte=end,
-    ).values("team_id", "name", "short_id", "derived_name")
+    return (
+        SessionRecordingPlaylist.objects.filter(
+            created_at__gt=begin,
+            created_at__lte=end,
+        )
+        .exclude(
+            name__isnull=True,
+            derived_name__isnull=True,
+        )
+        .exclude(
+            name="",
+            derived_name="",
+        )
+        .values("team_id", "name", "short_id", "derived_name")
+    )
 
 
 def get_teams_with_new_experiments_launched(end: datetime, begin: datetime) -> QuerySet:

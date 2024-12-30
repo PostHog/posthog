@@ -49,16 +49,17 @@ class TestPeriodicDigestReport(APIBaseTest):
                 team=self.team,
                 name="Test Playlist",
             )
-            # These should be included in the digest but use the derived name
-            derived_playlist = SessionRecordingPlaylist.objects.create(
+            # This should be excluded from the digest because it has no name and no derived name
+            SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name=None,
-                derived_name="Derived Playlist",
+                derived_name=None,
             )
-            derived_playlist_2 = SessionRecordingPlaylist.objects.create(
+            # This should be included in the digest but use the derived name
+            derived_playlist = SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name="",
-                derived_name="Derived Playlist 2",
+                derived_name="Derived Playlist",
             )
 
             # Create experiments
@@ -169,10 +170,6 @@ class TestPeriodicDigestReport(APIBaseTest):
                 {
                     "name": "Derived Playlist",
                     "id": derived_playlist.short_id,
-                },
-                {
-                    "name": "Derived Playlist 2",
-                    "id": derived_playlist_2.short_id,
                 },
             ],
             "new_experiments_launched": [
