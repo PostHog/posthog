@@ -6,22 +6,46 @@ from rest_framework import serializers
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.parser import parse_program, parse_string_template
+from posthog.hogql.visitor import TraversingVisitor
 from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOURCE
+from posthog.hogql import ast
 
 logger = logging.getLogger(__name__)
 
 
-def generate_template_bytecode(obj: Any) -> Any:
+class InputCollector(TraversingVisitor):
+    inputs: set[str]
+
+    def __init__(self):
+        super().__init__()
+        self.inputs = set()
+
+    def visit_field(self, node: ast.Field):
+        super().visit_field(node)
+        if node.chain[0] == "inputs":
+            if len(node.chain) > 1:
+                self.inputs.add(str(node.chain[1]))
+
+
+def collect_inputs(node: ast.Expr) -> set[str]:
+    input_collector = InputCollector()
+    input_collector.visit(node)
+    return input_collector.inputs
+
+
+def generate_template_bytecode(obj: Any, input_collector: set[str]) -> Any:
     """
     Clones an object, compiling any string values to bytecode templates
     """
 
     if isinstance(obj, dict):
-        return {key: generate_template_bytecode(value) for key, value in obj.items()}
+        return {key: generate_template_bytecode(value, input_collector) for key, value in obj.items()}
     elif isinstance(obj, list):
-        return [generate_template_bytecode(item) for item in obj]
+        return [generate_template_bytecode(item, input_collector) for item in obj]
     elif isinstance(obj, str):
-        return create_bytecode(parse_string_template(obj)).bytecode
+        node = parse_string_template(obj)
+        input_collector.update(collect_inputs(node))
+        return create_bytecode(node).bytecode
     else:
         return obj
 
@@ -81,6 +105,9 @@ class AnyInputField(serializers.Field):
 class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
     bytecode = serializers.ListField(required=False, read_only=True)
+    # input_deps = serializers.ListField(required=False)
+    order = serializers.IntegerField(required=False)
+    transpiled = serializers.JSONField(required=False)
 
     def validate(self, attrs):
         schema = self.context["schema"]
@@ -112,9 +139,9 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"inputs": {name: f"Value must be an Integration ID."}})
-            for key in ["from", "to", "subject"]:
-                if not value.get(key):
-                    raise serializers.ValidationError({"inputs": {name: f"Missing value for '{key}'."}})
+            for key_ in ["from", "to", "subject"]:
+                if not value.get(key_):
+                    raise serializers.ValidationError({"inputs": {name: f"Missing value for '{key_}'."}})
 
             if not value.get("text") and not value.get("html"):
                 raise serializers.ValidationError({"inputs": {name: f"Either 'text' or 'html' is required."}})
@@ -133,7 +160,9 @@ class InputsItemSerializer(serializers.Serializer):
                         if "bytecode" in attrs:
                             del attrs["bytecode"]
                     else:
-                        attrs["bytecode"] = generate_template_bytecode(value)
+                        input_collector: set[str] = set()
+                        attrs["bytecode"] = generate_template_bytecode(value, input_collector)
+                        attrs["input_deps"] = list(input_collector)
                         if "transpiled" in attrs:
                             del attrs["transpiled"]
         except Exception as e:
@@ -154,6 +183,41 @@ def validate_inputs_schema(value: list) -> list:
     return serializer.validated_data or []
 
 
+def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]:
+    """
+    Perform a topological sort on the given graph.
+    nodes: list of all node identifiers
+    edges: adjacency list where edges[node] = list of nodes that `node` depends on
+    Returns: A list of nodes in topologically sorted order (no cycles).
+    Raises an error if a cycle is detected.
+    """
+    # Build in-degree
+    in_degree = {node: 0 for node in nodes}
+    for node, deps in edges.items():
+        for dep in deps:
+            if dep in in_degree:
+                in_degree[node] = in_degree[node] + 1
+
+    # Find all nodes with in_degree 0
+    queue = [n for n, d in in_degree.items() if d == 0]
+    sorted_list = []
+
+    while queue:
+        current = queue.pop(0)
+        sorted_list.append(current)
+        # Decrease in-degree of dependent nodes
+        for node, deps in edges.items():
+            if current in deps:
+                in_degree[node] -= 1
+                if in_degree[node] == 0:
+                    queue.append(node)
+
+    if len(sorted_list) != len(nodes):
+        raise serializers.ValidationError("Circular dependency detected in input_deps.")
+
+    return sorted_list
+
+
 def validate_inputs(
     inputs_schema: list,
     inputs: dict,
@@ -162,10 +226,13 @@ def validate_inputs(
 ) -> dict:
     """
     Tricky: We want to allow overriding the secret inputs, but not return them.
-    If we have a given input then we use it, otherwise we pull it from the existing secrets
+    If we have a given input then we use it, otherwise we pull it from the existing secrets.
+    Then we do topological sorting based on input_deps to assign order.
     """
+
     validated_inputs = {}
 
+    # Validate each input against the schema
     for schema in inputs_schema:
         value = inputs.get(schema["key"]) or {}
 
@@ -180,18 +247,47 @@ def validate_inputs(
         if not serializer.is_valid():
             raise serializers.ValidationError(serializer.errors)
 
-        validated_inputs[schema["key"]] = serializer.validated_data
+        validated_data = serializer.validated_data
 
-    return validated_inputs
+        # If it's a secret input, not required, and no value was provided, don't add it
+        if schema.get("secret", False) and not schema.get("required", False) and "value" not in validated_data:
+            # Skip adding this input entirely
+            continue
+
+        validated_inputs[schema["key"]] = validated_data
+
+    # We'll topologically sort keys based on their input_deps.
+    edges = {}
+    all_keys = list(validated_inputs.keys())
+    for k, v in validated_inputs.items():
+        deps = v.get("input_deps", [])
+        deps = [d for d in deps if d in validated_inputs]
+        edges[k] = deps
+
+    sorted_keys = topological_sort(all_keys, edges)
+
+    # Assign order according to topological sort
+    for i, key in enumerate(sorted_keys):
+        validated_inputs[key]["order"] = i
+        if "input_deps" in validated_inputs[key]:
+            del validated_inputs[key]["input_deps"]
+
+    # Rebuild in sorted order
+    sorted_validated_inputs = {key: validated_inputs[key] for key in sorted_keys}
+
+    return sorted_validated_inputs
 
 
-def compile_hog(hog: str, supported_functions: Optional[set[str]] = None, in_repl: Optional[bool] = False) -> list[Any]:
+def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> list[Any]:
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
-        return create_bytecode(
-            program, supported_functions=supported_functions or {"fetch", "postHogCapture"}, in_repl=in_repl
-        ).bytecode
+        supported_functions = set()
+
+        if hog_type == "destination":
+            supported_functions = {"fetch", "postHogCapture"}
+
+        return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})

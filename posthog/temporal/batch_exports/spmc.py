@@ -12,7 +12,10 @@ import temporalio.common
 from django.conf import settings
 
 from posthog.temporal.batch_exports.heartbeat import BatchExportRangeHeartbeatDetails
-from posthog.temporal.batch_exports.metrics import get_bytes_exported_metric, get_rows_exported_metric
+from posthog.temporal.batch_exports.metrics import (
+    get_bytes_exported_metric,
+    get_rows_exported_metric,
+)
 from posthog.temporal.batch_exports.sql import (
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
@@ -204,6 +207,7 @@ class Consumer:
         schema: pa.Schema,
         json_columns: collections.abc.Sequence[str],
         multiple_files: bool = False,
+        include_inserted_at: bool = False,
         task_name: str = "record_batch_consumer",
         **kwargs,
     ) -> asyncio.Task:
@@ -216,6 +220,7 @@ class Consumer:
                 schema=schema,
                 json_columns=json_columns,
                 multiple_files=multiple_files,
+                include_inserted_at=include_inserted_at,
                 **kwargs,
             ),
             name=task_name,
@@ -258,6 +263,7 @@ class Consumer:
         schema: pa.Schema,
         json_columns: collections.abc.Sequence[str],
         multiple_files: bool = False,
+        include_inserted_at: bool = False,
         **kwargs,
     ) -> int:
         """Start consuming record batches from queue.
@@ -290,7 +296,7 @@ class Consumer:
             record_batches_count_total += 1
             record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
 
-            await writer.write_record_batch(record_batch, flush=False)
+            await writer.write_record_batch(record_batch, flush=False, include_inserted_at=include_inserted_at)
 
             if writer.should_flush():
                 await self.logger.adebug(
@@ -372,12 +378,18 @@ async def run_consumer(
     json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
     multiple_files: bool = False,
     writer_file_kwargs: collections.abc.Mapping[str, typing.Any] | None = None,
+    include_inserted_at: bool = False,
+    **kwargs,
 ) -> int:
     """Run one record batch consumer.
 
     When a consumer starts flushing, a new consumer will be started, and so on in
     a loop. Once there is nothing left to consumer from the `RecordBatchQueue`, no
     more consumers will be started, and any pending consumers are awaited.
+
+    NOTE: We're starting to include the `_inserted_at` column in the record
+    batches, one destination at a time, so once we've added it to all
+    destinations, we can remove the `include_inserted_at` argument.
 
     Returns:
         Number of records exported. Not the number of record batches, but the
@@ -415,6 +427,7 @@ async def run_consumer(
         schema=schema,
         json_columns=json_columns,
         multiple_files=multiple_files,
+        include_inserted_at=include_inserted_at,
         **writer_file_kwargs or {},
     )
     consumer_tasks_pending.add(consumer_task)

@@ -1,4 +1,4 @@
-import { LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { id } from 'chartjs-plugin-trendline'
 import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -13,6 +13,7 @@ import { NodeKind } from '~/queries/schema'
 import { AnyPropertyFilter, EntityTypes, FilterType, HogFunctionFiltersType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
+import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
 function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFiltersType> {
     if (!filters) {
@@ -49,7 +50,7 @@ export function HogFunctionFilters(): JSX.Element {
 
     if (type === 'broadcast') {
         return (
-            <div className="border bg-bg-light rounded p-3 space-y-2">
+            <div className="p-3 space-y-2 border rounded bg-bg-light">
                 <LemonField name="filters" label="Filters">
                     {({ value, onChange }) => (
                         <PropertyFilters
@@ -74,10 +75,15 @@ export function HogFunctionFilters(): JSX.Element {
         )
     }
 
+    if (type === 'internal_destination') {
+        return <HogFunctionFiltersInternal />
+    }
+
     const showMasking = type === 'destination'
+    const showDropEvents = type === 'transformation'
 
     return (
-        <div className="border bg-bg-light rounded p-3 space-y-2">
+        <div className="p-3 space-y-2 border rounded bg-bg-light">
             <LemonField
                 name="filters"
                 label={useMapping ? 'Global filters' : 'Filters'}
@@ -112,10 +118,10 @@ export function HogFunctionFilters(): JSX.Element {
 
                             {!useMapping ? (
                                 <>
-                                    <div className="flex w-full gap-2 justify-between">
+                                    <div className="flex justify-between w-full gap-2">
                                         <LemonLabel>Match events and actions</LemonLabel>
                                     </div>
-                                    <p className="mb-0 text-muted-alt text-xs">
+                                    <p className="mb-0 text-xs text-muted-alt">
                                         If set, the destination will only run if the <b>event matches any</b> of the
                                         below.
                                     </p>
@@ -153,6 +159,33 @@ export function HogFunctionFilters(): JSX.Element {
                                         }}
                                         buttonCopy="Add event matcher"
                                     />
+
+                                    {showDropEvents && (
+                                        <>
+                                            <LemonLabel>
+                                                <span className="flex items-center justify-between flex-1 gap-2">
+                                                    Drop events that don't match
+                                                    <LemonSwitch
+                                                        checked={value?.drop_events ?? false}
+                                                        onChange={(drop_events) => onChange({ ...value, drop_events })}
+                                                    />
+                                                </span>
+                                            </LemonLabel>
+
+                                            {!value?.drop_events ? (
+                                                <p>
+                                                    Currently, this will run for all events that match the above
+                                                    conditions. Any that do not match will be unmodified and ingested as
+                                                    they are.
+                                                </p>
+                                            ) : (
+                                                <LemonBanner type="error">
+                                                    This will drop all events that don't match the above conditions.
+                                                    Please ensure this is definitely intended.
+                                                </LemonBanner>
+                                            )}
+                                        </>
+                                    )}
                                 </>
                             ) : null}
                         </>
@@ -162,7 +195,7 @@ export function HogFunctionFilters(): JSX.Element {
             {showMasking ? (
                 <LemonField name="masking" label="Trigger options">
                     {({ value, onChange }) => (
-                        <div className="flex items-center gap-1 flex-wrap">
+                        <div className="flex flex-wrap items-center gap-1">
                             <LemonSelect
                                 options={[
                                     {
@@ -192,7 +225,7 @@ export function HogFunctionFilters(): JSX.Element {
                             />
                             {configuration.masking?.hash ? (
                                 <>
-                                    <div className="flex items-center gap-1 flex-wrap">
+                                    <div className="flex flex-wrap items-center gap-1">
                                         <span>of</span>
                                         <LemonSelect
                                             value={value?.ttl}
@@ -237,7 +270,7 @@ export function HogFunctionFilters(): JSX.Element {
                                             ]}
                                         />
                                     </div>
-                                    <div className="flex items-center gap-1 flex-wrap">
+                                    <div className="flex flex-wrap items-center gap-1">
                                         <span>or until</span>
                                         <LemonSelect
                                             value={value?.threshold}

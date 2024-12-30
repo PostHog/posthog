@@ -60,6 +60,7 @@ import {
     GroupListParams,
     HogFunctionIconResponse,
     HogFunctionStatus,
+    HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
@@ -845,9 +846,9 @@ class ApiRequest {
         return apiRequest
     }
 
-    // Chat
-    public chat(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query').addPathComponent('chat')
+    // Conversations
+    public conversations(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('conversations')
     }
 
     // Notebooks
@@ -1824,13 +1825,15 @@ const api = {
         ): Promise<AppMetricsTotalsV2Response> {
             return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
-        async listTemplates(
-            type?: HogFunctionTypeType | HogFunctionTypeType[]
-        ): Promise<PaginatedResponse<HogFunctionTemplateType>> {
-            return new ApiRequest()
-                .hogFunctionTemplates()
-                .withQueryString(Array.isArray(type) ? { types: type.join(',') } : { type: type ?? 'destination' })
-                .get()
+        async listTemplates(params: {
+            types: HogFunctionTypeType[]
+            sub_template_id?: HogFunctionSubTemplateIdType
+        }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
+            const finalParams = {
+                ...params,
+                types: params.types.join(','),
+            }
+            return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
         async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
             return await new ApiRequest().hogFunctionTemplate(id).get()
@@ -2547,12 +2550,10 @@ const api = {
         })
     },
 
-    chatURL: (): string => {
-        return new ApiRequest().chat().assembleFullUrl()
-    },
-
-    async chat(data: any): Promise<Response> {
-        return await api.createResponse(this.chatURL(), data)
+    conversations: {
+        async create(data: { content: string; conversation?: string | null }): Promise<Response> {
+            return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data)
+        },
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

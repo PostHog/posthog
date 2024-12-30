@@ -167,10 +167,6 @@ googleapis-common-protos==1.60.0
     # via
     #   -c requirements.txt
     #   opentelemetry-exporter-otlp-proto-grpc
-greenlet==3.1.1
-    # via
-    #   -c requirements.txt
-    #   sqlalchemy
 grpcio==1.63.2
     # via
     #   -c requirements.txt
@@ -239,7 +235,7 @@ jsonschema-specifications==2023.12.1
     #   -c requirements.txt
     #   jsonschema
     #   openapi-schema-validator
-langchain==0.3.3
+langchain==0.3.9
     # via
     #   -c requirements.txt
     #   deepeval
@@ -247,7 +243,7 @@ langchain==0.3.3
     #   ragas
 langchain-community==0.3.2
     # via ragas
-langchain-core==0.3.10
+langchain-core==0.3.21
     # via
     #   -c requirements.txt
     #   deepeval
@@ -256,7 +252,7 @@ langchain-core==0.3.10
     #   langchain-openai
     #   langchain-text-splitters
     #   ragas
-langchain-openai==0.2.2
+langchain-openai==0.2.11
     # via
     #   -c requirements.txt
     #   deepeval
@@ -314,7 +310,7 @@ numpy==1.23.3
     #   pandas
     #   pyarrow
     #   ragas
-openai==1.51.2
+openai==1.56.2
     # via
     #   -c requirements.txt
     #   langchain-openai

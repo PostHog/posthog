@@ -5,6 +5,7 @@ import time
 from typing import Optional
 from unittest.mock import patch, Mock
 
+from inline_snapshot import snapshot
 import pytest
 from django.conf import settings
 from django.core.cache import cache
@@ -122,7 +123,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         if self.use_remote_config:
             # We test a lot with settings changes so the idea is to refresh the remote config
             remote_config = RemoteConfig.objects.get(team=self.team)
-            remote_config.sync()
+            # Force as sync as lots of the tests are clearing redis purposefully which messes with things
+            remote_config.sync(force=True)
 
         if groups is None:
             groups = {}
@@ -3590,10 +3592,38 @@ class TestDecideRemoteConfig(TestDecide):
     use_remote_config = True
 
     def test_definitely_loads_via_remote_config(self, *args):
-        response = self._post_decide(api_version=3)
-        # NOTE: Using these as a sanity check as they are subtly different in format
-        assert response.json()["surveys"] == []
-        assert response.json()["hasFeatureFlags"] is False
+        # NOTE: This is a sanity check test that we aren't just using the old decide logic
+
+        with patch.object(
+            RemoteConfig, "get_config_via_token", wraps=RemoteConfig.get_config_via_token
+        ) as wrapped_get_config_via_token:
+            response = self._post_decide(api_version=3)
+            wrapped_get_config_via_token.assert_called_once()
+
+        # NOTE: If this changes it indicates something is wrong as we should keep this exact format
+        # for backwards compatibility
+        assert response.json() == snapshot(
+            {
+                "supportedCompression": ["gzip", "gzip-js"],
+                "captureDeadClicks": False,
+                "capturePerformance": {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
+                "autocapture_opt_out": False,
+                "autocaptureExceptions": False,
+                "analytics": {"endpoint": "/i/v0/e/"},
+                "elementsChainAsString": True,
+                "sessionRecording": False,
+                "heatmaps": False,
+                "surveys": False,
+                "defaultIdentifiedOnly": True,
+                "siteApps": [],
+                "isAuthenticated": False,
+                "toolbarParams": {},
+                "config": {"enable_collect_everything": True},
+                "featureFlags": {},
+                "errorsWhileComputingFlags": False,
+                "featureFlagPayloads": {},
+            }
+        )
 
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):

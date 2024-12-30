@@ -511,6 +511,7 @@ async def get_client(
         max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
         max_memory_usage=settings.CLICKHOUSE_MAX_MEMORY_USAGE,
         max_block_size=max_block_size,
+        cancel_http_readonly_queries_on_client_close=1,
         output_format_arrow_string_as_string="true",
         http_send_timeout=0,
         **kwargs,

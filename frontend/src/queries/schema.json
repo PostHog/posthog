@@ -546,22 +546,6 @@
             },
             "type": "object"
         },
-        "AssistantCompareFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "compare": {
-                    "default": false,
-                    "description": "Whether to compare the current date range to a previous date range.",
-                    "type": "boolean"
-                },
-                "compare_to": {
-                    "default": "-7d",
-                    "description": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
-                    "type": "string"
-                }
-            },
-            "type": "object"
-        },
         "AssistantDateTimePropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -585,7 +569,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message"],
+            "enum": ["status", "message", "conversation"],
             "type": "string"
         },
         "AssistantFunnelsBreakdownFilter": {
@@ -742,7 +726,7 @@
                     "description": "Breakdown the chart by a property"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantInsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -1043,27 +1027,11 @@
                 }
             ]
         },
-        "AssistantInsightDateRange": {
-            "additionalProperties": false,
-            "properties": {
-                "date_from": {
-                    "default": "-7d",
-                    "description": "Start date. The value can be:\n- a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-1w` for 1 week ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.\n- an absolute ISO 8601 date string. a constant `yStart` for the current year start. a constant `mStart` for the current month start. a constant `dStart` for the current day start. Prefer using relative dates.",
-                    "type": ["string", "null"]
-                },
-                "date_to": {
-                    "default": null,
-                    "description": "Right boundary of the date range. Use `null` for the current date. You can not use relative dates here.",
-                    "type": ["string", "null"]
-                }
-            },
-            "type": "object"
-        },
         "AssistantInsightsQueryBase": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantInsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -1092,9 +1060,8 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "description": "We only need this \"done\" value to tell when the particular message is finished during its streaming. It won't be necessary when we optimize streaming to NOT send the entire message every time a character is added.",
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "type": {
                     "const": "ai",
@@ -1365,7 +1332,7 @@
                     "description": "Compare to date range"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantInsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -1468,6 +1435,15 @@
                 "Snippet"
             ],
             "type": "string"
+        },
+        "BaseAssistantMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "BaseMathType": {
             "enum": [
@@ -2155,6 +2131,9 @@
                 },
                 "significant": {
                     "type": "boolean"
+                },
+                "stats_version": {
+                    "type": "integer"
                 },
                 "timezone": {
                     "type": "string"
@@ -3803,9 +3782,12 @@
             "additionalProperties": false,
             "properties": {
                 "compare": {
+                    "default": false,
+                    "description": "Whether to compare the current date range to a previous date range.",
                     "type": "boolean"
                 },
                 "compare_to": {
+                    "description": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
                     "type": "string"
                 }
             },
@@ -4531,6 +4513,9 @@
                                 },
                                 "significant": {
                                     "type": "boolean"
+                                },
+                                "stats_version": {
+                                    "type": "integer"
                                 },
                                 "variants": {
                                     "items": {
@@ -5651,6 +5636,12 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "response": {
                     "$ref": "#/definitions/EventTaxonomyQueryResponse"
                 }
@@ -6006,6 +5997,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
+                },
+                "stats_version": {
+                    "type": "integer"
                 }
             },
             "required": ["funnels_query", "kind"],
@@ -6055,6 +6049,9 @@
                 },
                 "significant": {
                     "type": "boolean"
+                },
+                "stats_version": {
+                    "type": "integer"
                 },
                 "variants": {
                     "items": {
@@ -6220,16 +6217,15 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "const": true,
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "type": {
                     "const": "ai/failure",
                     "type": "string"
                 }
             },
-            "required": ["type", "done"],
+            "required": ["type"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -6873,7 +6869,7 @@
                     "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7265,6 +7261,12 @@
                 "query": {
                     "type": "string"
                 },
+                "table_names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "warnings": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -7357,6 +7359,9 @@
             "additionalProperties": false,
             "description": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
             "properties": {
+                "bounceRateDurationSeconds": {
+                    "type": "number"
+                },
                 "bounceRatePageViewMode": {
                     "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
                     "type": "string"
@@ -7553,17 +7558,15 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "const": true,
-                    "description": "Human messages are only appended when done.",
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "type": {
                     "const": "human",
                     "type": "string"
                 }
             },
-            "required": ["type", "content", "done"],
+            "required": ["type", "content"],
             "type": "object"
         },
         "InsightActorsQuery": {
@@ -7786,24 +7789,6 @@
             },
             "type": "object"
         },
-        "InsightDateRange": {
-            "additionalProperties": false,
-            "properties": {
-                "date_from": {
-                    "default": "-7d",
-                    "type": ["string", "null"]
-                },
-                "date_to": {
-                    "type": ["string", "null"]
-                },
-                "explicitDate": {
-                    "default": false,
-                    "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
-                    "type": ["boolean", "null"]
-                }
-            },
-            "type": "object"
-        },
         "InsightFilter": {
             "anyOf": [
                 {
@@ -7966,7 +7951,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8023,7 +8008,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8080,7 +8065,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8137,7 +8122,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8194,7 +8179,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8304,7 +8289,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8713,7 +8698,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -9426,6 +9411,12 @@
                         "query": {
                             "type": "string"
                         },
+                        "table_names": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
                         "warnings": {
                             "items": {
                                 "$ref": "#/definitions/HogQLNotice"
@@ -9810,6 +9801,9 @@
                         },
                         "significant": {
                             "type": "boolean"
+                        },
+                        "stats_version": {
+                            "type": "integer"
                         },
                         "variants": {
                             "items": {
@@ -10441,6 +10435,9 @@
                         },
                         "significant": {
                             "type": "boolean"
+                        },
+                        "stats_version": {
+                            "type": "integer"
                         },
                         "variants": {
                             "items": {
@@ -11163,9 +11160,8 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "const": true,
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "substeps": {
                     "items": {
@@ -11178,7 +11174,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "content", "done"],
+            "required": ["type", "content"],
             "type": "object"
         },
         "RecordingOrder": {
@@ -11481,7 +11477,7 @@
                     "description": "Groups aggregation"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -11625,17 +11621,15 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "const": true,
-                    "description": "Router messages are not streamed, so they can only be done.",
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "type": {
                     "const": "ai/router",
                     "type": "string"
                 }
             },
-            "required": ["type", "content", "done"],
+            "required": ["type", "content"],
             "type": "object"
         },
         "SamplingRate": {
@@ -12153,7 +12147,7 @@
                     "description": "Compare to date range"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -12528,6 +12522,9 @@
         "TrendsAlertConfig": {
             "additionalProperties": false,
             "properties": {
+                "check_ongoing_interval": {
+                    "type": "boolean"
+                },
                 "series_index": {
                     "type": "integer"
                 },
@@ -12704,7 +12701,7 @@
                     "description": "Whether we should be comparing against a specific conversion goal"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -12815,8 +12812,11 @@
                         }
                     ]
                 },
-                "done": {
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
+                },
+                "initiator": {
+                    "type": "string"
                 },
                 "plan": {
                     "type": "string"
@@ -12895,6 +12895,9 @@
         "WebExternalClicksTableQuery": {
             "additionalProperties": false,
             "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
                 "conversionGoal": {
                     "anyOf": [
                         {
@@ -13008,6 +13011,9 @@
         "WebGoalsQuery": {
             "additionalProperties": false,
             "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
                 "conversionGoal": {
                     "anyOf": [
                         {
@@ -13148,14 +13154,7 @@
             "additionalProperties": false,
             "properties": {
                 "compareFilter": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/CompareFilter"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "$ref": "#/definitions/CompareFilter"
                 },
                 "conversionGoal": {
                     "anyOf": [
@@ -13271,6 +13270,7 @@
                 "InitialUTMSourceMediumCampaign",
                 "Browser",
                 "OS",
+                "Viewport",
                 "DeviceType",
                 "Country",
                 "Region",
@@ -13287,14 +13287,7 @@
                     "$ref": "#/definitions/WebStatsBreakdown"
                 },
                 "compareFilter": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/CompareFilter"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "$ref": "#/definitions/CompareFilter"
                 },
                 "conversionGoal": {
                     "anyOf": [

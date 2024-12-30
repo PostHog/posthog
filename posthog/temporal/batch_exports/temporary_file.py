@@ -410,7 +410,9 @@ class BatchExportWriter(abc.ABC):
         self.bytes_total = batch_export_file.bytes_total
         self.bytes_since_last_flush = batch_export_file.bytes_since_last_reset
 
-    async def write_record_batch(self, record_batch: pa.RecordBatch, flush: bool = True) -> None:
+    async def write_record_batch(
+        self, record_batch: pa.RecordBatch, flush: bool = True, include_inserted_at: bool = False
+    ) -> None:
         """Issue a record batch write tracking progress and flushing if required."""
         record_batch = record_batch.sort_by("_inserted_at")
 
@@ -431,7 +433,8 @@ class BatchExportWriter(abc.ABC):
             self.end_at_since_last_flush = raw_end_at
 
         column_names = record_batch.column_names
-        column_names.pop(column_names.index("_inserted_at"))
+        if not include_inserted_at:
+            column_names.pop(column_names.index("_inserted_at"))
 
         await asyncio.to_thread(self._write_record_batch, record_batch.select(column_names))
 

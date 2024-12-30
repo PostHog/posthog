@@ -36,8 +36,6 @@ DECIDE_SHORT_CIRCUITED_TEAM_IDS = [0]
 
 DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, type_cast=str_to_bool)
 
-DECIDE_TOKENS_FOR_REMOTE_CONFIG = get_list(os.getenv("DECIDE_TOKENS_FOR_REMOTE_CONFIG", ""))
-
 # Decide billing analytics
 
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
@@ -125,8 +123,6 @@ MIDDLEWARE = [
 ]
 
 if DEBUG:
-    # Used on local devenv to reverse-proxy all of /i/* to capture-rs on port 3000
-    INSTALLED_APPS.append("revproxy")
     # rebase_migration command
     INSTALLED_APPS.append("django_linear_migrations")
 
@@ -376,7 +372,15 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 # Used only to display in the UI to inform users of allowlist options
 PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""))
 
-IMPERSONATION_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_TIMEOUT_SECONDS", 15 * 60, type_cast=int)
+# The total time allowed for an impersonated session
+IMPERSONATION_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_TIMEOUT_SECONDS", 60 * 60 * 2, type_cast=int)
+# The time allowed for an impersonated session to be idle before it expires
+IMPERSONATION_IDLE_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_IDLE_TIMEOUT_SECONDS", 30 * 60, type_cast=int)
+# Impersonation cookie last activity key
+IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
+    "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
+)
+
 SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
 
 PROJECT_SWITCHING_TOKEN_ALLOWLIST = get_list(os.getenv("PROJECT_SWITCHING_TOKEN_ALLOWLIST", "sTMFPsFhdP1Ssg"))
@@ -390,3 +394,14 @@ LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
 
 # disables frontend side navigation hooks to make hot-reload work seamlessly
 DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", False, type_cast=bool)
+
+
+REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE = get_from_env("REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE", 0.0, type_cast=float)
+
+if REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE > 1:
+    raise ValueError(
+        f"REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE must be between 0 and 1 but got {REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE}"
+    )
+REMOTE_CONFIG_CDN_PURGE_ENDPOINT = get_from_env("REMOTE_CONFIG_CDN_PURGE_ENDPOINT", "")
+REMOTE_CONFIG_CDN_PURGE_TOKEN = get_from_env("REMOTE_CONFIG_CDN_PURGE_TOKEN", "")
+REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DOMAINS", ""))

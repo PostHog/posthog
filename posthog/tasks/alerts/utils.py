@@ -58,6 +58,17 @@ def alert_calculation_interval_to_relativedelta(alert_calculation_interval: Aler
             raise ValueError(f"Invalid alert calculation interval: {alert_calculation_interval}")
 
 
+def skip_because_of_weekend(alert: AlertConfiguration) -> bool:
+    if not alert.skip_weekend:
+        return False
+
+    now = datetime.now(pytz.UTC)
+    team_timezone = pytz.timezone(alert.team.timezone)
+
+    now_local = now.astimezone(team_timezone)
+    return now_local.isoweekday() in [5, 6]
+
+
 def next_check_time(alert: AlertConfiguration) -> datetime:
     """
     Rule by calculation interval
