@@ -21,26 +21,26 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from django_filters.rest_framework import DjangoFilterBackend
 from django_otp import login as otp_login
+from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
-from posthog.api.utils import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
-from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
-from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import (
-    PublicIPOnlyHttpAdapter,
-    raise_if_user_provided_url_unsafe,
     ClassicBehaviorBooleanFieldSerializer,
+    PublicIPOnlyHttpAdapter,
+    action,
+    raise_if_user_provided_url_unsafe,
     unparsed_hostname_in_allowed_url_list,
 )
 from posthog.auth import (
@@ -210,15 +210,42 @@ class UserSerializer(serializers.ModelSerializer):
         raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
 
     def validate_notification_settings(self, notification_settings: Notifications) -> Notifications:
+        # Get current settings with defaults
+        current_settings = {**NOTIFICATION_DEFAULTS, **(self.instance.partial_notification_settings or {})}
+
         for key, value in notification_settings.items():
             if key not in Notifications.__annotations__:
-                raise serializers.ValidationError(f"Key {key} is not valid as a key for notification settings")
-
-            if not isinstance(value, Notifications.__annotations__[key]):
                 raise serializers.ValidationError(
-                    f"{value} is not a valid type for notification settings, should be {Notifications.__annotations__[key]}"
+                    f"Key {key} is not valid as a key for notification settings", code="invalid_input"
                 )
-        return {**NOTIFICATION_DEFAULTS, **notification_settings}
+
+            expected_type = Notifications.__annotations__[key]
+
+            if key == "project_weekly_digest_disabled":
+                if not isinstance(value, dict):
+                    raise serializers.ValidationError(
+                        f"project_weekly_digest_disabled must be a dictionary mapping project IDs to boolean values",
+                        code="invalid_input",
+                    )
+                # Validate each project setting is a boolean
+                for _, disabled in value.items():
+                    if not isinstance(disabled, bool):
+                        raise serializers.ValidationError(
+                            f"Project notification setting values must be boolean, got {type(disabled)} instead",
+                            code="invalid_input",
+                        )
+                # Merge with existing settings
+                current_settings[key] = {**current_settings.get("project_weekly_digest_disabled", {}), **value}
+            else:
+                # For non-dict settings, validate type directly
+                if not isinstance(value, expected_type):
+                    raise serializers.ValidationError(
+                        f"{value} is not a valid type for notification settings, should be {expected_type}",
+                        code="invalid_input",
+                    )
+                current_settings[key] = value
+
+        return current_settings
 
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
