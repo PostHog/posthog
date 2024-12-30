@@ -38,7 +38,6 @@ from posthog.schema import (
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
     DateRange,
-    PropertyMathType,
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
@@ -46,6 +45,7 @@ from posthog.schema import (
 )
 from typing import Any, Optional
 import threading
+from datetime import datetime, timedelta, UTC
 
 
 class ExperimentTrendsQueryRunner(QueryRunner):
@@ -127,15 +127,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
            to separate results for different experiment variants.
         """
         prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
-
-        uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(prepared_count_query)
-
-        # :TRICKY: for `avg` aggregation, use `sum` data as an approximation
-        if prepared_count_query.series[0].math == PropertyMathType.AVG:
-            prepared_count_query.series[0].math = PropertyMathType.SUM
-        # TODO: revisit this; using the count data for the remaining aggregation types is likely wrong
-        elif uses_math_aggregation:
-            prepared_count_query.series[0].math = None
 
         prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
         prepared_count_query.dateRange = self._get_date_range()
@@ -440,3 +431,14 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.count_query.kind} to query")
+
+    # Cache results for 24 hours
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        if last_refresh is None:
+            return None
+        return last_refresh + timedelta(hours=24)
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        if not last_refresh:
+            return True
+        return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)

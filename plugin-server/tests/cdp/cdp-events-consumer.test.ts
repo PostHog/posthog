@@ -1,4 +1,4 @@
-import { CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
+import { CdpInternalEventsConsumer, CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
 import { HogWatcherState } from '../../src/cdp/hog-watcher'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
@@ -74,13 +74,22 @@ const decodeAllKafkaMessages = (): any[] => {
     return mockProducer.produce.mock.calls.map((x) => decodeKafkaMessage(x[0]))
 }
 
-describe('CDP Processed Events Consumer', () => {
-    let processor: CdpProcessedEventsConsumer
+/**
+ * NOTE: The internal and normal events consumers are very similar so we can test them together
+ */
+describe.each([
+    [CdpProcessedEventsConsumer.name, CdpProcessedEventsConsumer, 'destination' as const],
+    [CdpInternalEventsConsumer.name, CdpInternalEventsConsumer, 'internal_destination' as const],
+])('%s', (_name, Consumer, hogType) => {
+    let processor: CdpProcessedEventsConsumer | CdpInternalEventsConsumer
     let hub: Hub
     let team: Team
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
-        const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
+        const item = await _insertHogFunction(hub.postgres, team.id, {
+            ...hogFunction,
+            type: hogType,
+        })
         // Trigger the reload that django would do
         await processor.hogFunctionManager.reloadAllHogFunctions()
         return item
@@ -91,7 +100,7 @@ describe('CDP Processed Events Consumer', () => {
         hub = await createHub()
         team = await getFirstTeam(hub)
 
-        processor = new CdpProcessedEventsConsumer(hub)
+        processor = new Consumer(hub)
         await processor.start()
 
         mockFetch.mockClear()
