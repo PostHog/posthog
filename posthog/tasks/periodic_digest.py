@@ -69,9 +69,7 @@ def get_teams_with_new_playlists(end: datetime, begin: datetime) -> QuerySet:
     return SessionRecordingPlaylist.objects.filter(
         created_at__gt=begin,
         created_at__lte=end,
-        name__isnull=False,
-        name__gt="",  # Excludes empty strings
-    ).values("team_id", "name", "short_id")
+    ).values("team_id", "name", "short_id", "derived_name")
 
 
 def get_teams_with_new_experiments_launched(end: datetime, begin: datetime) -> QuerySet:
@@ -151,9 +149,8 @@ def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> p
             for event_definition in all_digest_data["teams_with_new_event_definitions"].get(team.id, [])
         ],
         new_playlists=[
-            {"name": playlist.get("name"), "id": playlist.get("short_id")}
+            {"name": playlist.get("name") or playlist.get("derived_name", "Untitled"), "id": playlist.get("short_id")}
             for playlist in all_digest_data["teams_with_new_playlists"].get(team.id, [])
-            if playlist.get("name")  # Extra safety check to exclude any playlists without names
         ],
         new_experiments_launched=[
             {

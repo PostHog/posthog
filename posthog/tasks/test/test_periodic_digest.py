@@ -49,14 +49,16 @@ class TestPeriodicDigestReport(APIBaseTest):
                 team=self.team,
                 name="Test Playlist",
             )
-            # These should be excluded from the digest
-            SessionRecordingPlaylist.objects.create(
+            # These should be included in the digest but use the derived name
+            derived_playlist = SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name=None,
+                derived_name="Derived Playlist",
             )
-            SessionRecordingPlaylist.objects.create(
+            derived_playlist_2 = SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name="",
+                derived_name="Derived Playlist 2",
             )
 
             # Create experiments
@@ -163,7 +165,15 @@ class TestPeriodicDigestReport(APIBaseTest):
                 {
                     "name": "Test Playlist",
                     "id": playlist.short_id,
-                }
+                },
+                {
+                    "name": "Derived Playlist",
+                    "id": derived_playlist.short_id,
+                },
+                {
+                    "name": "Derived Playlist 2",
+                    "id": derived_playlist_2.short_id,
+                },
             ],
             "new_experiments_launched": [
                 {
@@ -366,36 +376,3 @@ class TestPeriodicDigestReport(APIBaseTest):
         # Verify no capture call and no messaging record
         mock_capture.delay.assert_not_called()
         self.assertEqual(MessagingRecord.objects.count(), 0)
-
-    @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_report")
-    def test_periodic_digest_excludes_playlists_without_names(self, mock_capture: MagicMock) -> None:
-        # Create test data from "last week"
-        with freeze_time("2024-01-15T00:01:00Z"):
-            # Create playlists with various name states
-            valid_playlist = SessionRecordingPlaylist.objects.create(
-                team=self.team,
-                name="Valid Playlist",
-            )
-            SessionRecordingPlaylist.objects.create(
-                team=self.team,
-                name=None,  # Null name should be excluded
-            )
-            SessionRecordingPlaylist.objects.create(
-                team=self.team,
-                name="",  # Empty string name should be excluded
-            )
-
-        # Run the periodic digest report task
-        send_all_periodic_digest_reports()
-
-        # Extract the playlists from the capture call
-        call_args = mock_capture.delay.call_args
-        self.assertIsNotNone(call_args)
-        full_report_dict = call_args[1]["full_report_dict"]
-        playlists = full_report_dict["new_playlists"]
-
-        # Verify only the valid playlist is included
-        self.assertEqual(len(playlists), 1)
-        self.assertEqual(playlists[0]["name"], "Valid Playlist")
-        self.assertEqual(playlists[0]["id"], valid_playlist.short_id)
