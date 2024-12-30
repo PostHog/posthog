@@ -172,10 +172,7 @@ class TrendsActorsQueryBuilder:
             select=[
                 ast.Field(chain=["actor_id"]),
                 ast.Alias(alias="event_count", expr=self._get_actor_value_expr()),
-                ast.Alias(
-                    alias="event_distinct_ids",
-                    expr=ast.Call(name="groupUniqArray", args=[ast.Field(chain=["distinct_id"])]),
-                ),
+                *self._get_event_distinct_ids_expr(),
                 *self._get_matching_recordings_expr(),
             ],
             select_from=ast.JoinExpr(table=self._get_events_query()),
@@ -255,6 +252,17 @@ class TrendsActorsQueryBuilder:
                         ]
                     )
                 },
+            )
+        ]
+
+    def _get_event_distinct_ids_expr(self) -> list[ast.Expr]:
+        if self.entity.math == "unique_group" and self.entity.math_group_type_index is None:
+            return []
+
+        return [
+            ast.Alias(
+                alias="event_distinct_ids",
+                expr=ast.Call(name="groupUniqArray", args=[ast.Field(chain=["distinct_id"])]),
             )
         ]
 
