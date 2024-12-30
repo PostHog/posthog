@@ -239,7 +239,7 @@ async def generate_test_data(
         count_outside_range=10,
         count_other_team=10,
         duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        properties={"$browser": "Chrome", "$os": "Mac OS X", "unicode": "\u0000"},
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
         table=table,
     )

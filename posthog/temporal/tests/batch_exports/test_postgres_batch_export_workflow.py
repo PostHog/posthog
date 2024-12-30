@@ -136,6 +136,11 @@ async def assert_clickhouse_records_in_postgres(
                     # bq_ingested_timestamp cannot be compared as it comes from an unstable function.
                     continue
 
+                if isinstance(v, str):
+                    v = v.replace("\\u0000", "")
+                elif isinstance(v, bytes):
+                    v = v.replace(b"\\u0000", b"")
+
                 if k in {"properties", "set", "set_once", "person_properties", "elements"} and v is not None:
                     expected_record[k] = json.loads(v)
                 elif isinstance(v, dt.datetime):
