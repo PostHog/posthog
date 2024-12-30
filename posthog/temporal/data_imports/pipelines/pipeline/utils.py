@@ -112,7 +112,7 @@ def table_from_py_list(table_data: list[Any]) -> pa.Table:
     try:
         return pa.Table.from_pylist(table_data)
     except:
-        # There exists mismatch types in the data
+        # There exists mismatched types in the data
 
         column_types: dict[str, set[type]] = {key: set() for key in table_data[0].keys()}
 
