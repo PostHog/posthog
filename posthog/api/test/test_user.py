@@ -81,6 +81,7 @@ class TestUserAPI(APIBaseTest):
         self.assertNotIn("test_account_filters", response_data["team"])  # Ensure we're not returning the full `Team`
         self.assertNotIn("event_names", response_data["team"])
         self.assertEqual(response_data["role_at_organization"], self.user.role_at_organization)
+        self.assertEqual(response_data["role_at_organization"], self.user.role_at_organization)
 
         self.assertEqual(response_data["organization"]["name"], self.organization.name)
         self.assertEqual(response_data["organization"]["membership_level"], 1)
