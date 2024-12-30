@@ -82,7 +82,7 @@
             sha1sum | tr -d '-' | xxd -r -p | sha1sum | tr -d '-'
                  In first line will be password and in second - corresponding double SHA1.
             -->
-            <password></password>
+            <password>testingpassword</password>
 
             <!-- List of networks with open access.
 

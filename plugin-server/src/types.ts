@@ -144,6 +144,7 @@ export interface PluginsServerConfig extends CdpConfig {
     POSTHOG_POSTGRES_HOST: string
     POSTHOG_POSTGRES_PORT: number
     CLICKHOUSE_HOST: string
+    CLICKHOUSE_PORT: number | null
     CLICKHOUSE_OFFLINE_CLUSTER_HOST: string | null
     CLICKHOUSE_DATABASE: string
     CLICKHOUSE_USER: string

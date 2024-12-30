@@ -11,7 +11,7 @@ import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
 
-from posthog.clickhouse.client.connection import Workload, get_pool
+from posthog.clickhouse.client.connection import Workload, get_client_from_pool
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
@@ -121,7 +121,7 @@ def sync_execute(
     if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
 
-    with sync_client or get_pool(workload, team_id, readonly).get_client() as client:
+    with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
         start_time = perf_counter()
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
@@ -137,16 +137,19 @@ def sync_execute(
         settings = {
             **core_settings,
             "log_comment": json.dumps(tags, separators=(",", ":")),
+            "query_id": query_id,
         }
 
         try:
-            result = client.execute(
-                prepared_sql,
-                params=prepared_args,
-                settings=settings,
-                with_column_types=with_column_types,
-                query_id=query_id,
-            )
+            query_result = client.query(query=prepared_sql, parameters=prepared_args, settings=settings)
+            result = query_result.result_set
+            # result = client.execute(
+            #     prepared_sql,
+            #     params=prepared_args,
+            #     settings=settings,
+            #     with_column_types=with_column_types,
+            #     query_id=query_id,
+            # )
         except Exception as e:
             err = wrap_query_error(e)
             exception_type = type(err).__name__

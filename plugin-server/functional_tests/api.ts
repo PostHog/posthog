@@ -36,7 +36,7 @@ beforeAll(async () => {
     })
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
-        port: 8123,
+        port: defaultConfig.CLICKHOUSE_PORT,
         dataObjects: true,
         queryOptions: {
             database: defaultConfig.CLICKHOUSE_DATABASE,

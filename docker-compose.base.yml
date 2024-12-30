@@ -74,6 +74,10 @@ services:
             timeout: 10s
             retries: 10
 
+    clickhouse-gw:
+        image: contentsquareplatform/chproxy:v1.26.6
+        restart: on-failure
+
     clickhouse:
         #
         # Note: please keep the default version in sync across
@@ -137,7 +141,7 @@ services:
             DISABLE_SECURE_SSL_REDIRECT: 'true'
             IS_BEHIND_PROXY: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_HOST: 'clickhouse-gw'
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
@@ -202,7 +206,7 @@ services:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
-            CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_HOST: 'clickhouse-gw'
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'

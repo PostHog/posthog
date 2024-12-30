@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from enum import Enum
 from functools import cache
 
+from clickhouse_connect import get_client
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from django.conf import settings
@@ -17,6 +18,47 @@ class Workload(Enum):
 
 
 _default_workload = Workload.ONLINE
+
+
+def get_http_client(**overrides):
+    kwargs = {
+        "host": settings.CLICKHOUSE_HOST,
+        "database": settings.CLICKHOUSE_DATABASE,
+        "secure": settings.CLICKHOUSE_SECURE,
+        "username": settings.CLICKHOUSE_USER,
+        "password": settings.CLICKHOUSE_PASSWORD,
+        "ca_cert": settings.CLICKHOUSE_CA,
+        "verify": settings.CLICKHOUSE_VERIFY,
+        # "connections_min": settings.CLICKHOUSE_CONN_POOL_MIN,
+        # "connections_max": settings.CLICKHOUSE_CONN_POOL_MAX,
+        "settings": {"mutations_sync": "1"} if settings.TEST else {},
+        # Without this, OPTIMIZE table and other queries will regularly run into timeouts
+        "send_receive_timeout": 30 if settings.TEST else 999_999_999,
+        **overrides,
+    }
+    return get_client(**kwargs)
+
+
+def get_client_from_pool(workload: Workload, team_id=None, readonly=False, use_ch_proxy=True):
+    if use_ch_proxy:
+        if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
+            return get_http_client(**settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)])
+
+        # Note that `readonly` does nothing if the relevant vars are not set!
+        if readonly and settings.READONLY_CLICKHOUSE_USER is not None and settings.READONLY_CLICKHOUSE_PASSWORD:
+            return get_http_client(
+                username=settings.READONLY_CLICKHOUSE_USER,
+                password=settings.READONLY_CLICKHOUSE_PASSWORD,
+            )
+
+        if (
+            workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
+        ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
+            return get_http_client(host=settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, verify=False)
+
+        return get_http_client()
+
+    return get_pool(workload=workload, team_id=team_id, readonly=readonly).get_client()
 
 
 def get_pool(workload: Workload, team_id=None, readonly=False):

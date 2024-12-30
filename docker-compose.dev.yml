@@ -51,17 +51,35 @@ services:
         ports:
             - '5555:5555'
 
+    clickhouse-gw:
+        extends:
+            file: docker-compose.base.yml
+            service: clickhouse-gw
+        ports:
+            - '8123:8123'
+            - '8443:8443'
+        volumes:
+            - ./docker/chproxy/config.yml:/config.yml
+        depends_on:
+            - clickhouse
+        command: -config /config.yml
+        healthcheck:
+            test: curl 'http://127.0.0.1:9090/ping'
+            interval: 2s
+            timeout: 20s
+            retries: 10
+
     clickhouse:
         extends:
             file: docker-compose.base.yml
             service: clickhouse
         hostname: clickhouse
         ports:
-            - '8123:8123'
-            - '8443:8443'
-            - '9000:9000'
-            - '9440:9440'
-            - '9009:9009'
+            - '28123:8123'
+            - '28443:8443'
+            - '29000:9000'
+            - '29440:9440'
+            - '29009:9009'
         volumes:
             # this new entrypoint file is to fix a bug detailed here https://github.com/ClickHouse/ClickHouse/pull/59991
             # revert this when we upgrade clickhouse
@@ -177,6 +195,8 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal
+        ports:
+            - 7233:7233
 
     temporal-admin-tools:
         extends:
@@ -184,10 +204,13 @@ services:
             service: temporal-admin-tools
         depends_on:
             - temporal
+
     temporal-ui:
         extends:
             file: docker-compose.base.yml
             service: temporal-ui
+        ports:
+            - 8081:8080
         depends_on:
             temporal:
                 condition: service_started
