@@ -10,6 +10,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _evolve_pyarrow_schema,
     _append_debug_column_to_pyarrows_table,
     _update_job_row_count,
+    table_from_py_list,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
@@ -61,11 +62,11 @@ class PipelineNonDLT:
                 if len(buffer) > 0:
                     buffer.extend(item)
                     if len(buffer) >= chunk_size:
-                        py_table = pa.Table.from_pylist(buffer)
+                        py_table = table_from_py_list(buffer)
                         buffer = []
                 else:
                     if len(item) >= chunk_size:
-                        py_table = pa.Table.from_pylist(item)
+                        py_table = table_from_py_list(item)
                     else:
                         buffer.extend(item)
                         continue
@@ -74,7 +75,7 @@ class PipelineNonDLT:
                 if len(buffer) < chunk_size:
                     continue
 
-                py_table = pa.Table.from_pylist(buffer)
+                py_table = table_from_py_list(buffer)
                 buffer = []
             elif isinstance(item, pa.Table):
                 py_table = item
@@ -89,7 +90,7 @@ class PipelineNonDLT:
             chunk_index += 1
 
         if len(buffer) > 0:
-            py_table = pa.Table.from_pylist(buffer)
+            py_table = table_from_py_list(buffer)
             self._process_pa_table(pa_table=py_table, index=chunk_index)
             row_count += py_table.num_rows
 
@@ -114,7 +115,9 @@ class PipelineNonDLT:
     def _post_run_operations(self, row_count: int):
         delta_table = self._delta_table_helper.get_delta_table()
 
-        assert delta_table is not None
+        if delta_table is None:
+            self._logger.debug("No deltalake table, not continuing with post-run ops")
+            return
 
         self._logger.info("Compacting delta table")
         delta_table.optimize.compact()
