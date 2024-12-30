@@ -220,9 +220,19 @@ def data_interval_end(request, interval):
     return dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
 
 
+@pytest.fixture
+def test_properties(request):
+    """Set test data properties."""
+    try:
+        return request.param
+    except AttributeError:
+        pass
+    return {"$browser": "Chrome", "$os": "Mac OS X"}
+
+
 @pytest_asyncio.fixture
 async def generate_test_data(
-    ateam, clickhouse_client, exclude_events, data_interval_start, data_interval_end, interval
+    ateam, clickhouse_client, exclude_events, data_interval_start, data_interval_end, interval, test_properties
 ):
     """Generate test data in ClickHouse."""
     if interval != "every 5 minutes":
@@ -239,7 +249,7 @@ async def generate_test_data(
         count_outside_range=10,
         count_other_team=10,
         duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X", "unicode": "\u0000"},
+        properties=test_properties,
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
         table=table,
     )

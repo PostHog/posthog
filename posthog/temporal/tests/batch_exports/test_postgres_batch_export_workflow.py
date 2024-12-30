@@ -165,6 +165,12 @@ async def assert_clickhouse_records_in_postgres(
 
 
 @pytest.fixture
+def test_properties(request):
+    """Include a \u0000 unicode escape sequence in properties."""
+    return {"$browser": "Chrome", "$os": "Mac OS X", "unicode": "\u0000"}
+
+
+@pytest.fixture
 def postgres_config():
     return {
         "user": settings.PG_USER,
