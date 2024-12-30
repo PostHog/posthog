@@ -3019,8 +3019,6 @@ export interface Feature {
     key: string
     name: string
     description: string
-    documentation_url: string | null
-    issue_url: string | null
     primary_early_access_feature_id: string
     archived: boolean
     deleted: boolean
