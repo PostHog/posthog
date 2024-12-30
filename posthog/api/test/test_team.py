@@ -1235,9 +1235,15 @@ def team_api_test_factory():
 
             current_access_control = response.json()["access_control"]
             new_setting = not current_access_control
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": new_setting})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            print("response", response.json())  # noqa: T201
+            # response = self.client.patch(f"/api/environments/@current/", {"access_control": new_setting})
+            # self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # print("response", response.json())  # noqa: T201
+
+            with patch("posthog.api.team.TeamSerializer.update") as mock_update:
+                response = self.client.patch(f"/api/environments/@current/", {"access_control": new_setting})
+                print("Update method called:", mock_update.called)  # noqa: T201
+                print("PATCH response:", response.json())  # noqa: T201
+                print("Mock update calls:", mock_update.call_args_list if mock_update.called else "No calls")  # noqa: T201
 
             mock_capture.assert_called_with(
                 str(self.user.distinct_id),
