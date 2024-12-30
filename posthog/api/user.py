@@ -59,7 +59,7 @@ from posthog.event_usage import (
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
-from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
+from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications, ROLE_CHOICES
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
@@ -94,6 +94,7 @@ class UserSerializer(serializers.ModelSerializer):
     notification_settings = serializers.DictField(required=False)
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
     anonymize_data = ClassicBehaviorBooleanFieldSerializer()
+    role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
 
     class Meta:
         model = User
@@ -128,6 +129,7 @@ class UserSerializer(serializers.ModelSerializer):
             "scene_personalisation",
             "theme_mode",
             "hedgehog_config",
+            "role_at_organization",
         ]
 
         read_only_fields = [
@@ -248,6 +250,11 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_is_staff(self, value: bool) -> bool:
         if not self.context["request"].user.is_staff:
             raise exceptions.PermissionDenied("You are not a staff user, contact your instance admin.")
+        return value
+
+    def validate_role_at_organization(self, value):
+        if value and value not in dict(ROLE_CHOICES):
+            raise serializers.ValidationError("Invalid role selected")
         return value
 
     def update(self, instance: "User", validated_data: Any) -> Any:
