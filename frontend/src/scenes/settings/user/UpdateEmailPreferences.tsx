@@ -1,4 +1,4 @@
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -45,11 +45,11 @@ export function UpdateEmailPreferences(): JSX.Element {
                     checked={!user?.notification_settings.all_weekly_digest_disabled}
                     disabled={userLoading}
                     bordered
-                    label="Get weekly digests for all projects"
+                    label="Get weekly digests for projects"
                 />
                 {!user?.notification_settings.all_weekly_digest_disabled ? (
                     <>
-                        <h4 className="ml-12">Get weekly digests for projects:</h4>
+                        <h4 className="ml-12">Individual project settings:</h4>
                         <div className="flex flex-col gap-2 w-fit">
                             {currentOrganization?.teams?.map((team) => (
                                 <div key={team.id} className="pl-12 flex items-center grow">
@@ -75,7 +75,14 @@ export function UpdateEmailPreferences(): JSX.Element {
                                         checked={!user?.notification_settings.project_weekly_digest_disabled?.[team.id]}
                                         disabled={userLoading || user?.notification_settings.all_weekly_digest_disabled}
                                         bordered
-                                        label={`${team.name}`}
+                                        label={
+                                            <>
+                                                {team.name}
+                                                <LemonTag type="muted" className="ml-2">
+                                                    id: {team.id.toString()}
+                                                </LemonTag>
+                                            </>
+                                        }
                                         fullWidth
                                     />
                                 </div>
