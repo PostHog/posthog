@@ -85,7 +85,7 @@ export async function upsertGroup(
     } catch (error) {
         if (error instanceof MessageSizeTooLarge) {
             // Message is too large, for kafka - this is unrecoverable so we capture an ingestion warning instead
-            await captureIngestionWarning(db.kafkaProducer, teamId, 'message_size_too_large', {
+            await captureIngestionWarning(db.kafkaProducer, teamId, 'group_upsert_message_size_too_large', {
                 groupTypeIndex,
                 groupKey,
             })
