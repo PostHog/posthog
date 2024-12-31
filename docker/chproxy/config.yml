@@ -8,7 +8,6 @@ server:
 
 users:
     - name: 'default'
-      password: 'default'
       to_cluster: 'default'
       to_user: 'default'
 

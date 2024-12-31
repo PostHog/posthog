@@ -39,7 +39,7 @@ def get_http_client(**overrides):
     return get_client(**kwargs)
 
 
-def get_client_from_pool(workload: Workload, team_id=None, readonly=False, use_ch_proxy=True):
+def get_client_from_pool(workload: Workload = Workload.DEFAULT, team_id=None, readonly=False, use_ch_proxy=True):
     if use_ch_proxy:
         if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
             return get_http_client(**settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)])
@@ -61,7 +61,7 @@ def get_client_from_pool(workload: Workload, team_id=None, readonly=False, use_c
     return get_pool(workload=workload, team_id=team_id, readonly=readonly).get_client()
 
 
-def get_pool(workload: Workload, team_id=None, readonly=False):
+def get_pool(workload: Workload = Workload.DEFAULT, team_id=None, readonly=False):
     """
     Returns the right connection pool given a workload.
 
