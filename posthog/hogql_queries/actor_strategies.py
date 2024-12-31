@@ -89,7 +89,7 @@ class PersonStrategy(ActorStrategy):
         return person_uuid_to_person
 
     def input_columns(self) -> list[str]:
-        return ["person", "id", "person.$delete"]
+        return ["person", "id", "person.$delete", "event_distinct_ids"]
 
     def filter_conditions(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []
