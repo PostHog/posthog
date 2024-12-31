@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from posthog.clickhouse.client.connection import ch_pool
+from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 
@@ -22,10 +22,10 @@ ADD COLUMN IF NOT EXISTS elements_chain_elements Array(Enum('a', 'button', 'form
 
 
 def add_columns_to_required_tables(_):
-    with ch_pool.get_client() as client:
-        client.execute(ADD_COLUMNS_SHARDED_EVENTS.format(table="sharded_events", cluster=CLICKHOUSE_CLUSTER))
+    with get_client_from_pool() as client:
+        client.command(ADD_COLUMNS_SHARDED_EVENTS.format(table="sharded_events", cluster=CLICKHOUSE_CLUSTER))
 
-        client.execute(ADD_COLUMNS_EVENTS.format(table="events", cluster=CLICKHOUSE_CLUSTER))
+        client.command(ADD_COLUMNS_EVENTS.format(table="events", cluster=CLICKHOUSE_CLUSTER))
 
 
 operations = [
