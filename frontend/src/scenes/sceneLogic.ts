@@ -441,8 +441,12 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         }
         for (const [path, scene] of Object.entries(routes)) {
-            mapping[path] = (params, searchParams, hashParams, { method }) =>
-                actions.openScene(scene, { params, searchParams, hashParams }, method)
+            mapping[path] = (params, searchParams, hashParams, { method }) => {
+                if (path === urls.dataWarehouse() && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SQL_EDITOR]) {
+                    return actions.openScene(Scene.SQLEditor, { params, searchParams, hashParams }, method)
+                }
+                return actions.openScene(scene, { params, searchParams, hashParams }, method)
+            }
         }
 
         mapping['/*'] = (_, __, { method }) => {

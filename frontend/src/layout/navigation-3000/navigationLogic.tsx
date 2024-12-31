@@ -515,21 +515,20 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.earlyAccessFeatures(),
                               }
                             : null,
-                        {
-                            identifier: Scene.DataWarehouse,
-                            label: 'Data warehouse',
-                            icon: <IconDatabase />,
-                            to: isUsingSidebar ? undefined : urls.dataWarehouse(),
-                        },
                         featureFlags[FEATURE_FLAGS.SQL_EDITOR]
                             ? {
                                   identifier: Scene.SQLEditor,
-                                  label: 'SQL Editor',
+                                  label: 'Data warehouse',
                                   icon: <IconServer />,
-                                  to: urls.sqlEditor(),
+                                  to: urls.dataWarehouse(),
                                   logic: editorSidebarLogic,
                               }
-                            : null,
+                            : {
+                                  identifier: Scene.DataWarehouse,
+                                  label: 'Data warehouse',
+                                  icon: <IconDatabase />,
+                                  to: isUsingSidebar ? undefined : urls.dataWarehouse(),
+                              },
                         hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.Pipeline,
