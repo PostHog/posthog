@@ -245,7 +245,7 @@ async def test_finish_batch_export_run_handles_nul_bytes(activity_environment, t
     await activity_environment.run(finish_batch_export_run, finish_inputs)
 
     runs = BatchExportRun.objects.filter(id=run_id)
-    run = await sync_to_async(runs.first)()  # type:ignore
+    run = await sync_to_async(runs.first)()
     assert run is not None
     assert run.status == "Failed"
     assert run.latest_error == "Oh No a NUL byte: !"
