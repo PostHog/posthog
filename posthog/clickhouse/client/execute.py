@@ -141,8 +141,8 @@ def sync_execute(
         }
 
         try:
-            query_result = client.query(query=prepared_sql, parameters=prepared_args, settings=settings)
-            result = query_result.result_set
+            result = client.query(query=prepared_sql, parameters=prepared_args, settings=settings)
+            return result.result_set, result.column_types
             # result = client.execute(
             #     prepared_sql,
             #     params=prepared_args,
