@@ -385,6 +385,7 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    cookieless_server_hash_mode: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

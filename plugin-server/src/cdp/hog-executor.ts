@@ -10,6 +10,7 @@ import { status } from '../utils/status'
 import { HogFunctionManager } from './hog-function-manager'
 import {
     CyclotronFetchFailureInfo,
+    HogFunctionInputType,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
@@ -103,6 +104,16 @@ const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => 
     return message
 }
 
+const orderInputsByDependency = (hogFunction: HogFunctionType): [string, HogFunctionInputType][] => {
+    const allInputs: HogFunctionType['inputs'] = {
+        ...hogFunction.inputs,
+        ...hogFunction.encrypted_inputs,
+    }
+    return Object.entries(allInputs).sort(([_, input1], [__, input2]) => {
+        return (input1.order ?? -1) - (input2.order ?? -1)
+    })
+}
+
 export class HogExecutor {
     private telemetryMatcher: ValueMatcher<number>
 
@@ -115,7 +126,7 @@ export class HogExecutor {
         nonMatchingFunctions: HogFunctionType[]
         erroredFunctions: [HogFunctionType, string][]
     } {
-        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogDestinations(globals.project.id)
+        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(globals.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(globals)
 
         const nonMatchingFunctions: HogFunctionType[] = []
@@ -322,39 +333,39 @@ export class HogExecutor {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
                     },
-                    importBytecode: (module) => {
-                        // TODO: more than one hardcoded module
-                        if (module === 'provider/email') {
-                            const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
-                            if (!provider) {
-                                throw new Error('No email provider configured')
-                            }
-                            try {
-                                const providerGlobals = this.buildHogFunctionGlobals({
-                                    id: '',
-                                    teamId: invocation.teamId,
-                                    hogFunction: provider,
-                                    globals: {} as any,
-                                    queue: 'hog',
-                                    timings: [],
-                                    priority: 0,
-                                } satisfies HogFunctionInvocation)
+                    // importBytecode: (module) => {
+                    //     // TODO: more than one hardcoded module
+                    //     if (module === 'provider/email') {
+                    //         const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
+                    //         if (!provider) {
+                    //             throw new Error('No email provider configured')
+                    //         }
+                    //         try {
+                    //             const providerGlobals = this.buildHogFunctionGlobals({
+                    //                 id: '',
+                    //                 teamId: invocation.teamId,
+                    //                 hogFunction: provider,
+                    //                 globals: {} as any,
+                    //                 queue: 'hog',
+                    //                 timings: [],
+                    //                 priority: 0,
+                    //             } satisfies HogFunctionInvocation)
 
-                                return {
-                                    bytecode: provider.bytecode,
-                                    globals: providerGlobals,
-                                }
-                            } catch (e) {
-                                result.logs.push({
-                                    level: 'error',
-                                    timestamp: DateTime.now(),
-                                    message: `Error building inputs: ${e}`,
-                                })
-                                throw e
-                            }
-                        }
-                        throw new Error(`Can't import unknown module: ${module}`)
-                    },
+                    //             return {
+                    //                 bytecode: provider.bytecode,
+                    //                 globals: providerGlobals,
+                    //             }
+                    //         } catch (e) {
+                    //             result.logs.push({
+                    //                 level: 'error',
+                    //                 timestamp: DateTime.now(),
+                    //                 message: `Error building inputs: ${e}`,
+                    //             })
+                    //             throw e
+                    //         }
+                    //     }
+                    //     throw new Error(`Can't import unknown module: ${module}`)
+                    // },
                     functions: {
                         print: (...args) => {
                             hogLogs++
@@ -529,30 +540,23 @@ export class HogExecutor {
     }
 
     buildHogFunctionGlobals(invocation: HogFunctionInvocation): HogFunctionInvocationGlobalsWithInputs {
-        const builtInputs: Record<string, any> = {}
-
-        Object.entries(invocation.hogFunction.inputs ?? {}).forEach(([key, item]) => {
-            builtInputs[key] = item.value
-
-            if (item.bytecode) {
-                // Use the bytecode to compile the field
-                builtInputs[key] = formatInput(item.bytecode, invocation.globals, key)
-            }
-        })
-
-        Object.entries(invocation.hogFunction.encrypted_inputs ?? {}).forEach(([key, item]) => {
-            builtInputs[key] = item.value
-
-            if (item.bytecode) {
-                // Use the bytecode to compile the field
-                builtInputs[key] = formatInput(item.bytecode, invocation.globals, key)
-            }
-        })
-
-        return {
+        const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
             ...invocation.globals,
-            inputs: builtInputs,
+            inputs: {},
         }
+
+        const orderedInputs = orderInputsByDependency(invocation.hogFunction)
+
+        for (const [key, input] of orderedInputs) {
+            newGlobals.inputs[key] = input.value
+
+            if (input.bytecode) {
+                // Use the bytecode to compile the field
+                newGlobals.inputs[key] = formatInput(input.bytecode, newGlobals, key)
+            }
+        }
+
+        return newGlobals
     }
 
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {

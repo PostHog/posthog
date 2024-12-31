@@ -2132,6 +2132,9 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "stats_version": {
+                    "type": "integer"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -4531,6 +4534,9 @@
                                 "significant": {
                                     "type": "boolean"
                                 },
+                                "stats_version": {
+                                    "type": "integer"
+                                },
                                 "variants": {
                                     "items": {
                                         "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
@@ -6011,6 +6017,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
+                },
+                "stats_version": {
+                    "type": "integer"
                 }
             },
             "required": ["funnels_query", "kind"],
@@ -6060,6 +6069,9 @@
                 },
                 "significant": {
                     "type": "boolean"
+                },
+                "stats_version": {
+                    "type": "integer"
                 },
                 "variants": {
                     "items": {
@@ -7378,6 +7390,9 @@
             "additionalProperties": false,
             "description": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
             "properties": {
+                "bounceRateDurationSeconds": {
+                    "type": "number"
+                },
                 "bounceRatePageViewMode": {
                     "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
                     "type": "string"
@@ -9846,6 +9861,9 @@
                         "significant": {
                             "type": "boolean"
                         },
+                        "stats_version": {
+                            "type": "integer"
+                        },
                         "variants": {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
@@ -10476,6 +10494,9 @@
                         },
                         "significant": {
                             "type": "boolean"
+                        },
+                        "stats_version": {
+                            "type": "integer"
                         },
                         "variants": {
                             "items": {
@@ -12620,6 +12641,9 @@
         "TrendsAlertConfig": {
             "additionalProperties": false,
             "properties": {
+                "check_ongoing_interval": {
+                    "type": "boolean"
+                },
                 "series_index": {
                     "type": "integer"
                 },
@@ -13394,6 +13418,7 @@
                 "InitialUTMSourceMediumCampaign",
                 "Browser",
                 "OS",
+                "Viewport",
                 "DeviceType",
                 "Country",
                 "Region",
