@@ -57,16 +57,9 @@ export const sharingLogic = kea<sharingLogicType>([
 
     actions({
         togglePreview: true,
-        setEmbedConfig: (embedConfig: EmbedConfig) => ({ embedConfig }),
     }),
     reducers({
         showPreview: [true, { togglePreview: (state) => !state }],
-        embedConfig: [
-            defaultEmbedConfig,
-            {
-                setEmbedConfig: (state, { embedConfig }) => ({ ...state, ...embedConfig }),
-            },
-        ],
     }),
 
     loaders(({ props }) => ({
@@ -93,9 +86,9 @@ export const sharingLogic = kea<sharingLogicType>([
                 dashboardsModel.actions.loadDashboards()
             }
         },
-        setEmbedConfig: ({ embedConfig }) => {
-            if (props.dashboardId && 'whitelabel' in embedConfig) {
-                eventUsageLogic.actions.reportDashboardWhitelabelToggled(embedConfig.whitelabel)
+        setEmbedConfigValue: ({ name, value }) => {
+            if (name === 'whitelabel' && props.dashboardId) {
+                eventUsageLogic.actions.reportDashboardWhitelabelToggled(value)
             }
         },
     })),
