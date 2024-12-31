@@ -195,8 +195,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal
-        ports:
-            - 7233:7233
 
     temporal-admin-tools:
         extends:
@@ -204,13 +202,10 @@ services:
             service: temporal-admin-tools
         depends_on:
             - temporal
-
     temporal-ui:
         extends:
             file: docker-compose.base.yml
             service: temporal-ui
-        ports:
-            - 8081:8080
         depends_on:
             temporal:
                 condition: service_started

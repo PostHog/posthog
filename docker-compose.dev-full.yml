@@ -18,8 +18,7 @@ services:
         depends_on:
             - replay-capture
             - capture
-        extra_hosts:
-            - 'web:host-gateway'
+            - web
     db:
         extends:
             file: docker-compose.base.yml
@@ -38,37 +37,6 @@ services:
             service: redis
         ports:
             - '6379:6379'
-    redis7:
-        extends:
-            file: docker-compose.base.yml
-            service: redis7
-        ports:
-            - '6479:6379'
-
-    flower:
-        extends:
-            file: docker-compose.base.yml
-            service: flower
-        ports:
-            - '5555:5555'
-
-    clickhouse-gw:
-        extends:
-            file: docker-compose.base.yml
-            service: clickhouse-gw
-        ports:
-            - '8123:8123'
-            - '8443:8443'
-        volumes:
-            - ./docker/chproxy/config.yml:/config.yml
-        depends_on:
-            - clickhouse
-        command: -config /config.yml
-        healthcheck:
-            test: curl 'http://127.0.0.1:9090/ping'
-            interval: 2s
-            timeout: 20s
-            retries: 10
 
     clickhouse:
         extends:
@@ -90,8 +58,6 @@ services:
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
-        extra_hosts:
-            - 'host.docker.internal:host-gateway'
         depends_on:
             - kafka
             - zookeeper
@@ -100,8 +66,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: zookeeper
-        ports:
-            - '2181:2181'
 
     kafka:
         extends:
@@ -111,15 +75,6 @@ services:
             - '9092:9092'
         depends_on:
             - zookeeper
-
-    kafka_ui:
-        extends:
-            file: docker-compose.base.yml
-            service: kafka_ui
-        ports:
-            - '9093:8080'
-        depends_on:
-            - kafka
 
     objectstorage:
         extends:
@@ -179,7 +134,6 @@ services:
         links:
             - objectstorage:objectstorage
 
-    # capture-rs
     capture:
         extends:
             file: docker-compose.base.yml
@@ -190,7 +144,6 @@ services:
             - redis
             - kafka
 
-    # vector replay capture
     replay-capture:
         extends:
             file: docker-compose.base.yml
