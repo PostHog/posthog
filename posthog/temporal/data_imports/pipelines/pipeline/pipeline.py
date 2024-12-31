@@ -1,3 +1,4 @@
+import gc
 import time
 from typing import Any
 import pyarrow as pa
@@ -50,51 +51,62 @@ class PipelineNonDLT:
         self._internal_schema = HogQLSchema()
 
     def run(self):
-        buffer: list[Any] = []
-        chunk_size = 5000
-        row_count = 0
-        chunk_index = 0
-
-        for item in self._resource:
+        try:
+            buffer: list[Any] = []
             py_table = None
+            chunk_size = 5000
+            row_count = 0
+            chunk_index = 0
 
-            if isinstance(item, list):
-                if len(buffer) > 0:
-                    buffer.extend(item)
-                    if len(buffer) >= chunk_size:
-                        py_table = table_from_py_list(buffer)
-                        buffer = []
-                else:
-                    if len(item) >= chunk_size:
-                        py_table = table_from_py_list(item)
-                    else:
+            for item in self._resource:
+                py_table = None
+
+                if isinstance(item, list):
+                    if len(buffer) > 0:
                         buffer.extend(item)
+                        if len(buffer) >= chunk_size:
+                            py_table = table_from_py_list(buffer)
+                            buffer = []
+                    else:
+                        if len(item) >= chunk_size:
+                            py_table = table_from_py_list(item)
+                        else:
+                            buffer.extend(item)
+                            continue
+                elif isinstance(item, dict):
+                    buffer.append(item)
+                    if len(buffer) < chunk_size:
                         continue
-            elif isinstance(item, dict):
-                buffer.append(item)
-                if len(buffer) < chunk_size:
-                    continue
 
+                    py_table = table_from_py_list(buffer)
+                    buffer = []
+                elif isinstance(item, pa.Table):
+                    py_table = item
+                else:
+                    raise Exception(f"Unhandled item type: {item.__class__.__name__}")
+
+                assert py_table is not None
+
+                self._process_pa_table(pa_table=py_table, index=chunk_index)
+
+                row_count += py_table.num_rows
+                chunk_index += 1
+
+            if len(buffer) > 0:
                 py_table = table_from_py_list(buffer)
-                buffer = []
-            elif isinstance(item, pa.Table):
-                py_table = item
-            else:
-                raise Exception(f"Unhandled item type: {item.__class__.__name__}")
+                self._process_pa_table(pa_table=py_table, index=chunk_index)
+                row_count += py_table.num_rows
 
-            assert py_table is not None
-
-            self._process_pa_table(pa_table=py_table, index=chunk_index)
-
-            row_count += py_table.num_rows
-            chunk_index += 1
-
-        if len(buffer) > 0:
-            py_table = table_from_py_list(buffer)
-            self._process_pa_table(pa_table=py_table, index=chunk_index)
-            row_count += py_table.num_rows
-
-        self._post_run_operations(row_count=row_count)
+            self._post_run_operations(row_count=row_count)
+        finally:
+            # Help reduce the memory footprint of each job
+            del self._resource
+            del self._delta_table_helper
+            if "buffer" in locals() and buffer is not None:
+                del buffer
+            if "py_table" in locals() and py_table is not None:
+                del py_table
+            gc.collect()
 
     def _process_pa_table(self, pa_table: pa.Table, index: int):
         delta_table = self._delta_table_helper.get_delta_table()
