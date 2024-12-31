@@ -905,7 +905,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
 
     latest_error = update_params.get("latest_error", None)
     if latest_error is not None and isinstance(latest_error, str):
-        # NUL (\x00) bytes are not allowed in PostgreSQL, so we replace them from
+        # NUL (\x00) bytes are not allowed in PostgreSQL, so we replace them in
         # the free text field `latest_error`.
         latest_error = latest_error.replace("\x00", "")
         update_params["latest_error"] = latest_error
