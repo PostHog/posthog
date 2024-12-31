@@ -491,7 +491,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
         useMapping: [
             (s) => [s.hogFunction, s.template],
-            (hogFunction, template) => (hogFunction ?? template)?.type === 'site_destination',
+            (hogFunction, template) => {
+                const type = (hogFunction ?? template)?.type ?? ''
+                return ['destination', 'site_destination'].includes(type)
+            },
         ],
         defaultFormState: [
             (s) => [s.template, s.hogFunction],
