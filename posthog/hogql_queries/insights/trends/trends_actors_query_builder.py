@@ -180,6 +180,11 @@ class TrendsActorsQueryBuilder:
         )
 
     def _get_events_query(self) -> ast.SelectQuery:
+        actor_col = ast.Alias(alias="actor_id", expr=self._actor_id_expr())
+        actor_distinct_id_expr = self._actor_distinct_id_expr()
+        actor_distinct_id_col = (
+            ast.Alias(alias="distinct_id", expr=actor_distinct_id_expr) if actor_distinct_id_expr else None
+        )
         columns: list[ast.Expr] = [
             ast.Alias(alias="uuid", expr=ast.Field(chain=["e", "uuid"])),
             *(
@@ -192,12 +197,8 @@ class TrendsActorsQueryBuilder:
                 if self.include_recordings
                 else []
             ),
+            *([actor_distinct_id_col] if actor_distinct_id_col else []),
         ]
-        actor_col = ast.Alias(alias="actor_id", expr=self._actor_id_expr())
-        actor_distinct_id_expr = self._actor_distinct_id_expr()
-        actor_distinct_id_col = (
-            ast.Alias(alias="distinct_id", expr=actor_distinct_id_expr) if actor_distinct_id_expr else None
-        )
 
         if self.trends_aggregation_operations.is_first_time_ever_math():
             date_from, date_to = self._date_where_expr()
@@ -226,9 +227,6 @@ class TrendsActorsQueryBuilder:
                 ),
                 where=self._events_where_expr(),
             )
-
-        if actor_distinct_id_col:
-            query.select = [*query.select, actor_distinct_id_col]
 
         return query
 
