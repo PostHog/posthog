@@ -65,7 +65,7 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, togglePreview, setIsWhitelabelEnabled } = useActions(sharingLogic(logicProps))
+    const { setIsEnabled, togglePreview, setEmbedConfig } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
@@ -159,7 +159,7 @@ export function SharingModalContent({
                                             </LemonField>
                                         )}
                                         <LemonField name="whitelabel">
-                                            {({ value, onChange }) => (
+                                            {({ value }) => (
                                                 <LemonSwitch
                                                     fullWidth
                                                     bordered
@@ -175,8 +175,7 @@ export function SharingModalContent({
                                                     }
                                                     onChange={() =>
                                                         guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () => {
-                                                            onChange(!value)
-                                                            setIsWhitelabelEnabled(!value)
+                                                            setEmbedConfig({ whitelabel: !value })
                                                         })
                                                     }
                                                     checked={!value}
