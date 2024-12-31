@@ -1043,3 +1043,41 @@ async def test_delta_table_deleted(team, stripe_balance_transaction):
             await _execute_run(str(uuid.uuid4()), inputs, stripe_balance_transaction["data"])
 
             mock_delta_table_delete.assert_called_once()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_inconsistent_types_in_data(team, stripe_balance_transaction):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="Customer",
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        sync_type_config={},
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+    )
+
+    await _execute_run(
+        workflow_id,
+        inputs,
+        [
+            {"id": "txn_1MiN3gLkdIwHu7ixxapQrznl", "type": "transfer"},
+            {"id": "txn_1MiN3gLkdIwHu7ixxapQrznl", "type": ["transfer", "another_value"]},
+        ],
+    )
