@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from 'react'
 
 import { Edge, Node, NodePosition, NodePositionWithBounds, NodeWithDepth } from './types'
 
-const VERTICAL_SPACING = 150
-const HORIZONTAL_SPACING = 250
+const VERTICAL_SPACING = 300
+const HORIZONTAL_SPACING = 400
 
 // Core graph layout calculation functions
 const assignDepths = (nodes: Node[]): NodeWithDepth[] => {
