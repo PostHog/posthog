@@ -39,7 +39,13 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
 
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$session_id as session_id, any(properties) as properties
+                        query: hogql`SELECT 
+                                    $session_id as session_id, 
+                                    any(properties.$geoip_country_code) as $geoip_country_code, 
+                                    any(properties.$browser) as $browser, 
+                                    any(properties.$device_type) as $device_type, 
+                                    any(properties.$os) as $os, 
+                                    any(properties.$os_name) as $os_name 
                                 FROM events
                                 WHERE event IN ${Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP['events'])}
                                 AND session_id IN ${sessionIds}
