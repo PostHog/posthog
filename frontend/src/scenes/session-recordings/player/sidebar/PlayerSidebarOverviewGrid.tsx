@@ -9,11 +9,10 @@ import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 export function PlayerSidebarOverviewGrid(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { overviewItems, loading } = useValues(playerMetaLogic(logicProps))
-
     return (
-        <div className="rounded border bg-bg-light m-2">
+        <div className="rounded border bg-bg-light">
             {loading ? (
-                <div className="flex flex-col space-y-1 px-1 py-0.5">
+                <div className="flex flex-col space-y-1">
                     <LemonSkeleton.Row repeat={6} className="h-5" />
                 </div>
             ) : (
@@ -26,7 +25,7 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                                 label={item.label}
                                 icon={item.icon}
                             >
-                                <div className="flex flex-row items-center space-x-2">
+                                <div className="flex flex-row items-center space-x-2 justify-start">
                                     {item.type === 'property' && (
                                         <PropertyIcon property={item.property} value={item.value} />
                                     )}

@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
-import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
+import { ceilMsToClosestSecond, findLastIndex, humanFriendlyDuration, objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
@@ -188,20 +188,20 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         overviewItems: [
-            (s) => [s.sessionPlayerMetaData, s.startTime, s.endTime, s.recordingPropertiesById],
-            (sessionPlayerMetaData, startTime, endTime, recordingPropertiesById) => {
+            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById],
+            (sessionPlayerMetaData, startTime, recordingPropertiesById) => {
                 const items: OverviewItem[] = []
                 if (startTime) {
                     items.push({
-                        label: 'Session start',
+                        label: 'Start',
                         value: <SimpleTimeLabel muted={false} size="small" isUTC={true} startTime={startTime} />,
                         type: 'text',
                     })
                 }
-                if (endTime) {
+                if (sessionPlayerMetaData?.recording_duration) {
                     items.push({
-                        label: 'Session end',
-                        value: <SimpleTimeLabel muted={false} size="small" isUTC={true} startTime={endTime} />,
+                        label: 'Duration',
+                        value: humanFriendlyDuration(sessionPlayerMetaData.recording_duration),
                         type: 'text',
                     })
                 }
