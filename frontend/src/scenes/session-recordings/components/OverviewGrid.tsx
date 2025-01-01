@@ -1,4 +1,5 @@
 import { Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { ReactNode } from 'react'
 
 interface OverviewItemBase {
@@ -35,15 +36,17 @@ export function OverviewGridItem({
     description,
     label,
     icon,
+    fadeLabel,
 }: {
     children?: ReactNode
     description: ReactNode
     label: ReactNode
     icon?: ReactNode
+    fadeLabel?: boolean
 }): JSX.Element {
     return (
         <div className="flex flex-1 w-full justify-between items-center ">
-            <div className="text-sm text-muted">
+            <div className={clsx('text-sm', fadeLabel && 'font-light')}>
                 {icon} {label}
             </div>
             <Tooltip title={description}>

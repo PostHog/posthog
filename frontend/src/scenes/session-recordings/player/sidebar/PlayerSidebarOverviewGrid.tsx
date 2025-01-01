@@ -24,6 +24,7 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                                 description={item.tooltipTitle}
                                 label={item.label}
                                 icon={item.icon}
+                                fadeLabel
                             >
                                 <div className="flex flex-row items-center space-x-2 justify-start">
                                     {item.type === 'property' && (
