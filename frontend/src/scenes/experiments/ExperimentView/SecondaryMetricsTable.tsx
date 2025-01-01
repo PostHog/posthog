@@ -22,7 +22,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
         metricResults,
         secondaryMetricResultsLoading,
         experiment,
-        getSecondaryMetricType,
+        _getMetricType,
         secondaryMetricResults,
         tabularSecondaryMetricResults,
         countDataForVariant,
@@ -69,7 +69,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
     metrics?.forEach((metric, idx) => {
         const targetResults = secondaryMetricResults?.[idx]
         const winningVariant = getHighestProbabilityVariant(targetResults || null)
-        const metricType = getSecondaryMetricType(idx)
+        const metricType = _getMetricType(metric)
 
         const Header = (): JSX.Element => (
             <div className="">

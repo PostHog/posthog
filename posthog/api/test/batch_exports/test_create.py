@@ -9,8 +9,8 @@ from django.test.client import Client as HttpClient
 from rest_framework import status
 
 from posthog.api.test.batch_exports.conftest import describe_schedule, start_test_worker
+from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import create_batch_export
-from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.batch_exports.models import BatchExport

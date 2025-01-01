@@ -1,3 +1,4 @@
+import asyncio
 import collections.abc
 import contextlib
 import csv
@@ -387,7 +388,10 @@ class PostgreSQLClient:
                         fields=sql.SQL(",").join(sql.Identifier(column) for column in schema_columns),
                     )
                 ) as copy:
-                    while data := tsv_file.read():
+                    while data := await asyncio.to_thread(tsv_file.read):
+                        # \u0000 cannot be present in PostgreSQL's jsonb type, and will cause an error.
+                        # See: https://www.postgresql.org/docs/17/datatype-json.html
+                        data = data.replace(b"\\u0000", b"")
                         await copy.write(data)
 
 
