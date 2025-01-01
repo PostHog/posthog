@@ -45,7 +45,8 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                                     any(properties.$browser) as $browser, 
                                     any(properties.$device_type) as $device_type, 
                                     any(properties.$os) as $os, 
-                                    any(properties.$os_name) as $os_name 
+                                    any(properties.$os_name) as $os_name ,
+                                    argMin(properties.$referring_domain, timestamp) as $referring_domain
                                 FROM events
                                 WHERE event IN ${Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP['events'])}
                                 AND session_id IN ${sessionIds}
@@ -64,12 +65,19 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                     actions.reportRecordingsListPropertiesFetched(loadTimeMs)
 
                     breakpoint()
-                    return (response.results || []).map(
-                        (x: any): SessionRecordingPropertiesType => ({
+                    return (response.results || []).map((x: any): SessionRecordingPropertiesType => {
+                        return {
                             id: x[0],
-                            properties: JSON.parse(x[1] || '{}'),
-                        })
-                    )
+                            properties: {
+                                $geoip_country_code: x[1],
+                                $browser: x[2],
+                                $device_type: x[3],
+                                $os: x[4],
+                                $os_name: x[5],
+                                $referring_domain: x[6],
+                            },
+                        }
+                    })
                 },
             },
         ],

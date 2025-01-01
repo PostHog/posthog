@@ -22,7 +22,7 @@ import { SimpleTimeLabel } from '../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 
-const browserPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
+const browserPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os', '$referring_domain']
 const mobilePropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
@@ -85,6 +85,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         },
     })),
     selectors(() => ({
+        loading: [
+            (s) => [s.sessionPlayerMetaDataLoading, s.recordingPropertiesLoading],
+            (sessionPlayerMetaDataLoading, recordingPropertiesLoading) =>
+                sessionPlayerMetaDataLoading || recordingPropertiesLoading,
+        ],
         sessionPerson: [
             (s) => [s.sessionPlayerData],
             (playerData): PersonType | null => {
@@ -183,8 +188,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         overviewItems: [
-            (s) => [s.sessionPlayerMetaData, s.startTime, s.endTime],
-            (sessionPlayerMetaData, startTime, endTime) => {
+            (s) => [s.sessionPlayerMetaData, s.startTime, s.endTime, s.recordingPropertiesById],
+            (sessionPlayerMetaData, startTime, endTime, recordingPropertiesById) => {
                 const items: OverviewItem[] = []
                 if (startTime) {
                     items.push({
@@ -220,14 +225,23 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     }
                 })
 
+                const recordingProperties = sessionPlayerMetaData?.id
+                    ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
+                    : {}
                 const personProperties = sessionPlayerMetaData?.person?.properties ?? {}
 
-                const deviceType = personProperties['$device_type'] || personProperties['$initial_device_type']
+                const deviceType =
+                    recordingProperties['$device_type'] ||
+                    personProperties['$device_type'] ||
+                    personProperties['$initial_device_type']
                 const deviceTypePropertyKeys = deviceType === 'Mobile' ? mobilePropertyKeys : browserPropertyKeys
 
                 deviceTypePropertyKeys.forEach((property) => {
-                    if (personProperties[property]) {
-                        const value = personProperties[property]
+                    if (recordingProperties[property] || personProperties[property]) {
+                        const propertyType = recordingProperties[property]
+                            ? TaxonomicFilterGroupType.EventProperties
+                            : TaxonomicFilterGroupType.PersonProperties
+                        const value = recordingProperties[property] || personProperties[property]
 
                         const tooltipTitle =
                             property === '$geoip_country_code' && value in countryCodeToName
@@ -235,9 +249,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                                 : value
 
                         items.push({
-                            label:
-                                getCoreFilterDefinition(property, TaxonomicFilterGroupType.PersonProperties)?.label ??
-                                property,
+                            label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
                             value,
                             tooltipTitle,
                             type: 'property',
@@ -252,7 +264,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     listeners(({ actions, values, props }) => ({
         loadRecordingMetaSuccess: () => {
-            if (values.sessionPlayerMetaData && !values.recordingPropertiesLoading) {
+            if (values.sessionPlayerMetaData) {
                 actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
             }
         },
