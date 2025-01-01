@@ -182,12 +182,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
             },
         ],
-        sessionProperties: [
-            (s) => [s.sessionPlayerData, s.recordingPropertiesById, (_, props) => props],
-            (sessionPlayerData, recordingPropertiesById, props) => {
-                return recordingPropertiesById[props.sessionRecordingId] ?? sessionPlayerData.person?.properties
-            },
-        ],
         overviewItems: [
             (s) => [s.sessionPlayerMetaData, s.startTime, s.endTime],
             (sessionPlayerMetaData, startTime, endTime) => {
