@@ -24,6 +24,7 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog import schema
+from posthog.schema import TrendsQueryResponse
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_serializers import (
@@ -62,8 +63,10 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.legacy_compatibility.feature_flag import (
     hogql_insights_replace_filters,
+    insight_api_use_hogql,
 )
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
@@ -71,6 +74,7 @@ from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager impor
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
     execution_mode_from_refresh,
+    get_query_runner,
     shared_insights_execution_mode,
 )
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
@@ -89,6 +93,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -969,12 +974,19 @@ When set, the specified dashboard's filters and date range override will be appl
     )
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
+        capture_legacy_api_call(request, self.team)
+
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
-                result = self.calculate_trends(request)
+                if use_hogql(request, self.team):
+                    result = self.calculate_trends_hogql(request)
+                else:
+                    result = self.calculate_trends(request)
+
         except ExposedHogQLError as e:
             raise ValidationError(str(e))
+
         filter = Filter(request=request, team=self.team)
 
         params_breakdown_limit = request.GET.get("breakdown_limit")
@@ -1032,6 +1044,18 @@ When set, the specified dashboard's filters and date range override will be appl
             result = trends_query.run(filter, team, is_csv_export=bool(request.GET.get("is_csv_export", False)))
 
         return {"result": result, "timezone": team.timezone}
+
+    @cached_by_filters
+    def calculate_trends_hogql(self, request: request.Request) -> dict[str, Any]:
+        filter = Filter(request=request, team=self.team)
+        query = filter_to_query(filter.to_dict())
+        query_runner = get_query_runner(query, self.team, limit_context=None)
+
+        # we use the legacy caching mechanism here
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(result, TrendsQueryResponse)
+
+        return {"result": result.results, "timezone": self.team.timezone}
 
     # ******************************************
     # /projects/:id/insights/funnel
@@ -1228,3 +1252,23 @@ When set, the specified dashboard's filters and date range override will be appl
 
 class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
+
+
+def use_hogql(request: request.Request, team: Team) -> bool:
+    if "hogql" in request.query_params:
+        return bool(request.query_params.get("hogql"))
+    return insight_api_use_hogql(team)
+
+
+def capture_legacy_api_call(request: request.Request, team: Team):
+    event = "legacy insight endpoint called"
+    distinct_id: str = request.user.distinct_id  # type: ignore
+    properties = {
+        "team_id": team.pk,
+        "path": request._request.path,
+        "method": request._request.method,
+        "use_hogql": use_hogql(request=request, team=team),
+        "filter": get_filter(request=request, team=team),
+    }
+
+    posthoganalytics.capture(distinct_id, event, properties)

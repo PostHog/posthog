@@ -63,3 +63,28 @@ def insight_funnels_use_udf_trends(team: Team) -> bool:
         only_evaluate_locally=False,
         send_feature_flag_events=False,
     )
+
+
+def insight_api_use_hogql(team: Team) -> bool:
+    """
+    Feature flag to enable calculation based on HogQL query runners for the
+    legacy insight api endpoints.
+    """
+    return posthoganalytics.feature_enabled(
+        "insight-api-use-hogql",
+        str(team.uuid),
+        groups={
+            "organization": str(team.organization_id),
+            "project": str(team.id),
+        },
+        group_properties={
+            "organization": {
+                "id": str(team.organization_id),
+            },
+            "project": {
+                "id": str(team.id),
+            },
+        },
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
