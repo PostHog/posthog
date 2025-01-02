@@ -1081,3 +1081,16 @@ async def test_inconsistent_types_in_data(team, stripe_balance_transaction):
             {"id": "txn_1MiN3gLkdIwHu7ixxapQrznl", "type": ["transfer", "another_value"]},
         ],
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_uuid_type(team, postgres_config, postgres_connection):
+    await _run(
+        team=team,
+        schema_name="BalanceTransaction",
+        table_name="stripe_balancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=[{"id": uuid.uuid4()}],
+    )
