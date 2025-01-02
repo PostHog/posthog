@@ -13,7 +13,7 @@ import { useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { memo, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -62,7 +62,9 @@ const MappingSummary = memo(function MappingSummary({
                 ) : null}
             </span>
             <IconArrowRight className="text-muted-alt" />
-            <span>{humanize(firstInputValue)}</span>
+            <span>
+                {typeof firstInputValue === 'object' ? JSON.stringify(firstInputValue) : humanize(firstInputValue)}
+            </span>
             <span className="flex-1" />
             {mapping.disabled ? <LemonTag type="danger">Disabled</LemonTag> : null}
         </span>
@@ -163,8 +165,15 @@ export function HogFunctionMapping({
 }
 
 export function HogFunctionMappings(): JSX.Element | null {
-    const { useMapping, mappingTemplates } = useValues(hogFunctionConfigurationLogic)
+    const { useMapping, mappingTemplates, configuration } = useValues(hogFunctionConfigurationLogic)
     const [activeKeys, setActiveKeys] = useState<number[]>([])
+
+    // If there is only one mapping template, then we start it expanded
+    useEffect(() => {
+        if (configuration.mappings?.length === 1) {
+            setActiveKeys([0])
+        }
+    }, [configuration.mappings?.length])
 
     if (!useMapping) {
         return null
