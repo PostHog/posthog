@@ -88,10 +88,10 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 agent.invoke(
                     {
                         "react_format": self._get_react_format_prompt(toolkit),
+                        "core_memory": self.core_memory.text if self.core_memory else "",
                         "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
                         "react_property_filters": self._get_react_property_filters_prompt(),
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
-                        "product_description": self._team.project.product_description,
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
