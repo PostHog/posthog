@@ -676,4 +676,6 @@ async def test_run_workflow_with_minio_bucket(
             assert key == query.name
             assert sorted(table.to_pylist(), key=lambda d: (d["distinct_id"], d["timestamp"])) == expected_data
             assert query.status == DataWarehouseSavedQuery.Status.COMPLETED
+            # The last run and last calculated times should be the same because of freezing time
             assert query.last_run_at == TEST_TIME
+            assert query.last_calculated_at == TEST_TIME

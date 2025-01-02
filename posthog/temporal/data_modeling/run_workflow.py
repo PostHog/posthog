@@ -552,7 +552,9 @@ async def start_run_activity(inputs: StartRunActivityInputs) -> None:
                     continue
 
                 tg.create_task(
-                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.RUNNING, run_at, inputs.team_id)
+                    update_saved_query_status(
+                        label, DataWarehouseSavedQuery.Status.RUNNING, run_at, None, inputs.team_id
+                    )
                 )
     except* Exception:
         await logger.aexception("Failed to update saved query status when starting run")
@@ -570,18 +572,20 @@ class FinishRunActivityInputs:
 @temporalio.activity.defn
 async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
     """Activity that finishes a run by updating statuses of associated models."""
-    run_at = dt.datetime.fromisoformat(inputs.run_at)
+    calculated_at = dt.datetime.fromisoformat(inputs.run_at)
 
     try:
         async with asyncio.TaskGroup() as tg:
             for label in inputs.completed:
                 tg.create_task(
-                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.COMPLETED, run_at, inputs.team_id)
+                    update_saved_query_status(
+                        label, DataWarehouseSavedQuery.Status.COMPLETED, None, calculated_at, inputs.team_id
+                    )
                 )
 
             for label in inputs.failed:
                 tg.create_task(
-                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.FAILED, run_at, inputs.team_id)
+                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.FAILED, None, None, inputs.team_id)
                 )
     except* Exception:
         await logger.aexception("Failed to update saved query status when finishing run")
@@ -602,7 +606,11 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
 
 
 async def update_saved_query_status(
-    label: str, status: DataWarehouseSavedQuery.Status, run_at: dt.datetime, team_id: int
+    label: str,
+    status: DataWarehouseSavedQuery.Status,
+    run_at: typing.Optional[dt.datetime],
+    calculated_at: typing.Optional[dt.datetime],
+    team_id: int,
 ):
     filter_params: dict[str, int | str | uuid.UUID] = {"team_id": team_id}
 
@@ -613,7 +621,10 @@ async def update_saved_query_status(
         filter_params["name"] = label
 
     saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(**filter_params).get)()
-    saved_query.last_run_at = run_at
+    if run_at:
+        saved_query.last_run_at = run_at
+    if calculated_at:
+        saved_query.last_calculated_at = calculated_at
     saved_query.status = status
 
     await database_sync_to_async(saved_query.save)()

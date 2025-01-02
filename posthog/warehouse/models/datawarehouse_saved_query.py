@@ -68,6 +68,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         null=True,
         help_text="The timestamp of this SavedQuery's last run (if any).",
     )
+    last_calculated_at = models.DateTimeField(
+        null=True,
+        help_text="The timestamp of this SavedQuery's last finished calculation (if any).",
+    )
     table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
