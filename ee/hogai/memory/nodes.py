@@ -21,10 +21,19 @@ from ee.models.assistant import CoreMemory
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
-from posthog.schema import AssistantMessage, CachedEventTaxonomyQueryResponse, EventTaxonomyQuery, HumanMessage
+from posthog.schema import (
+    AssistantForm,
+    AssistantMessage,
+    AssistantMessageMetadata,
+    CachedEventTaxonomyQueryResponse,
+    EventTaxonomyQuery,
+    HumanMessage,
+)
 
 
 class MemoryInitializerContextMixin:
+    _team: Team
+
     def _retrieve_context(self):
         # Retrieve the origin URL.
         runner = EventTaxonomyQueryRunner(
@@ -130,13 +139,21 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
 
 
 class MemoryInitializerInterruptNode(AssistantNode):
+    OPTIONS = ("Yes, save this.", "No, this doesn't look right.")
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
         if not state.resumed:
-            raise NodeInterrupt("Does it look like a good summary of what your product does?")
+            raise NodeInterrupt(
+                AssistantMessage(
+                    content="Does it look like a good summary of what your product does?",
+                    meta=AssistantMessageMetadata(form=AssistantForm(options=self.OPTIONS)),
+                    id=str(uuid4()),
+                )
+            )
         if not isinstance(last_message, HumanMessage):
-            raise ValueError("Last message is not a human message.")
-        if "yes" not in last_message.content.lower():
+            raise ValueError("Last messa1ge is not a human message.")
+        if last_message.content != self.OPTIONS[0]:
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(

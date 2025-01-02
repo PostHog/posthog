@@ -101,6 +101,13 @@ class AssistantEventType(StrEnum):
     CONVERSATION = "conversation"
 
 
+class AssistantForm(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    options: list[str]
+
+
 class AssistantFunnelsBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
@@ -205,13 +212,11 @@ class AssistantGroupPropertyFilter3(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
-class AssistantMessage(BaseModel):
+class AssistantMessageMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    content: str
-    id: Optional[str] = None
-    type: Literal["ai"] = "ai"
+    form: Optional[AssistantForm] = None
 
 
 class AssistantMessageType(StrEnum):
@@ -221,6 +226,7 @@ class AssistantMessageType(StrEnum):
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
     AI_ROUTER = "ai/router"
+    AI_FORM = "ai/form"
 
 
 class AssistantSetPropertyFilterOperator(StrEnum):
@@ -1903,6 +1909,16 @@ class AssistantGroupPropertyFilter4(BaseModel):
         ),
     )
     type: Literal["group"] = "group"
+
+
+class AssistantMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    meta: Optional[AssistantMessageMetadata] = None
+    type: Literal["ai"] = "ai"
 
 
 class AssistantSetPropertyFilter(BaseModel):

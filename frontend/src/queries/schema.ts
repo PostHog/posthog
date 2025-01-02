@@ -2456,6 +2456,7 @@ export enum AssistantMessageType {
     Visualization = 'ai/viz',
     Failure = 'ai/failure',
     Router = 'ai/router',
+    Form = 'ai/form',
 }
 
 export interface BaseAssistantMessage {
@@ -2467,9 +2468,18 @@ export interface HumanMessage extends BaseAssistantMessage {
     content: string
 }
 
+export interface AssistantForm {
+    options: string[]
+}
+
+export interface AssistantMessageMetadata {
+    form?: AssistantForm
+}
+
 export interface AssistantMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Assistant
     content: string
+    meta?: AssistantMessageMetadata
 }
 
 export interface ReasoningMessage extends BaseAssistantMessage {

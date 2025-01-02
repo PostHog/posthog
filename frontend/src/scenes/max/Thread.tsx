@@ -22,6 +22,7 @@ import { twMerge } from 'tailwind-merge'
 
 import { Query } from '~/queries/Query/Query'
 import {
+    AssistantForm,
     AssistantMessage,
     FailureMessage,
     HumanMessage,
@@ -100,8 +101,8 @@ function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupInde
                             <TextAnswer
                                 key={key}
                                 message={message}
-                                rateable={messageIndex === messages.length - 1}
                                 retriable={messageIndex === messages.length - 1 && isGroupFinal}
+                                interactable={messageIndex === messages.length - 1}
                                 messageGroupIndex={messageGroupIndex}
                             />
                         )
@@ -173,31 +174,48 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
 
 interface TextAnswerProps {
     message: (AssistantMessage | FailureMessage) & ThreadMessage
-    rateable: boolean
     retriable: boolean
     messageGroupIndex: number
+    interactable?: boolean
 }
 
 const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function TextAnswer(
-    { message, rateable, retriable, messageGroupIndex },
+    { message, retriable, messageGroupIndex, interactable },
     ref
 ) {
+    const action = (() => {
+        if (message.status !== 'completed') {
+            return null
+        }
+
+        // Don't show retry button when rate-limited
+        if (
+            isFailureMessage(message) &&
+            !message.content?.includes('usage limit') && // Don't show retry button when rate-limited
+            retriable
+        ) {
+            return <RetriableFailureActions />
+        }
+
+        if (isAssistantMessage(message) && interactable) {
+            // Message has been interrupted with a form
+            if (message.meta?.form?.options) {
+                return <AssistantMessageForm form={message.meta.form} />
+            }
+
+            // Show answer actions if the assistant's response is complete at this point
+            return <SuccessActions retriable={retriable} messageGroupIndex={messageGroupIndex} />
+        }
+
+        return null
+    })()
+
     return (
         <MessageTemplate
             type="ai"
             boxClassName={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
             ref={ref}
-            action={
-                message.status === 'completed' &&
-                message.type === 'ai/failure' &&
-                !message.content?.includes('usage limit') && // Don't show retry button when rate-limited
-                retriable ? (
-                    <RetriableFailureActions />
-                ) : message.status === 'completed' && message.type === 'ai' && rateable ? (
-                    // Show answer actions if the assistant's response is complete at this point
-                    <SuccessActions retriable={retriable} messageGroupIndex={messageGroupIndex} />
-                ) : null
-            }
+            action={action}
         >
             <LemonMarkdown>
                 {message.content || '*Max has failed to generate an answer. Please try again.*'}
@@ -205,6 +223,23 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
         </MessageTemplate>
     )
 })
+
+interface AssistantMessageFormProps {
+    form: AssistantForm
+}
+
+function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
+    const { askMax } = useActions(maxLogic)
+    return (
+        <div className="flex flex-wrap gap-4">
+            {form.options.map((option) => (
+                <LemonButton key={option} onClick={() => askMax(option)} size="small" type="secondary">
+                    {option}
+                </LemonButton>
+            ))}
+        </div>
+    )
+}
 
 function VisualizationAnswer({
     message,
