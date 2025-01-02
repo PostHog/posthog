@@ -120,7 +120,11 @@ function LemonCollapsePanel({
 }: LemonCollapsePanelProps): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
 
-    const headerProps: LemonButtonProps = typeof header === 'string' ? { children: header } : header ?? {}
+    const headerProps: LemonButtonProps = React.isValidElement(header)
+        ? { children: header }
+        : typeof header === 'string'
+        ? { children: header }
+        : header ?? {}
 
     return (
         <div className="LemonCollapsePanel" aria-expanded={isExpanded}>
