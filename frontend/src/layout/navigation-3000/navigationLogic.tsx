@@ -518,9 +518,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         featureFlags[FEATURE_FLAGS.SQL_EDITOR]
                             ? {
                                   identifier: Scene.SQLEditor,
-                                  label: 'Data warehouse',
+                                  label: 'SQL editor',
                                   icon: <IconServer />,
-                                  to: urls.dataWarehouse(),
+                                  to: urls.sqlEditor(),
                                   logic: editorSidebarLogic,
                               }
                             : {
