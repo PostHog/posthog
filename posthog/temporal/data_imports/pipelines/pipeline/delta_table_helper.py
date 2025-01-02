@@ -6,8 +6,10 @@ from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 import deltalake as deltalake
 from django.conf import settings
+from sentry_sdk import capture_exception
 from posthog.settings.base_variables import TEST
 from posthog.warehouse.models import ExternalDataJob
+from posthog.warehouse.s3 import get_s3_client
 
 
 class DeltaTableHelper:
@@ -66,7 +68,15 @@ class DeltaTableHelper:
         storage_options = self._get_credentials()
 
         if deltalake.DeltaTable.is_deltatable(table_uri=delta_uri, storage_options=storage_options):
-            return deltalake.DeltaTable(table_uri=delta_uri, storage_options=storage_options)
+            try:
+                return deltalake.DeltaTable(table_uri=delta_uri, storage_options=storage_options)
+            except Exception as e:
+                # Temp fix for bugged tables
+                capture_exception(e)
+                if "parse decimal overflow" in "".join(e.args):
+                    s3 = get_s3_client()
+                    s3.delete(delta_uri, recursive=True)
+                    return None
 
         return None
 
