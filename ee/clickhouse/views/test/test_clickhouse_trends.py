@@ -124,7 +124,6 @@ def test_includes_only_intervals_within_range(client: Client):
                     # Prior to the fix this would also include '29-Aug-2021'
                     "labels": ["5-Sep-2021", "12-Sep-2021", "19-Sep-2021"],
                     "days": ["2021-09-05", "2021-09-12", "2021-09-19"],
-                    "persons_urls": ANY,
                     "filter": ANY,
                 }
             ],
