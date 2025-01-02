@@ -467,7 +467,6 @@ async def test_snowflake_export_workflow_exports_events(
                 ]
 
                 assert all(query.startswith("PUT") for query in execute_calls[0:9])
-                # assert all(f"_{n}.jsonl" in query for n, query in enumerate(execute_calls[0:9]))
 
                 assert execute_async_calls[3].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
                 assert execute_async_calls[4].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
