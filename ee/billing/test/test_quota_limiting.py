@@ -21,6 +21,7 @@ from ee.billing.quota_limiting import (
     update_all_org_billing_quotas,
 )
 from posthog.api.test.test_team import create_team
+from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.test.base import BaseTest, _create_event
 
@@ -759,3 +760,28 @@ class TestQuotaLimiting(BaseTest):
             assert sorted(
                 list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
             ) == sorted(["1337"])
+
+    @patch("ee.billing.quota_limiting.capture_exception")
+    def test_get_team_attribute_by_quota_resource(self, mock_capture):
+        Team.objects.all().delete()
+
+        team1 = Team.objects.create(organization=self.organization, api_token="token1")
+        team2 = Team.objects.create(organization=self.organization, api_token="token2")
+
+        tokens = get_team_attribute_by_quota_resource(self.organization)
+
+        self.assertEqual(set(tokens), {"token1", "token2"})
+
+        team1.delete()
+        team2.delete()
+
+        Team.objects.create(organization=self.organization, api_token="")
+
+        tokens = get_team_attribute_by_quota_resource(self.organization)
+
+        self.assertEqual(tokens, [])
+        mock_capture.assert_called_once()
+        self.assertIn(
+            f"quota_limiting: No team tokens found for organization: {self.organization.id}",
+            str(mock_capture.call_args[0][0]),
+        )
