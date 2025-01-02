@@ -21,8 +21,11 @@ def calculate_probabilities_v2(
     for funnel conversion rates.
 
     This function computes the probability that each variant is the best (i.e., has the highest
-    conversion rate) compared to all other variants, including the control. It uses Beta
-    distributions to model conversion rates, which is the conjugate prior for binomial data.
+    conversion rate) compared to all other variants, including the control. It uses a Beta
+    distribution as the "conjugate prior" for binomial (success/failure) data, and starts with
+    Beta(1,1) as a minimally informative prior distribution. The "conjugate prior" means that
+    the prior and posterior distributions are the same family, and the posterior is easy
+    to compute.
 
     Parameters:
     -----------
