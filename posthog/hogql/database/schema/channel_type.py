@@ -166,8 +166,8 @@ def custom_rule_to_expr(custom_rule: CustomChannelRule, source_exprs: ChannelTyp
             expr = source_exprs.campaign
         elif condition.key == CustomChannelField.URL:
             expr = source_exprs.url
-        elif condition.key == CustomChannelField.HOST:
-            expr = source_exprs.host
+        elif condition.key == CustomChannelField.HOSTNAME:
+            expr = source_exprs.hostname
         elif condition.key == CustomChannelField.PATHNAME:
             expr = source_exprs.pathname
         elif condition.key == CustomChannelField.REFERRING_DOMAIN:
