@@ -22,10 +22,9 @@ use std::{io::Read, sync::Arc};
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Compression {
-    #[serde(rename = "gzip")]
-    #[serde(alias = "gzip-js")]
+    #[serde(rename = "gzip", alias = "gzip-js")]
     Gzip,
-    Base64,
+    Base64, // TODO do we need this? Or can we explicitly drop B64 support for the new service?
     #[default]
     #[serde(other)]
     Unsupported,
