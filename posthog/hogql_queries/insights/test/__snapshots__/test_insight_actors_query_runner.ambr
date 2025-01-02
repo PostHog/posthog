@@ -308,16 +308,20 @@
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV1
   '''
-  SELECT name AS name
+  SELECT name AS name,
+         event_distinct_ids AS event_distinct_ids
   FROM
-    (SELECT persons.properties___name AS name
+    (SELECT persons.properties___name AS name,
+            source.event_distinct_ids AS event_distinct_ids
      FROM
        (SELECT actor_id AS actor_id,
-               count() AS event_count
+               count() AS event_count,
+               groupUniqArray(distinct_id) AS event_distinct_ids
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
-                  e.uuid AS uuid
+                  e.uuid AS uuid,
+                  e.distinct_id AS distinct_id
            FROM events AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -342,9 +346,9 @@
         WHERE and(equals(person.team_id, 99999), in(id,
                                                       (SELECT source.actor_id AS actor_id
                                                        FROM
-                                                         (SELECT actor_id AS actor_id, count() AS event_count
+                                                         (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids
                                                           FROM
-                                                            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid
+                                                            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid, e.distinct_id AS distinct_id
                                                              FROM events AS e
                                                              LEFT OUTER JOIN
                                                                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -375,16 +379,20 @@
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV2
   '''
-  SELECT name AS name
+  SELECT name AS name,
+         event_distinct_ids AS event_distinct_ids
   FROM
-    (SELECT persons.properties___name AS name
+    (SELECT persons.properties___name AS name,
+            source.event_distinct_ids AS event_distinct_ids
      FROM
        (SELECT actor_id AS actor_id,
-               count() AS event_count
+               count() AS event_count,
+               groupUniqArray(distinct_id) AS event_distinct_ids
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
-                  e.uuid AS uuid
+                  e.uuid AS uuid,
+                  e.distinct_id AS distinct_id
            FROM events AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -415,9 +423,9 @@
                                                        WHERE and(equals(person.team_id, 99999), in(person.id,
                                                                                                      (SELECT source.actor_id AS actor_id
                                                                                                       FROM
-                                                                                                        (SELECT actor_id AS actor_id, count() AS event_count
+                                                                                                        (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids
                                                                                                          FROM
-                                                                                                           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid
+                                                                                                           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid, e.distinct_id AS distinct_id
                                                                                                             FROM events AS e
                                                                                                             LEFT OUTER JOIN
                                                                                                               (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
