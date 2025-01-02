@@ -1,5 +1,6 @@
 import json
 from functools import lru_cache
+import logging
 from typing import Any, Optional, Union, cast
 
 import posthoganalytics
@@ -173,17 +174,21 @@ def log_and_report_insight_activity(
 
 
 def capture_legacy_api_call(request: request.Request, team: Team):
-    event = "legacy insight endpoint called"
-    distinct_id: str = request.user.distinct_id  # type: ignore
-    properties = {
-        "path": request._request.path,
-        "method": request._request.method,
-        "use_hogql": False,
-        "filter": get_filter(request=request, team=team),
-        "was_impersonated": is_impersonated_session(request),
-    }
+    try:
+        event = "legacy insight endpoint called"
+        distinct_id: str = request.user.distinct_id  # type: ignore
+        properties = {
+            "path": request._request.path,
+            "method": request._request.method,
+            "use_hogql": False,
+            "filter": get_filter(request=request, team=team),
+            "was_impersonated": is_impersonated_session(request),
+        }
 
-    posthoganalytics.capture(distinct_id, event, properties, groups=(groups(team.organization, team)))
+        posthoganalytics.capture(distinct_id, event, properties, groups=(groups(team.organization, team)))
+    except Exception as e:
+        logging.exception(f"Error in capture_legacy_api_call: {e}")
+        pass
 
 
 class QuerySchemaParser(JSONParser):
