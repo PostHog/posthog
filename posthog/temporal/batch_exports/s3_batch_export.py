@@ -590,6 +590,7 @@ class S3Consumer(Consumer):
             self.heartbeat_details.append_upload_state(self.s3_upload.to_state())
 
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
+        self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
 
     async def close(self):
         if self.s3_upload is not None:

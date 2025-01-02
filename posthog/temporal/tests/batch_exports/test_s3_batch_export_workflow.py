@@ -6,6 +6,7 @@ import io
 import json
 import os
 import uuid
+from dataclasses import asdict
 from unittest import mock
 
 import aioboto3
@@ -162,6 +163,8 @@ async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file
 
     s3_data = []
     keys = []
+    assert objects.get("KeyCount", 0) > 0
+    assert "Contents" in objects
     for obj in objects["Contents"]:
         key = obj.get("Key")
         assert key
@@ -203,6 +206,7 @@ async def assert_clickhouse_records_in_s3(
     compression: str | None = None,
     file_format: str = "JSONLines",
     is_backfill: bool = False,
+    allow_duplicates: bool = False,
 ):
     """Assert ClickHouse records are written to JSON in key_prefix in S3 bucket_name.
 
@@ -278,6 +282,9 @@ async def assert_clickhouse_records_in_s3(
         assert all(record["team_id"] == team_id for record in s3_data)
 
     assert s3_data[0] == expected_records[0]
+    if allow_duplicates:
+        # de-duplicate based on uuid
+        s3_data = list({record["uuid"]: record for record in s3_data}.values())
     assert len(s3_data) == len(expected_records)
     assert s3_data == expected_records
 
@@ -1742,6 +1749,143 @@ async def test_insert_into_s3_activity_heartbeats(
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
+    )
+
+
+async def test_insert_into_s3_activity_resumes_from_heartbeat(
+    clickhouse_client, ateam, bucket_name, s3_batch_export, minio_client, activity_environment, s3_key_prefix
+):
+    """
+    Test that if the insert_into_s3_activity activity fails, it can resume from a heartbeat.
+
+    We mock the upload_part method to raise a `RequestTimeout` error after the first part has been uploaded.
+    We then resume from the heartbeat and expect the activity to resume from where it left off.
+    """
+    data_interval_end = dt.datetime.fromisoformat("2023-04-20T14:30:00.000000+00:00")
+    data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
+
+    n_expected_parts = 3
+
+    for i in range(1, n_expected_parts + 1):
+        part_inserted_at = data_interval_end - s3_batch_export.interval_time_delta / i
+
+        await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            count=1,
+            count_outside_range=0,
+            count_other_team=0,
+            duplicate=False,
+            # We need at least 5MB for a multi-part upload which is what we are testing.
+            properties={"$chonky": ("a" * 5 * 2048**2)},
+            inserted_at=part_inserted_at,
+        )
+
+    attempt = 0
+
+    class FakeSession(aioboto3.Session):
+        @contextlib.asynccontextmanager
+        async def client(self, *args, **kwargs):
+            client = self._session.create_client(*args, **kwargs)
+
+            async with client as client:
+                original_upload_part = client.upload_part
+
+                async def faulty_upload_part(*args, **kwargs):
+                    nonlocal attempt
+
+                    attempt = attempt + 1
+
+                    if attempt >= 2:
+                        raise botocore.exceptions.ClientError(
+                            error_response={
+                                "Error": {"Code": "RequestTimeout", "Message": "Oh no!"},
+                                "ResponseMetadata": {"MaxAttemptsReached": True, "RetryAttempts": 2},  # type: ignore
+                            },
+                            operation_name="UploadPart",
+                        )
+                    else:
+                        return await original_upload_part(*args, **kwargs)
+
+                client.upload_part = faulty_upload_part
+
+                yield client
+
+    heartbeat_details: list[S3HeartbeatDetails] = []
+
+    def track_hearbeat_details(*details):
+        """Record heartbeat details received."""
+        nonlocal heartbeat_details
+
+        s3_details = S3HeartbeatDetails.from_activity_details(details)
+        heartbeat_details.append(s3_details)
+
+    activity_environment.on_heartbeat = track_hearbeat_details
+
+    insert_inputs = S3InsertInputs(
+        bucket_name=bucket_name,
+        region="us-east-1",
+        prefix=s3_key_prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+    )
+
+    with (
+        override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=1, CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT=1),
+        mock.patch("posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session", FakeSession),
+    ):
+        try:
+            # we expect this to raise an exception
+            await activity_environment.run(insert_into_s3_activity, insert_inputs)
+        except Exception:
+            pass
+
+    assert len(heartbeat_details) > 0
+
+    detail = heartbeat_details[-1]
+
+    # we expect to have only uploaded part 1 of first file
+    assert detail.files_uploaded == 0
+    assert detail.upload_state is not None
+    assert detail.upload_state.upload_id is not None
+    assert len(detail.upload_state.parts) == 1
+
+    assert len(detail.done_ranges) == 1
+
+    # now we resume from the heartbeat
+    previous_info = asdict(activity_environment.info)
+    previous_info["heartbeat_details"] = detail.serialize_details()
+    new_info = activity.Info(
+        **previous_info,
+    )
+    activity_environment.info = new_info
+    with override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=1, CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT=1):
+        await activity_environment.run(insert_into_s3_activity, insert_inputs)
+
+    assert len(heartbeat_details) > 0
+    detail = heartbeat_details[-1]
+    # we expect to have uploaded the file now
+    assert detail.files_uploaded == 1
+    assert detail.upload_state is None
+    assert len(detail.done_ranges) == 1
+    assert detail.done_ranges[0] == (data_interval_start, data_interval_end)
+
+    await assert_clickhouse_records_in_s3(
+        s3_compatible_client=minio_client,
+        clickhouse_client=clickhouse_client,
+        bucket_name=bucket_name,
+        key_prefix=s3_key_prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        # When we resume from a heartbeat, we expect duplicates (the last done range will be re-exported)
+        allow_duplicates=True,
     )
 
 
