@@ -43,7 +43,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                         query={modal.query}
                         insightProps={modal.insightProps}
                         showIntervalSelect={modal.showIntervalSelect}
-                        showPathCleaningControls={modal.showPathCleaningControls}
+                        control={modal.control}
                     />
                 </LemonModal.Content>
                 <div className="flex flex-row justify-end">
