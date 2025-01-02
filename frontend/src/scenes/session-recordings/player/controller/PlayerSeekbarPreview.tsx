@@ -3,15 +3,12 @@ import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { colonDelimitedDuration } from 'lib/utils'
 import { memo, MutableRefObject, useEffect, useRef, useState } from 'react'
+import { SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/types'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { PlayerFrame } from '../PlayerFrame'
 import { TimestampFormat } from '../playerSettingsLogic'
-import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
-    SessionRecordingPlayerMode,
-} from '../sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
 
 const TWENTY_MINUTES_IN_MS = 20 * 60 * 1000
 

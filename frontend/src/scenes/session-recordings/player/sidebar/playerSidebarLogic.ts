@@ -1,8 +1,8 @@
 import { actions, kea, path, props, reducers } from 'kea'
+import { SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/types'
 
 import { SessionRecordingSidebarTab } from '~/types'
 
-import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import type { playerSidebarLogicType } from './playerSidebarLogicType'
 
 export const playerSidebarLogic = kea<playerSidebarLogicType>([

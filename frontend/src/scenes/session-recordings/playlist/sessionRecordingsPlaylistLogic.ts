@@ -16,6 +16,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { MatchingEventsMatchType, SessionRecordingPlaylistLogicProps } from 'scenes/session-recordings/types'
 
 import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema'
 import {
@@ -46,27 +47,6 @@ interface Params {
     sessionRecordingId?: SessionRecordingId
     order?: RecordingsQuery['order']
 }
-
-interface NoEventsToMatch {
-    matchType: 'none'
-}
-
-interface EventNamesMatching {
-    matchType: 'name'
-    eventNames: string[]
-}
-
-interface EventUUIDsMatching {
-    matchType: 'uuid'
-    eventUUIDs: string[]
-}
-
-interface BackendEventsMatching {
-    matchType: 'backend'
-    filters: RecordingUniversalFilters
-}
-
-export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
 
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
@@ -240,17 +220,6 @@ function sortRecordings(
         const incomparible = orderA === undefined || orderB === undefined
         return incomparible ? 0 : orderA > orderB ? -1 : 1
     })
-}
-
-export interface SessionRecordingPlaylistLogicProps {
-    logicKey?: string
-    personUUID?: PersonUUID
-    updateSearchParams?: boolean
-    autoPlay?: boolean
-    filters?: RecordingUniversalFilters
-    onFiltersChange?: (filters: RecordingUniversalFilters) => void
-    pinnedRecordings?: (SessionRecordingType | string)[]
-    onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
 
 export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogicType>([

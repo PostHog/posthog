@@ -11,10 +11,8 @@ import posthog from 'posthog-js'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/types'
 
 import { PersonType } from '~/types'
 
