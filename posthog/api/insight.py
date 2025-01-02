@@ -63,15 +63,15 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
-from posthog.hogql_queries.legacy_compatibility.feature_flag import (
-    hogql_insights_replace_filters,
-)
+from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters, get_query_method
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
     execution_mode_from_refresh,
+    get_query_runner,
     shared_insights_execution_mode,
 )
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
@@ -180,7 +180,7 @@ def capture_legacy_api_call(request: request.Request, team: Team):
         properties = {
             "path": request._request.path,
             "method": request._request.method,
-            "use_hogql": False,
+            "query_method": get_query_method(request=request, team=team),
             "filter": get_filter(request=request, team=team),
             "was_impersonated": is_impersonated_session(request),
         }
@@ -994,7 +994,11 @@ When set, the specified dashboard's filters and date range override will be appl
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
-                result = self.calculate_trends(request)
+                query_method = get_query_method(request=request, team=self.team)
+                if query_method == "hogql":
+                    result = self.calculate_trends_hogql(request)
+                else:
+                    result = self.calculate_trends(request)
         except ExposedHogQLError as e:
             raise ValidationError(str(e))
         filter = Filter(request=request, team=self.team)
@@ -1054,6 +1058,19 @@ When set, the specified dashboard's filters and date range override will be appl
             result = trends_query.run(filter, team, is_csv_export=bool(request.GET.get("is_csv_export", False)))
 
         return {"result": result, "timezone": team.timezone}
+
+    @cached_by_filters
+    def calculate_trends_hogql(self, request: request.Request) -> dict[str, Any]:
+        team = self.team
+        filter = Filter(request=request, team=team)
+        query = filter_to_query(filter.to_dict())
+        query_runner = get_query_runner(query, team, limit_context=None)
+
+        # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(result, schema.CachedTrendsQueryResponse)
+
+        return {"result": result.results, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/funnel
