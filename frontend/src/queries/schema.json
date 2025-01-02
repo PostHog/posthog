@@ -577,12 +577,25 @@
             "properties": {
                 "options": {
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/AssistantFormOption"
                     },
                     "type": "array"
                 }
             },
             "required": ["options"],
+            "type": "object"
+        },
+        "AssistantFormOption": {
+            "additionalProperties": false,
+            "properties": {
+                "value": {
+                    "type": "string"
+                },
+                "variant": {
+                    "type": "string"
+                }
+            },
+            "required": ["value"],
             "type": "object"
         },
         "AssistantFunnelsBreakdownFilter": {
@@ -1097,7 +1110,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "ai", "ai/reasoning", "ai/viz", "ai/failure", "ai/router", "ai/form"],
+            "enum": ["human", "ai", "ai/reasoning", "ai/viz", "ai/failure", "ai/router"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {

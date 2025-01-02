@@ -23,6 +23,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.schema import (
     AssistantForm,
+    AssistantFormOption,
     AssistantMessage,
     AssistantMessageMetadata,
     CachedEventTaxonomyQueryResponse,
@@ -147,7 +148,14 @@ class MemoryInitializerInterruptNode(AssistantNode):
             raise NodeInterrupt(
                 AssistantMessage(
                     content="Does it look like a good summary of what your product does?",
-                    meta=AssistantMessageMetadata(form=AssistantForm(options=self.OPTIONS)),
+                    meta=AssistantMessageMetadata(
+                        form=AssistantForm(
+                            options=[
+                                AssistantFormOption(value=self.OPTIONS[0], variant="primary"),
+                                AssistantFormOption(value=self.OPTIONS[1]),
+                            ]
+                        )
+                    ),
                     id=str(uuid4()),
                 )
             )

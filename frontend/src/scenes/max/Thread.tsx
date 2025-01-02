@@ -7,7 +7,7 @@ import {
     IconWarning,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonInput, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonPropsBase, LemonInput, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
@@ -231,10 +231,19 @@ interface AssistantMessageFormProps {
 function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
     const { askMax } = useActions(maxLogic)
     return (
-        <div className="flex flex-wrap gap-4">
+        <div className="flex flex-wrap gap-2 mt-1">
             {form.options.map((option) => (
-                <LemonButton key={option} onClick={() => askMax(option)} size="small" type="secondary">
-                    {option}
+                <LemonButton
+                    key={option.value}
+                    onClick={() => askMax(option.value)}
+                    size="small"
+                    type={
+                        option.variant && ['primary', 'secondary', 'tertiary'].includes(option.variant)
+                            ? (option.variant as LemonButtonPropsBase['type'])
+                            : 'secondary'
+                    }
+                >
+                    {option.value}
                 </LemonButton>
             ))}
         </div>

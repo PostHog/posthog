@@ -101,11 +101,12 @@ class AssistantEventType(StrEnum):
     CONVERSATION = "conversation"
 
 
-class AssistantForm(BaseModel):
+class AssistantFormOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    options: list[str]
+    value: str
+    variant: Optional[str] = None
 
 
 class AssistantFunnelsBreakdownType(StrEnum):
@@ -212,13 +213,6 @@ class AssistantGroupPropertyFilter3(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
-class AssistantMessageMetadata(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    form: Optional[AssistantForm] = None
-
-
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
     AI = "ai"
@@ -226,7 +220,6 @@ class AssistantMessageType(StrEnum):
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
     AI_ROUTER = "ai/router"
-    AI_FORM = "ai/form"
 
 
 class AssistantSetPropertyFilterOperator(StrEnum):
@@ -1733,6 +1726,13 @@ class AssistantDateTimePropertyFilter(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
+class AssistantForm(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    options: list[AssistantFormOption]
+
+
 class AssistantFunnelsBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1911,14 +1911,11 @@ class AssistantGroupPropertyFilter4(BaseModel):
     type: Literal["group"] = "group"
 
 
-class AssistantMessage(BaseModel):
+class AssistantMessageMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    content: str
-    id: Optional[str] = None
-    meta: Optional[AssistantMessageMetadata] = None
-    type: Literal["ai"] = "ai"
+    form: Optional[AssistantForm] = None
 
 
 class AssistantSetPropertyFilter(BaseModel):
@@ -3617,6 +3614,16 @@ class AssistantInsightsQueryBase(BaseModel):
     samplingFactor: Optional[float] = Field(
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
     )
+
+
+class AssistantMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    meta: Optional[AssistantMessageMetadata] = None
+    type: Literal["ai"] = "ai"
 
 
 class AssistantTrendsEventsNode(BaseModel):
