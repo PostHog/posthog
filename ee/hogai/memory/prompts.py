@@ -1,8 +1,10 @@
 INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT = """
 Your goal is to describe what the startup with the given URL does.
+""".strip()
 
+INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT = """
 <sources>
-- Check the provided URL. If the URL has a subdomain, check the root domain first and then the subdomain.
+- Check the provided URL. If the URL has a subdomain, check the root domain first and then the subdomain. For example, if the URL is https://us.posthog.com, check https://posthog.com first and then https://us.posthog.com.
 - Retrieve information from the websites that provide information about businesses like Crunchbase, G2, LinkedIn, Hackernews, YCombinator, etc.
 </sources>
 
@@ -15,14 +17,13 @@ Your goal is to describe what the startup with the given URL does.
 
 <format_instructions>
 Output your answer in paragraphs with two to three sentences. Separate new paragraphs with a new line.
-IMPORTANT: do not use any markdown and headers. It must be plain text.
-Answer "No data available." if:
-- the given website doesn't exist.
+IMPORTANT: DO NOT OUTPUT markdown or headers. It must be plain text.
+
+Answer a single sentence "No data available." if:
+- the given website doesn't exist, or the URL does not match any of the sources given.
 - the URL is not a valid website or points to a local environment, for example, localhost, 127.0.0.1, etc.
 </format_instructions>
-""".strip()
 
-INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT = """
 The provided URL is "{{url}}".
 """.strip()
 

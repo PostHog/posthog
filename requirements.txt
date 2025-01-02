@@ -391,10 +391,14 @@ lzstring==1.0.4
     # via -r requirements.in
 makefun==1.15.2
     # via dlt
+markdown-it-py==3.0.0
+    # via -r requirements.in
 marshmallow==3.23.1
     # via dataclasses-json
 maxminddb==2.2.0
     # via geoip2
+mdurl==0.1.2
+    # via markdown-it-py
 mimesis==5.2.1
     # via -r requirements.in
 monotonic==1.5

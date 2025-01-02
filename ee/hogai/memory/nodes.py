@@ -1,7 +1,9 @@
-from typing import Literal
+import re
+from typing import Literal, cast
 from uuid import uuid4
 
 from langchain_community.chat_models import ChatPerplexity
+from langchain_core.messages import AIMessageChunk
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
@@ -15,6 +17,7 @@ from ee.hogai.memory.prompts import (
     INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT,
 )
 from ee.hogai.utils.helpers import find_last_message_of_type
+from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import CoreMemory
@@ -75,11 +78,8 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, AssistantNode):
         )
 
     def should_run(self, _: AssistantState) -> bool:
-        try:
-            core_memory = CoreMemory.objects.get(team=self._team)
-        except CoreMemory.DoesNotExist:
-            return True
-        return not core_memory.is_scraping_pending and not core_memory.is_scraping_finished
+        core_memory = self.core_memory
+        return not core_memory or (not core_memory.is_scraping_pending and not core_memory.is_scraping_finished)
 
     def router(self, state: AssistantState) -> Literal["initialize_memory", "continue"]:
         last_message = state.messages[-1]
@@ -135,8 +135,14 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
             return "continue"
         return "interrupt"
 
+    @classmethod
+    def should_process_message_chunk(cls, message: AIMessageChunk) -> bool:
+        placeholder = "no data available"
+        content = cast(str, message.content)
+        return placeholder not in content.lower() and len(content) > len(placeholder)
+
     def _model(self):
-        return ChatPerplexity(model="llama-3.1-sonar-large-128k-online", streaming=True)
+        return ChatPerplexity(model="llama-3.1-sonar-large-128k-online", temperature=0, streaming=True)
 
 
 class MemoryInitializerInterruptNode(AssistantNode):
@@ -160,7 +166,7 @@ class MemoryInitializerInterruptNode(AssistantNode):
                 )
             )
         if not isinstance(last_message, HumanMessage):
-            raise ValueError("Last messa1ge is not a human message.")
+            raise ValueError("Last message is not a human message.")
         if last_message.content != self.OPTIONS[0]:
             return PartialAssistantState(
                 messages=[
@@ -171,13 +177,16 @@ class MemoryInitializerInterruptNode(AssistantNode):
                 ]
             )
 
-        core_memory = CoreMemory.objects.get(team=self._team)
+        core_memory = self.core_memory
+        if not core_memory:
+            raise ValueError("No core memory found.")
+
         assistant_message = find_last_message_of_type(state.messages, AssistantMessage)
 
         if not assistant_message:
             raise ValueError("No memory message found.")
 
-        core_memory.set_core_memory(assistant_message.content)
+        core_memory.set_core_memory(self._format_memory(assistant_message.content))
         return PartialAssistantState(
             messages=[
                 AssistantMessage(
@@ -186,3 +195,9 @@ class MemoryInitializerInterruptNode(AssistantNode):
                 )
             ]
         )
+
+    def _format_memory(self, memory: str) -> str:
+        """
+        Remove markdown and source reference tags like [1], [2], etc.
+        """
+        return re.sub(r"\[\d+\]", "", remove_markdown(memory))

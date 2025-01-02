@@ -14,6 +14,7 @@ from ee.hogai.funnels.nodes import (
     FunnelGeneratorNode,
 )
 from ee.hogai.graph import AssistantGraph
+from ee.hogai.memory.nodes import MemoryInitializerNode
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
@@ -247,16 +248,20 @@ class Assistant:
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
         if isinstance(langchain_message, AIMessageChunk):
-            if langgraph_state["langgraph_node"] in VISUALIZATION_NODES.keys():
+            node_name = langgraph_state["langgraph_node"]
+            if node_name in VISUALIZATION_NODES.keys():
                 self._chunks += langchain_message  # type: ignore
-                parsed_message = VISUALIZATION_NODES[langgraph_state["langgraph_node"]].parse_output(
-                    self._chunks.tool_calls[0]["args"]
-                )
+                parsed_message = VISUALIZATION_NODES[node_name].parse_output(self._chunks.tool_calls[0]["args"])
                 if parsed_message:
                     initiator_id = self._state.start_id if self._state is not None else None
                     return VisualizationMessage(answer=parsed_message.query, initiator=initiator_id)
-            elif langgraph_state["langgraph_node"] in STREAMING_NODES:
+            elif node_name in STREAMING_NODES:
                 self._chunks += langchain_message  # type: ignore
+                if (
+                    node_name == AssistantNodeName.MEMORY_INITIALIZER
+                    and not MemoryInitializerNode.should_process_message_chunk(langchain_message)
+                ):
+                    return None
                 return AssistantMessage(content=self._chunks.content)
         return None
 
