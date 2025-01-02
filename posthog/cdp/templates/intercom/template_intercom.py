@@ -1,6 +1,4 @@
-from copy import deepcopy
-import dataclasses
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
@@ -287,47 +285,3 @@ if (res.status >= 400) {
         "filter_test_accounts": True,
     },
 )
-
-
-class TemplateIntercomMigrator(HogFunctionTemplateMigrator):
-    plugin_url = "https://github.com/PostHog/posthog-intercom-plugin"
-
-    @classmethod
-    def migrate(cls, obj):
-        hf = deepcopy(dataclasses.asdict(template))
-
-        useEuropeanDataStorage = obj.config.get("useEuropeanDataStorage", "No")
-        intercomApiKey = obj.config.get("intercomApiKey", "")
-        triggeringEvents = obj.config.get("triggeringEvents", "$identify")
-        ignoredEmailDomains = obj.config.get("ignoredEmailDomains", "")
-
-        hf["filters"] = {}
-
-        events_to_filter = [event.strip() for event in triggeringEvents.split(",") if event.strip()]
-        domains_to_filter = [domain.strip() for domain in ignoredEmailDomains.split(",") if domain.strip()]
-
-        if domains_to_filter:
-            hf["filters"]["properties"] = [
-                {
-                    "key": "email",
-                    "value": domain,
-                    "operator": "not_icontains",
-                    "type": "person",
-                }
-                for domain in domains_to_filter
-            ]
-
-        if events_to_filter:
-            hf["filters"]["events"] = [
-                {"id": event, "name": event, "type": "events", "order": 0} for event in events_to_filter
-            ]
-
-        hf["inputs"] = {
-            "access_token": {"value": intercomApiKey},
-            "host": {"value": "api.eu.intercom.com"}
-            if useEuropeanDataStorage == "Yes"
-            else {"value": "api.intercom.io"},
-            "email": {"value": "{person.properties.email}"},
-        }
-
-        return hf
