@@ -769,6 +769,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -896,6 +897,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -1835,6 +1837,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -1962,6 +1965,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -1983,6 +1987,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -2594,6 +2599,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -2721,6 +2727,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -3289,6 +3296,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -3416,6 +3424,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -4049,6 +4058,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -4176,6 +4186,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -4771,6 +4782,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -4898,6 +4910,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -5577,6 +5590,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -5704,6 +5718,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -6011,6 +6026,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -6138,6 +6154,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -6746,6 +6763,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -6873,6 +6891,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -7444,6 +7463,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -7571,6 +7591,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -7592,6 +7613,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -8199,6 +8221,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -8326,6 +8349,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."last_calculated_at",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
