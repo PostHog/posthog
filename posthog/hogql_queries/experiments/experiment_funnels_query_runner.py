@@ -31,6 +31,7 @@ from posthog.schema import (
 from typing import Optional, Any, cast
 from zoneinfo import ZoneInfo
 from rest_framework.exceptions import ValidationError
+from datetime import datetime, timedelta, UTC
 
 
 class ExperimentFunnelsQueryRunner(QueryRunner):
@@ -216,3 +217,14 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.funnels_query.kind} to query")
+
+    # Cache results for 24 hours
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        if last_refresh is None:
+            return None
+        return last_refresh + timedelta(hours=24)
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        if not last_refresh:
+            return True
+        return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)

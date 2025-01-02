@@ -66,7 +66,7 @@ def skip_because_of_weekend(alert: AlertConfiguration) -> bool:
     team_timezone = pytz.timezone(alert.team.timezone)
 
     now_local = now.astimezone(team_timezone)
-    return now_local.isoweekday() in [5, 6]
+    return now_local.isoweekday() in [6, 7]
 
 
 def next_check_time(alert: AlertConfiguration) -> datetime:

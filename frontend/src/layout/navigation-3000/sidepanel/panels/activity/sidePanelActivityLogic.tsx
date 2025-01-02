@@ -40,6 +40,7 @@ export enum SidePanelActivityTab {
     Unread = 'unread',
     All = 'all',
     Metalytics = 'metalytics',
+    Subscriptions = 'subscriptions',
 }
 
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
@@ -65,6 +66,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     reducers({
         activeTab: [
             SidePanelActivityTab.Unread as SidePanelActivityTab,
+            { persist: true },
             {
                 setActiveTab: (_, { tab }) => tab,
             },
