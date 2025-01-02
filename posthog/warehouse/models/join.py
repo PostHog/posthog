@@ -70,7 +70,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             elif isinstance(left, ast.Call) and isinstance(left.args[0], ast.Field):
                 left.args[0].chain = [join_to_add.from_table, *left.args[0].chain]
             else:
-                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
+                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
             right = parse_expr(_joining_table_key)
             if isinstance(right, ast.Field):
