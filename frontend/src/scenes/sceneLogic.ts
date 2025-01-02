@@ -441,9 +441,8 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         }
         for (const [path, scene] of Object.entries(routes)) {
-            mapping[path] = (params, searchParams, hashParams, { method }) => {
-                return actions.openScene(scene, { params, searchParams, hashParams }, method)
-            }
+            mapping[path] = (params, searchParams, hashParams, { method }) =>
+                actions.openScene(scene, { params, searchParams, hashParams }, method)
         }
 
         mapping['/*'] = (_, __, { method }) => {
