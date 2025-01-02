@@ -530,14 +530,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   logic: editorSidebarLogic,
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.DATA_MODELING] && hasOnboardedAnyProduct
-                            ? {
-                                  identifier: Scene.DataModel,
-                                  label: 'Data model',
-                                  icon: <IconServer />,
-                                  to: isUsingSidebar ? undefined : urls.dataModel(),
-                              }
-                            : null,
                         hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.Pipeline,

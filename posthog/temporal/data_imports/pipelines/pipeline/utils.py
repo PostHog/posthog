@@ -16,6 +16,9 @@ def _get_primary_keys(resource: DltResource) -> list[Any] | None:
     if primary_keys is None:
         return None
 
+    if isinstance(primary_keys, str):
+        return [primary_keys]
+
     if isinstance(primary_keys, list):
         return primary_keys
 
@@ -103,3 +106,30 @@ def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table
 def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
     logger.debug(f"Updating rows_synced with +{count}")
     ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
+
+
+def table_from_py_list(table_data: list[Any]) -> pa.Table:
+    try:
+        return pa.Table.from_pylist(table_data)
+    except:
+        # There exists mismatched types in the data
+
+        column_types: dict[str, set[type]] = {key: set() for key in table_data[0].keys()}
+
+        for row in table_data:
+            for column, value in row.items():
+                column_types[column].add(type(value))
+
+        inconsistent_columns = {column: types for column, types in column_types.items() if len(types) > 1}
+
+        for column_name, types in inconsistent_columns.items():
+            if list not in types:
+                raise
+
+            # If one type is a list, then make everything into a list
+            for row in table_data:
+                value = row[column_name]
+                if not isinstance(value, list):
+                    row[column_name] = [value]
+
+        return pa.Table.from_pylist(table_data)

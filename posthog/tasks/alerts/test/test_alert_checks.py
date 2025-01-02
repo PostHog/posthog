@@ -408,6 +408,11 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         checks = AlertCheck.objects.filter(alert_configuration=self.alert["id"])
         assert len(checks) == 0
 
+    def test_alert_is_checked_on_weekday_when_skip_weekends_is_true(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.skip_weekend(True)
+
         # run on week day
         with freeze_time("2024-12-19T07:55:00.000Z"):
             check_alert(self.alert["id"])

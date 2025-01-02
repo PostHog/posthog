@@ -240,10 +240,10 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 }
 
 export function Goal(): JSX.Element {
-    const { experiment, experimentId, getMetricType, experimentMathAggregationForTrends, hasGoalSet, featureFlags } =
+    const { experiment, experimentId, _getMetricType, experimentMathAggregationForTrends, hasGoalSet, featureFlags } =
         useValues(experimentLogic)
     const { setExperiment, openPrimaryMetricModal } = useActions(experimentLogic)
-    const metricType = getMetricType(0)
+    const metricType = _getMetricType(experiment.metrics[0])
 
     // :FLAG: CLEAN UP AFTER MIGRATION
     const isDataWarehouseMetric =

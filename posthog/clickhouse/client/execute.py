@@ -98,6 +98,7 @@ def sync_execute(
     workload: Workload = Workload.DEFAULT,
     team_id: Optional[int] = None,
     readonly=False,
+    sync_client: Optional[SyncClient] = None,
 ):
     if TEST and flush:
         try:
@@ -120,7 +121,7 @@ def sync_execute(
     if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
 
-    with get_pool(workload, team_id, readonly).get_client() as client:
+    with sync_client or get_pool(workload, team_id, readonly).get_client() as client:
         start_time = perf_counter()
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)

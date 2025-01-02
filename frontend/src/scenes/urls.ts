@@ -157,6 +157,8 @@ export const urls = {
     cohorts: (): string => '/cohorts',
     experiment: (id: string | number): string => `/experiments/${id}`,
     experiments: (): string => '/experiments',
+    experimentsSavedMetrics: (): string => '/experiments/saved-metrics',
+    experimentsSavedMetric: (id: string | number): string => `/experiments/saved-metrics/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
@@ -171,7 +173,6 @@ export const urls = {
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
     customCss: (): string => '/themes/custom-css',
-    dataModel: (): string => '/data-model',
     dataWarehouse: (query?: string | Record<string, any>): string =>
         combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
             .url,
@@ -213,6 +214,7 @@ export const urls = {
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
     instanceStaffUsers: (): string => '/instance/staff_users',
+    instanceKafkaInspector: (): string => '/instance/kafka_inspector',
     instanceSettings: (): string => '/instance/settings',
     instanceMetrics: (): string => `/instance/metrics`,
     asyncMigrations: (): string => '/instance/async_migrations',
