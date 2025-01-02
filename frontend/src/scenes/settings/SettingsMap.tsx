@@ -19,6 +19,7 @@ import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
+import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
@@ -183,6 +184,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'datacapture',
                 title: 'IP data capture configuration',
                 component: <IPCapture />,
+            },
+            {
+                id: 'human-friendly-comparison-periods',
+                title: 'Human friendly comparison periods',
+                component: <HumanFriendlyComparisonPeriodsSetting />,
             },
             {
                 id: 'group-analytics',

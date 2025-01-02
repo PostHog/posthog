@@ -202,6 +202,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_columns",
             "recording_domains",
             "cookieless_server_hash_mode",
+            "human_friendly_comparison_periods",
             "person_on_events_querying_enabled",
             "inject_web_apps",
             "extra_settings",

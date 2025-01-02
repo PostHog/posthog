@@ -174,6 +174,7 @@ def relative_date_parse_with_delta_mapping(
     timezone_info: ZoneInfo,
     *,
     always_truncate: bool = False,
+    human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
 ) -> tuple[datetime.datetime, Optional[dict[str, int]], str | None]:
@@ -201,57 +202,17 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None, None
 
-    regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-zA-Z])(?P<position>Start|End)?"
+    regex = r"\-?(?P<number>[0-9]+)?(?P<kind>[hdwmqyHDWMQY])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: dict[str, int] = {}
     if not match:
         return parsed_dt, delta_mapping, None
-    elif match.group("type") == "h":
-        if match.group("number"):
-            delta_mapping["hours"] = int(match.group("number"))
-        if match.group("position") == "Start":
-            delta_mapping["minute"] = 0
-            delta_mapping["second"] = 0
-            delta_mapping["microsecond"] = 0
-        elif match.group("position") == "End":
-            delta_mapping["minute"] = 59
-            delta_mapping["second"] = 59
-            delta_mapping["microsecond"] = 999999
-    elif match.group("type") == "d":
-        if match.group("number"):
-            delta_mapping["days"] = int(match.group("number"))
-        if match.group("position") == "Start":
-            delta_mapping["hour"] = 0
-            delta_mapping["minute"] = 0
-            delta_mapping["second"] = 0
-            delta_mapping["microsecond"] = 0
-        elif match.group("position") == "End":
-            delta_mapping["hour"] = 23
-            delta_mapping["minute"] = 59
-            delta_mapping["second"] = 59
-            delta_mapping["microsecond"] = 999999
-    elif match.group("type") == "w":
-        if match.group("number"):
-            delta_mapping["weeks"] = int(match.group("number"))
-    elif match.group("type") == "m":
-        if match.group("number"):
-            delta_mapping["months"] = int(match.group("number"))
-        if match.group("position") == "Start":
-            delta_mapping["day"] = 1
-        elif match.group("position") == "End":
-            delta_mapping["day"] = 31
-    elif match.group("type") == "q":
-        if match.group("number"):
-            delta_mapping["weeks"] = 13 * int(match.group("number"))
-    elif match.group("type") == "y":
-        if match.group("number"):
-            delta_mapping["years"] = int(match.group("number"))
-        if match.group("position") == "Start":
-            delta_mapping["month"] = 1
-            delta_mapping["day"] = 1
-        elif match.group("position") == "End":
-            delta_mapping["day"] = 31
+
+    delta_mapping = get_delta_mapping_for(
+        **match.groupdict(),
+        human_friendly_comparison_periods=human_friendly_comparison_periods,
+    )
 
     if increase:
         parsed_dt += relativedelta(**delta_mapping)  # type: ignore
@@ -268,16 +229,86 @@ def relative_date_parse_with_delta_mapping(
     return parsed_dt, delta_mapping, match.group("position") or None
 
 
+def get_delta_mapping_for(
+    *,
+    kind: str,
+    number: Optional[str] = None,
+    position: Optional[str] = None,
+    human_friendly_comparison_periods: bool = False,
+) -> dict[str, int]:
+    delta_mapping: dict[str, int] = {}
+
+    if kind == "h":
+        if number:
+            delta_mapping["hours"] = int(number)
+        if position == "Start":
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif position == "End":
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
+    elif kind == "d":
+        if number:
+            delta_mapping["days"] = int(number)
+        if position == "Start":
+            delta_mapping["hour"] = 0
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif position == "End":
+            delta_mapping["hour"] = 23
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
+    elif kind == "w":
+        if number:
+            delta_mapping["weeks"] = int(number)
+    elif kind == "m":
+        if number:
+            if human_friendly_comparison_periods:
+                delta_mapping["weeks"] = 4
+            else:
+                delta_mapping["months"] = int(number)
+        if position == "Start":
+            delta_mapping["day"] = 1
+        elif position == "End":
+            delta_mapping["day"] = 31
+    elif kind == "q":
+        if number:
+            delta_mapping["weeks"] = 13 * int(number)
+    elif kind == "y":
+        if number:
+            if human_friendly_comparison_periods:
+                delta_mapping["weeks"] = 52
+            else:
+                delta_mapping["years"] = int(number)
+        if position == "Start":
+            delta_mapping["month"] = 1
+            delta_mapping["day"] = 1
+        elif position == "End":
+            delta_mapping["day"] = 31
+
+    return delta_mapping
+
+
 def relative_date_parse(
     input: str,
     timezone_info: ZoneInfo,
     *,
     always_truncate: bool = False,
+    human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
 ) -> datetime.datetime:
     return relative_date_parse_with_delta_mapping(
-        input, timezone_info, always_truncate=always_truncate, now=now, increase=increase
+        input,
+        timezone_info,
+        always_truncate=always_truncate,
+        human_friendly_comparison_periods=human_friendly_comparison_periods,
+        now=now,
+        increase=increase,
     )[0]
 
 
