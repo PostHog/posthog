@@ -4,7 +4,7 @@ from rest_framework import filters, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.hogql.ast import Field
+from posthog.hogql.ast import Field, Call
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_expr
 from posthog.warehouse.models import DataWarehouseJoin
@@ -71,8 +71,8 @@ class ViewLinkSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"Invalid table: {table}")
 
         node = parse_expr(join_key)
-        if not isinstance(node, Field):
-            raise serializers.ValidationError(f"Join key {join_key} must be a table field - no function calls allowed")
+        if not isinstance(node, Field) and not (isinstance(node, Call) and isinstance(node.args[0], Field)):
+            raise serializers.ValidationError(f"Join key {join_key} must be a table field")
 
         return
 

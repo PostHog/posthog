@@ -65,14 +65,20 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 raise ResolutionError(f"No fields requested from {join_to_add.to_table}")
 
             left = parse_expr(_source_table_key)
-            if not isinstance(left, ast.Field):
-                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
-            left.chain = [join_to_add.from_table, *left.chain]
+            if isinstance(left, ast.Field):
+                left.chain = [join_to_add.from_table, *left.chain]
+            elif isinstance(left, ast.Call) and isinstance(left.args[0], ast.Field):
+                left.args[0].chain = [join_to_add.from_table, *left.args[0].chain]
+            else:
+                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
             right = parse_expr(_joining_table_key)
-            if not isinstance(right, ast.Field):
-                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
-            right.chain = [join_to_add.to_table, *right.chain]
+            if isinstance(right, ast.Field):
+                right.chain = [join_to_add.to_table, *right.chain]
+            elif isinstance(right, ast.Call) and isinstance(right.args[0], ast.Field):
+                right.args[0].chain = [join_to_add.to_table, *right.args[0].chain]
+            else:
+                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
             join_expr = ast.JoinExpr(
                 table=ast.SelectQuery(
