@@ -42,7 +42,7 @@ from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
-    run_consumer_loop,
+    run_consumer,
     wait_for_schema_or_producer,
 )
 from posthog.temporal.batch_exports.temporary_file import (
@@ -501,12 +501,19 @@ class SnowflakeConsumer(Consumer):
         heartbeater: Heartbeater,
         heartbeat_details: SnowflakeHeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        data_interval_end: dt.datetime | str,
         writer_format: WriterFormat,
         snowflake_client: SnowflakeClient,
         snowflake_table: str,
         snowflake_table_stage_prefix: str,
     ):
-        super().__init__(heartbeater, heartbeat_details, data_interval_start, writer_format)
+        super().__init__(
+            heartbeater=heartbeater,
+            heartbeat_details=heartbeat_details,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            writer_format=writer_format,
+        )
         self.heartbeat_details: SnowflakeHeartbeatDetails = heartbeat_details
         self.snowflake_table = snowflake_table
         self.snowflake_client = snowflake_client
@@ -714,21 +721,23 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     stagle_table_name, data_interval_end_str, table_fields, create=requires_merge, delete=requires_merge
                 ) as snow_stage_table,
             ):
-                records_completed = await run_consumer_loop(
-                    queue=queue,
-                    consumer_cls=SnowflakeConsumer,
-                    producer_task=producer_task,
+                consumer = SnowflakeConsumer(
                     heartbeater=heartbeater,
                     heartbeat_details=details,
                     data_interval_end=data_interval_end,
                     data_interval_start=data_interval_start,
-                    schema=record_batch_schema,
                     writer_format=WriterFormat.JSONL,
-                    max_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
-                    json_columns=known_variant_columns,
                     snowflake_client=snow_client,
                     snowflake_table=snow_stage_table if requires_merge else snow_table,
                     snowflake_table_stage_prefix=data_interval_end_str,
+                )
+                records_completed = await run_consumer(
+                    consumer=consumer,
+                    queue=queue,
+                    producer_task=producer_task,
+                    schema=record_batch_schema,
+                    max_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
+                    json_columns=known_variant_columns,
                     multiple_files=True,
                 )
 
