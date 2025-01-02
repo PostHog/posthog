@@ -375,10 +375,11 @@ def capture_event(
             elif team_id:
                 team = Team.objects.get(id=team_id)
                 distinct_ids = [user.distinct_id for user in team.all_users_with_access()]
+                organization_id = str(team.organization_id)
         else:
             if not organization_id:
                 team = Team.objects.get(id=team_id)
-                organization_id = team.organization_id
+                organization_id = str(team.organization_id)
             org_owner = get_org_owner_or_first_user(organization_id) if organization_id else None
             distinct_ids.append(
                 org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
@@ -686,6 +687,7 @@ def get_teams_with_survey_responses_count_in_period(
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     return list(
         ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end)
+        .exclude(pipeline_version=ExternalDataJob.PipelineVersion.V2)
         .values("team_id")
         .annotate(total=Sum("rows_synced"))
     )

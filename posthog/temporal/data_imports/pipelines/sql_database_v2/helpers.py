@@ -18,6 +18,8 @@ from dlt.common.typing import TDataItem, TSortOrder
 
 from dlt.sources.credentials import ConnectionStringCredentials
 
+from posthog.temporal.data_imports.pipelines.sql_database_v2.settings import DEFAULT_CHUNK_SIZE
+
 from .arrow_helpers import row_tuples_to_arrow
 from .schema_types import (
     default_table_adapter,
@@ -44,8 +46,9 @@ class TableLoader:
         backend: TableBackend,
         table: Table,
         columns: TTableSchemaColumns,
-        chunk_size: int = 1000,
+        chunk_size: int = DEFAULT_CHUNK_SIZE,
         incremental: Optional[dlt.sources.incremental[Any]] = None,
+        db_incremental_field_last_value: Optional[Any] = None,
         query_adapter_callback: Optional[TQueryAdapter] = None,
         connect_args: Optional[list[str]] = None,
     ) -> None:
@@ -64,7 +67,11 @@ class TableLoader:
                 raise KeyError(
                     f"Cursor column '{incremental.cursor_path}' does not exist in table '{table.name}'"
                 ) from e
-            self.last_value = incremental.last_value
+            self.last_value = (
+                db_incremental_field_last_value
+                if db_incremental_field_last_value is not None
+                else incremental.last_value
+            )
             self.end_value = incremental.end_value
             self.row_order: TSortOrder = self.incremental.row_order
         else:
@@ -183,6 +190,7 @@ def table_rows(
     chunk_size: int,
     backend: TableBackend,
     incremental: Optional[dlt.sources.incremental[Any]] = None,
+    db_incremental_field_last_value: Optional[Any] = None,
     defer_table_reflect: bool = False,
     table_adapter_callback: Optional[Callable[[Table], None]] = None,
     reflection_level: ReflectionLevel = "minimal",
@@ -226,6 +234,7 @@ def table_rows(
         table,
         columns,
         incremental=incremental,
+        db_incremental_field_last_value=db_incremental_field_last_value,
         chunk_size=chunk_size,
         query_adapter_callback=query_adapter_callback,
         connect_args=connect_args,
@@ -295,7 +304,7 @@ class SqlTableResourceConfiguration(BaseConfiguration):
     table: Optional[str] = None
     schema: Optional[str] = None
     incremental: Optional[dlt.sources.incremental] = None  # type: ignore[type-arg]
-    chunk_size: int = 50000
+    chunk_size: int = DEFAULT_CHUNK_SIZE
     backend: TableBackend = "sqlalchemy"
     detect_precision_hints: Optional[bool] = None
     defer_table_reflect: Optional[bool] = False
