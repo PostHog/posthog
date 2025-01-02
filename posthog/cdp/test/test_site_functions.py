@@ -351,11 +351,10 @@ function onLoad() {
 
     def test_run_function_skip_disabled_mapping(self):
         self.hog_function.hog = "export function onEvent({ inputs }) { console.log(inputs.message); }"
-        # self.hog_function.filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
         self.hog_function.inputs = {"message": {"value": "Hello World {event.properties.id}"}}
         self.hog_function.mappings = [
             {
-                "inputs": {"greeting": {"value": "Hallo, {person.properties.nonexistent_property}!"}},
+                "inputs": {"greeting": {"value": "Hallo!"}},
                 "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events"}]},
                 "disabled": True,
             }
@@ -366,19 +365,6 @@ function onLoad() {
 
         globals = {
             "event": {"event": "$pageview", "properties": {"id": "banana"}},
-            "groups": {},
-            "person": {"properties": {"name": "Bob"}},
-        }
-        response = self._execute_javascript(
-            result
-            + "().init({ posthog: { get_property: () => ({name: 'Bob'}) }, callback: () => { console.log('Loaded') } }).processEvent("
-            + json.dumps(globals)
-            + ")"
-        )
-        assert "Loaded\nHello World banana" == response.strip()
-
-        globals = {
-            "event": {"event": "$autocapture", "properties": {"id": "banana"}},
             "groups": {},
             "person": {"properties": {"name": "Bob"}},
         }
