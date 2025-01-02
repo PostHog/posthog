@@ -148,7 +148,7 @@ type FunnelsInfoProps = {
 function FunnelsInfo({ dataset }: FunnelsInfoProps): JSX.Element {
     return (
         <>
-            You are customizing the appearch of the{' '}
+            You are customizing the appearance of the{' '}
             {dataset.breakdown_value?.[0] === 'Baseline' ? (
                 <b>Baseline</b>
             ) : (
