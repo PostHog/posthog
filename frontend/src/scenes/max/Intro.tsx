@@ -3,6 +3,7 @@ import { LemonButton, Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
+import { uuid } from 'lib/utils'
 import { useMemo, useState } from 'react'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -19,13 +20,13 @@ export function Intro(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
     const { acceptDataProcessing } = useActions(maxGlobalLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { sessionId } = useValues(maxLogic)
+    const { conversation } = useValues(maxLogic)
 
     const [hedgehogDirection, setHedgehogDirection] = useState<'left' | 'right'>('right')
 
     const headline = useMemo(() => {
-        return HEADLINES[parseInt(sessionId.split('-').at(-1) as string, 16) % HEADLINES.length]
-    }, [])
+        return HEADLINES[parseInt((conversation?.id || uuid()).split('-').at(-1) as string, 16) % HEADLINES.length]
+    }, [conversation?.id])
 
     return (
         <>

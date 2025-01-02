@@ -23,6 +23,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.postgres_batch_export import (
+    MissingPrimaryKeyError,
     PostgresBatchExportInputs,
     PostgresBatchExportWorkflow,
     PostgresInsertInputs,
@@ -135,6 +136,11 @@ async def assert_clickhouse_records_in_postgres(
                     # bq_ingested_timestamp cannot be compared as it comes from an unstable function.
                     continue
 
+                if isinstance(v, str):
+                    v = v.replace("\\u0000", "")
+                elif isinstance(v, bytes):
+                    v = v.replace(b"\\u0000", b"")
+
                 if k in {"properties", "set", "set_once", "person_properties", "elements"} and v is not None:
                     expected_record[k] = json.loads(v)
                 elif isinstance(v, dt.datetime):
@@ -156,6 +162,12 @@ async def assert_clickhouse_records_in_postgres(
     assert len(inserted_records) == len(expected_records)
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
+
+
+@pytest.fixture
+def test_properties(request):
+    """Include a \u0000 unicode escape sequence in properties."""
+    return {"$browser": "Chrome", "$os": "Mac OS X", "unicode": "\u0000"}
 
 
 @pytest.fixture
@@ -362,7 +374,73 @@ async def test_insert_into_postgres_activity_merges_data_in_follow_up_runs(
 
 @pytest.fixture
 def table_name(ateam, interval):
-    return f"test_workflow_table_{ateam.pk}_{interval}"
+    return f"test_table_{ateam.pk}_{interval}"
+
+
+@pytest_asyncio.fixture
+async def persons_table_without_primary_key(postgres_connection, postgres_config, table_name):
+    """Managed a table for a persons batch export without a primary key."""
+    self_managed_table_name = table_name + f"_self_managed_{uuid.uuid4().hex}"
+
+    async with postgres_connection.transaction():
+        async with postgres_connection.cursor() as cursor:
+            await cursor.execute(
+                sql.SQL(
+                    "CREATE TABLE {table} (team_id BIGINT, distinct_id TEXT, person_id TEXT, properties JSONB, person_distinct_id_version BIGINT, person_version BIGINT)"
+                ).format(table=sql.Identifier(postgres_config["schema"], self_managed_table_name))
+            )
+
+    yield self_managed_table_name
+
+    async with postgres_connection.transaction():
+        async with postgres_connection.cursor() as cursor:
+            await cursor.execute(
+                sql.SQL("DROP TABLE IF EXISTS {table}").format(
+                    table=sql.Identifier(postgres_config["schema"], self_managed_table_name)
+                )
+            )
+
+
+@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_key(
+    activity_environment,
+    postgres_config,
+    exclude_events,
+    model: BatchExportModel | BatchExportSchema | None,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+    generate_test_data,
+    persons_table_without_primary_key,
+):
+    """Test the insert_into_postgres_activity function fails when missing a primary key.
+
+    We use a self-managed, previously created postgresql table to export persons data to.
+    Since this table does not have a primary key, the merge query should fail.
+
+    This error should only occur if the table is created outside the batch export.
+    """
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
+
+    insert_inputs = PostgresInsertInputs(
+        team_id=ateam.pk,
+        table_name=persons_table_without_primary_key,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+        **postgres_config,
+    )
+
+    with pytest.raises(MissingPrimaryKeyError):
+        with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+            await activity_environment.run(insert_into_postgres_activity, insert_inputs)
 
 
 @pytest_asyncio.fixture

@@ -17,7 +17,7 @@ from posthog.schema import (
     TrendsQuery,
     TrendsFilter,
     IntervalType,
-    InsightDateRange,
+    DateRange,
     BaseMathType,
     AlertState,
     AlertCalculationInterval,
@@ -49,6 +49,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         lower: Optional[int] = None,
         upper: Optional[int] = None,
         calculation_interval: AlertCalculationInterval = AlertCalculationInterval.DAILY,
+        check_ongoing_interval: bool = False,
     ) -> dict:
         alert = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
@@ -59,6 +60,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                 "config": {
                     "type": "TrendsAlertConfig",
                     "series_index": series_index,
+                    "check_ongoing_interval": check_ongoing_interval,
                 },
                 "condition": {"type": "absolute_value"},
                 "calculation_interval": calculation_interval,
@@ -69,7 +71,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         return alert
 
     def create_time_series_trend_insight(
-        self, breakdown: Optional[BreakdownFilter] = None, interval: IntervalType = IntervalType.WEEK
+        self,
+        breakdown: Optional[BreakdownFilter] = None,
+        interval: IntervalType = IntervalType.WEEK,
     ) -> dict[str, Any]:
         query_dict = TrendsQuery(
             series=[
@@ -86,7 +90,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             breakdownFilter=breakdown,
             trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
             interval=interval,
-            dateRange=InsightDateRange(date_from="-8w"),
+            dateRange=DateRange(date_from="-8w"),
         ).model_dump()
 
         insight = self.dashboard_api.create_insight(
@@ -114,7 +118,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             breakdownFilter=breakdown,
             trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_PIE),
             interval=IntervalType.WEEK,
-            dateRange=InsightDateRange(date_from="-8w"),
+            dateRange=DateRange(date_from="-8w"),
         ).model_dump()
 
         insight = self.dashboard_api.create_insight(
@@ -491,7 +495,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         insight = self.create_time_series_trend_insight()
-        alert = self.create_alert(insight, series_index=0, upper=1)
+        alert = self.create_alert(insight, series_index=0, upper=1, check_ongoing_interval=True)
 
         # around 8 AM on same day as check
         with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1)):
@@ -528,11 +532,11 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY, ["The insight value (signed_up) for current week (2) is more than upper threshold (1.0)"]
         )
 
-    def test_trend_current_interval_fallback_to_previous_high_threshold_breached(
+    def test_trend_current_interval_should_not_fallback_to_previous_high_threshold_breached(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         insight = self.create_time_series_trend_insight(interval=IntervalType.DAY)
-        alert = self.create_alert(insight, series_index=0, upper=1)
+        alert = self.create_alert(insight, series_index=0, upper=1, check_ongoing_interval=True)
 
         # current day doesn't breach
         with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1)):
@@ -563,7 +567,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         check_alert(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
-        assert updated_alert.state == AlertState.FIRING
+        assert updated_alert.state == AlertState.NOT_FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
         assert updated_alert.next_check_at is not None
@@ -571,14 +575,10 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
-        assert alert_check.calculated_value == 2
-        assert alert_check.state == AlertState.FIRING
+        # has to have value for current period
+        assert alert_check.calculated_value == 1
+        assert alert_check.state == AlertState.NOT_FIRING
         assert alert_check.error is None
-
-        # should be 'previous' week as current week check should fallback
-        mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for previous day (2) is more than upper threshold (1.0)"]
-        )
 
     def test_trend_current_interval_no_threshold_breached(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock

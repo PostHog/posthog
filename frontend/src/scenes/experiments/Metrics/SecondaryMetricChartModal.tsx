@@ -32,7 +32,7 @@ export function SecondaryMetricChartModal({
                 </LemonButton>
             }
         >
-            <ResultsQuery targetResults={targetResults} showTable={false} />
+            <ResultsQuery result={targetResults} showTable={false} />
         </LemonModal>
     )
 }
