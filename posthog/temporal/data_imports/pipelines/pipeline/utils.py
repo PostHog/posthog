@@ -1,6 +1,7 @@
 import json
 from collections.abc import Sequence
 from typing import Any
+import uuid
 import pyarrow as pa
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.sources import DltResource
@@ -108,12 +109,22 @@ def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger)
     ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
 
 
+def _convert_uuid_to_string(table_data: list[Any]) -> list[dict]:
+    return [
+        {key: (str(value) if isinstance(value, uuid.UUID) else value) for key, value in record.items()}
+        for record in table_data
+    ]
+
+
 def table_from_py_list(table_data: list[Any]) -> pa.Table:
     try:
+        uuid_exists = any(isinstance(value, uuid.UUID) for value in table_data[0].values())
+        if uuid_exists:
+            return pa.Table.from_pylist(_convert_uuid_to_string(table_data))
+
         return pa.Table.from_pylist(table_data)
     except:
         # There exists mismatched types in the data
-
         column_types: dict[str, set[type]] = {key: set() for key in table_data[0].keys()}
 
         for row in table_data:
