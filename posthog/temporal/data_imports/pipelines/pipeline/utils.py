@@ -118,6 +118,9 @@ def _convert_uuid_to_string(table_data: list[Any]) -> list[dict]:
 
 def table_from_py_list(table_data: list[Any]) -> pa.Table:
     try:
+        if len(table_data) == 0:
+            return pa.Table.from_pylist(table_data)
+
         uuid_exists = any(isinstance(value, uuid.UUID) for value in table_data[0].values())
         if uuid_exists:
             return pa.Table.from_pylist(_convert_uuid_to_string(table_data))
