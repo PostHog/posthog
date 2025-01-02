@@ -183,7 +183,7 @@ def capture_legacy_api_call(request: request.Request, team: Team):
         "was_impersonated": is_impersonated_session(request),
     }
 
-    posthoganalytics.capture(distinct_id, event, properties, groups=(groups(team.organization, team.pk)))
+    posthoganalytics.capture(distinct_id, event, properties, groups=(groups(team.organization, team)))
 
 
 class QuerySchemaParser(JSONParser):
