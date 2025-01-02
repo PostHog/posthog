@@ -181,28 +181,30 @@ let user := fetch(f'https://{regions[inputs.oauth['app.region']]}/contacts/searc
 })
 
 let payload := {
+    'event_name': inputs.eventName,
+    'created_at': inputs.eventTime,
     'email': inputs.email
 }
 
 if (inputs.include_all_properties) {
     for (let key, value in person.properties) {
         if (not empty(value) and not key like '$%') {
-            payload[key] := value
+            payload.metadata[key] := value
         }
     }
 }
 
 for (let key, value in inputs.properties) {
     if (not empty(value)) {
-        payload[key] := value
+        payload.metadata[key] := value
     }
 }
 
 let res
 
 if (user.body.total_count == 1) {
-    res := fetch(f'https://{regions[inputs.oauth['app.region']]}/contacts/{user.body.data.1.id}', {
-        'method': 'PUT',
+    res := fetch(f'https://{regions[inputs.oauth['app.region']]}/events', {
+        'method': 'POST',
         'headers': {
             'Content-Type': 'application/json',
             'Intercom-Version': '2.11',
@@ -211,6 +213,8 @@ if (user.body.total_count == 1) {
         },
         'body': payload
     })
+} else {
+    throw Error('No unique contact found. Skipping...')
 }
 
 if (res.status >= 400) {
@@ -270,11 +274,7 @@ if (res.status >= 400) {
             "type": "dictionary",
             "label": "Property mapping",
             "description": "Map of Intercom properties and their values. You can use the filters section to filter out unwanted events.",
-            "default": {
-                "name": "{f'{person.properties.first_name} {person.properties.last_name}' == ' ' ? null : f'{person.properties.first_name} {person.properties.last_name}'}",
-                "phone": "{person.properties.phone}",
-                "last_seen_at": "{toUnixTimestamp(event.timestamp)}",
-            },
+            "default": {"revenue": "{event.properties.price}", "currency": "{event.properties.currency}"},
             "secret": False,
             "required": False,
         },
