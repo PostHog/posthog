@@ -3865,7 +3865,7 @@
             "type": "object"
         },
         "CustomChannelField": {
-            "enum": ["utm_source", "utm_medium", "utm_campaign", "referring_domain"],
+            "enum": ["utm_source", "utm_medium", "utm_campaign", "referring_domain", "url", "pathname", "hostname"],
             "type": "string"
         },
         "CustomChannelOperator": {
