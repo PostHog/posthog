@@ -50,6 +50,23 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
                     )
                 table = table.append_column(field, new_column_data)
 
+            # If the delta table schema has a larger scale/precision, then update the
+            # pyarrow schema to use the larger values so that we're not trying to downscale
+            if isinstance(field.type, pa.Decimal128Type):
+                py_arrow_table_column = table.column(field.name)
+                if (
+                    field.type.precision > py_arrow_table_column.type.precision
+                    or field.type.scale > py_arrow_table_column.type.scale
+                ):
+                    field_index = table.schema.get_field_index(field.name)
+                    new_schema = table.schema.set(
+                        field_index,
+                        table.schema.field(field_index).with_type(
+                            pa.decimal128(field.type.precision, field.type.scale)
+                        ),
+                    )
+                    table = table.cast(new_schema)
+
     # Change types based on what deltalake tables support
     return table.cast(ensure_delta_compatible_arrow_schema(table.schema))
 

@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from conditional_cache import lru_cache
 from typing import Any
+import deltalake.exceptions
 import pyarrow as pa
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -8,6 +9,7 @@ import deltalake as deltalake
 from django.conf import settings
 from sentry_sdk import capture_exception
 from posthog.settings.base_variables import TEST
+from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
 
@@ -15,10 +17,12 @@ from posthog.warehouse.s3 import get_s3_client
 class DeltaTableHelper:
     _resource_name: str
     _job: ExternalDataJob
+    _logger: FilteringBoundLogger
 
-    def __init__(self, resource_name: str, job: ExternalDataJob) -> None:
+    def __init__(self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger) -> None:
         self._resource_name = resource_name
         self._job = job
+        self._logger = logger
 
     def _get_credentials(self):
         if TEST:
@@ -110,15 +114,27 @@ class DeltaTableHelper:
                 delta_table = deltalake.DeltaTable.create(
                     table_uri=self._get_delta_table_uri(), schema=data.schema, storage_options=storage_options
                 )
+            try:
+                deltalake.write_deltalake(
+                    table_or_uri=delta_table,
+                    data=data,
+                    partition_by=None,
+                    mode=mode,
+                    schema_mode=schema_mode,
+                    engine="rust",
+                )  # type: ignore
+            except deltalake.exceptions.SchemaMismatchError as e:
+                self._logger.debug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
+                capture_exception(e)
 
-            deltalake.write_deltalake(
-                table_or_uri=delta_table,
-                data=data,
-                partition_by=None,
-                mode=mode,
-                schema_mode=schema_mode,
-                engine="rust",
-            )  # type: ignore
+                deltalake.write_deltalake(
+                    table_or_uri=delta_table,
+                    data=data,
+                    partition_by=None,
+                    mode=mode,
+                    schema_mode="overwrite",
+                    engine="rust",
+                )  # type: ignore
 
         delta_table = self.get_delta_table()
         assert delta_table is not None
