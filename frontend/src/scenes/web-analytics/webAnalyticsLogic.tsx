@@ -989,18 +989,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 {},
                                 {
                                     control: (
-                                        <div className="flex flex-row space-x-2 font-medium">
-                                            <span>Customize channel types</span>
-                                            <LemonButton
-                                                icon={<IconGear />}
-                                                type="tertiary"
-                                                status="alt"
-                                                size="small"
-                                                noPadding={true}
-                                                tooltip="Customize channel types"
-                                                to={customChannelTypesUrl}
-                                            />
-                                        </div>
+                                        <LemonButton
+                                            className="font-medium" // match the label elsewhere on the page
+                                            sideIcon={<IconGear />}
+                                            type="tertiary"
+                                            status="alt"
+                                            noPadding={true}
+                                            to={customChannelTypesUrl}
+                                            size="medium"
+                                        >
+                                            Customize channel types
+                                        </LemonButton>
                                     ),
                                     docs: {
                                         url: 'https://posthog.com/docs/data/channel-type',
