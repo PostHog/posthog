@@ -87,6 +87,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             actions.setTestInvocationValue('globals', JSON.stringify(sampleGlobals, null, 2))
         },
     })),
+
     forms(({ props, actions, values }) => ({
         testInvocation: {
             defaults: {

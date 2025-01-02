@@ -7359,6 +7359,9 @@
             "additionalProperties": false,
             "description": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
             "properties": {
+                "bounceRateDurationSeconds": {
+                    "type": "number"
+                },
                 "bounceRatePageViewMode": {
                     "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
                     "type": "string"
@@ -12519,6 +12522,9 @@
         "TrendsAlertConfig": {
             "additionalProperties": false,
             "properties": {
+                "check_ongoing_interval": {
+                    "type": "boolean"
+                },
                 "series_index": {
                     "type": "integer"
                 },
@@ -13264,6 +13270,7 @@
                 "InitialUTMSourceMediumCampaign",
                 "Browser",
                 "OS",
+                "Viewport",
                 "DeviceType",
                 "Country",
                 "Region",

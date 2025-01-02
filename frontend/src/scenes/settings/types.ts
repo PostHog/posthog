@@ -100,6 +100,7 @@ export type SettingId =
     | 'hedgehog-mode'
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
+    | 'bounce-rate-duration'
     | 'session-table-version'
     | 'web-vitals-autocapture'
     | 'dead-clicks-autocapture'

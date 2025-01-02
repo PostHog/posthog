@@ -17,7 +17,7 @@ from posthog.temporal.data_imports.pipelines.bigquery import delete_all_temp_des
 
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline_sync import DataImportPipelineSync, PipelineInputs
-from posthog.temporal.data_imports.util import is_posthog_team
+from posthog.temporal.data_imports.util import is_posthog_team, is_enabled_for_team
 from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
@@ -164,7 +164,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
         ]:
-            if is_posthog_team(inputs.team_id):
+            if is_posthog_team(inputs.team_id) or is_enabled_for_team(inputs.team_id):
                 from posthog.temporal.data_imports.pipelines.sql_database_v2 import sql_source_for_type
             else:
                 from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
@@ -507,7 +507,9 @@ def _run(
     reset_pipeline: bool,
 ):
     if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
-        PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental).run()
+        pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental)
+        pipeline.run()
+        del pipeline
     else:
         table_row_counts = DataImportPipelineSync(
             job_inputs, source, logger, reset_pipeline, schema.is_incremental

@@ -11,11 +11,29 @@ import { AlertType, AlertTypeWrite } from './types'
 
 export type AlertFormType = Pick<
     AlertType,
-    'name' | 'enabled' | 'created_at' | 'threshold' | 'condition' | 'subscribed_users' | 'checks' | 'config'
+    | 'name'
+    | 'enabled'
+    | 'created_at'
+    | 'calculation_interval'
+    | 'threshold'
+    | 'condition'
+    | 'subscribed_users'
+    | 'checks'
+    | 'config'
+    | 'skip_weekend'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
     insight?: QueryBasedInsightModel['id']
+}
+
+export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): boolean {
+    return (
+        (alert?.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
+            alert?.condition.type === AlertConditionType.RELATIVE_INCREASE) &&
+        alert?.threshold.configuration.bounds?.upper != null &&
+        !isNaN(alert?.threshold.configuration.bounds.upper)
+    )
 }
 
 export interface AlertFormLogicProps {
@@ -48,6 +66,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     config: {
                         type: 'TrendsAlertConfig',
                         series_index: 0,
+                        check_ongoing_interval: false,
                     },
                     threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: {} } },
                     condition: {
@@ -56,6 +75,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     subscribed_users: [],
                     checks: [],
                     calculation_interval: AlertCalculationInterval.DAILY,
+                    skip_weekend: false,
                     insight: props.insightId,
                 } as AlertFormType),
             errors: ({ name }) => ({
@@ -66,6 +86,16 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     ...alert,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
+                    // can only skip weekends for hourly/daily alerts
+                    skip_weekend:
+                        (alert.calculation_interval === AlertCalculationInterval.DAILY ||
+                            alert.calculation_interval === AlertCalculationInterval.HOURLY) &&
+                        alert.skip_weekend,
+                    // can only check ongoing interval for absolute value/increase alerts with upper threshold
+                    config: {
+                        ...alert.config,
+                        check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
+                    },
                 }
 
                 // absolute value alert can only have absolute threshold

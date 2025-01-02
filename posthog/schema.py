@@ -1571,6 +1571,7 @@ class TrendsAlertConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    check_ongoing_interval: Optional[bool] = None
     series_index: int
     type: Literal["TrendsAlertConfig"] = "TrendsAlertConfig"
 
@@ -1673,6 +1674,7 @@ class WebStatsBreakdown(StrEnum):
     INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN = "InitialUTMSourceMediumCampaign"
     BROWSER = "Browser"
     OS = "OS"
+    VIEWPORT = "Viewport"
     DEVICE_TYPE = "DeviceType"
     COUNTRY = "Country"
     REGION = "Region"
@@ -2262,6 +2264,7 @@ class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bounceRateDurationSeconds: Optional[float] = None
     bounceRatePageViewMode: Optional[BounceRatePageViewMode] = None
     customChannelTypeRules: Optional[list[CustomChannelRule]] = None
     dataWarehouseEventsModifiers: Optional[list[DataWarehouseEventsModifier]] = None

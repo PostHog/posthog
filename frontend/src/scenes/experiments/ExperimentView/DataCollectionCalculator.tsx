@@ -107,12 +107,12 @@ function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Elem
 }
 
 export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorProps): JSX.Element {
-    const { getMetricType, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
+    const { _getMetricType, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
         experimentLogic({ experimentId })
     )
     const { setExperiment } = useActions(experimentLogic({ experimentId }))
 
-    const metricType = getMetricType(0)
+    const metricType = _getMetricType(experiment.metrics[0])
 
     // :KLUDGE: need these to mount the Query component to load the insight */
     const insightLogicInstance = insightLogic({
@@ -217,7 +217,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                         The calculations are based on the events received in the last 14 days. This event count may
                         differ from what was considered in earlier estimates.
                     </LemonBanner>
-                    {getMetricType(0) === InsightType.TRENDS ? (
+                    {_getMetricType(experiment.metrics[0]) === InsightType.TRENDS ? (
                         <TrendCalculation experimentId={experimentId} />
                     ) : (
                         <FunnelCalculation experimentId={experimentId} />
