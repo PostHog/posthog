@@ -195,7 +195,6 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                     "data": [2.0, 1, 2.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
-                    "persons_urls": ANY,
                     "filter": ANY,
                 }
             ],
@@ -237,7 +236,6 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                     "data": [2.0, 1, 2.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
-                    "persons_urls": ANY,
                     "filter": ANY,
                 }
             ],
