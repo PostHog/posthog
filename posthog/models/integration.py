@@ -49,6 +49,7 @@ class Integration(models.Model):
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_ADS = "google-ads"
         SNAPCHAT = "snapchat"
+        INTERCOM = "intercom"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -115,7 +116,7 @@ class OauthConfig:
 
 
 class OauthIntegration:
-    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat"]
+    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat", "intercom"]
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
@@ -208,6 +209,21 @@ class OauthIntegration:
                 scope="snapchat-offline-conversions-api snapchat-marketing-api",
                 id_path="me.id",
                 name_path="me.email",
+            )
+        elif kind == "intercom":
+            if not settings.INTERCOM_APP_CLIENT_ID or not settings.INTERCOM_APP_CLIENT_SECRET:
+                raise NotImplementedError("Intercom app not configured")
+
+            return OauthConfig(
+                authorize_url="https://app.intercom.com/oauth",
+                token_url="https://api.intercom.io/auth/eagle/token",
+                token_info_url="https://api.intercom.io/me",
+                token_info_config_fields=["id", "email", "app.region"],
+                client_id=settings.INTERCOM_APP_CLIENT_ID,
+                client_secret=settings.INTERCOM_APP_CLIENT_SECRET,
+                scope="",
+                id_path="id",
+                name_path="email",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
