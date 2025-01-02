@@ -858,7 +858,7 @@ class TestUserAPI(APIBaseTest):
     def test_redirect_user_to_site_with_toolbar(self, patched_token):
         patched_token.return_value = "tokenvalue"
 
-        self.team.app_urls = ["http://127.0.0.1:8000"]
+        self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
         response = self.client.get(
@@ -870,14 +870,14 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         self.assertEqual(
             unquote(locationHeader),
-            'http://127.0.0.1:8000#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
     def test_redirect_user_to_site_with_experiments_toolbar(self, patched_token):
         patched_token.return_value = "tokenvalue"
 
-        self.team.app_urls = ["http://127.0.0.1:8000"]
+        self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
         response = self.client.get(
@@ -889,7 +889,7 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         self.assertEqual(
             unquote(locationHeader),
-            'http://127.0.0.1:8000#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
