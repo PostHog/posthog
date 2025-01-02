@@ -19,7 +19,7 @@ export function LineageTab(): JSX.Element {
         <GenericNode pref={ref}>
             <div className="flex flex-col max-w-full">
                 <div className="flex flex-wrap justify-between gap-2">
-                    <div className="font-bold break-words">{node.name}</div>
+                    <div className="font-bold break-all">{node.name}</div>
                     {node.savedQueryId && (
                         <LemonButton
                             type="primary"

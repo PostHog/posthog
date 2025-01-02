@@ -507,7 +507,9 @@ def _run(
     reset_pipeline: bool,
 ):
     if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
-        PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental).run()
+        pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental)
+        pipeline.run()
+        del pipeline
     else:
         table_row_counts = DataImportPipelineSync(
             job_inputs, source, logger, reset_pipeline, schema.is_incremental
