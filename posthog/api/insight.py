@@ -24,7 +24,7 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog import schema
-from posthog.schema import TrendsQueryResponse
+from posthog.schema import CachedTrendsQueryResponse
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_serializers import (
@@ -979,7 +979,7 @@ When set, the specified dashboard's filters and date range override will be appl
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
-                if use_hogql(request, self.team):
+                if use_hogql(request, self.team) or True:
                     result = self.calculate_trends_hogql(request)
                 else:
                     result = self.calculate_trends(request)
@@ -1043,19 +1043,20 @@ When set, the specified dashboard's filters and date range override will be appl
             trends_query = Trends()
             result = trends_query.run(filter, team, is_csv_export=bool(request.GET.get("is_csv_export", False)))
 
-        return {"result": result, "timezone": team.timezone}
+        return {"result": result, "timezone": team.timezone, "query_method": "legacy"}
 
     @cached_by_filters
     def calculate_trends_hogql(self, request: request.Request) -> dict[str, Any]:
-        filter = Filter(request=request, team=self.team)
+        team = self.team
+        filter = Filter(request=request, team=team)
         query = filter_to_query(filter.to_dict())
-        query_runner = get_query_runner(query, self.team, limit_context=None)
+        query_runner = get_query_runner(query, team, limit_context=None)
 
         # we use the legacy caching mechanism here
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert isinstance(result, TrendsQueryResponse)
+        assert isinstance(result, CachedTrendsQueryResponse)
 
-        return {"result": result.results, "timezone": self.team.timezone}
+        return {"result": result.results, "timezone": team.timezone, "query_method": "hogql"}
 
     # ******************************************
     # /projects/:id/insights/funnel
