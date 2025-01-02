@@ -60,8 +60,8 @@ class TestExperimentFunnelStatistics(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertAlmostEqual(probabilities[0], 0.149, delta=0.1)
-                self.assertAlmostEqual(probabilities[1], 0.850, delta=0.1)
+                self.assertAlmostEqual(probabilities[0], 0.149, delta=0.05)
+                self.assertAlmostEqual(probabilities[1], 0.850, delta=0.05)
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
