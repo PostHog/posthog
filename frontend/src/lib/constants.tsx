@@ -138,7 +138,6 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS = {
     // Experiments / beta features
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
-    KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
@@ -235,7 +234,9 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_STATS_V2: 'experiment-stats-v2', // owner: @danielbachhuber #team-experiments
     WEB_ANALYTICS_PERIOD_COMPARISON: 'web-analytics-period-comparison', // owner: @rafaeelaudibert #team-web-analytics
     WEB_ANALYTICS_CONVERSION_GOAL_FILTERS: 'web-analytics-conversion-goal-filters', // owner: @rafaeelaudibert #team-web-analytics
+    CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-cdp
     COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: @robbie-c #team-web-analytics
+    INSIGHT_COLORS: 'insight-colors', // owner @thmsobrmlr #team-product-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

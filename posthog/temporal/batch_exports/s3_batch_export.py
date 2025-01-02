@@ -44,7 +44,7 @@ from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
-    run_consumer_loop,
+    run_consumer,
     wait_for_schema_or_producer,
 )
 from posthog.temporal.batch_exports.temporary_file import (
@@ -469,10 +469,17 @@ class S3Consumer(Consumer):
         heartbeater: Heartbeater,
         heartbeat_details: S3HeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        data_interval_end: dt.datetime | str,
         writer_format: WriterFormat,
         s3_upload: S3MultiPartUpload,
     ):
-        super().__init__(heartbeater, heartbeat_details, data_interval_start, writer_format)
+        super().__init__(
+            heartbeater=heartbeater,
+            heartbeat_details=heartbeat_details,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            writer_format=writer_format,
+        )
         self.heartbeat_details: S3HeartbeatDetails = heartbeat_details
         self.s3_upload = s3_upload
 
@@ -703,18 +710,20 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         )
 
         async with s3_upload as s3_upload:
-            records_completed = await run_consumer_loop(
-                queue=queue,
-                consumer_cls=S3Consumer,
-                producer_task=producer_task,
+            consumer = S3Consumer(
                 heartbeater=heartbeater,
                 heartbeat_details=details,
                 data_interval_end=data_interval_end,
                 data_interval_start=data_interval_start,
-                schema=record_batch_schema,
                 writer_format=WriterFormat.from_str(inputs.file_format, "S3"),
-                max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
                 s3_upload=s3_upload,
+            )
+            records_completed = await run_consumer(
+                consumer=consumer,
+                queue=queue,
+                producer_task=producer_task,
+                schema=record_batch_schema,
+                max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
                 include_inserted_at=True,
                 writer_file_kwargs={"compression": inputs.compression},
             )
