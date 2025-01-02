@@ -196,6 +196,8 @@ export const actionEditLogic = kea<actionEditLogicType>([
     afterMount(({ actions, props }) => {
         if (!props.id) {
             actions.setActionValue('steps', [{ ...DEFAULT_ACTION_STEP }])
+        } else {
+            actions.setActionValues({ ...props.action })
         }
     }),
 
