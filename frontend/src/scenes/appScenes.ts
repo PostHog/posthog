@@ -43,7 +43,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Survey]: () => import('./surveys/Survey'),
     [Scene.CustomCss]: () => import('./themes/CustomCssScene'),
     [Scene.SurveyTemplates]: () => import('./surveys/SurveyTemplates'),
-    [Scene.DataModel]: () => import('./data-model/DataModelScene'),
     [Scene.DataWarehouse]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
     [Scene.DataWarehouseTable]: () => import('./data-warehouse/new/NewSourceWizard'),

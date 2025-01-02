@@ -1,5 +1,5 @@
 import { IconInfo, IconPlus } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
@@ -101,6 +101,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
     const variants = experiment.parameters.feature_flag_variants
     const results = isSecondary ? secondaryMetricResults : metricResults
     const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
+    const hasSomeResults = results?.some((result) => result?.insight)
 
     let metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
     const savedMetrics = experiment.saved_metrics
@@ -154,6 +155,52 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                             >
                                 <IconInfo className="text-muted-alt text-lg" />
                             </Tooltip>
+                        )}
+                        {hasSomeResults && !isSecondary && (
+                            <>
+                                <LemonDivider vertical className="mx-2" />
+                                <Tooltip
+                                    title={
+                                        <div className="p-2">
+                                            <p className="mb-4">
+                                                Each bar shows how a variant is performing compared to the control (the
+                                                gray bar) for this metric, using a{' '}
+                                                <strong>95% credible interval.</strong> That means there's a 95% chance
+                                                the true difference for that variant falls within this range. The
+                                                vertical "0%" line is your baseline:
+                                            </p>
+                                            <ul className="mb-4 list-disc pl-4">
+                                                <li>
+                                                    <strong>To the right (green):</strong> The metric is higher (an
+                                                    improvement).
+                                                </li>
+                                                <li>
+                                                    <strong>To the left (red):</strong> The metric is lower (a
+                                                    decrease).
+                                                </li>
+                                            </ul>
+                                            <p className="mb-4">
+                                                The <strong>width of the bar</strong> represents uncertainty. A{' '}
+                                                <strong>narrower bar</strong> means we're more confident in that result,
+                                                while a <strong>wider bar</strong> means it could shift either way.
+                                            </p>
+                                            <p className="mb-4">
+                                                The control (baseline) is always shown in gray. Other bars will be green
+                                                or red—or even a mix—depending on whether the change is positive or
+                                                negative.
+                                            </p>
+                                            <img
+                                                src="https://res.cloudinary.com/dmukukwp6/image/upload/Screenshot_2024_12_28_at_21_09_55_8828faf254.png"
+                                                width={700}
+                                                className="rounded border object-contain"
+                                                alt="How to read metrics"
+                                            />
+                                        </div>
+                                    }
+                                >
+                                    <span className="text-xs text-muted-alt cursor-help">How to read</span>
+                                </Tooltip>
+                            </>
                         )}
                     </div>
                 </div>

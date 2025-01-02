@@ -222,6 +222,10 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
             "Skipping alert check because weekend checking is disabled",
             alert=alert,
         )
+
+        # ignore alert check until due again
+        alert.next_check_at = next_check_time(alert)
+        alert.save()
         return
 
     if alert.snoozed_until:
