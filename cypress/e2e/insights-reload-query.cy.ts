@@ -5,12 +5,15 @@ describe('ReloadInsight component', () => {
     })
 
     it('saves the query to the URL and localStorage, and reloads it when prompted', () => {
+        cy.intercept('POST', /api\/environments\/\d+\/query\//).as('loadNewQueryInsight')
+
         // Visit the new insight creation page
         cy.visit('/insights/new')
 
         cy.wait(2000)
 
         cy.get('[data-attr="math-selector-0"]').click({ force: true })
+        cy.wait('@loadNewQueryInsight')
         cy.get('[data-attr="math-dau-0"]').click({ force: true })
 
         // Check that the 'draft-query' item is stored in localStorage

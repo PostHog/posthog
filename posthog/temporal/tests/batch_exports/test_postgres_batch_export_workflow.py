@@ -136,6 +136,11 @@ async def assert_clickhouse_records_in_postgres(
                     # bq_ingested_timestamp cannot be compared as it comes from an unstable function.
                     continue
 
+                if isinstance(v, str):
+                    v = v.replace("\\u0000", "")
+                elif isinstance(v, bytes):
+                    v = v.replace(b"\\u0000", b"")
+
                 if k in {"properties", "set", "set_once", "person_properties", "elements"} and v is not None:
                     expected_record[k] = json.loads(v)
                 elif isinstance(v, dt.datetime):
@@ -157,6 +162,12 @@ async def assert_clickhouse_records_in_postgres(
     assert len(inserted_records) == len(expected_records)
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
+
+
+@pytest.fixture
+def test_properties(request):
+    """Include a \u0000 unicode escape sequence in properties."""
+    return {"$browser": "Chrome", "$os": "Mac OS X", "unicode": "\u0000"}
 
 
 @pytest.fixture

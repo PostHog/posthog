@@ -1,7 +1,8 @@
 import { LemonTagType } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
-import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -43,6 +44,8 @@ export const experimentsLogic = kea<experimentsLogicType>([
             ['user', 'hasAvailableFeature'],
             featureFlagLogic,
             ['featureFlags'],
+            router,
+            ['location'],
         ],
     }),
     actions({
@@ -67,10 +70,21 @@ export const experimentsLogic = kea<experimentsLogicType>([
         tab: [
             ExperimentsTabs.All as ExperimentsTabs,
             {
-                setExperimentsTab: (_, { tabKey }) => tabKey,
+                setExperimentsTab: (state, { tabKey }) => tabKey ?? state,
             },
         ],
     }),
+    listeners(({ actions }) => ({
+        setExperimentsTab: ({ tabKey }) => {
+            if (tabKey === ExperimentsTabs.SavedMetrics) {
+                // Saved Metrics is a fake tab that we use to redirect to the saved metrics page
+                actions.setExperimentsTab(ExperimentsTabs.All)
+                router.actions.push('/experiments/saved-metrics')
+            } else {
+                router.actions.push('/experiments')
+            }
+        },
+    })),
     loaders(({ values }) => ({
         experiments: [
             [] as Experiment[],
