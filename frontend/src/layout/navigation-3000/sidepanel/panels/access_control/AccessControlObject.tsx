@@ -39,15 +39,19 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
     return (
         <BindLogic logic={accessControlLogic} props={props}>
             <div className="space-y-6">
-                {canEditAccessControls === false ? (
-                    <LemonBanner type="info">
-                        <b>You don't have permission to edit access controls for {suffix}.</b>
+                {canEditAccessControls === true ? (
+                    <LemonBanner type="warning">
+                        <b>Permission required</b>
                         <br />
-                        You must be the creator of it, a Project Admin, or an Organization Admin.
+                        You don't have permission to edit access controls for {suffix}. You must be the{' '}
+                        <i>creator of it</i>, a <i>Project admin</i>, or an <i>Organization admin</i>.
                     </LemonBanner>
                 ) : null}
-                <h3>Default access to {suffix}</h3>
-                <AccessControlObjectDefaults />
+
+                <div className="space-y-2">
+                    <h3>Default access to {suffix}</h3>
+                    <AccessControlObjectDefaults />
+                </div>
 
                 <PayGateMini feature={AvailableFeature.PROJECT_BASED_PERMISSIONING}>
                     <AccessControlObjectUsers />
@@ -399,9 +403,29 @@ function AddItemsControlsModal(props: {
             title="Add access"
             maxWidth="30rem"
             description="Allow other users or roles to access this resource"
+            footer={
+                <div className="flex items-center justify-end gap-2">
+                    <LemonButton type="secondary" onClick={() => props.setModelOpen(false)}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={onSubmit}
+                        disabledReason={
+                            !canEditAccessControls
+                                ? 'You cannot edit this'
+                                : !onSubmit
+                                ? 'Please choose what you want to add and at what level'
+                                : undefined
+                        }
+                    >
+                        Add
+                    </LemonButton>
+                </div>
+            }
         >
-            <div className="flex gap-2 items-center">
-                <div className="min-w-[16rem]">
+            <div className="flex gap-2 items-center w-full">
+                <div className="min-w-[16rem] w-full">
                     <LemonInputSelect
                         placeholder={props.placeholder}
                         value={items}
@@ -412,20 +436,6 @@ function AddItemsControlsModal(props: {
                     />
                 </div>
                 <SimplLevelComponent levels={availableLevels} level={level} onChange={setLevel} />
-
-                <LemonButton
-                    type="primary"
-                    onClick={onSubmit}
-                    disabledReason={
-                        !canEditAccessControls
-                            ? 'You cannot edit this'
-                            : !onSubmit
-                            ? 'Please choose what you want to add and at what level'
-                            : undefined
-                    }
-                >
-                    Add
-                </LemonButton>
             </div>
         </LemonModal>
     )
