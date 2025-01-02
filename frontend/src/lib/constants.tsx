@@ -107,7 +107,7 @@ export const INSTANTLY_AVAILABLE_PROPERTIES = [
     '$group_key',
     'distinct_id',
 ]
-export const MAX_EXPERIMENT_VARIANTS = 10
+export const MAX_EXPERIMENT_VARIANTS = 20
 export const EXPERIMENT_DEFAULT_DURATION = 14 // days
 
 // Event constants

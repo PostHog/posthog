@@ -1787,7 +1787,7 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
 ])
 
-function percentageDistribution(variantCount: number): number[] {
+export function percentageDistribution(variantCount: number): number[] {
     const percentageRounded = Math.round(100 / variantCount)
     const totalRounded = percentageRounded * variantCount
     const delta = totalRounded - 100
