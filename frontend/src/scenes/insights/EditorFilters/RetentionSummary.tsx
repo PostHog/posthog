@@ -143,7 +143,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                 <p className="text-muted mt-4">
                     Want to learn more about retention?{' '}
                     <Link
-                        to="https://posthog.com/docs/features/retention?utm_campaign=learn-more-horizontal&utm_medium=in-product"
+                        to="https://posthog.com/docs/product-analytics/retention?utm_campaign=learn-more-horizontal&utm_medium=in-product"
                         target="_blank"
                         className="inline-flex items-center"
                     >
