@@ -7,7 +7,6 @@ from .customerio.template_customerio import template as customerio, TemplateCust
 from .intercom.template_intercom import (
     template as intercom,
     template_send_event as intercom_send_event,
-    TemplateIntercomMigrator,
 )
 from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMigrator
 from .clearbit.template_clearbit import template as clearbit
@@ -123,7 +122,6 @@ ALL_HOG_FUNCTION_TEMPLATES_BY_ID = {**HOG_FUNCTION_TEMPLATES_BY_ID, **HOG_FUNCTI
 
 HOG_FUNCTION_MIGRATORS = {
     TemplateCustomerioMigrator.plugin_url: TemplateCustomerioMigrator,
-    TemplateIntercomMigrator.plugin_url: TemplateIntercomMigrator,
     TemplateSendGridMigrator.plugin_url: TemplateSendGridMigrator,
     TemplateGooglePubSubMigrator.plugin_url: TemplateGooglePubSubMigrator,
     TemplateGoogleCloudStorageMigrator.plugin_url: TemplateGoogleCloudStorageMigrator,
