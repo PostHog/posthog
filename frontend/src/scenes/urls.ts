@@ -20,10 +20,10 @@ import {
     SDKKey,
 } from '~/types'
 
+import { BillingSectionId } from './billing/types'
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 import { SurveysTabs } from './surveys/surveysLogic'
-
 /**
  * To add a new URL to the front end:
  * - add a URL function here
@@ -210,6 +210,8 @@ export const urls = {
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
+    organizationBillingSection: (section: BillingSectionId = 'overview'): string =>
+        combineUrl(`/organization/billing/${section}`).url,
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
