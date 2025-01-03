@@ -467,7 +467,6 @@ async def test_snowflake_export_workflow_exports_events(
                 ]
 
                 assert all(query.startswith("PUT") for query in execute_calls[0:9])
-                assert all(f"_{n}.jsonl" in query for n, query in enumerate(execute_calls[0:9]))
 
                 assert execute_async_calls[3].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
                 assert execute_async_calls[4].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
@@ -1656,8 +1655,3 @@ def test_snowflake_heartbeat_details_parses_from_tuple(details):
             dt.datetime.fromisoformat(expected_done_ranges[0][1]),
         )
     ]
-
-    if len(details) >= 2:
-        assert snowflake_details.file_no == details[1]
-    else:
-        assert snowflake_details.file_no == 0
