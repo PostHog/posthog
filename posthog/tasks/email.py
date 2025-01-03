@@ -28,6 +28,14 @@ from posthog.user_permissions import UserPermissions
 logger = structlog.get_logger(__name__)
 
 
+class NotificationSetting(Enum):
+    WEEKLY_PROJECT_DIGEST = "weekly_project_digest"
+    PLUGIN_DISABLED = "plugin_disabled"
+
+
+NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled"]
+
+
 def send_message_to_all_staff_users(message: EmailMessage) -> None:
     for user in User.objects.filter(is_active=True, is_staff=True):
         message.add_recipient(email=user.email, name=user.first_name)
@@ -53,14 +61,6 @@ def get_members_to_notify(team: Team, notification_setting: str) -> list[Organiz
             memberships_to_email.append(membership)
 
     return memberships_to_email
-
-
-class NotificationSetting(Enum):
-    WEEKLY_PROJECT_DIGEST = "weekly_project_digest"
-    PLUGIN_DISABLED = "plugin_disabled"
-
-
-NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled"]
 
 
 def should_send_notification(
@@ -89,7 +89,7 @@ def should_send_notification(
         # Then check project-specific setting if team_id provided
         if team_id is not None:
             project_settings = settings.get("project_weekly_digest_disabled", {})
-            return not project_settings.get(str(team_id), False)
+            return not project_settings.get(team_id, False)
 
         return True
 
