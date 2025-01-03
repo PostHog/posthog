@@ -149,7 +149,7 @@ FROM (
             min(session.$start_timestamp ) AS start_timestamp
         FROM events
         WHERE and(
-            events.event == '$pageview',
+            or(events.event == '$pageview', events.event == '$screen'),
             breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties},
@@ -172,7 +172,7 @@ LEFT JOIN (
             min(session.$start_timestamp) as start_timestamp
         FROM events
         WHERE and(
-            events.event == '$pageview',
+            or(events.event == '$pageview', events.event == '$screen'),
             breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties},
@@ -204,7 +204,7 @@ LEFT JOIN (
             min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            or(events.event == '$pageview', events.event == '$pageleave'),
+            or(events.event == '$pageview', events.event == '$pageleave', events.event == '$screen'),
             breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties_for_scroll},
@@ -263,7 +263,7 @@ FROM (
             min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            events.event == '$pageview',
+            or(events.event == '$pageview', events.event == '$screen'),
             {inside_periods},
             {event_properties},
             {session_properties},
@@ -286,7 +286,7 @@ LEFT JOIN (
             min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            events.event == '$pageview',
+            or(events.event == '$pageview', events.event == '$screen'),
             breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties},
