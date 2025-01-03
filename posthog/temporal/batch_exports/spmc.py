@@ -317,6 +317,8 @@ class Consumer:
                     queue.task_done()
                 record_batches_count = 0
 
+            self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
+
         records_count += writer.records_since_last_flush
 
         await self.logger.adebug(
