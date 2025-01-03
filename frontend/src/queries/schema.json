@@ -13408,6 +13408,7 @@
                 "InitialPage",
                 "ExitPage",
                 "ExitClick",
+                "ScreenName",
                 "InitialChannelType",
                 "InitialReferringDomain",
                 "InitialUTMSource",

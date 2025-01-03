@@ -481,6 +481,8 @@ GROUP BY session_id, breakdown_value
                 return self._apply_path_cleaning(ast.Field(chain=["session", "$end_pathname"]))
             case WebStatsBreakdown.EXIT_CLICK:
                 return ast.Field(chain=["session", "$last_external_click_url"])
+            case WebStatsBreakdown.SCREEN_NAME:
+                return ast.Field(chain=["events", "properties", "$screen_name"])
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["session", "$entry_referring_domain"])
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:
