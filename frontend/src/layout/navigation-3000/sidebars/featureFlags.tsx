@@ -2,6 +2,7 @@ import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -152,6 +153,8 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                                     callback: () => {
                                                         actions.loadFeatureFlags()
                                                     },
+                                                }).catch((e: any) => {
+                                                    lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
                                                 })
                                             },
                                             disabledReason: !featureFlag.can_edit
