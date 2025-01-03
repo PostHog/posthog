@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from typing import Any, Optional, cast
+from posthog.models.instance_setting import get_instance_setting
 from urllib.parse import urlparse
 
 import structlog
@@ -45,7 +46,6 @@ from posthog.api.survey import surveys
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
-from posthog.models.instance_setting import get_instance_setting
 
 from .utils import render_template
 from .views import (

@@ -637,7 +637,6 @@ export type ExperimentIdType = number | 'new' | 'web'
 export interface ToolbarParams {
     apiURL?: string
     token?: string /** public posthog-js token */
-    temporaryToken?: string /** private temporary user token */
     actionId?: number
     experimentId?: ExperimentIdType
     userIntent?: ToolbarUserIntent
@@ -648,6 +647,8 @@ export interface ToolbarParams {
     userEmail?: string
     dataAttributes?: string[]
     featureFlags?: Record<string, string | boolean>
+    authorizationCode?: string
+    accessToken?: string
 }
 
 export interface ToolbarProps extends ToolbarParams {
@@ -3893,6 +3894,7 @@ export type APIScopeObject =
     | 'export'
     | 'feature_flag'
     | 'group'
+    | 'heatmaps'
     | 'insight'
     | 'query'
     | 'notebook'
