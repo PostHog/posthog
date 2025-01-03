@@ -31,7 +31,6 @@ export function AddInsightToDashboardModal(): JSX.Element {
                 </>
             }
         >
-            {/* <p>Add insight to dashboard {dashboard?.name}</p> */}
             <AddSavedInsightsToDashboard />
         </LemonModal>
     )

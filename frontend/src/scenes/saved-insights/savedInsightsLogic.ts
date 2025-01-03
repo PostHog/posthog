@@ -94,6 +94,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             insight,
             dashboardId,
         }),
+        setDashboardUpdateLoading: (insightId: number, loading: boolean) => ({ insightId, loading }),
     }),
     loaders(({ values }) => ({
         insights: {
@@ -187,6 +188,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             {
                 openAlertModal: (_, { alertId }) => alertId,
                 closeAlertModal: () => null,
+            },
+        ],
+        dashboardUpdatesInProgress: [
+            {} as Record<number, boolean>,
+            {
+                setDashboardUpdateLoading: (state, { insightId, loading }) => {
+                    return { ...state, [insightId]: loading }
+                },
             },
         ],
     }),
@@ -301,30 +310,42 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             actions.loadInsights()
         },
         addInsightToDashboard: async ({ insight, dashboardId }) => {
-            const response = await insightsApi.update(insight.id, {
-                dashboards: [...(insight.dashboards || []), dashboardId],
-            })
-            if (response) {
-                actions.updateInsight(response)
-                const logic = dashboardLogic({ id: dashboardId })
-                logic.mount()
-                logic.actions.loadDashboard({ action: 'update' })
-                logic.unmount()
-                lemonToast.success('Insight added to dashboard')
+            try {
+                actions.setDashboardUpdateLoading(insight.id, true)
+
+                const response = await insightsApi.update(insight.id, {
+                    dashboards: [...(insight.dashboards || []), dashboardId],
+                })
+                if (response) {
+                    actions.updateInsight(response)
+                    const logic = dashboardLogic({ id: dashboardId })
+                    logic.mount()
+                    logic.actions.loadDashboard({ action: 'update' })
+                    logic.unmount()
+                    lemonToast.success('Insight added to dashboard')
+                }
+            } finally {
+                actions.setDashboardUpdateLoading(insight.id, false)
             }
         },
         removeInsightFromDashboard: async ({ insight, dashboardId }) => {
-            const response = await insightsApi.update(insight.id, {
-                dashboards: (insight.dashboards || []).filter((d) => d !== dashboardId),
-                dashboard_tiles: (insight.dashboard_tiles || []).filter((dt) => dt.dashboard_id !== dashboardId),
-            })
-            if (response) {
-                actions.updateInsight(response)
-                const logic = dashboardLogic({ id: dashboardId })
-                logic.mount()
-                logic.actions.loadDashboard({ action: 'update' })
-                logic.unmount()
-                lemonToast.success('Insight removed from dashboard')
+            try {
+                actions.setDashboardUpdateLoading(insight.id, true)
+
+                const response = await insightsApi.update(insight.id, {
+                    dashboards: (insight.dashboards || []).filter((d) => d !== dashboardId),
+                    dashboard_tiles: (insight.dashboard_tiles || []).filter((dt) => dt.dashboard_id !== dashboardId),
+                })
+                if (response) {
+                    actions.updateInsight(response)
+                    const logic = dashboardLogic({ id: dashboardId })
+                    logic.mount()
+                    logic.actions.loadDashboard({ action: 'update' })
+                    logic.unmount()
+                    lemonToast.success('Insight removed from dashboard')
+                }
+            } finally {
+                actions.setDashboardUpdateLoading(insight.id, false)
             }
         },
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
