@@ -327,11 +327,11 @@ describe('Hog Executor', () => {
 
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
-            const resultsShouldntMatch = executor.findMatchingFunctions(createHogExecutionGlobals({ groups: {} }))
-            expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
-            expect(resultsShouldntMatch.nonMatchingFunctions).toHaveLength(1)
+            const resultsShouldntMatch = executor.findHogFunctionInvocations(createHogExecutionGlobals({ groups: {} }))
+            expect(resultsShouldntMatch.invocations).toHaveLength(0)
+            expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
-            const resultsShouldMatch = executor.findMatchingFunctions(
+            const resultsShouldMatch = executor.findHogFunctionInvocations(
                 createHogExecutionGlobals({
                     groups: {},
                     event: {
@@ -342,8 +342,8 @@ describe('Hog Executor', () => {
                     } as any,
                 })
             )
-            expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
-            expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
+            expect(resultsShouldMatch.invocations).toHaveLength(1)
+            expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
 
         it('logs telemetry', async () => {
@@ -356,7 +356,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.broken_filters,
             })
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
-            const resultsShouldMatch = executor.findMatchingFunctions(
+            const resultsShouldMatch = executor.findHogFunctionInvocations(
                 createHogExecutionGlobals({
                     groups: {},
                     event: {
@@ -367,7 +367,10 @@ describe('Hog Executor', () => {
                     } as any,
                 })
             )
-            expect(resultsShouldMatch.erroredFunctions).toHaveLength(1)
+            expect(resultsShouldMatch.metrics).toHaveLength(1)
+            expect(resultsShouldMatch.logs[0].message).toMatchInlineSnapshot(
+                `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
+            )
             expect(status.error).toHaveBeenCalledWith(
                 '🦔',
                 expect.stringContaining('Error filtering function'),
@@ -406,9 +409,9 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = executor.findMatchingFunctions(hogGlobals1)
-            expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
-            expect(resultsShouldntMatch.nonMatchingFunctions).toHaveLength(1)
+            const resultsShouldntMatch = executor.findHogFunctionInvocations(hogGlobals1)
+            expect(resultsShouldntMatch.invocations).toHaveLength(0)
+            expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
             const hogGlobals2 = createHogExecutionGlobals({
                 groups: {},
@@ -425,9 +428,9 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = executor.findMatchingFunctions(hogGlobals2)
-            expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
-            expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
+            const resultsShouldMatch = executor.findHogFunctionInvocations(hogGlobals2)
+            expect(resultsShouldMatch.invocations).toHaveLength(1)
+            expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
 
         it('can use elements_chain_href', () => {
@@ -456,9 +459,9 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = executor.findMatchingFunctions(hogGlobals1)
-            expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
-            expect(resultsShouldntMatch.nonMatchingFunctions).toHaveLength(1)
+            const resultsShouldntMatch = executor.findHogFunctionInvocations(hogGlobals1)
+            expect(resultsShouldntMatch.invocations).toHaveLength(0)
+            expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
             const hogGlobals2 = createHogExecutionGlobals({
                 groups: {},
@@ -475,9 +478,9 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = executor.findMatchingFunctions(hogGlobals2)
-            expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
-            expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
+            const resultsShouldMatch = executor.findHogFunctionInvocations(hogGlobals2)
+            expect(resultsShouldMatch.invocations).toHaveLength(1)
+            expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
 
         it('can use elements_chain_tags and _ids', () => {
@@ -506,9 +509,9 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = executor.findMatchingFunctions(hogGlobals1)
-            expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
-            expect(resultsShouldntMatch.nonMatchingFunctions).toHaveLength(1)
+            const resultsShouldntMatch = executor.findHogFunctionInvocations(hogGlobals1)
+            expect(resultsShouldntMatch.invocations).toHaveLength(0)
+            expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
             const hogGlobals2 = createHogExecutionGlobals({
                 groups: {},
@@ -525,9 +528,114 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = executor.findMatchingFunctions(hogGlobals2)
-            expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
-            expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
+            const resultsShouldMatch = executor.findHogFunctionInvocations(hogGlobals2)
+            expect(resultsShouldMatch.invocations).toHaveLength(1)
+            expect(resultsShouldMatch.metrics).toHaveLength(0)
+        })
+    })
+
+    describe('mappings', () => {
+        beforeEach(() => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                mappings: [
+                    {
+                        // Filters for pageview or autocapture
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                        inputs: {
+                            url: {
+                                order: 0,
+                                value: 'https://example.com?q={event.event}',
+                                bytecode: [
+                                    '_H',
+                                    1,
+                                    32,
+                                    'https://example.com?q=',
+                                    32,
+                                    'event',
+                                    32,
+                                    'event',
+                                    1,
+                                    2,
+                                    2,
+                                    'concat',
+                                    2,
+                                ],
+                            },
+                        },
+                    },
+                    {
+                        // No filters so should match all events
+                        ...HOG_FILTERS_EXAMPLES.no_filters,
+                    },
+
+                    {
+                        // Broken filters so shouldn't match
+                        ...HOG_FILTERS_EXAMPLES.broken_filters,
+                    },
+                ],
+            })
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+        })
+
+        it('can build mappings', () => {
+            const pageviewGlobals = createHogExecutionGlobals({
+                event: {
+                    event: '$pageview',
+                    properties: {
+                        $current_url: 'https://posthog.com',
+                    },
+                } as any,
+            })
+
+            const results1 = executor.findHogFunctionInvocations(pageviewGlobals)
+            expect(results1.invocations).toHaveLength(2)
+            expect(results1.metrics).toHaveLength(1)
+            expect(results1.logs).toHaveLength(1)
+            expect(results1.logs[0].message).toMatchInlineSnapshot(
+                `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
+            )
+
+            const results2 = executor.findHogFunctionInvocations(
+                createHogExecutionGlobals({
+                    event: {
+                        event: 'test',
+                    } as any,
+                })
+            )
+            expect(results2.invocations).toHaveLength(1)
+            expect(results2.metrics).toHaveLength(2)
+            expect(results2.logs).toHaveLength(1)
+
+            expect(results2.metrics[0].metric_name).toBe('filtered')
+            expect(results2.metrics[1].metric_name).toBe('filtering_failed')
+        })
+
+        it('generates the correct inputs', () => {
+            const pageviewGlobals = createHogExecutionGlobals({
+                event: {
+                    event: '$pageview',
+                    properties: {
+                        $current_url: 'https://posthog.com',
+                    },
+                } as any,
+            })
+
+            const result = executor.findHogFunctionInvocations(pageviewGlobals)
+            // First mapping has input overrides that should be applied
+            expect(result.invocations[0].globals.inputs.headers).toEqual({
+                version: 'v=',
+            })
+            expect(result.invocations[0].globals.inputs.url).toMatchInlineSnapshot(`"https://example.com?q=$pageview"`)
+            // Second mapping has no input overrides
+            expect(result.invocations[1].globals.inputs.headers).toEqual({
+                version: 'v=',
+            })
+            expect(result.invocations[1].globals.inputs.url).toMatchInlineSnapshot(
+                `"https://example.com/posthog-webhook"`
+            )
         })
     })
 
