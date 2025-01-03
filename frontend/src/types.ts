@@ -3764,6 +3764,7 @@ export type IntegrationKind =
     | 'google-cloud-storage'
     | 'google-ads'
     | 'snapchat'
+    | 'intercom'
 
 export interface IntegrationType {
     id: number

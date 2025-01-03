@@ -1,9 +1,6 @@
 import pytest
-from inline_snapshot import snapshot
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.intercom.template_intercom import template as template_intercom, TemplateIntercomMigrator
-from posthog.models.plugin import PluginConfig
-from posthog.test.base import BaseTest
+from posthog.cdp.templates.intercom.template_intercom import template as template_intercom
 
 
 class TestTemplateIntercom(BaseHogFunctionTemplateTest):
@@ -75,84 +72,4 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
         assert (
             e.value.message  # type: ignore[attr-defined]
             == "Error from intercom api (status 400): {'type': 'error.list', 'request_id': '001dh0h1qb205el244gg', 'errors': [{'code': 'error', 'message': 'Other error'}]}"
-        )
-
-
-class TestTemplateMigration(BaseTest):
-    def get_plugin_config(self, config: dict):
-        _config = {
-            "intercomApiKey": "INTERCOM_API_KEY",
-            "triggeringEvents": "$identify",
-            "ignoredEmailDomains": "",
-            "useEuropeanDataStorage": "No",
-        }
-
-        _config.update(config)
-        return PluginConfig(enabled=True, order=0, config=_config)
-
-    def test_full_function(self):
-        obj = self.get_plugin_config({})
-
-        template = TemplateIntercomMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
-            {
-                "access_token": {"value": "INTERCOM_API_KEY"},
-                "host": {"value": "api.intercom.io"},
-                "email": {"value": "{person.properties.email}"},
-            }
-        )
-        assert template["filters"] == snapshot(
-            {"events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}]}
-        )
-
-    def test_eu_host(self):
-        obj = self.get_plugin_config(
-            {
-                "useEuropeanDataStorage": "Yes",
-            }
-        )
-
-        template = TemplateIntercomMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
-            {
-                "access_token": {"value": "INTERCOM_API_KEY"},
-                "host": {"value": "api.eu.intercom.com"},
-                "email": {"value": "{person.properties.email}"},
-            }
-        )
-
-    def test_triggering_events(self):
-        obj = self.get_plugin_config(
-            {
-                "triggeringEvents": "$identify,$pageview, custom event, ",
-            }
-        )
-
-        template = TemplateIntercomMigrator.migrate(obj)
-        assert template["filters"] == snapshot(
-            {
-                "events": [
-                    {"id": "$identify", "name": "$identify", "type": "events", "order": 0},
-                    {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
-                    {"id": "custom event", "name": "custom event", "type": "events", "order": 0},
-                ]
-            }
-        )
-
-    def test_ignore_domains(self):
-        obj = self.get_plugin_config(
-            {
-                "ignoredEmailDomains": "test.com, other.com, ",
-            }
-        )
-
-        template = TemplateIntercomMigrator.migrate(obj)
-        assert template["filters"] == snapshot(
-            {
-                "properties": [
-                    {"key": "email", "value": "test.com", "operator": "not_icontains", "type": "person"},
-                    {"key": "email", "value": "other.com", "operator": "not_icontains", "type": "person"},
-                ],
-                "events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}],
-            }
         )

@@ -4,7 +4,11 @@ from .slack.template_slack import template as slack
 from .hubspot.template_hubspot import template_event as hubspot_event, template as hubspot, TemplateHubspotMigrator
 from .braze.template_braze import template as braze
 from .customerio.template_customerio import template as customerio, TemplateCustomerioMigrator
-from .intercom.template_intercom import template as intercom, TemplateIntercomMigrator
+from .intercom.template_intercom import (
+    template as intercom,
+    template_send_event as intercom_send_event,
+    TemplateIntercomMigrator,
+)
 from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMigrator
 from .clearbit.template_clearbit import template as clearbit
 from .june.template_june import template as june
@@ -77,6 +81,7 @@ HOG_FUNCTION_TEMPLATES = [
     hubspot,
     hubspot_event,
     intercom,
+    intercom_send_event,
     june,
     klaviyo_event,
     klaviyo_user,
