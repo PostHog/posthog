@@ -1854,11 +1854,9 @@ async def test_insert_into_s3_activity_resumes_from_heartbeat(
         override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=1, CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT=1),
         mock.patch("posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session", FakeSession),
     ):
-        try:
+        with pytest.raises(IntermittentUploadPartTimeoutError):
             # we expect this to raise an exception
             await activity_environment.run(insert_into_s3_activity, insert_inputs)
-        except Exception:
-            pass
 
     assert len(heartbeat_details) > 0
 
