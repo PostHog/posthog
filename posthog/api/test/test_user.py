@@ -10,6 +10,8 @@ from django.core import mail
 from django.core.cache import cache
 from django.utils import timezone
 from django.utils.text import slugify
+from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from freezegun.api import freeze_time
 from rest_framework import status
 
@@ -18,8 +20,6 @@ from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.base import APIBaseTest
-from django_otp.plugins.otp_static.models import StaticDevice
-from django_otp.plugins.otp_totp.models import TOTPDevice
 
 
 def create_user(email: str, password: str, organization: Organization):
@@ -942,6 +942,102 @@ class TestUserAPI(APIBaseTest):
             assert (
                 response.json()[field] == initial_user[field]
             ), f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+
+    def test_can_update_notification_settings(self):
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "plugin_disabled": False,
+                    "project_weekly_digest_disabled": {123: True},
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"],
+            {
+                "plugin_disabled": False,
+                "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
+                "all_weekly_digest_disabled": False,
+            },
+        )
+
+        self.user.refresh_from_db()
+        self.assertEqual(
+            self.user.partial_notification_settings,
+            {
+                "plugin_disabled": False,
+                "project_weekly_digest_disabled": {"123": True},
+                "all_weekly_digest_disabled": False,
+            },
+        )
+
+    def test_notification_settings_project_settings_are_merged_not_replaced(self):
+        # First update
+        response = self.client.patch(
+            "/api/users/@me/", {"notification_settings": {"project_weekly_digest_disabled": {123: True}}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Second update with different project
+        response = self.client.patch(
+            "/api/users/@me/", {"notification_settings": {"project_weekly_digest_disabled": {456: True}}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"]["project_weekly_digest_disabled"], {"123": True, "456": True}
+        )
+
+    def test_invalid_notification_settings_returns_error(self):
+        response = self.client.patch("/api/users/@me/", {"notification_settings": {"invalid_key": True}})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Key invalid_key is not valid as a key for notification settings",
+                "attr": "notification_settings",
+            },
+        )
+
+    def test_notification_settings_wrong_type_returns_error(self):
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "project_weekly_digest_disabled": {"123": "not a boolean"}  # This should be True or False
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Project notification setting values must be boolean, got <class 'str'> instead",
+                "attr": "notification_settings",
+            },
+        )
+
+    def test_can_disable_all_notifications(self):
+        response = self.client.patch("/api/users/@me/", {"notification_settings": {"all_weekly_digest_disabled": True}})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"],
+            {
+                "plugin_disabled": True,  # Default value
+                "project_weekly_digest_disabled": {},  # Default value
+                "all_weekly_digest_disabled": True,
+            },
+        )
 
 
 class TestUserSlackWebhook(APIBaseTest):
