@@ -5,8 +5,10 @@ import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { isDayjs } from 'lib/dayjs'
+import { IconChevronRight } from 'lib/lemon-ui/icons/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { capitalizeFirstLetter } from 'lib/utils'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
@@ -18,12 +20,25 @@ import {
     ButtonListItem,
     ExtendedListItem,
     ExtraListItemContext,
+    ListItemAccordion,
     SidebarCategory,
+    SidebarCategoryBase,
     TentativeListItem,
 } from '../types'
 import { KeyboardShortcut } from './KeyboardShortcut'
+import { pluralizeCategory } from './SidebarAccordion'
 
-export function SidebarList({ category }: { category: SidebarCategory }): JSX.Element {
+const isListItemAccordion = (
+    category: BasicListItem | ExtendedListItem | TentativeListItem | ButtonListItem | ListItemAccordion
+): category is ListItemAccordion => {
+    return 'items' in category
+}
+
+const isSidebarCategory = (category: SidebarCategory | SidebarCategoryBase): category is SidebarCategory => {
+    return 'loading' in category
+}
+
+export function SidebarList({ category }: { category: SidebarCategory | ListItemAccordion }): JSX.Element {
     const { normalizedActiveListItemKey, sidebarWidth, newItemInlineCategory, savingNewItem } =
         useValues(navigation3000Logic)
     const { cancelNewItem } = useActions(navigation3000Logic)
@@ -31,10 +46,37 @@ export function SidebarList({ category }: { category: SidebarCategory }): JSX.El
 
     const emptyStateSkeletonCount = useMemo(() => 4 + Math.floor(Math.random() * 4), [])
 
-    const { items, remote } = category
+    const { items } = category
+
+    const listItems = useMemo(() => {
+        const allItems: (BasicListItem | ExtendedListItem | ListItemAccordion)[] = []
+
+        const flatten = (
+            items: BasicListItem[] | ExtendedListItem[] | ListItemAccordion[],
+            depth: number = 1
+        ): void => {
+            items.forEach((item) => {
+                allItems.push({
+                    ...item,
+                    depth: depth,
+                })
+                if (isListItemAccordion(item)) {
+                    flatten(item.items, depth + 1)
+                }
+            })
+        }
+
+        flatten(items, 2)
+
+        return allItems
+    }, [items])
+
+    const remote = isSidebarCategory(category) ? category.remote : undefined
+    const loading = isSidebarCategory(category) ? category.loading : false
+    const validateName = isSidebarCategory(category) ? category.validateName : undefined
 
     const addingNewItem = newItemInlineCategory === category.key
-    const firstItem = items.find(Boolean)
+    const firstItem = listItems.find(Boolean)
     const usingExtendedItemFormat = !!firstItem && 'summary' in firstItem
 
     const listProps = {
@@ -55,13 +97,13 @@ export function SidebarList({ category }: { category: SidebarCategory }): JSX.El
                                 loading: savingNewItem,
                             } as TentativeListItem
                         }
-                        validateName={category.validateName}
+                        validateName={validateName}
                         style={style}
                     />
                 )
             }
 
-            const item = items[index]
+            const item = listItems[index]
             if (!item) {
                 return <SidebarListItemSkeleton key={index} style={style} />
             }
@@ -78,27 +120,17 @@ export function SidebarList({ category }: { category: SidebarCategory }): JSX.El
             } else {
                 active = normalizedItemKey === normalizedActiveListItemKey
             }
-
-            return (
-                <SidebarListItem
-                    key={index}
-                    item={item}
-                    validateName={category.validateName}
-                    active={active}
-                    style={style}
-                />
-            )
+            return <SidebarListItem key={index} item={item} validateName={validateName} active={active} style={style} />
         },
         overscanRowCount: 20,
         tabIndex: null,
     } as ListProps
-
     return (
         // The div is for AutoSizer to work
-        <div className="flex-1" aria-busy={category.loading}>
+        <div className="flex-1" aria-busy={loading}>
             <AutoSizer disableWidth>
                 {({ height }) =>
-                    category.loading && category.items.length === 0 ? (
+                    'loading' in category && category.items.length === 0 ? (
                         Array(emptyStateSkeletonCount)
                             .fill(null)
                             .map((_, index) => <SidebarListItemSkeleton key={index} style={{ height: 32 }} />)
@@ -120,7 +152,7 @@ export function SidebarList({ category }: { category: SidebarCategory }): JSX.El
                             )}
                         </InfiniteLoader>
                     ) : (
-                        <List {...listProps} height={height} rowCount={items.length + Number(addingNewItem)} />
+                        <List {...listProps} height={height} rowCount={listItems.length + Number(addingNewItem)} />
                     )
                 }
             </AutoSizer>
@@ -129,7 +161,7 @@ export function SidebarList({ category }: { category: SidebarCategory }): JSX.El
 }
 
 interface SidebarListItemProps {
-    item: BasicListItem | ExtendedListItem | TentativeListItem | ButtonListItem
+    item: BasicListItem | ExtendedListItem | TentativeListItem | ButtonListItem | ListItemAccordion
     validateName?: SidebarCategory['validateName']
     active?: boolean
     style: React.CSSProperties
@@ -155,7 +187,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
     const isSaving = isItemTentative(item) ? item.loading : isSavingName
 
     const menuItems = useMemo(() => {
-        if (isItemTentative(item)) {
+        if (isItemTentative(item) || isListItemAccordion(item)) {
             return undefined
         }
         if (item.onRename) {
@@ -191,7 +223,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
               }
               await item.onSave(name)
           }
-        : item.onRename
+        : !isListItemAccordion(item) && item.onRename
         ? async (newName: string): Promise<void> => {
               if (!newName || newName === item.name) {
                   return cancel() // No change to be saved
@@ -214,7 +246,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
 
     useEffect(() => {
         // Add double-click handler for renaming
-        if (!isItemTentative(item) && save && newName === null) {
+        if (!isItemTentative(item) && !isListItemAccordion(item) && save && newName === null) {
             const onDoubleClick = (): void => {
                 setNewName(item.name)
             }
@@ -229,9 +261,12 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
     }) // Intentionally run on every render so that ref value changes are picked up
 
     let content: JSX.Element
-    if (isItemClickable(item)) {
+    if (isListItemAccordion(item)) {
+        return <SidebarListItemAccordion category={item} />
+    } else if (isItemClickable(item)) {
         content = (
-            <li className="SidebarListItem__button" onClick={item.onClick}>
+            // eslint-disable-next-line react/forbid-dom-props
+            <li className="SidebarListItem__button" onClick={item.onClick} style={{ '--depth': item.depth }}>
                 {item.icon && <div className="SidebarListItem__icon">{item.icon}</div>}
                 <h5 className="SidebarListItem__name">{item.name}</h5>
             </li>
@@ -470,5 +505,36 @@ function SidebarListItemSkeleton({ style }: { style: React.CSSProperties }): JSX
         >
             <LemonSkeleton />
         </li>
+    )
+}
+
+function SidebarListItemAccordion({ category }: { category: ListItemAccordion }): JSX.Element {
+    const { toggleAccordion } = useActions(navigation3000Logic)
+
+    const { key, items } = category
+
+    const isEmpty = items.length === 0
+    const isExpanded = true
+
+    return (
+        <section className="Accordion" aria-disabled={isEmpty} aria-expanded={isExpanded}>
+            <div
+                className="Accordion__header"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ '--depth': category.depth }}
+                onClick={isExpanded || items.length > 0 ? () => toggleAccordion(key) : undefined}
+            >
+                <IconChevronRight />
+                <h4>
+                    {capitalizeFirstLetter(pluralizeCategory(category.noun))}
+                    {isEmpty && (
+                        <>
+                            {' '}
+                            <i>(empty)</i>
+                        </>
+                    )}
+                </h4>
+            </div>
+        </section>
     )
 }

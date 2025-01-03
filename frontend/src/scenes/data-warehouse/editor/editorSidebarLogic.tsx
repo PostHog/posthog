@@ -82,29 +82,35 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                     key: 'data-warehouse-sources',
                     noun: ['source', 'external source'],
                     loading: databaseLoading,
-                    items: relevantDataWarehouseTables.map(([table, matches]) => ({
-                        key: table.id,
-                        name: table.name,
-                        url: '',
-                        searchMatch: matches
-                            ? {
-                                  matchingFields: matches.map((match) => match.key),
-                                  nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                              }
-                            : null,
-                        onClick: () => {
-                            actions.selectSchema(table)
-                        },
-                        menuItems: [
-                            {
-                                label: 'Add join',
+                    items: [
+                        {
+                            key: 'stripe',
+                            noun: ['stripe', 'stripe'],
+                            items: relevantDataWarehouseTables.map(([table, matches]) => ({
+                                key: table.id,
+                                name: table.name,
+                                url: '',
+                                searchMatch: matches
+                                    ? {
+                                          matchingFields: matches.map((match) => match.key),
+                                          nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                                      }
+                                    : null,
                                 onClick: () => {
-                                    actions.selectSourceTable(table.name)
-                                    actions.toggleJoinTableModal()
+                                    actions.selectSchema(table)
                                 },
-                            },
-                        ],
-                    })),
+                                menuItems: [
+                                    {
+                                        label: 'Add join',
+                                        onClick: () => {
+                                            actions.selectSourceTable(table.name)
+                                            actions.toggleJoinTableModal()
+                                        },
+                                    },
+                                ],
+                            })),
+                        },
+                    ],
                     onAdd: () => {
                         router.actions.push(urls.pipeline(PipelineTab.Sources))
                     },
