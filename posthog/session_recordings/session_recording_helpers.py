@@ -103,12 +103,31 @@ def split_replay_events(events: list[Event]) -> tuple[list[Event], list[Event]]:
 
 
 # TODO is this covered by enough tests post-blob ingester rollout
-def preprocess_replay_events_for_blob_ingestion(events: list[Event], max_size_bytes=1024 * 1024) -> list[Event]:
-    return _process_windowed_events(events, lambda x: preprocess_replay_events(x, max_size_bytes=max_size_bytes))
+def preprocess_replay_events_for_blob_ingestion(
+    events: list[Event], max_size_bytes=1024 * 1024, user_agent: str | None = None
+) -> list[Event]:
+    return _process_windowed_events(
+        events, lambda x: preprocess_replay_events(x, max_size_bytes=max_size_bytes, user_agent=user_agent)
+    )
+
+
+def snapshot_library_fallback_from(user_agent: str | None) -> str | None:
+    if user_agent is None:
+        fallback = None
+    else:
+        fallback = "web"
+        if "posthog" in user_agent:
+            # mobile SDKs send e.g. posthog-android
+            fallback = user_agent
+        # trim this to avoid risk of a weird giant user agent getting through
+        if len(fallback) > 100:
+            fallback = fallback[:97] + "..."
+
+    return fallback
 
 
 def preprocess_replay_events(
-    _events: list[Event] | Generator[Event, None, None], max_size_bytes=1024 * 1024
+    _events: list[Event] | Generator[Event, None, None], max_size_bytes=1024 * 1024, user_agent: str | None = None
 ) -> Generator[Event, None, None]:
     """
     The events going to blob ingestion are uncompressed (the compression happens in the Kafka producer)
@@ -135,6 +154,7 @@ def preprocess_replay_events(
     session_id = events[0]["properties"]["$session_id"]
     window_id = events[0]["properties"].get("$window_id")
     snapshot_source = events[0]["properties"].get("$snapshot_source", "web")
+    snapshot_library = events[0]["properties"].get("$lib", snapshot_library_fallback_from(user_agent))
 
     def new_event(items: list[dict] | None = None) -> Event:
         return {
@@ -147,6 +167,7 @@ def preprocess_replay_events(
                 # We instantiate here instead of in the arg to avoid mutable default args
                 "$snapshot_items": items or [],
                 "$snapshot_source": snapshot_source,
+                "$snapshot_library": snapshot_library,
             },
         }
 
